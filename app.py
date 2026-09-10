@@ -18,8 +18,18 @@ from zoneinfo import ZoneInfo
 from flask import Flask, abort, flash, g, redirect, render_template, request, session, url_for, send_file
 from werkzeug.utils import secure_filename
 from werkzeug.security import check_password_hash, generate_password_hash
+from prestart_config import ASSETS, DECLARATION, checklist
 
 SCHEMA = '''
+CREATE TABLE IF NOT EXISTS prestarts (
+ id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id),
+ employee_name TEXT NOT NULL, asset TEXT NOT NULL, asset_type TEXT NOT NULL,
+ reading TEXT NOT NULL, reading_unit TEXT NOT NULL, checks_json TEXT NOT NULL,
+ failure_count INTEGER NOT NULL, fit_for_duty TEXT NOT NULL CHECK(fit_for_duty IN ('yes','no')),
+ notes TEXT NOT NULL, signature TEXT NOT NULL, declaration TEXT NOT NULL,
+ submitted_at TEXT NOT NULL, submission_token TEXT NOT NULL UNIQUE
+);
+CREATE INDEX IF NOT EXISTS prestarts_by_user ON prestarts(user_id,id);
 CREATE TABLE IF NOT EXISTS users (
  id INTEGER PRIMARY KEY, role TEXT NOT NULL CHECK(role IN ('admin','employee')),
  first_name TEXT NOT NULL, last_name TEXT NOT NULL DEFAULT '', email TEXT NOT NULL COLLATE NOCASE UNIQUE,
@@ -769,6 +779,102 @@ def create_app(test_config=None):
                                notices=notice_rows(g.user['id'],limit=6), timesheet_state=timesheet_state,
                                expiry_days=expiry_days, expiry=expiry, leave_pending=leave_pending,
                                latest_payment=db().execute('SELECT * FROM payments WHERE user_id=? ORDER BY id DESC LIMIT 1',(g.user['id'],)).fetchone())
+
+    def prestart_rows(user_id=None, failed=False):
+        clauses, args = [], []
+        if user_id is not None:
+            clauses.append('user_id=?')
+            args.append(user_id)
+        if failed:
+            clauses.append("(failure_count>0 OR fit_for_duty='no')")
+        return db().execute('SELECT * FROM prestarts' + (' WHERE ' + ' AND '.join(clauses) if clauses else '') + ' ORDER BY id DESC', args).fetchall()
+
+    @app.route('/employee/prestart', methods=['GET', 'POST'])
+    @require('employee')
+    def employee_prestart():
+        asset = request.form.get('asset', '') if request.method == 'POST' else request.args.get('asset', '')
+        if asset not in ASSETS:
+            asset = ''
+        if request.method == 'POST':
+            try:
+                token = request.form.get('submission_token', '')
+                existing = db().execute('SELECT id FROM prestarts WHERE submission_token=? AND user_id=?', (token, g.user['id'])).fetchone()
+                if existing:
+                    return redirect(url_for('employee_prestart_detail', prestart_id=existing['id']))
+                if not token or not secrets.compare_digest(token, session.get('prestart_token', '')):
+                    raise ValueError('This prestart form expired. Reopen PRESTART and try again.')
+                if not asset:
+                    raise ValueError('Choose a machine or vehicle.')
+                reading = request.form.get('reading', '').strip()
+                if not re.fullmatch(r'\d{1,8}(\.\d{1,2})?', reading):
+                    raise ValueError('Enter a valid non-negative meter reading with up to two decimal places.')
+                answers = []
+                for key, label, allow_na in checklist(asset):
+                    value = request.form.get('check_' + key, '')
+                    allowed = ('yes', 'no') if key == 'greased' else ('pass', 'fail', 'na') if allow_na else ('pass', 'fail')
+                    note = request.form.get('note_' + key, '').strip()
+                    if value not in allowed:
+                        raise ValueError('Answer every checklist item.')
+                    if len(note) > 500 or (value in ('fail', 'no') and not note):
+                        raise ValueError('Describe each failed item in up to 500 characters.')
+                    answers.append(dict(key=key, label=label, value=value, note=note))
+                fit = request.form.get('fit_for_duty', '')
+                notes = request.form.get('notes', '').strip()
+                signature = request.form.get('signature', '').strip()
+                if fit not in ('yes', 'no'):
+                    raise ValueError('Select your fit-for-duty status.')
+                if len(notes) > 2000 or (fit == 'no' and not notes):
+                    raise ValueError('Add notes for a not-fit-for-duty report (up to 2,000 characters).')
+                if len(signature) < 3 or len(signature) > 150 or request.form.get('signed') != 'yes':
+                    raise ValueError('Type your full name and tick the sign-off declaration.')
+                failures = sum(a['value'] in ('fail', 'no') for a in answers)
+                try:
+                    cursor = db().execute('INSERT INTO prestarts(user_id,employee_name,asset,asset_type,reading,reading_unit,checks_json,failure_count,fit_for_duty,notes,signature,declaration,submitted_at,submission_token) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                        (g.user['id'], (g.user['first_name'] + ' ' + g.user['last_name']).strip(), asset, ASSETS[asset], reading,
+                         'hours' if ASSETS[asset] == 'machine' else 'km', json.dumps(answers), failures, fit, notes,
+                         signature, DECLARATION, timestamp(), token))
+                    db().commit()
+                    record_id = cursor.lastrowid
+                except sqlite3.IntegrityError:
+                    db().rollback()
+                    duplicate = db().execute('SELECT id FROM prestarts WHERE submission_token=? AND user_id=?', (token, g.user['id'])).fetchone()
+                    if not duplicate:
+                        raise
+                    record_id = duplicate['id']
+                flash('Prestart submitted to admin.' + (' Do not operate until defects or fitness concerns have been addressed with your supervisor.' if failures or fit == 'no' else ''), 'success')
+                return redirect(url_for('employee_prestart_detail', prestart_id=record_id))
+            except ValueError as error:
+                flash(str(error), 'error')
+        if request.method == 'GET' or not session.get('prestart_token'):
+            session['prestart_token'] = secrets.token_hex(24)
+        return render_template('prestart_form.html', tab='prestart', assets=ASSETS, asset=asset,
+                               checks=checklist(asset) if asset else [], declaration=DECLARATION,
+                               token=session['prestart_token'], records=prestart_rows(g.user['id']), admin_view=False)
+
+    @app.get('/admin/prestart')
+    @require('admin')
+    def admin_prestart():
+        failed = request.args.get('failed') == '1'
+        counts = db().execute("SELECT COUNT(*) AS total, COALESCE(SUM(failure_count>0 OR fit_for_duty='no'),0) AS failed FROM prestarts").fetchone()
+        return render_template('prestart_admin.html', tab='prestart', admin_view=True, failed=failed,
+                               counts=counts, records=prestart_rows(failed=failed))
+
+    def prestart_detail(prestart_id, admin_view):
+        row = db().execute('SELECT * FROM prestarts WHERE id=?', (prestart_id,)).fetchone()
+        if not row or (not admin_view and row['user_id'] != g.user['id']):
+            abort(404)
+        return render_template('prestart_detail.html', tab='prestart', admin_view=admin_view,
+                               record=row, checks=json.loads(row['checks_json']))
+
+    @app.get('/employee/prestart/<int:prestart_id>')
+    @require('employee')
+    def employee_prestart_detail(prestart_id):
+        return prestart_detail(prestart_id, False)
+
+    @app.get('/admin/prestart/<int:prestart_id>')
+    @require('admin')
+    def admin_prestart_detail(prestart_id):
+        return prestart_detail(prestart_id, True)
 
     def document_rows(archived=False, user_id=None, limit=-1):
         sql = "SELECT d.id,d.user_id,d.title,d.filename,d.mime_type,length(d.data) AS size,d.uploaded_at,d.archived_at,d.viewed_at,u.first_name,u.last_name FROM documents d JOIN users u ON u.id=d.user_id"

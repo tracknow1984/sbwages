@@ -124,3 +124,16 @@ if (paymentForm) {
   paymentForm.addEventListener('submit', () => { paymentForm.querySelector('button[type=submit]').disabled = true; });
 }
 document.querySelectorAll('.print-slip').forEach(button => button.addEventListener('click',() => window.print()));
+
+const prestartForm = document.querySelector('.prestart-form');
+if (prestartForm) {
+  prestartForm.querySelectorAll('[data-prestart-check]').forEach(select => {
+    const note = select.closest('.prestart-check').querySelector('textarea');
+    const update = () => { note.required = ['fail','no'].includes(select.value); };
+    select.addEventListener('change', update); update();
+  });
+  const fit = prestartForm.elements.fit_for_duty;
+  const updateFit = () => { prestartForm.elements.notes.required = fit.value === 'no'; };
+  fit.addEventListener('change',updateFit); updateFit();
+  prestartForm.addEventListener('submit', () => { prestartForm.querySelector('button[type="submit"]').disabled = true; });
+}

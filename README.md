@@ -118,3 +118,10 @@ All employees use Sunday week endings. Existing Friday-ending records keep their
 The header uses the SB EMPIRE .CO brand mark from the sbempire.co website icon asset (https://img1.wsimg.com/isteam/ip/9b8113f0-1359-42dd-8bb9-a95e43af7815/blob.png/:/rs=w:180,h:180,m), saved locally as static/sb-empire-logo.jpg. The visual palette is blue, black and grey; existing page layout and workflows are retained. The header and footer identify Staff, Timesheets & Operations.
 
 The approved blue SB EMPIRE logo with “Building Opportunities and Delivering Solutions” is now used in the top header as static/sb-empire-header.webp. A clean white background replaces the supplied checkerboard, with responsive sizing and the Staff, Timesheets & Operations label retained.
+
+
+## Staff prestarts
+
+Staff use PRESTART to choose T595 BOBCAT, SUMITOMO EXCAVATOR, DEMAG ROLLER, MITSUBISHI RIGID or ACCO TIPPER. Machines record hour-meter readings; vehicles record odometer kilometres. Versioned checklist labels, answers, defect notes, employee name, typed signature, declaration and Brisbane submission timestamp are saved together. Each check requires an answer, Fail/No requires a note, and only applicable optional checks accept N/A. Fit-for-duty Yes or No and an explicit signed acknowledgement are required; No can be submitted with notes so admin receives the concern.
+
+Admin PRESTART lists completed signed records and has a failed-items/fitness-concerns filter with direct links. Staff can view only their own records. Submissions are immutable and duplicate submissions are deduplicated. No email is sent. These are basic operational checks to use alongside the equipment manual and site procedures; a submitted form is not a maintenance clearance or certification. This feature does not reset any existing data.
