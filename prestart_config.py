@@ -5,6 +5,9 @@ ASSETS = {
     'DEMAG ROLLER': 'machine',
     'MITSUBISHI RIGID': 'vehicle',
     'ACCO TIPPER': 'vehicle',
+    'CAT D6 DOZER': 'machine',
+    'HYSTER FORKLIFT': 'machine',
+    'FORKFORCE 2.5T': 'machine',
 }
 MACHINE_CHECKS = [
     ('tracks', 'Tracks / undercarriage', False),
@@ -51,6 +54,15 @@ def checklist(asset):
         items[0] = ('tracks', 'Drum, tyres and undercarriage', False)
         items[1] = ('bucket', 'Bucket / attachment condition (if fitted)', True)
         items[2] = ('hitch', 'Hitch / attachment locking pins (if fitted)', True)
+    if asset == 'CAT D6 DOZER':
+        items[1] = ('bucket', 'Blade, cutting edges and mounting points', False)
+        items[2] = ('hitch', 'Ripper / attachment pins and locks (if fitted)', True)
+    if asset in ('HYSTER FORKLIFT', 'FORKFORCE 2.5T'):
+        items[0] = ('tracks', 'Tyres, wheels and wheel nuts', False)
+        items[1] = ('bucket', 'Forks, carriage and fork retaining locks', False)
+        items[2] = ('hitch', 'Mast, chains, rollers and hydraulic lift / tilt', False)
+        items.append(('capacity', 'Capacity plate legible and load backrest secure', False))
+        items.append(('power', 'Fuel / LPG or battery connections secure, no leaks or damage', False))
     if asset == 'ACCO TIPPER':
         items.append(('tipper', 'Tipper hydraulics, body lowered and tailgate secured', False))
     return items

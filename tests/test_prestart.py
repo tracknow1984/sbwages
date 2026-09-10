@@ -35,11 +35,11 @@ class PrestartTests(unittest.TestCase):
             self.assertIn(b'Completed prestart', response.data)
             self.assertIn(b'Alex Example', response.data)
         records = self.query('SELECT * FROM prestarts')
-        self.assertEqual(len(records),5)
-        self.assertEqual([r['reading_unit'] for r in records], ['hours']*3+['km']*2)
-        self.assertTrue(any(a['key']=='tipper' for a in json.loads(records[-1]['checks_json'])))
+        self.assertEqual(len(records),8)
+        self.assertEqual([r['reading_unit'] for r in records], ['hours']*3+['km']*2+['hours']*3)
+        self.assertTrue(any(a['key']=='tipper' for a in json.loads(records[4]['checks_json'])))
         self.post('/logout'); self.login('admin','test-admin-password','admin')
-        self.assertIn(b'All completed (5)', self.client.get('/admin/prestart').data)
+        self.assertIn(b'All completed (8)', self.client.get('/admin/prestart').data)
         self.assertIn(b'No prestarts', self.client.get('/admin/prestart?failed=1').data)
 
     def test_prestart_failures_unfit_signoff_and_duplicates(self):
@@ -127,3 +127,43 @@ class PrestartTests(unittest.TestCase):
         self.assertIn(b'type="radio" name="check_tracks"',page)
         self.assertNotIn(b'name="signature"',page)
         self.assertIn(b'<canvas',page)
+
+    def test_daily_prestart_blocks_other_staff_and_allows_next_day(self):
+        import sqlite3
+        from datetime import datetime,timedelta
+        from zoneinfo import ZoneInfo
+        self.prepare()
+        first=self.form('CAT D6 DOZER')
+        self.post('/employee/prestart',first)
+        self.post('/logout');self.login('jordan','test-staff-password')
+        page=self.client.get('/employee/prestart?asset=CAT+D6+DOZER').data
+        self.assertIn(b'ALREADY COMPLETED TODAY',page)
+        self.assertIn(b'Alex Example',page)
+        self.assertNotIn(b'class="signature-pad"',page)
+        self.post('/employee/prestart',self.form('CAT D6 DOZER'))
+        self.assertEqual(len(self.query('SELECT * FROM prestarts')),1)
+        self.assertEqual(self.client.get('/employee/prestart/1').status_code,404)
+        yesterday=(datetime.now(ZoneInfo('Australia/Brisbane'))-timedelta(days=1)).isoformat()
+        with sqlite3.connect(self.path) as conn:
+            conn.execute('UPDATE prestarts SET submitted_at=?',(yesterday,))
+        self.post('/employee/prestart',self.form('CAT D6 DOZER'))
+        self.assertEqual(len(self.query('SELECT * FROM prestarts')),2)
+
+    def test_simultaneous_staff_cannot_duplicate_daily_prestart(self):
+        from concurrent.futures import ThreadPoolExecutor
+        self.prepare()
+        first_client=self.client
+        first=self.form('HYSTER FORKLIFT')
+        self.client=self.app.test_client()
+        self.login('jordan','test-staff-password')
+        second_client=self.client
+        second=self.form('HYSTER FORKLIFT')
+        def submit(client,data):
+            with client.session_transaction() as session:
+                csrf=session['csrf']
+            return client.post('/employee/prestart',data=data | {'csrf':csrf},follow_redirects=True)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results=list(pool.map(lambda pair: submit(*pair),[(first_client,first),(second_client,second)]))
+        self.assertTrue(all(r.status_code==200 for r in results))
+        self.assertEqual(len(self.query("SELECT * FROM prestarts WHERE asset='HYSTER FORKLIFT'")),1)
+        self.assertTrue(any(b'No duplicate was saved' in r.data for r in results))

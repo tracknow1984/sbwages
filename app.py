@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS prestart_photos (
  data BLOB NOT NULL, PRIMARY KEY(prestart_id,check_key)
 );
 CREATE INDEX IF NOT EXISTS prestarts_by_user ON prestarts(user_id,id);
+CREATE INDEX IF NOT EXISTS prestarts_asset_day ON prestarts(asset,substr(submitted_at,1,10));
 CREATE TABLE IF NOT EXISTS users (
  id INTEGER PRIMARY KEY, role TEXT NOT NULL CHECK(role IN ('admin','employee')),
  first_name TEXT NOT NULL, last_name TEXT NOT NULL DEFAULT '', email TEXT NOT NULL COLLATE NOCASE UNIQUE,
@@ -798,6 +799,10 @@ def create_app(test_config=None):
             clauses.append("(failure_count>0 OR fit_for_duty='no')")
         return db().execute('SELECT * FROM prestarts' + (' WHERE ' + ' AND '.join(clauses) if clauses else '') + ' ORDER BY id DESC', args).fetchall()
 
+    def daily_prestart(asset, day=None):
+        return db().execute('SELECT id,user_id,employee_name,submitted_at FROM prestarts WHERE asset=? AND substr(submitted_at,1,10)=? ORDER BY id DESC LIMIT 1',
+                            (asset, day or today().isoformat())).fetchone()
+
     @app.route('/employee/prestart', methods=['GET', 'POST'])
     @require('employee')
     def employee_prestart():
@@ -814,6 +819,9 @@ def create_app(test_config=None):
                     raise ValueError('This prestart form expired. Reopen PRESTART and try again.')
                 if not asset:
                     raise ValueError('Choose a machine or vehicle.')
+                if daily_prestart(asset):
+                    flash('A prestart has already been completed for this equipment today. No duplicate was saved.', 'error')
+                    return redirect(url_for('employee_prestart', asset=asset))
                 reading = request.form.get('reading', '').strip()
                 if not re.fullmatch(r'\d{1,8}(\.\d{1,2})?', reading):
                     raise ValueError('Enter a valid non-negative meter reading with up to two decimal places.')
@@ -843,10 +851,17 @@ def create_app(test_config=None):
                     raise ValueError('Tick the sign-off declaration.')
                 failures = sum(a['value'] in ('fail', 'no') for a in answers)
                 try:
+                    # Serialise the date check and insert so simultaneous operators cannot both submit.
+                    db().execute('BEGIN IMMEDIATE')
+                    submitted_at = timestamp()
+                    if daily_prestart(asset, submitted_at[:10]):
+                        db().rollback()
+                        flash('A prestart has already been completed for this equipment today. No duplicate was saved.', 'error')
+                        return redirect(url_for('employee_prestart', asset=asset))
                     cursor = db().execute('INSERT INTO prestarts(user_id,employee_name,asset,asset_type,reading,reading_unit,checks_json,failure_count,fit_for_duty,notes,signature,declaration,submitted_at,submission_token,signature_image) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                         (g.user['id'], (g.user['first_name'] + ' ' + g.user['last_name']).strip(), asset, ASSETS[asset], reading,
                          'hours' if ASSETS[asset] == 'machine' else 'km', json.dumps(answers), failures, fit, notes,
-                         signature, DECLARATION, timestamp(), token, signature_image))
+                         signature, DECLARATION, submitted_at, token, signature_image))
                     record_id = cursor.lastrowid
                     for key, data in photos.items():
                         db().execute('INSERT INTO prestart_photos(prestart_id,check_key,data) VALUES(?,?,?)', (record_id,key,data))
@@ -863,7 +878,10 @@ def create_app(test_config=None):
                 flash(str(error) + ' Please reselect any photos before resubmitting.', 'error')
         if request.method == 'GET' or not session.get('prestart_token'):
             session['prestart_token'] = secrets.token_hex(24)
-        return render_template('prestart_form.html', tab='prestart', assets=ASSETS, asset=asset,
+        completed = daily_prestart(asset) if asset else None
+        completed_assets = {r['asset'] for r in db().execute('SELECT DISTINCT asset FROM prestarts WHERE substr(submitted_at,1,10)=?', (today().isoformat(),))}
+        equipment_failed = bool(asset and db().execute('SELECT 1 FROM prestarts WHERE asset=? AND substr(submitted_at,1,10)=? AND failure_count>0 LIMIT 1', (asset,today().isoformat())).fetchone())
+        return render_template('prestart_form.html', completed=completed, completed_assets=completed_assets, equipment_failed=equipment_failed, tab='prestart', assets=ASSETS, asset=asset,
                                checks=checklist(asset) if asset else [], declaration=DECLARATION,
                                token=session['prestart_token'], records=prestart_rows(g.user['id']), admin_view=False)
 
