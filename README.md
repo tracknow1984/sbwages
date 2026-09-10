@@ -140,3 +140,5 @@ Admin timesheet rows include Archive (or Restore in the Archived view) and Delet
 Staff contact details include an optional emergency contact phone number, editable by admin and the employee and displayed in the admin staff table. Existing records are preserved.
 
 Licence front/back photos can be uploaded separately from contact details by the employee or admin on the staff edit page. Preview and download require admin or owner access. Photos use the existing 5 MB JPEG/PNG/WebP validation and normalisation, are stored privately in SQLite, and replace only the selected side. Both files validate before either is saved.
+
+Admin annual leave includes Archive/Restore and confirmed Delete controls. Archived requests leave the active admin queue and pending dashboard count but remain in staff history with their original decision and overlap rules. Delete permanently removes one request and its decision; if the decision changes after confirmation was opened, admin must review it again.

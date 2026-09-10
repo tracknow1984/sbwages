@@ -153,6 +153,8 @@ def create_app(test_config=None):
         for name in ('licence_number', 'licence_state', 'licence_expiry'):
             if name not in user_columns:
                 db().execute(f"ALTER TABLE users ADD COLUMN {name} TEXT NOT NULL DEFAULT ''")
+        if 'archived_at' not in {row['name'] for row in db().execute('PRAGMA table_info(leave_requests)')}:
+            db().execute('ALTER TABLE leave_requests ADD COLUMN archived_at TEXT')
         if 'archived_at' not in {row['name'] for row in db().execute('PRAGMA table_info(sheets)')}:
             db().execute('ALTER TABLE sheets ADD COLUMN archived_at TEXT')
         if 'signature_image' not in {row['name'] for row in db().execute('PRAGMA table_info(prestarts)')}:
@@ -1029,17 +1031,17 @@ def create_app(test_config=None):
             return db().execute(sql + ' WHERE d.user_id=? ORDER BY d.id DESC LIMIT ?', (user_id, limit)).fetchall()
         return db().execute(sql + (' WHERE d.archived_at IS NOT NULL' if archived else ' WHERE d.archived_at IS NULL') + ' ORDER BY d.id DESC LIMIT ?', (limit,)).fetchall()
 
-    def leave_rows(user_id=None, pending=False, limit=-1):
+    def leave_rows(user_id=None, pending=False, limit=-1, archived=False):
         sql = 'SELECT l.*,u.first_name,u.last_name FROM leave_requests l JOIN users u ON u.id=l.user_id'
         if user_id is not None:
             return db().execute(sql + ' WHERE l.user_id=? ORDER BY l.id DESC LIMIT ?', (user_id, limit)).fetchall()
-        return db().execute(sql + (" WHERE l.status='pending'" if pending else '') + ' ORDER BY l.id DESC LIMIT ?', (limit,)).fetchall()
+        return db().execute(sql + " WHERE (l.archived_at IS NOT NULL)=?" + (" AND l.status='pending'" if pending else '') + ' ORDER BY l.id DESC LIMIT ?', (int(archived),limit)).fetchall()
 
     @app.get('/admin/dashboard')
     @require('admin')
     def admin_dashboard():
         counts = dict(documents=db().execute('SELECT COUNT(*) FROM documents WHERE archived_at IS NULL').fetchone()[0],
-                      leave=db().execute("SELECT COUNT(*) FROM leave_requests WHERE status='pending'").fetchone()[0],
+                      leave=db().execute("SELECT COUNT(*) FROM leave_requests WHERE status='pending' AND archived_at IS NULL").fetchone()[0],
                       staff=db().execute("SELECT COUNT(*) FROM users WHERE role='employee' AND status='active'").fetchone()[0])
         return render_template('dashboard.html', counts=counts, documents=document_rows(limit=10),
                                requests=leave_rows(pending=True, limit=10), admin_view=True, tab='dashboard')
@@ -1189,7 +1191,41 @@ def create_app(test_config=None):
     @app.get('/admin/leave')
     @require('admin')
     def admin_leave():
-        return render_template('leave.html', requests=leave_rows(), admin_view=True, tab='leave')
+        archived = request.args.get('archived') == '1'
+        return render_template('leave.html', requests=leave_rows(archived=archived), archived=archived, admin_view=True, tab='leave')
+
+    @app.post('/admin/leave/<int:leave_id>/archive')
+    @require('admin')
+    def archive_leave(leave_id):
+        restore = request.form.get('action') == 'restore'
+        result = db().execute('UPDATE leave_requests SET archived_at=? WHERE id=?', (None if restore else timestamp(),leave_id))
+        if not result.rowcount:
+            abort(404)
+        db().commit()
+        flash('Leave request restored.' if restore else 'Leave request archived.', 'success')
+        return redirect(url_for('admin_leave',archived='1' if restore else '0'))
+
+    @app.route('/admin/leave/<int:leave_id>/delete', methods=['GET','POST'])
+    @require('admin')
+    def delete_leave(leave_id):
+        if request.method == 'POST':
+            if request.form.get('confirm_delete') != 'yes':
+                abort(400, 'Confirm deletion before continuing.')
+            db().execute('BEGIN IMMEDIATE')
+        item = db().execute('SELECT l.*,u.first_name,u.last_name FROM leave_requests l JOIN users u ON u.id=l.user_id WHERE l.id=?', (leave_id,)).fetchone()
+        if not item:
+            db().rollback()
+            abort(404)
+        if request.method == 'POST':
+            if request.form.get('expected_status') != item['status']:
+                db().rollback()
+                flash('The leave decision changed. Review it again before deleting.', 'error')
+                return redirect(url_for('delete_leave',leave_id=leave_id))
+            db().execute('DELETE FROM leave_requests WHERE id=?',(leave_id,))
+            db().commit()
+            flash('Leave request permanently deleted.', 'success')
+            return redirect(url_for('admin_leave',archived='1' if item['archived_at'] else '0'))
+        return render_template('delete_leave.html',item=item,tab='leave')
 
     @app.post('/admin/leave/<int:leave_id>/decision')
     @require('admin')
