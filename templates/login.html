@@ -1,0 +1,9 @@
+{% extends 'base.html' %}{% block content %}
+<section class="auth-card"><span class="eyebrow">{{ 'ADMIN PORTAL' if audience == 'admin' else 'EMPLOYEE PORTAL' }}</span><h1>Welcome back.</h1><p class="muted">{{ 'Manage your team and review weekly timesheets.' if audience == 'admin' else 'Your details, your hours, all in one place.' }}</p>
+<form method="post" class="stack"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+<label>Username<input name="username" autocomplete="username" required autofocus maxlength="80"></label>
+<label>Password<input name="password" type="password" autocomplete="current-password" required maxlength="200"></label>
+<button class="primary full" type="submit">Sign in</button></form>
+<p class="small muted">{{ 'Use your administrator account to sign in.' if audience == 'admin' else 'First time here or forgotten your password? Ask admin to email you a password setup link.' }}</p>
+<a class="auth-switch" href="{{ url_for('login', audience='employee' if audience == 'admin' else 'admin') }}">{{ 'Employee sign in' if audience == 'admin' else 'Administrator sign in' }} <span aria-hidden="true">→</span></a>
+</section>{% endblock %}
