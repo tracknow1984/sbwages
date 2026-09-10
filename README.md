@@ -144,3 +144,5 @@ Licence front/back photos can be uploaded separately from contact details by the
 Admin annual leave includes Archive/Restore and confirmed Delete controls. Archived requests leave the active admin queue and pending dashboard count but remain in staff history with their original decision and overlap rules. Delete permanently removes one request and its decision; if the decision changes after confirmation was opened, admin must review it again.
 
 Payment deductions default to zero for historical payments. The payment-table constraint is migrated atomically while retaining payment IDs and snapshots. Cash + transfer + deductions must equal the submitted timesheet total. Net pay on slips and staff Home excludes deductions.
+
+Payment processing prominently displays a live balance remaining and total allocated as cash, transfer and deductions are entered. Over-allocation is highlighted; processing is enabled only when all inputs are valid and the balance is zero.

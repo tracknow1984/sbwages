@@ -114,12 +114,19 @@ if (paymentForm) {
     return Number(whole)*100 + Number(fraction.padEnd(2,'0'));
   };
   const updatePayment = () => {
-    const first = cents(cash.value), second = cents(transfer.value), third = cents(deduction.value);
-    const remaining = first === null || second === null || third === null ? null : due-first-second-third;
+    const first = cents(cash.value || '0'), second = cents(transfer.value || '0'), third = cents(deduction.value || '0');
+    const complete = [cash, transfer, deduction].every(field => field.value !== '' && !field.validity.badInput);
+    const remaining = first === null || second === null || third === null || [cash, transfer, deduction].some(field => field.validity.badInput) ? null : due-first-second-third;
     const display = paymentForm.querySelector('.payment-check');
     const money = value => (value/100).toLocaleString('en-AU',{style:'currency',currency:'AUD'});
-    display.textContent = remaining === null ? 'Enter valid cash, transfer and deduction amounts, with up to two decimal places.' : remaining === 0 ? `Ready to process: ${money(first)} cash + ${money(second)} transfer + ${money(third)} deductions. Net paid: ${money(first+second)}.` : remaining > 0 ? `${money(remaining)} still to allocate.` : `Amounts exceed the amount due by ${money(-remaining)}.`;
-    paymentForm.querySelector('button[type=submit]').disabled = remaining !== 0;
+    const balance = paymentForm.querySelector('.payment-balance');
+    balance.classList.toggle('balanced', remaining === 0 && complete);
+    balance.classList.toggle('overallocated', remaining !== null && remaining < 0);
+    balance.querySelector('.balance-label').textContent = remaining !== null && remaining < 0 ? 'Over allocated' : 'Balance remaining';
+    balance.querySelector('.balance-value').textContent = remaining === null ? '—' : money(Math.abs(remaining));
+    balance.querySelector('.allocated-value').textContent = remaining === null ? '—' : money(due - remaining);
+    display.textContent = !complete ? 'Blank fields count as zero in the balance. Enter 0 for any unused payment field before processing.' : remaining === null ? 'Enter valid cash, transfer and deduction amounts, with up to two decimal places.' : remaining === 0 ? `Ready to process: ${money(first)} cash + ${money(second)} transfer + ${money(third)} deductions. Net paid: ${money(first+second)}.` : remaining > 0 ? `${money(remaining)} still to allocate.` : `Amounts exceed the amount due by ${money(-remaining)}.`;
+    paymentForm.querySelector('button[type=submit]').disabled = remaining !== 0 || !complete;
   };
   cash.addEventListener('input',updatePayment); transfer.addEventListener('input',updatePayment); deduction.addEventListener('input',updatePayment); updatePayment();
   paymentForm.addEventListener('submit', () => { paymentForm.querySelector('button[type=submit]').disabled = true; });
