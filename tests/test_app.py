@@ -181,6 +181,73 @@ class AppTests(unittest.TestCase):
         self.assertIn(b'6 hours',history)
         self.assertNotIn(b'14 hours',history)
 
+    def prepare_payment_sheet(self):
+        person,values=self.add()
+        self.post('/logout');self.login('alex','test-staff-password')
+        end=self.last_week()
+        self.post('/employee/timesheet',self.day_form(end))
+        self.post('/employee/timesheet',{'week':end.isoformat(),'action':'submit'})
+        sheet=self.query('SELECT * FROM sheets')[0]
+        self.post('/logout');self.login('admin','test-admin-password','admin')
+        return person,values,sheet,end
+
+    def test_process_payment_and_private_staff_slip(self):
+        person,values,sheet,end=self.prepare_payment_sheet()
+        route=f'/admin/timesheets/{sheet["id"]}/payment'
+        self.assertIn(b'Process Payment',self.client.get(f'/admin/timesheets/{sheet["id"]}').data)
+        self.assertIn(b'$284.00',self.client.get(route).data)
+        form={'cash_amount':'100.00','transfer_amount':'184.00','expected_total':'28400'}
+        self.assertEqual(self.client.post(route,data=form).status_code,400)
+        response=self.post(route,form)
+        self.assertIn(b'Payment processed.',response.data)
+        payment=self.query('SELECT * FROM payments')[0]
+        self.assertEqual(payment['cash_cents'],10000)
+        self.assertEqual(payment['transfer_cents'],18400)
+        self.assertEqual(payment['total_cents'],28400)
+        slip=f'/payments/{payment["id"]}/slip'
+        self.assertIn(b'$184.00',self.client.get(slip).data)
+        self.assertIn(b'already been processed',self.post(route,form).data)
+        self.assertEqual(len(self.query('SELECT * FROM payments')),1)
+        edit=f'/admin/timesheets/{sheet["id"]}/days/{end.isoformat()}'
+        self.assertIn(b'locked to preserve',self.post(edit,{'action':'unlock','reason':'test'}).data)
+        self.assertEqual(self.query('SELECT status FROM sheets')[0][0],'submitted')
+        self.post(f'/admin/staff/{person["id"]}/edit',values | {'first_name':'Changed','hourly_rate':'50','password':''})
+        snapshot=self.query('SELECT * FROM payments')[0]
+        self.assertEqual(snapshot['employee_name'],'Alex Example')
+        self.assertEqual(snapshot['rate_cents'],3550)
+        self.add('jordan')
+        self.post('/logout');self.login('jordan','test-staff-password')
+        self.assertEqual(self.client.get(slip).status_code,404)
+        self.assertNotIn(b'$284.00',self.client.get('/employee/payslips').data)
+        self.assertEqual(self.post(route,form).status_code,403)
+        self.post('/logout');self.login('alex','test-staff-password')
+        self.assertIn(b'$284.00',self.client.get('/employee/dashboard').data)
+        self.assertIn(b'$100.00',self.client.get('/employee/payslips').data)
+        self.assertIn(b'View pay slip',self.client.get('/employee/history').data)
+        self.assertEqual(self.client.get(slip).status_code,200)
+        self.assertIn(b'Cash paid',self.client.get(slip).data)
+        self.post('/logout')
+        self.assertEqual(self.client.get(slip).status_code,403)
+
+    def test_payment_validation_and_stale_total(self):
+        _,_,sheet,_=self.prepare_payment_sheet()
+        route=f'/admin/timesheets/{sheet["id"]}/payment'
+        form={'cash_amount':'0.00','transfer_amount':'284.00','expected_total':'28400'}
+        for invalid in [{'cash_amount':'-1'},{'cash_amount':'NaN'},{'cash_amount':'0.001'},{'transfer_amount':'283.99'}, {'transfer_amount':'284.01'}, {'expected_total':'28000'}]:
+            self.post(route,form | invalid)
+            self.assertEqual(len(self.query('SELECT * FROM payments')),0)
+        self.assertIn(b'Payment processed.',self.post(route,form).data)
+        self.assertEqual(self.query('SELECT cash_cents FROM payments')[0][0],0)
+
+    def test_draft_payment_is_blocked(self):
+        self.add();self.post('/logout');self.login('alex','test-staff-password')
+        self.post('/employee/timesheet',self.day_form(self.last_week(),action='save_day'))
+        sheet=self.query('SELECT * FROM sheets')[0]
+        self.post('/logout');self.login('admin','test-admin-password','admin')
+        response=self.post(f'/admin/timesheets/{sheet["id"]}/payment',{'cash_amount':'284','transfer_amount':'0','expected_total':'28400'})
+        self.assertIn(b'must submit',response.data)
+        self.assertEqual(len(self.query('SELECT * FROM payments')),0)
+
     def test_staff_form_and_employee_permissions(self):
         person, values = self.add()
         self.assertNotIn('test-staff-password', person['password_hash'])

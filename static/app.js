@@ -101,3 +101,26 @@ document.querySelectorAll('input.formatted-date').forEach(field => {
   picker.addEventListener('change', () => { field.value = picker.value ? picker.value.split('-').reverse().join('.') : ''; validate(); });
   validate();
 });
+
+const paymentForm = document.querySelector('.payment-form');
+if (paymentForm) {
+  const cash = paymentForm.elements.cash_amount;
+  const transfer = paymentForm.elements.transfer_amount;
+  const due = Number(paymentForm.dataset.amountDue);
+  const cents = value => {
+    if (!/^\d+(\.\d{1,2})?$/.test(value)) return null;
+    const [whole, fraction=''] = value.split('.');
+    return Number(whole)*100 + Number(fraction.padEnd(2,'0'));
+  };
+  const updatePayment = () => {
+    const first = cents(cash.value), second = cents(transfer.value);
+    const remaining = first === null || second === null ? null : due-first-second;
+    const display = paymentForm.querySelector('.payment-check');
+    const money = value => (value/100).toLocaleString('en-AU',{style:'currency',currency:'AUD'});
+    display.textContent = remaining === null ? 'Enter valid cash and transfer amounts, with up to two decimal places.' : remaining === 0 ? `Ready to process: ${money(first)} cash + ${money(second)} transfer.` : remaining > 0 ? `${money(remaining)} still to allocate.` : `Amounts exceed the amount due by ${money(-remaining)}.`;
+    paymentForm.querySelector('button[type=submit]').disabled = remaining !== 0;
+  };
+  cash.addEventListener('input',updatePayment); transfer.addEventListener('input',updatePayment); updatePayment();
+  paymentForm.addEventListener('submit', () => { paymentForm.querySelector('button[type=submit]').disabled = true; });
+}
+document.querySelectorAll('.print-slip').forEach(button => button.addEventListener('click',() => window.print()));

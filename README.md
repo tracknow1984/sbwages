@@ -105,3 +105,10 @@ All employees use Sunday week endings. Existing Friday-ending records keep their
 
 - Dates are displayed as DD.MM.YYYY throughout the app; timestamps show DD.MM.YYYY · HH:MM in Brisbane time. Licence and leave date entry uses DD.MM.YYYY with an optional native calendar picker. Storage and internal URLs retain ISO dates.
 - Admin timesheets and staff history are grouped by their recorded week ending, newest first. Each expandable week shows date range, total hours, total amount and draft/submitted counts; the newest week starts open. Existing Friday-ending records keep their original dates.
+
+## Payment records and staff pay slips
+
+- Admin opens a submitted individual timesheet → Process Payment → enters cash and transfer amounts → Process. The two amounts must exactly equal the submitted total; either can be zero. This records payment only and initiates no transfer.
+- Each timesheet can have only one payment. A database uniqueness constraint and write transaction prevent duplicate processing. Paid timesheets cannot be corrected or unlocked, preserving their recorded total.
+- Payment records snapshot staff name, week, hours, hourly rate, cash/transfer amounts, processing date and administrator. Later staff changes do not rewrite slips. Staff see their own Pay Slips, payment status in history and the latest payment on Home. Admin can view the same slip.
+- Print / Save PDF uses the browser print dialog. Slips record the cash/transfer breakdown only; they do not calculate tax, superannuation or deductions.

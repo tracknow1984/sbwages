@@ -44,6 +44,16 @@ CREATE TABLE IF NOT EXISTS invitations (
  token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), expires_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS login_attempts (key TEXT PRIMARY KEY, count INTEGER NOT NULL, started INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS payments (
+ id INTEGER PRIMARY KEY, sheet_id INTEGER NOT NULL UNIQUE REFERENCES sheets(id),
+ user_id INTEGER NOT NULL REFERENCES users(id), admin_id INTEGER NOT NULL REFERENCES users(id),
+ employee_name TEXT NOT NULL, employee_username TEXT NOT NULL, processed_by TEXT NOT NULL,
+ week_start TEXT NOT NULL, week_end TEXT NOT NULL, total_units INTEGER NOT NULL,
+ rate_cents INTEGER NOT NULL, total_cents INTEGER NOT NULL CHECK(total_cents>0),
+ cash_cents INTEGER NOT NULL CHECK(cash_cents>=0), transfer_cents INTEGER NOT NULL CHECK(transfer_cents>=0),
+ processed_at TEXT NOT NULL, CHECK(cash_cents+transfer_cents=total_cents)
+);
+CREATE INDEX IF NOT EXISTS payments_by_user ON payments(user_id,processed_at);
 CREATE TABLE IF NOT EXISTS staff_notices (
  id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id),
  admin_id INTEGER NOT NULL REFERENCES users(id), title TEXT NOT NULL,
@@ -436,7 +446,8 @@ def create_app(test_config=None):
         booked = db().execute('SELECT e.work_date,s.week_end FROM entries e JOIN sheets s ON s.id=e.sheet_id WHERE e.user_id=? AND e.work_date BETWEEN ? AND ? AND s.week_end<>?',
             (person['id'], days[0].isoformat(), ending.isoformat(), ending.isoformat())).fetchall()
         return dict(sheet=sheet, days=days, entries=by_day, total_units=units, rate=rate, total_cents=total,
-                    booked_days={row['work_date']: row['week_end'] for row in booked}, legacy_week=ending.weekday() != 6)
+                    booked_days={row['work_date']: row['week_end'] for row in booked}, legacy_week=ending.weekday() != 6,
+                    payment=db().execute('SELECT * FROM payments WHERE sheet_id=?',(sheet['id'],)).fetchone() if sheet else None)
 
     def parse_day():
         start = request.form.get('start_time', '').strip()
@@ -531,7 +542,7 @@ def create_app(test_config=None):
     @app.get('/employee/history')
     @require('employee')
     def history():
-        sheets = db().execute("SELECT s.*,u.first_name,u.last_name FROM sheets s JOIN users u ON u.id=s.user_id WHERE s.user_id=? ORDER BY week_end DESC", (g.user['id'],)).fetchall()
+        sheets = db().execute("SELECT s.*,u.first_name,u.last_name,p.id AS payment_id FROM sheets s JOIN users u ON u.id=s.user_id LEFT JOIN payments p ON p.sheet_id=s.id WHERE s.user_id=? ORDER BY week_end DESC", (g.user['id'],)).fetchall()
         sheets = [dict(row) for row in sheets]
         for row in sheets:
             if row['status'] == 'draft':
@@ -546,7 +557,7 @@ def create_app(test_config=None):
         sheets = db().execute("""SELECT s.id,s.user_id,s.week_end,s.status,s.submitted_at,u.first_name,u.last_name,
             CASE WHEN s.status='submitted' THEN s.total_units ELSE COALESCE((SELECT SUM(e.units) FROM entries e WHERE e.sheet_id=s.id),0) END total_units,
             CASE WHEN s.status='submitted' THEN s.rate_cents ELSE u.rate_cents END rate_cents,
-            s.total_cents FROM sheets s JOIN users u ON u.id=s.user_id ORDER BY s.week_end DESC,u.first_name""").fetchall()
+            s.total_cents,p.id AS payment_id FROM sheets s JOIN users u ON u.id=s.user_id LEFT JOIN payments p ON p.sheet_id=s.id ORDER BY s.week_end DESC,u.first_name""").fetchall()
         sheets = [dict(row) for row in sheets]
         for row in sheets:
             if row["status"] == "draft":
@@ -573,6 +584,9 @@ def create_app(test_config=None):
         if not entry:
             abort(404)
         person = staff(sheet['user_id'])
+        if db().execute('SELECT id FROM payments WHERE sheet_id=?',(sheet_id,)).fetchone():
+            flash('Payment has been processed. This timesheet is locked to preserve the payment record.', 'error')
+            return redirect(url_for('view_sheet',sheet_id=sheet_id))
         if request.method == 'POST':
             try:
                 action = request.form.get('action')
@@ -583,6 +597,8 @@ def create_app(test_config=None):
                     raise ValueError('Enter a reason for the change (up to 1,000 characters).')
                 values = parse_day() if action == 'correct' else None
                 db().execute('BEGIN IMMEDIATE')
+                if db().execute('SELECT id FROM payments WHERE sheet_id=?',(sheet_id,)).fetchone():
+                    raise ValueError('Payment has been processed. This timesheet is locked.')
                 before = db().execute('SELECT * FROM entries WHERE sheet_id=? AND work_date=?', (sheet_id, work_date)).fetchone()
                 current = db().execute('SELECT * FROM sheets WHERE id=?', (sheet_id,)).fetchone()
                 now = datetime.now(ZoneInfo('Australia/Brisbane')).isoformat()
@@ -606,6 +622,63 @@ def create_app(test_config=None):
                 flash(str(error) if isinstance(error, ValueError) else 'The correction could not be saved.', 'error')
         audit = db().execute('SELECT a.*,u.first_name,u.last_name FROM entry_audit a JOIN users u ON u.id=a.admin_id WHERE a.user_id=? AND a.work_date=? ORDER BY a.id DESC', (person['id'], work_date)).fetchall()
         return render_template('day_edit.html', sheet=sheet, entry=entry, person=person, audit=audit, tab='submissions')
+
+    @app.route('/admin/timesheets/<int:sheet_id>/payment', methods=['GET','POST'])
+    @require('admin')
+    def process_payment(sheet_id):
+        sheet=db().execute('SELECT * FROM sheets WHERE id=?',(sheet_id,)).fetchone()
+        if not sheet:
+            abort(404)
+        person=staff(sheet['user_id'])
+        existing=db().execute('SELECT id FROM payments WHERE sheet_id=?',(sheet_id,)).fetchone()
+        if existing:
+            flash('Payment has already been processed for this timesheet.', 'error')
+            return redirect(url_for('payslip',payment_id=existing['id']))
+        if sheet['status'] != 'submitted':
+            flash('The staff member must submit this timesheet before payment can be processed.', 'error')
+            return redirect(url_for('view_sheet',sheet_id=sheet_id))
+        if request.method == 'POST':
+            try:
+                cash=decimal_units(request.form.get('cash_amount',''), 'Cash amount', 100000000)
+                transfer=decimal_units(request.form.get('transfer_amount',''), 'Transfer amount', 100000000)
+                db().execute('BEGIN IMMEDIATE')
+                current=db().execute('SELECT * FROM sheets WHERE id=?',(sheet_id,)).fetchone()
+                if db().execute('SELECT id FROM payments WHERE sheet_id=?',(sheet_id,)).fetchone():
+                    raise ValueError('Payment has already been processed for this timesheet.')
+                if current['status'] != 'submitted':
+                    raise ValueError('This timesheet was reopened. It must be submitted again before payment.')
+                if cash+transfer != current['total_cents'] or current['total_cents'] <= 0:
+                    raise ValueError('Cash and transfer must add up to the full amount due: ' + money(current['total_cents']) + '.')
+                if request.form.get('expected_total') != str(current['total_cents']):
+                    raise ValueError('The amount due changed. Reload this payment page and check the new amount.')
+                ending=date.fromisoformat(current['week_end'])
+                payment_id=db().execute("""INSERT INTO payments(sheet_id,user_id,admin_id,employee_name,employee_username,processed_by,
+                    week_start,week_end,total_units,rate_cents,total_cents,cash_cents,transfer_cents,processed_at)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(sheet_id,person['id'],g.user['id'],person['first_name']+' '+person['last_name'],
+                    person['username'],g.user['first_name']+' '+g.user['last_name'],(ending-timedelta(days=6)).isoformat(),
+                    current['week_end'],current['total_units'],current['rate_cents'],current['total_cents'],cash,transfer,timestamp())).lastrowid
+                db().commit()
+                flash('Payment processed. The payment slip is now available to the staff member.', 'success')
+                return redirect(url_for('payslip',payment_id=payment_id))
+            except (ValueError,sqlite3.IntegrityError) as error:
+                db().rollback()
+                flash(str(error) if isinstance(error,ValueError) else 'A payment is already recorded for this timesheet.', 'error')
+        return render_template('process_payment.html',sheet=sheet,person=person,tab='submissions')
+
+    @app.get('/payments/<int:payment_id>/slip')
+    def payslip(payment_id):
+        if not g.user:
+            abort(403)
+        payment=db().execute('SELECT * FROM payments WHERE id=?',(payment_id,)).fetchone()
+        if not payment or (g.user['role'] != 'admin' and payment['user_id'] != g.user['id']):
+            abort(404)
+        return render_template('payslip.html',payment=payment,admin_view=g.user['role']=='admin',tab='submissions' if g.user['role']=='admin' else 'payslips')
+
+    @app.get('/employee/payslips')
+    @require('employee')
+    def employee_payslips():
+        payments=db().execute('SELECT * FROM payments WHERE user_id=? ORDER BY week_end DESC,id DESC',(g.user['id'],)).fetchall()
+        return render_template('payslips.html',payments=payments,tab='payslips')
 
     def timestamp():
         return datetime.now(ZoneInfo('Australia/Brisbane')).isoformat()
@@ -694,7 +767,8 @@ def create_app(test_config=None):
         leave_pending=db().execute("SELECT COUNT(*) FROM leave_requests WHERE user_id=? AND status='pending'", (g.user['id'],)).fetchone()[0]
         return render_template('employee_dashboard.html', tab='home', admin_view=False, summary=notice_summary(),
                                notices=notice_rows(g.user['id'],limit=6), timesheet_state=timesheet_state,
-                               expiry_days=expiry_days, expiry=expiry, leave_pending=leave_pending)
+                               expiry_days=expiry_days, expiry=expiry, leave_pending=leave_pending,
+                               latest_payment=db().execute('SELECT * FROM payments WHERE user_id=? ORDER BY id DESC LIMIT 1',(g.user['id'],)).fetchone())
 
     def document_rows(archived=False, user_id=None, limit=-1):
         sql = "SELECT d.id,d.user_id,d.title,d.filename,d.mime_type,length(d.data) AS size,d.uploaded_at,d.archived_at,d.viewed_at,u.first_name,u.last_name FROM documents d JOIN users u ON u.id=d.user_id"
