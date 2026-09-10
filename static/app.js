@@ -189,3 +189,11 @@ if (prestartForm) {
     prestartForm.querySelector('button[type="submit"]').disabled = true;
   });
 }
+
+// Selecting equipment immediately loads its checklist and checks today's submissions.
+const prestartEquipment = document.querySelector('#prestart-equipment');
+if (prestartEquipment) {
+  prestartEquipment.elements.asset.addEventListener('change', () => {
+    if (prestartEquipment.elements.asset.value) prestartEquipment.requestSubmit();
+  });
+}
