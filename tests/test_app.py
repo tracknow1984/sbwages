@@ -71,7 +71,7 @@ class AppTests(unittest.TestCase):
         person, _ = self.add()
         self.add('jordan')
         message={'user_id':str(person['id']), 'title':'Pickup at North Maclean', 'body':'Collect 4 pallets.\nContact the yard manager. <script>bad()</script>', 'priority':'urgent'}
-        self.assertIn(b'Hit Me notice sent', self.post('/admin/hit-me',message).data)
+        self.assertIn(b'EMPIRE WIRE notice sent', self.post('/admin/hit-me',message).data)
         notice=self.query('SELECT * FROM staff_notices')[0]
         self.assertIsNone(notice['read_at'])
         self.post('/logout')
@@ -510,7 +510,7 @@ class AppTests(unittest.TestCase):
         result = self.post('/activate/' + token, {'password': 'new-safe-password', 'confirm_password': 'new-safe-password'})
         self.assertIn(b'Your password is set', result.data)
         self.assertEqual(self.client.get('/activate/' + token).status_code, 400)
-        self.assertIn(b'Hit Me notice board', self.login('alex', 'new-safe-password').data)
+        self.assertIn(b'EMPIRE WIRE notice board', self.login('alex', 'new-safe-password').data)
 
     def test_email_failure_and_rate_limit(self):
         person, _ = self.add()

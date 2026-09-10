@@ -776,7 +776,7 @@ def create_app(test_config=None):
                 db().execute('INSERT INTO staff_notices(user_id,admin_id,title,body,priority,sent_at) VALUES(?,?,?,?,?,?)',
                              (recipient_id,g.user['id'],title,body,priority,timestamp()))
                 db().commit()
-                flash('Hit Me notice sent to the staff member’s dashboard.', 'success')
+                flash('EMPIRE WIRE notice sent to the staff member’s dashboard.', 'success')
                 return redirect(url_for('admin_hit_me'))
             except ValueError as error:
                 db().rollback()

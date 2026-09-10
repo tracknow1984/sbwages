@@ -94,11 +94,11 @@ All employees use Sunday week endings. Existing Friday-ending records keep their
 - ANNUAL LEAVE accepts inclusive first/last dates starting today or later. Pending/approved requests cannot overlap. Admin approves or disapproves once and can add comments; employees see status and comments in their tab. Review records admin and time. This is an approval workflow, not an accrual balance or payroll integration.
 - Existing users, timesheets and licence details are retained through additive schema creation.
 
-## Hit Me and staff home
+## EMPIRE WIRE and staff home
 
-- Staff log in to HOME, showing their Hit Me notice board, daily timesheet status, licence expiry and shortcuts. Licence alerts highlight expiry within 30 days, expiry today and overdue dates; missing dates link to My Details.
-- Admin HIT ME selects one active employee and sends a title, pasted job/information text and normal/urgent priority. The recipient alone sees the notice and can mark it as read. Admin sees read status and time; viewing the dashboard does not mark messages read.
-- Notices are in-app, not SMS, email or device push. While staff have Home or Hit Me open, the app checks every 30 seconds for new notices and shows a View updates prompt without discarding forms.
+- Staff log in to HOME, showing their EMPIRE WIRE notice board, daily timesheet status, licence expiry and shortcuts. Licence alerts highlight expiry within 30 days, expiry today and overdue dates; missing dates link to My Details.
+- Admin EMPIRE WIRE selects one active employee and sends a title, pasted job/information text and normal/urgent priority. The recipient alone sees the notice and can mark it as read. Admin sees read status and time; viewing the dashboard does not mark messages read.
+- Notices are in-app, not SMS, email or device push. While staff have Home or EMPIRE WIRE open, the app checks every 30 seconds for new notices and shows a View updates prompt without discarding forms.
 - Mobile navigation uses a compact grid; timesheets, document lists and leave requests become cards on narrow screens. Existing daily commit locks and early submission remain in place.
 
 ## Date format and timesheet grouping
