@@ -116,3 +116,5 @@ All employees use Sunday week endings. Existing Friday-ending records keep their
 ## SB Empire branding
 
 The header uses the SB EMPIRE .CO brand mark from the sbempire.co website icon asset (https://img1.wsimg.com/isteam/ip/9b8113f0-1359-42dd-8bb9-a95e43af7815/blob.png/:/rs=w:180,h:180,m), saved locally as static/sb-empire-logo.jpg. The visual palette is blue, black and grey; existing page layout and workflows are retained. The header and footer identify Staff, Timesheets & Operations.
+
+The approved blue SB EMPIRE logo with “Building Opportunities and Delivering Solutions” is now used in the top header as static/sb-empire-header.webp. A clean white background replaces the supplied checkerboard, with responsive sizing and the Staff, Timesheets & Operations label retained.
