@@ -1,0 +1,6 @@
+{% extends 'base.html' %}{% block content %}
+<div class="page-heading"><div><span class="eyebrow">ADMINISTRATION</span><h1>Admin dashboard</h1><p class="muted">Review staff documents and annual leave requests.</p></div></div>
+<div class="metrics"><div><span>Active documents</span><strong>{{ counts.documents }}</strong><a href="{{ url_for('admin_documents') }}">View documents →</a></div><div class="highlight"><span>Leave awaiting approval</span><strong>{{ counts.leave }}</strong><a href="{{ url_for('admin_leave') }}">Review leave →</a></div><div><span>Active staff</span><strong>{{ counts.staff }}</strong><a href="{{ url_for('admin_staff') }}">Manage staff →</a></div></div>
+<section class="panel feature-panel"><div class="panel-head"><h2>Latest staff documents</h2><a href="{{ url_for('admin_documents') }}">View all</a></div>{% include 'document_table.html' %}</section>
+<section class="panel feature-panel"><div class="panel-head"><h2>Annual leave awaiting approval</h2><a href="{{ url_for('admin_leave') }}">View all</a></div>{% include 'leave_table.html' %}</section>
+{% endblock %}

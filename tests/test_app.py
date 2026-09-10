@@ -1,3 +1,4 @@
+import io
 import re
 import sqlite3
 import tempfile
@@ -116,6 +117,137 @@ class AppTests(unittest.TestCase):
         self.assertEqual(row['licence_number'], '')
         self.assertEqual(row['licence_state'], '')
         self.assertEqual(row['licence_expiry'], '')
+
+    def upload_document(self, filename='licence.pdf', content=b'%PDF-1.4\n%%EOF', title='Driver licence'):
+        return self.post('/employee/documents', {'title':title, 'document':(io.BytesIO(content), filename)})
+
+    def test_document_upload_dashboard_archive_and_isolation(self):
+        person, _ = self.add()
+        self.add('jordan')
+        self.post('/logout')
+        self.login('alex', 'test-staff-password')
+        self.assertIn(b'Document uploaded', self.upload_document().data)
+        doc = self.query('SELECT * FROM documents')[0]
+        self.assertEqual(doc['data'], b'%PDF-1.4\n%%EOF')
+        self.assertEqual(self.client.get(f'/documents/{doc["id"]}/view').status_code, 200)
+        file = self.client.get(f'/documents/{doc["id"]}/file')
+        self.assertEqual(file.mimetype, 'application/pdf')
+        self.assertEqual(file.data, doc['data'])
+        self.assertIn('sandbox', file.headers['Content-Security-Policy'])
+        self.assertEqual(file.headers['Cache-Control'], 'no-store')
+        self.assertEqual(self.post(f'/admin/documents/{doc["id"]}/archive').status_code, 403)
+        self.assertEqual(self.client.get('/admin/dashboard').status_code, 403)
+        self.post('/logout')
+        self.login('jordan', 'test-staff-password')
+        for action in ('view', 'file'):
+            self.assertEqual(self.client.get(f'/documents/{doc["id"]}/{action}').status_code, 404)
+        self.assertNotIn(b'<strong>Driver licence</strong>', self.client.get('/employee/documents').data)
+        self.post('/logout')
+        self.assertEqual(self.client.get(f'/documents/{doc["id"]}/file').status_code, 403)
+        self.login('admin', 'test-admin-password', 'admin')
+        self.assertIn(b'Driver licence', self.client.get('/admin/dashboard').data)
+        self.client.get(f'/documents/{doc["id"]}/view')
+        self.assertTrue(self.query('SELECT viewed_at FROM documents')[0][0])
+        self.assertEqual(self.client.post(f'/admin/documents/{doc["id"]}/archive').status_code,400)
+        self.assertIn(b'Document archived', self.post(f'/admin/documents/{doc["id"]}/archive').data)
+        self.assertNotIn(b'Driver licence', self.client.get('/admin/dashboard').data)
+        self.assertIn(b'Driver licence', self.client.get('/admin/documents?archived=1').data)
+        self.assertEqual(self.client.get(f'/documents/{doc["id"]}/file').data, doc['data'])
+
+    def test_document_validation_and_size_limits(self):
+        self.add()
+        self.post('/logout')
+        self.login('alex', 'test-staff-password')
+        for name, data in [('bad.html', b'<script>alert(1)</script>'), ('fake.pdf', b'not a PDF'), ('empty.pdf', b'')]:
+            self.upload_document(name, data)
+        self.assertEqual(len(self.query('SELECT * FROM documents')), 0)
+        self.upload_document(content=b'%PDF-' + b'x' * (5 * 1024 * 1024))
+        self.assertEqual(len(self.query('SELECT * FROM documents')), 0)
+        result = self.upload_document(content=b'%PDF-' + b'x' * (6 * 1024 * 1024))
+        self.assertEqual(result.status_code, 413)
+        self.assertIn(b'Document uploaded', self.upload_document('../../licence.pdf').data)
+        self.assertEqual(self.query('SELECT filename FROM documents')[0][0], 'licence.pdf')
+
+    def test_document_email_attachment_and_failure(self):
+        self.add()
+        self.post('/logout')
+        self.login('alex', 'test-staff-password')
+        self.upload_document()
+        doc = self.query('SELECT * FROM documents')[0]
+        route = f'/admin/documents/{doc["id"]}/email'
+        self.assertEqual(self.post(route, {'recipient':'recipient@example.com'}).status_code,403)
+        self.post('/logout')
+        self.login('admin', 'test-admin-password', 'admin')
+        self.assertEqual(self.client.get(route).status_code,200)
+        with patch('app.smtplib.SMTP') as smtp:
+            result = self.post(route, {'recipient':'recipient@example.com', 'message':'For review'})
+            self.assertIn(b'Document emailed', result.data)
+            message = smtp.return_value.__enter__.return_value.send_message.call_args.args[0]
+            self.assertEqual(message['To'], 'recipient@example.com')
+            attachment = next(message.iter_attachments())
+            self.assertEqual(attachment.get_payload(decode=True), doc['data'])
+            self.assertEqual(attachment.get_filename(), 'licence.pdf')
+        self.assertEqual(len(self.query('SELECT * FROM document_emails')),1)
+        with patch('app.smtplib.SMTP', side_effect=OSError('offline')):
+            self.assertIn(b'could not be emailed', self.post(route, {'recipient':'recipient@example.com'}).data)
+        self.assertEqual(len(self.query('SELECT * FROM document_emails')),1)
+        with patch('app.smtplib.SMTP') as smtp:
+            self.post(route, {'recipient':'one@example.com,two@example.com'})
+            smtp.assert_not_called()
+        self.app.config['SMTP_HOST']=''
+        self.assertIn(b'Email is not connected', self.post(route, {'recipient':'recipient@example.com'}).data)
+
+    def test_annual_leave_submission_decisions_and_isolation(self):
+        self.add()
+        self.add('jordan')
+        self.post('/logout')
+        self.login('alex', 'test-staff-password')
+        start = datetime.now(ZoneInfo('Australia/Brisbane')).date()+timedelta(days=10)
+        values = {'start_date':start.isoformat(), 'end_date':(start+timedelta(days=2)).isoformat(), 'notes':'Family holiday'}
+        self.assertIn(b'sent to admin', self.post('/employee/leave',values).data)
+        row=self.query('SELECT * FROM leave_requests')[0]
+        self.assertEqual(row['status'],'pending')
+        self.assertIn(b'overlap',self.post('/employee/leave',values).data)
+        route=f'/admin/leave/{row["id"]}/decision'
+        self.assertEqual(self.post(route,{'decision':'approved'}).status_code,403)
+        self.post('/logout')
+        self.login('jordan','test-staff-password')
+        self.assertNotIn(b'Family holiday',self.client.get('/employee/leave').data)
+        self.post('/logout')
+        self.login('admin','test-admin-password','admin')
+        self.assertIn(b'Family holiday',self.client.get('/admin/dashboard').data)
+        self.assertEqual(self.client.post(route,data={'decision':'approved'}).status_code,400)
+        self.assertIn(b'Annual leave approved.',self.post(route,{'decision':'approved','admin_notes':'Enjoy your break'}).data)
+        self.assertIn(b'already been reviewed',self.post(route,{'decision':'rejected'}).data)
+        updated=self.query('SELECT * FROM leave_requests')[0]
+        self.assertEqual(updated['status'],'approved')
+        self.assertTrue(updated['decided_at'])
+        self.assertTrue(updated['decided_by'])
+        self.assertNotIn(b'Family holiday',self.client.get('/admin/dashboard').data)
+        self.post('/logout')
+        self.login('alex','test-staff-password')
+        page=self.client.get('/employee/leave')
+        self.assertIn(b'Approved',page.data)
+        self.assertIn(b'Enjoy your break',page.data)
+        self.assertIn(b'overlap',self.post('/employee/leave',values).data)
+        values['start_date']=(start+timedelta(days=5)).isoformat()
+        values['end_date']=values['start_date']
+        self.post('/employee/leave',values)
+        self.post('/logout')
+        self.login('admin','test-admin-password','admin')
+        self.post('/admin/leave/2/decision',{'decision':'rejected','admin_notes':'Please choose another day'})
+        self.post('/logout')
+        self.login('alex','test-staff-password')
+        self.assertIn(b'Disapproved',self.client.get('/employee/leave').data)
+        self.assertIn(b'sent to admin',self.post('/employee/leave',values).data)
+
+    def test_leave_date_validation(self):
+        self.add()
+        self.post('/logout')
+        self.login('alex','test-staff-password')
+        for start,end in [('bad','bad'),('2027-02-30','2027-03-01'),('2028-06-04','2028-06-03'),('2020-01-01','2020-01-02')]:
+            self.post('/employee/leave',{'start_date':start,'end_date':end})
+        self.assertEqual(len(self.query('SELECT * FROM leave_requests')),0)
 
     def test_sunday_submission_snapshot_and_lock(self):
         person, values = self.add()

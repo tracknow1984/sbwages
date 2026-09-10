@@ -1,4 +1,5 @@
 import hashlib
+import io
 import json
 import os
 import re
@@ -14,7 +15,8 @@ from functools import wraps
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from flask import Flask, abort, flash, g, redirect, render_template, request, session, url_for
+from flask import Flask, abort, flash, g, redirect, render_template, request, session, url_for, send_file
+from werkzeug.utils import secure_filename
 from werkzeug.security import check_password_hash, generate_password_hash
 
 SCHEMA = '''
@@ -42,6 +44,24 @@ CREATE TABLE IF NOT EXISTS invitations (
  token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), expires_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS login_attempts (key TEXT PRIMARY KEY, count INTEGER NOT NULL, started INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS documents (
+ id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), title TEXT NOT NULL,
+ filename TEXT NOT NULL, mime_type TEXT NOT NULL, data BLOB NOT NULL,
+ uploaded_at TEXT NOT NULL, archived_at TEXT, archived_by INTEGER REFERENCES users(id),
+ viewed_at TEXT, viewed_by INTEGER REFERENCES users(id)
+);
+CREATE TABLE IF NOT EXISTS document_emails (
+ id INTEGER PRIMARY KEY, document_id INTEGER NOT NULL REFERENCES documents(id),
+ admin_id INTEGER NOT NULL REFERENCES users(id), recipient TEXT NOT NULL, sent_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS leave_requests (
+ id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id),
+ start_date TEXT NOT NULL, end_date TEXT NOT NULL, notes TEXT NOT NULL DEFAULT '',
+ status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected')),
+ requested_at TEXT NOT NULL, decided_at TEXT, decided_by INTEGER REFERENCES users(id),
+ admin_notes TEXT NOT NULL DEFAULT '', CHECK(end_date >= start_date)
+);
+CREATE INDEX IF NOT EXISTS leave_by_user_dates ON leave_requests(user_id,start_date,end_date);
 CREATE TABLE IF NOT EXISTS entry_audit (
  id INTEGER PRIMARY KEY, admin_id INTEGER NOT NULL REFERENCES users(id),
  user_id INTEGER NOT NULL REFERENCES users(id), work_date TEXT NOT NULL,
@@ -56,7 +76,7 @@ def create_app(test_config=None):
         SECRET_KEY=os.environ.get('SECRET_KEY'), DATABASE=os.environ.get('DATABASE_PATH', 'data/sbwages.db'),
         SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax',
         SESSION_COOKIE_SECURE=os.environ.get('COOKIE_SECURE', 'true').lower() == 'true',
-        PERMANENT_SESSION_LIFETIME=timedelta(hours=12), MAX_CONTENT_LENGTH=128 * 1024,
+        PERMANENT_SESSION_LIFETIME=timedelta(hours=12), MAX_CONTENT_LENGTH=6 * 1024 * 1024, DOCUMENT_MAX_BYTES=5 * 1024 * 1024,
         APP_URL=os.environ.get('APP_URL', '').rstrip('/'),
         ADMIN_USERNAME=os.environ.get('ADMIN_USERNAME', 'admin'), ADMIN_EMAIL=os.environ.get('ADMIN_EMAIL', ''),
         ADMIN_PASSWORD=os.environ.get('ADMIN_PASSWORD', ''),
@@ -119,6 +139,8 @@ def create_app(test_config=None):
 
     @app.before_request
     def protect():
+        if request.endpoint != 'employee_documents':
+            request.max_content_length = 128 * 1024
         g.user = None
         if session.get('uid'):
             user = db().execute('SELECT * FROM users WHERE id=?', (session['uid'],)).fetchone()
@@ -137,6 +159,11 @@ def create_app(test_config=None):
         response.headers['X-Frame-Options'] = 'DENY'
         response.headers['Referrer-Policy'] = 'no-referrer'
         response.headers['Content-Security-Policy'] = "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'; base-uri 'self'"
+        if request.endpoint == 'document_file':
+            response.headers['Content-Security-Policy'] = "sandbox; default-src 'none'; frame-ancestors 'self'"
+            response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+        elif request.endpoint == 'view_document':
+            response.headers['Content-Security-Policy'] += "; frame-src 'self'"
         if app.config['SESSION_COOKIE_SECURE']:
             response.headers['Strict-Transport-Security'] = 'max-age=31536000'
         return response
@@ -192,7 +219,7 @@ def create_app(test_config=None):
     @app.get('/')
     def index():
         if g.user:
-            return redirect(url_for('admin_staff' if g.user['role'] == 'admin' else 'employee_timesheet'))
+            return redirect(url_for('admin_dashboard' if g.user['role'] == 'admin' else 'employee_timesheet'))
         return redirect(url_for('login', audience='employee'))
 
     @app.route('/<audience>/login', methods=['GET', 'POST'])
@@ -574,6 +601,196 @@ def create_app(test_config=None):
                 flash(str(error) if isinstance(error, ValueError) else 'The correction could not be saved.', 'error')
         audit = db().execute('SELECT a.*,u.first_name,u.last_name FROM entry_audit a JOIN users u ON u.id=a.admin_id WHERE a.user_id=? AND a.work_date=? ORDER BY a.id DESC', (person['id'], work_date)).fetchall()
         return render_template('day_edit.html', sheet=sheet, entry=entry, person=person, audit=audit, tab='submissions')
+
+    def timestamp():
+        return datetime.now(ZoneInfo('Australia/Brisbane')).isoformat()
+
+    def document_rows(archived=False, user_id=None, limit=-1):
+        sql = "SELECT d.id,d.user_id,d.title,d.filename,d.mime_type,length(d.data) AS size,d.uploaded_at,d.archived_at,d.viewed_at,u.first_name,u.last_name FROM documents d JOIN users u ON u.id=d.user_id"
+        if user_id is not None:
+            return db().execute(sql + ' WHERE d.user_id=? ORDER BY d.id DESC LIMIT ?', (user_id, limit)).fetchall()
+        return db().execute(sql + (' WHERE d.archived_at IS NOT NULL' if archived else ' WHERE d.archived_at IS NULL') + ' ORDER BY d.id DESC LIMIT ?', (limit,)).fetchall()
+
+    def leave_rows(user_id=None, pending=False, limit=-1):
+        sql = 'SELECT l.*,u.first_name,u.last_name FROM leave_requests l JOIN users u ON u.id=l.user_id'
+        if user_id is not None:
+            return db().execute(sql + ' WHERE l.user_id=? ORDER BY l.id DESC LIMIT ?', (user_id, limit)).fetchall()
+        return db().execute(sql + (" WHERE l.status='pending'" if pending else '') + ' ORDER BY l.id DESC LIMIT ?', (limit,)).fetchall()
+
+    @app.get('/admin/dashboard')
+    @require('admin')
+    def admin_dashboard():
+        counts = dict(documents=db().execute('SELECT COUNT(*) FROM documents WHERE archived_at IS NULL').fetchone()[0],
+                      leave=db().execute("SELECT COUNT(*) FROM leave_requests WHERE status='pending'").fetchone()[0],
+                      staff=db().execute("SELECT COUNT(*) FROM users WHERE role='employee' AND status='active'").fetchone()[0])
+        return render_template('dashboard.html', counts=counts, documents=document_rows(limit=10),
+                               requests=leave_rows(pending=True, limit=10), admin_view=True, tab='dashboard')
+
+    @app.route('/employee/documents', methods=['GET', 'POST'])
+    @require('employee')
+    def employee_documents():
+        if request.method == 'POST':
+            try:
+                title = request.form.get('title', '').strip()
+                upload = request.files.get('document')
+                if not title or len(title) > 150:
+                    raise ValueError('Enter a document title of up to 150 characters.')
+                if not upload or not upload.filename:
+                    raise ValueError('Choose a PDF, JPG or PNG file.')
+                filename = secure_filename(upload.filename)[:180]
+                suffix = Path(filename).suffix.lower()
+                data = upload.read(app.config['DOCUMENT_MAX_BYTES'] + 1)
+                if not data or len(data) > app.config['DOCUMENT_MAX_BYTES']:
+                    raise ValueError('Choose a non-empty document no larger than 5 MB.')
+                signatures = {'.pdf': ('application/pdf', data.startswith(b'%PDF-')),
+                              '.png': ('image/png', data.startswith(b'\x89PNG\r\n\x1a\n')),
+                              '.jpg': ('image/jpeg', data.startswith(b'\xff\xd8\xff')),
+                              '.jpeg': ('image/jpeg', data.startswith(b'\xff\xd8\xff'))}
+                if suffix not in signatures or not signatures[suffix][1]:
+                    raise ValueError('Upload a valid PDF, JPG or PNG file.')
+                db().execute('INSERT INTO documents(user_id,title,filename,mime_type,data,uploaded_at) VALUES(?,?,?,?,?,?)',
+                             (g.user['id'], title, filename, signatures[suffix][0], data, timestamp()))
+                db().commit()
+                flash('Document uploaded to the admin dashboard.', 'success')
+                return redirect(url_for('employee_documents'))
+            except ValueError as error:
+                flash(str(error), 'error')
+        return render_template('documents.html', documents=document_rows(user_id=g.user['id']), admin_view=False, tab='documents')
+
+    @app.get('/admin/documents')
+    @require('admin')
+    def admin_documents():
+        archived = request.args.get('archived') == '1'
+        return render_template('documents.html', documents=document_rows(archived=archived), archived=archived, admin_view=True, tab='documents')
+
+    def accessible_document(document_id):
+        if not g.user:
+            abort(403)
+        doc = db().execute('SELECT * FROM documents WHERE id=?', (document_id,)).fetchone()
+        if not doc or (g.user['role'] != 'admin' and doc['user_id'] != g.user['id']):
+            abort(404)
+        return doc
+
+    @app.get('/documents/<int:document_id>/view')
+    def view_document(document_id):
+        doc = accessible_document(document_id)
+        if g.user['role'] == 'admin':
+            db().execute('UPDATE documents SET viewed_at=?,viewed_by=? WHERE id=?', (timestamp(), g.user['id'], document_id))
+            db().commit()
+        return render_template('document_view.html', document=doc, admin_view=g.user['role'] == 'admin', tab='documents')
+
+    @app.get('/documents/<int:document_id>/file')
+    def document_file(document_id):
+        doc = accessible_document(document_id)
+        response = send_file(io.BytesIO(doc['data']), mimetype=doc['mime_type'], download_name=doc['filename'],
+                             as_attachment=request.args.get('download') == '1', max_age=0)
+        return response
+
+    @app.post('/admin/documents/<int:document_id>/archive')
+    @require('admin')
+    def archive_document(document_id):
+        accessible_document(document_id)
+        db().execute('UPDATE documents SET archived_at=?,archived_by=? WHERE id=? AND archived_at IS NULL',
+                     (timestamp(), g.user['id'], document_id))
+        db().commit()
+        flash('Document archived. It remains available in Archived documents.', 'success')
+        return redirect(url_for('admin_documents'))
+
+    @app.route('/admin/documents/<int:document_id>/email', methods=['GET', 'POST'])
+    @require('admin')
+    def email_document(document_id):
+        doc = accessible_document(document_id)
+        if request.method == 'POST':
+            recipient = request.form.get('recipient', '').strip()
+            note = request.form.get('message', '').strip()
+            if not valid_email(recipient) or ',' in recipient or ';' in recipient:
+                flash('Enter one valid recipient email address.', 'error')
+            elif len(note) > 2000:
+                flash('Keep the message to 2,000 characters.', 'error')
+            elif not mail_ready():
+                flash('Email is not connected yet. Configure email in Settings before sending.', 'error')
+            else:
+                msg = EmailMessage()
+                msg['Subject'] = 'SB EMPIRE document: ' + doc['filename']
+                msg['From'] = app.config['SMTP_FROM']
+                msg['To'] = recipient
+                msg.set_content(note or 'Please find the attached document from SB EMPIRE.')
+                main, sub = doc['mime_type'].split('/')
+                msg.add_attachment(doc['data'], maintype=main, subtype=sub, filename=doc['filename'])
+                try:
+                    cls = smtplib.SMTP_SSL if app.config['SMTP_SSL'] else smtplib.SMTP
+                    with cls(app.config['SMTP_HOST'], app.config['SMTP_PORT'], timeout=15) as smtp:
+                        if not app.config['SMTP_SSL']:
+                            smtp.starttls(context=ssl.create_default_context())
+                        if app.config['SMTP_USERNAME']:
+                            smtp.login(app.config['SMTP_USERNAME'], app.config['SMTP_PASSWORD'])
+                        smtp.send_message(msg)
+                except (OSError, smtplib.SMTPException):
+                    flash('The document could not be emailed. Check the email connection and try again.', 'error')
+                else:
+                    db().execute('INSERT INTO document_emails(document_id,admin_id,recipient,sent_at) VALUES(?,?,?,?)',
+                                 (document_id, g.user['id'], recipient, timestamp()))
+                    db().commit()
+                    flash('Document emailed to ' + recipient + '.', 'success')
+                    return redirect(url_for('view_document', document_id=document_id))
+        sent = db().execute('SELECT recipient,sent_at FROM document_emails WHERE document_id=? ORDER BY id DESC', (document_id,)).fetchall()
+        return render_template('document_email.html', document=doc, sent=sent, tab='documents')
+
+    @app.route('/employee/leave', methods=['GET', 'POST'])
+    @require('employee')
+    def employee_leave():
+        if request.method == 'POST':
+            try:
+                raw_start, raw_end = request.form.get('start_date', ''), request.form.get('end_date', '')
+                if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', raw_start) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', raw_end):
+                    raise ValueError('Choose valid start and end dates.')
+                try:
+                    start, end = date.fromisoformat(raw_start), date.fromisoformat(raw_end)
+                except ValueError:
+                    raise ValueError('Choose valid start and end dates.')
+                if start < today():
+                    raise ValueError('Leave must start today or in the future.')
+                if end < start:
+                    raise ValueError('End date must be on or after the start date.')
+                notes = request.form.get('notes', '').strip()
+                if len(notes) > 2000:
+                    raise ValueError('Keep leave notes to 2,000 characters.')
+                db().execute('BEGIN IMMEDIATE')
+                overlap = db().execute("SELECT id FROM leave_requests WHERE user_id=? AND status IN ('pending','approved') AND start_date<=? AND end_date>=?", (g.user['id'], raw_end, raw_start)).fetchone()
+                if overlap:
+                    raise ValueError('These dates overlap a pending or approved leave request.')
+                db().execute('INSERT INTO leave_requests(user_id,start_date,end_date,notes,requested_at) VALUES(?,?,?,?,?)',
+                             (g.user['id'], raw_start, raw_end, notes, timestamp()))
+                db().commit()
+                flash('Annual leave request sent to admin for approval.', 'success')
+                return redirect(url_for('employee_leave'))
+            except ValueError as error:
+                db().rollback()
+                flash(str(error), 'error')
+        return render_template('leave.html', requests=leave_rows(user_id=g.user['id']), admin_view=False, tab='leave')
+
+    @app.get('/admin/leave')
+    @require('admin')
+    def admin_leave():
+        return render_template('leave.html', requests=leave_rows(), admin_view=True, tab='leave')
+
+    @app.post('/admin/leave/<int:leave_id>/decision')
+    @require('admin')
+    def decide_leave(leave_id):
+        decision = request.form.get('decision')
+        notes = request.form.get('admin_notes', '').strip()
+        if decision not in ('approved', 'rejected') or len(notes) > 2000:
+            abort(400, 'Choose Approve or Disapprove and keep comments to 2,000 characters.')
+        if not db().execute('SELECT id FROM leave_requests WHERE id=?', (leave_id,)).fetchone():
+            abort(404)
+        result = db().execute("UPDATE leave_requests SET status=?,admin_notes=?,decided_at=?,decided_by=? WHERE id=? AND status='pending'",
+                              (decision, notes, timestamp(), g.user['id'], leave_id))
+        db().commit()
+        if result.rowcount:
+            flash('Annual leave approved.' if decision == 'approved' else 'Annual leave disapproved.', 'success')
+        else:
+            flash('This request has already been reviewed. Refresh to see the decision.', 'error')
+        return redirect(url_for('admin_leave'))
 
     @app.get('/admin/settings')
     @require('admin')

@@ -86,3 +86,10 @@ All employees use Sunday week endings. Existing Friday-ending records keep their
 - Admin: TIMESHEETS → View week → Edit / unlock. A correction stays locked and recalculates the total using the submitted rate if already submitted. Unlocking reopens the week as a draft and requires the employee to recommit and resubmit; draft estimates use the employee's current rate. Other committed days stay locked.
 - Administrator changes store the reason, administrator, timestamp and previous day/week values in `entry_audit`. No records are deleted.
 - Startup applies an additive SQLite migration for time fields and daily locks. Existing hours, submissions and accounts are preserved; historical submitted entries are marked locked without inventing start/finish times. Existing draft hours remain visible until the user supplies times and saves/commits the day.
+
+## Staff documents and annual leave
+
+- Staff DOCUMENTS accepts PDF, JPG and PNG files up to 5 MB. Files are stored privately in SQLite alongside existing data on the persistent volume; no public upload URLs are created. Backups must include the database and its WAL correctly.
+- Admin lands on DASHBOARD with active document and pending leave queues. DOCUMENTS provides View, Archive and Email actions. Archived documents remain available to admin and their owner. Email asks admin for one recipient, attaches the file through the existing SMTP settings, and records successful sends. No automatic emails are sent on upload.
+- ANNUAL LEAVE accepts inclusive first/last dates starting today or later. Pending/approved requests cannot overlap. Admin approves or disapproves once and can add comments; employees see status and comments in their tab. Review records admin and time. This is an approval workflow, not an accrual balance or payroll integration.
+- Existing users, timesheets and licence details are retained through additive schema creation.
