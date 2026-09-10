@@ -72,7 +72,8 @@ CREATE TABLE IF NOT EXISTS payments (
  week_start TEXT NOT NULL, week_end TEXT NOT NULL, total_units INTEGER NOT NULL,
  rate_cents INTEGER NOT NULL, total_cents INTEGER NOT NULL CHECK(total_cents>0),
  cash_cents INTEGER NOT NULL CHECK(cash_cents>=0), transfer_cents INTEGER NOT NULL CHECK(transfer_cents>=0),
- processed_at TEXT NOT NULL, CHECK(cash_cents+transfer_cents=total_cents)
+ deduction_cents INTEGER NOT NULL DEFAULT 0 CHECK(deduction_cents>=0),
+ processed_at TEXT NOT NULL, CHECK(cash_cents+transfer_cents+deduction_cents=total_cents)
 );
 CREATE INDEX IF NOT EXISTS payments_by_user ON payments(user_id,processed_at);
 CREATE TABLE IF NOT EXISTS staff_notices (
@@ -147,6 +148,15 @@ def create_app(test_config=None):
         # Additive migration: keep every existing timesheet and password intact.
         db().execute('BEGIN IMMEDIATE')
         db().execute('UPDATE users SET week_ending=6 WHERE week_ending<>6')
+        # Rebuild the old payment constraint atomically; historical deductions default to zero.
+        if 'deduction_cents' not in {row['name'] for row in db().execute('PRAGMA table_info(payments)')}:
+            definition = SCHEMA.split('CREATE TABLE IF NOT EXISTS payments (',1)[1].split(');',1)[0]
+            db().execute('CREATE TABLE payments_new (' + definition + ')')
+            columns = ','.join(row['name'] for row in db().execute('PRAGMA table_info(payments)'))
+            db().execute('INSERT INTO payments_new (' + columns + ') SELECT ' + columns + ' FROM payments')
+            db().execute('DROP TABLE payments')
+            db().execute('ALTER TABLE payments_new RENAME TO payments')
+            db().execute('CREATE INDEX payments_by_user ON payments(user_id,processed_at)')
         user_columns = {row['name'] for row in db().execute('PRAGMA table_info(users)')}
         if 'emergency_phone' not in user_columns:
             db().execute("ALTER TABLE users ADD COLUMN emergency_phone TEXT NOT NULL DEFAULT ''")
@@ -759,22 +769,23 @@ def create_app(test_config=None):
             try:
                 cash=decimal_units(request.form.get('cash_amount',''), 'Cash amount', 100000000)
                 transfer=decimal_units(request.form.get('transfer_amount',''), 'Transfer amount', 100000000)
+                deductions=decimal_units(request.form.get('deductions_amount','0'), 'Deductions', 100000000)
                 db().execute('BEGIN IMMEDIATE')
                 current=db().execute('SELECT * FROM sheets WHERE id=?',(sheet_id,)).fetchone()
                 if db().execute('SELECT id FROM payments WHERE sheet_id=?',(sheet_id,)).fetchone():
                     raise ValueError('Payment has already been processed for this timesheet.')
                 if current['status'] != 'submitted':
                     raise ValueError('This timesheet was reopened. It must be submitted again before payment.')
-                if cash+transfer != current['total_cents'] or current['total_cents'] <= 0:
-                    raise ValueError('Cash and transfer must add up to the full amount due: ' + money(current['total_cents']) + '.')
+                if cash+transfer+deductions != current['total_cents'] or current['total_cents'] <= 0:
+                    raise ValueError('Cash, transfer and deductions must add up to the full amount due: ' + money(current['total_cents']) + '.')
                 if request.form.get('expected_total') != str(current['total_cents']):
                     raise ValueError('The amount due changed. Reload this payment page and check the new amount.')
                 ending=date.fromisoformat(current['week_end'])
                 payment_id=db().execute("""INSERT INTO payments(sheet_id,user_id,admin_id,employee_name,employee_username,processed_by,
-                    week_start,week_end,total_units,rate_cents,total_cents,cash_cents,transfer_cents,processed_at)
-                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(sheet_id,person['id'],g.user['id'],person['first_name']+' '+person['last_name'],
+                    week_start,week_end,total_units,rate_cents,total_cents,cash_cents,transfer_cents,deduction_cents,processed_at)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(sheet_id,person['id'],g.user['id'],person['first_name']+' '+person['last_name'],
                     person['username'],g.user['first_name']+' '+g.user['last_name'],(ending-timedelta(days=6)).isoformat(),
-                    current['week_end'],current['total_units'],current['rate_cents'],current['total_cents'],cash,transfer,timestamp())).lastrowid
+                    current['week_end'],current['total_units'],current['rate_cents'],current['total_cents'],cash,transfer,deductions,timestamp())).lastrowid
                 db().commit()
                 flash('Payment processed. The payment slip is now available to the staff member.', 'success')
                 return redirect(url_for('payslip',payment_id=payment_id))

@@ -106,6 +106,7 @@ const paymentForm = document.querySelector('.payment-form');
 if (paymentForm) {
   const cash = paymentForm.elements.cash_amount;
   const transfer = paymentForm.elements.transfer_amount;
+  const deduction = paymentForm.elements.deductions_amount;
   const due = Number(paymentForm.dataset.amountDue);
   const cents = value => {
     if (!/^\d+(\.\d{1,2})?$/.test(value)) return null;
@@ -113,14 +114,14 @@ if (paymentForm) {
     return Number(whole)*100 + Number(fraction.padEnd(2,'0'));
   };
   const updatePayment = () => {
-    const first = cents(cash.value), second = cents(transfer.value);
-    const remaining = first === null || second === null ? null : due-first-second;
+    const first = cents(cash.value), second = cents(transfer.value), third = cents(deduction.value);
+    const remaining = first === null || second === null || third === null ? null : due-first-second-third;
     const display = paymentForm.querySelector('.payment-check');
     const money = value => (value/100).toLocaleString('en-AU',{style:'currency',currency:'AUD'});
-    display.textContent = remaining === null ? 'Enter valid cash and transfer amounts, with up to two decimal places.' : remaining === 0 ? `Ready to process: ${money(first)} cash + ${money(second)} transfer.` : remaining > 0 ? `${money(remaining)} still to allocate.` : `Amounts exceed the amount due by ${money(-remaining)}.`;
+    display.textContent = remaining === null ? 'Enter valid cash, transfer and deduction amounts, with up to two decimal places.' : remaining === 0 ? `Ready to process: ${money(first)} cash + ${money(second)} transfer + ${money(third)} deductions. Net paid: ${money(first+second)}.` : remaining > 0 ? `${money(remaining)} still to allocate.` : `Amounts exceed the amount due by ${money(-remaining)}.`;
     paymentForm.querySelector('button[type=submit]').disabled = remaining !== 0;
   };
-  cash.addEventListener('input',updatePayment); transfer.addEventListener('input',updatePayment); updatePayment();
+  cash.addEventListener('input',updatePayment); transfer.addEventListener('input',updatePayment); deduction.addEventListener('input',updatePayment); updatePayment();
   paymentForm.addEventListener('submit', () => { paymentForm.querySelector('button[type=submit]').disabled = true; });
 }
 document.querySelectorAll('.print-slip').forEach(button => button.addEventListener('click',() => window.print()));

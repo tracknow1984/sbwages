@@ -108,10 +108,10 @@ All employees use Sunday week endings. Existing Friday-ending records keep their
 
 ## Payment records and staff pay slips
 
-- Admin opens a submitted individual timesheet → Process Payment → enters cash and transfer amounts → Process. The two amounts must exactly equal the submitted total; either can be zero. This records payment only and initiates no transfer.
+- Admin opens a submitted individual timesheet → Process Payment → enters cash, transfer and deduction amounts → Process. The three amounts must exactly equal the submitted total; any can be zero. This records payment only and initiates no transfer.
 - Each timesheet can have only one payment. A database uniqueness constraint and write transaction prevent duplicate processing. Paid timesheets cannot be corrected or unlocked, preserving their recorded total.
-- Payment records snapshot staff name, week, hours, hourly rate, cash/transfer amounts, processing date and administrator. Later staff changes do not rewrite slips. Staff see their own Pay Slips, payment status in history and the latest payment on Home. Admin can view the same slip.
-- Print / Save PDF uses the browser print dialog. Slips record the cash/transfer breakdown only; they do not calculate tax, superannuation or deductions.
+- Payment records snapshot staff name, week, hours, hourly rate, cash/transfer/deduction amounts, processing date and administrator. Later staff changes do not rewrite slips. Staff see their own Pay Slips, payment status in history and the latest payment on Home. Admin can view the same slip.
+- Print / Save PDF uses the browser print dialog. Slips show cash, transfer, manually entered deductions and net pay; they do not calculate tax or superannuation automatically.
 
 ## SB Empire branding
 
@@ -142,3 +142,5 @@ Staff contact details include an optional emergency contact phone number, editab
 Licence front/back photos can be uploaded separately from contact details by the employee or admin on the staff edit page. Preview and download require admin or owner access. Photos use the existing 5 MB JPEG/PNG/WebP validation and normalisation, are stored privately in SQLite, and replace only the selected side. Both files validate before either is saved.
 
 Admin annual leave includes Archive/Restore and confirmed Delete controls. Archived requests leave the active admin queue and pending dashboard count but remain in staff history with their original decision and overlap rules. Delete permanently removes one request and its decision; if the decision changes after confirmation was opened, admin must review it again.
+
+Payment deductions default to zero for historical payments. The payment-table constraint is migrated atomically while retaining payment IDs and snapshots. Cash + transfer + deductions must equal the submitted timesheet total. Net pay on slips and staff Home excludes deductions.
