@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS users (
  mobile TEXT NOT NULL DEFAULT '', emergency_name TEXT NOT NULL DEFAULT '', emergency_email TEXT NOT NULL DEFAULT '',
  rate_cents INTEGER NOT NULL DEFAULT 0 CHECK(rate_cents >= 0), username TEXT NOT NULL COLLATE NOCASE UNIQUE,
  password_hash TEXT, status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','terminated')),
- week_ending INTEGER NOT NULL DEFAULT 4 CHECK(week_ending IN (4,6)), auth_version INTEGER NOT NULL DEFAULT 0,
+ week_ending INTEGER NOT NULL DEFAULT 6 CHECK(week_ending IN (4,6)), auth_version INTEGER NOT NULL DEFAULT 0,
  invited_at TEXT
 );
 CREATE TABLE IF NOT EXISTS sheets (
@@ -88,6 +88,7 @@ def create_app(test_config=None):
         db().executescript(SCHEMA)
         # Additive migration: keep every existing timesheet and password intact.
         db().execute('BEGIN IMMEDIATE')
+        db().execute('UPDATE users SET week_ending=6 WHERE week_ending<>6')
         user_columns = {row['name'] for row in db().execute('PRAGMA table_info(users)')}
         for name in ('licence_number', 'licence_state', 'licence_expiry'):
             if name not in user_columns:
@@ -259,10 +260,7 @@ def create_app(test_config=None):
             values['status'] = request.form.get('status')
             if values['status'] not in ('active', 'terminated'):
                 raise ValueError('Choose active or terminated.')
-            ending = request.form.get('week_ending')
-            if ending not in ('4', '6'):
-                raise ValueError('Choose Friday or Sunday for the week ending.')
-            values['week_ending'] = int(ending)
+            values['week_ending'] = 6
         return values
 
     @app.get('/admin/staff')
@@ -287,9 +285,6 @@ def create_app(test_config=None):
                 if password and len(password) < 12:
                     raise ValueError('Passwords must have at least 12 characters.')
                 db().execute('BEGIN IMMEDIATE')
-                if person and person['week_ending'] != values['week_ending']:
-                    if db().execute("SELECT id FROM sheets WHERE user_id=? AND status='draft'", (user_id,)).fetchone():
-                        raise ValueError('Submit existing draft timesheets before changing the week ending.')
                 if person:
                     db().execute('UPDATE users SET ' + ','.join(f'{k}=?' for k in values) + ' WHERE id=?', (*values.values(), user_id))
                     if person['status'] != values['status'] or person['username'] != values['username']:
@@ -404,7 +399,12 @@ def create_app(test_config=None):
         units = sum(r['units'] for r in rows)
         rate = sheet['rate_cents'] if sheet and sheet['status'] == 'submitted' else person['rate_cents']
         total = sheet['total_cents'] if sheet and sheet['status'] == 'submitted' else amount(units, rate)
-        return dict(sheet=sheet, days=days, entries=by_day, total_units=units, rate=rate, total_cents=total)
+        # Existing Friday records retain their original totals. Their dates cannot
+        # be entered again in a new Monday-Sunday sheet.
+        booked = db().execute('SELECT e.work_date,s.week_end FROM entries e JOIN sheets s ON s.id=e.sheet_id WHERE e.user_id=? AND e.work_date BETWEEN ? AND ? AND s.week_end<>?',
+            (person['id'], days[0].isoformat(), ending.isoformat(), ending.isoformat())).fetchall()
+        return dict(sheet=sheet, days=days, entries=by_day, total_units=units, rate=rate, total_cents=total,
+                    booked_days={row['work_date']: row['week_end'] for row in booked}, legacy_week=ending.weekday() != 6)
 
     def parse_day():
         start = request.form.get('start_time', '').strip()
@@ -434,13 +434,13 @@ def create_app(test_config=None):
     def employee_timesheet():
         person = g.user
         try:
-            ending = date.fromisoformat(request.values.get('week', week_end(today(), person['week_ending']).isoformat()))
+            ending = date.fromisoformat(request.values.get('week', week_end(today(), 6).isoformat()))
         except ValueError:
             abort(400, 'Invalid week date.')
         existing = db().execute('SELECT * FROM sheets WHERE user_id=? AND week_end=?', (person['id'], ending.isoformat())).fetchone()
-        if not existing and ending.weekday() != person['week_ending']:
-            abort(400, 'This week does not match your assigned week ending.')
-        if ending > week_end(today(), person['week_ending']):
+        if not existing and ending.weekday() != 6:
+            abort(400, 'Timesheets run Monday to Sunday. Choose a Sunday week ending.')
+        if ending > week_end(today(), 6):
             abort(400, 'Future timesheets are not available yet.')
         data = sheet_data(person, ending)
         if request.method == 'POST':
@@ -478,10 +478,6 @@ def create_app(test_config=None):
                     if old and old['units'] and not old['start_time'] and not start and not finish:
                         raise ValueError('This day has previous hours. Enter start and finish times before saving or committing it.')
                     if not current:
-                        overlap = db().execute('SELECT id FROM sheets WHERE user_id=? AND week_end BETWEEN ? AND ? AND week_end<>?',
-                            (person['id'], (ending - timedelta(days=6)).isoformat(), (ending + timedelta(days=6)).isoformat(), ending.isoformat())).fetchone()
-                        if overlap:
-                            raise ValueError('This week overlaps an existing timesheet. Ask admin to check the week ending.')
                         sid = db().execute('INSERT INTO sheets(user_id,week_end) VALUES(?,?)', (person['id'], ending.isoformat())).lastrowid
                     else:
                         sid = current['id']
@@ -498,12 +494,18 @@ def create_app(test_config=None):
                 db().rollback()
                 flash(str(error) if isinstance(error, ValueError) else 'This date overlaps existing hours. Please contact admin.', 'error')
         return render_template('timesheet.html', **data, person=person, ending=ending, tab='timesheet', admin_view=False,
-                               previous=ending - timedelta(days=7), following=ending + timedelta(days=7), current_ending=week_end(today(), person['week_ending']))
+                               previous=week_end(ending, 6) - timedelta(days=7), following=week_end(ending, 6) + timedelta(days=7), current_ending=week_end(today(), 6))
 
     @app.get('/employee/history')
     @require('employee')
     def history():
-        sheets = db().execute("SELECT s.*,u.first_name,u.last_name FROM sheets s JOIN users u ON u.id=s.user_id WHERE s.user_id=? AND s.status='submitted' ORDER BY week_end DESC", (g.user['id'],)).fetchall()
+        sheets = db().execute("SELECT s.*,u.first_name,u.last_name FROM sheets s JOIN users u ON u.id=s.user_id WHERE s.user_id=? ORDER BY week_end DESC", (g.user['id'],)).fetchall()
+        sheets = [dict(row) for row in sheets]
+        for row in sheets:
+            if row['status'] == 'draft':
+                row['total_units'] = db().execute('SELECT COALESCE(SUM(units),0) FROM entries WHERE sheet_id=?', (row['id'],)).fetchone()[0]
+                row['rate_cents'] = g.user['rate_cents']
+                row['total_cents'] = amount(row['total_units'], row['rate_cents'])
         return render_template('submissions.html', sheets=sheets, tab='history', admin_view=False)
 
     @app.get('/admin/timesheets')

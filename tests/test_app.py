@@ -40,7 +40,7 @@ class AppTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         return response
 
-    def add(self, username='alex', ending='4', password='test-staff-password'):
+    def add(self, username='alex', ending='6', password='test-staff-password'):
         values = dict(first_name='Alex', last_name='Example', email=username+'@example.com', mobile='0400000000',
                       emergency_name='Casey Example', emergency_email='casey@example.com',
                       hourly_rate='35.50', username=username, password=password, status='active', week_ending=ending)
@@ -48,7 +48,7 @@ class AppTests(unittest.TestCase):
         self.assertIn(b'Staff details saved.', response.data)
         return self.query('SELECT * FROM users WHERE username=?', (username,))[0], values
 
-    def last_week(self, ending=4):
+    def last_week(self, ending=6):
         today = datetime.now(ZoneInfo('Australia/Brisbane')).date()
         return today - timedelta(days=((today.weekday() - ending) % 7) + 7)
 
@@ -117,7 +117,7 @@ class AppTests(unittest.TestCase):
         self.assertEqual(row['licence_state'], '')
         self.assertEqual(row['licence_expiry'], '')
 
-    def test_friday_submission_snapshot_and_lock(self):
+    def test_sunday_submission_snapshot_and_lock(self):
         person, values = self.add()
         self.post('/logout')
         self.login('alex', 'test-staff-password')
@@ -167,7 +167,7 @@ class AppTests(unittest.TestCase):
         self.post('/employee/timesheet', self.week_form(end, '8', 'submit'))
         self.post('/logout')
         self.login('jordan', 'test-staff-password')
-        self.assertIn(b'No submitted weeks yet', self.client.get('/employee/history').data)
+        self.assertIn(b'No timesheets yet', self.client.get('/employee/history').data)
         self.assertEqual(self.client.get('/admin/timesheets/1').status_code, 403)
         self.assertNotIn(b'Yard maintenance', self.client.get('/employee/timesheet?week=' + end.isoformat()).data)
 
@@ -220,8 +220,37 @@ class AppTests(unittest.TestCase):
         self.post('/logout')
         self.login('admin', 'test-admin-password', 'admin')
         response = self.post(f'/admin/staff/{person["id"]}/edit', values | {'week_ending': '6', 'password': ''})
-        self.assertIn(b'Submit existing draft', response.data)
-        self.assertEqual(self.query('SELECT week_ending FROM users WHERE id=?', (person['id'],))[0]['week_ending'], 4)
+        self.assertIn(b'Staff details saved.', response.data)
+        self.assertEqual(self.query('SELECT week_ending FROM users WHERE id=?', (person['id'],))[0]['week_ending'], 6)
+
+    def test_sunday_only_and_legacy_records_do_not_duplicate_hours(self):
+        person, values = self.add(ending='4')
+        self.assertEqual(person['week_ending'], 6)
+        sunday = self.last_week()
+        friday = sunday - timedelta(days=2)
+        with sqlite3.connect(self.path) as db:
+            db.execute('UPDATE users SET week_ending=4 WHERE id=?', (person['id'],))
+            sid = db.execute("INSERT INTO sheets(user_id,week_end,status,rate_cents,total_units,total_cents,submitted_at) VALUES(?,?,'submitted',3550,800,28400,'2026-01-01')", (person['id'], friday.isoformat())).lastrowid
+            db.execute("INSERT INTO entries(user_id,work_date,sheet_id,units,activity,start_time,finish_time,committed_at) VALUES(?,?,?,800,'Original work','08:00','16:00','2026-01-01')", (person['id'], friday.isoformat(), sid))
+        create_app(self.app.config)
+        create_app(self.app.config)
+        self.assertEqual(self.query('SELECT week_ending FROM users WHERE id=?', (person['id'],))[0][0], 6)
+        self.assertEqual(self.query('SELECT total_cents FROM sheets WHERE id=?', (sid,))[0][0], 28400)
+        self.post('/logout')
+        self.login('alex', 'test-staff-password')
+        page = self.client.get('/employee/timesheet?week=' + sunday.isoformat())
+        self.assertIn(b'Recorded in another week', page.data)
+        self.assertIn(b'Excluded from this week', page.data)
+        self.assertEqual(self.client.get('/employee/timesheet?week=' + (friday-timedelta(days=7)).isoformat()).status_code, 400)
+        self.assertIn(b'locked', self.client.get('/employee/timesheet?week=' + friday.isoformat()).data)
+        self.assertIn(b'belongs to another timesheet', self.post('/employee/timesheet', self.day_form(sunday, day=friday)).data)
+        self.assertIn(b'Day committed', self.post('/employee/timesheet', self.day_form(sunday)).data)
+        self.assertEqual(self.client.get('/employee/history').status_code, 200)
+        self.assertIn(b'Timesheet submitted', self.post('/employee/timesheet', {'week':sunday.isoformat(), 'action':'submit'}).data)
+        sheet = self.query('SELECT * FROM sheets WHERE week_end=?', (sunday.isoformat(),))[0]
+        self.assertEqual(sheet['total_units'], 800)
+        self.assertEqual(sheet['total_cents'], 28400)
+        self.assertEqual(len(self.query('SELECT * FROM entries')), 2)
 
     def test_commit_cannot_be_changed_by_employee_and_ignores_other_days(self):
         self.add()
@@ -242,10 +271,10 @@ class AppTests(unittest.TestCase):
         self.assertEqual(self.query('SELECT units FROM entries WHERE work_date=?', (end.isoformat(),))[0]['units'], 850)
         self.assertIn(b'Commit each entered day', self.post('/employee/timesheet', {'week':end.isoformat(), 'action':'submit'}).data)
 
-    def test_partial_week_submission_before_friday_and_sunday(self):
-        # A fixed Wednesday ensures this exercises early submission for both schedules.
+    def test_partial_week_submission_before_sunday(self):
+        # A fixed Wednesday ensures this exercises early submission for the Monday-Sunday schedule.
         fixed_now = datetime(2026, 9, 9, 12, tzinfo=ZoneInfo('Australia/Brisbane'))
-        for ending_day in (4, 6):
+        for ending_day in (6,):
             with self.subTest(ending=ending_day), patch('app.datetime') as clock:
                 clock.now.return_value = fixed_now
                 username = f'partial{ending_day}'
