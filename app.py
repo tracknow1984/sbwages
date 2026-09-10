@@ -433,8 +433,6 @@ def create_app(test_config=None):
                 if current and current['status'] == 'submitted':
                     raise ValueError('This timesheet has been submitted and is locked.')
                 if action == 'submit':
-                    if today() < ending:
-                        raise ValueError('You can submit on or after your week-ending day.')
                     rows = db().execute('SELECT * FROM entries WHERE sheet_id=?', (current['id'],)).fetchall() if current else []
                     units = sum(row['units'] for row in rows)
                     if not units:

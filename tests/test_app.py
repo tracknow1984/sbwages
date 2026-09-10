@@ -206,6 +206,40 @@ class AppTests(unittest.TestCase):
         self.assertEqual(self.query('SELECT units FROM entries WHERE work_date=?', (end.isoformat(),))[0]['units'], 850)
         self.assertIn(b'Commit each entered day', self.post('/employee/timesheet', {'week':end.isoformat(), 'action':'submit'}).data)
 
+    def test_partial_week_submission_before_friday_and_sunday(self):
+        # A fixed Wednesday ensures this exercises early submission for both schedules.
+        fixed_now = datetime(2026, 9, 9, 12, tzinfo=ZoneInfo('Australia/Brisbane'))
+        for ending_day in (4, 6):
+            with self.subTest(ending=ending_day), patch('app.datetime') as clock:
+                clock.now.return_value = fixed_now
+                username = f'partial{ending_day}'
+                self.add(username=username, ending=str(ending_day))
+                self.post('/logout')
+                self.login(username, 'test-staff-password')
+                day = fixed_now.date()
+                end = day + timedelta(days=ending_day - day.weekday())
+                page = self.client.get('/employee/timesheet?week=' + end.isoformat())
+                button = re.search(rb'<button[^>]*name="action"[^>]*value="submit"[^>]*>', page.data)
+                self.assertIsNotNone(button)
+                self.assertNotIn(b'disabled', button.group())
+                values = self.day_form(end, action='save_day', day=day)
+                self.post('/employee/timesheet', values)
+                submit = {'week': end.isoformat(), 'action': 'submit'}
+                self.assertIn(b'Commit each entered day', self.post('/employee/timesheet', submit).data)
+                self.post('/employee/timesheet', values | {'action': 'commit_day'})
+                self.assertIn(b'Timesheet submitted to admin.', self.post('/employee/timesheet', submit).data)
+                sheet = self.query('SELECT s.* FROM sheets s JOIN users u ON u.id=s.user_id WHERE u.username=?', (username,))[0]
+                self.assertEqual(sheet['status'], 'submitted')
+                self.assertEqual(sheet['total_units'], 800)
+                self.assertEqual(sheet['total_cents'], 28400)
+                self.assertEqual(len(self.query('SELECT * FROM entries WHERE sheet_id=?', (sheet['id'],))), 1)
+                self.assertIn(b'locked', self.post('/employee/timesheet', values | {'finish_time': '18:00'}).data)
+                self.assertIn(b'locked', self.post('/employee/timesheet', self.day_form(end, day=day-timedelta(days=1))).data)
+                self.assertEqual(self.query('SELECT total_units FROM sheets WHERE id=?', (sheet['id'],))[0]['total_units'], 800)
+                self.post('/logout')
+                self.login('admin', 'test-admin-password', 'admin')
+                self.assertIn(b'$284.00', self.client.get(f'/admin/timesheets/{sheet["id"]}').data)
+
     def test_admin_correction_and_unlock_of_submitted_week(self):
         person, values = self.add()
         self.post('/logout')

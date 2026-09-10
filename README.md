@@ -11,7 +11,7 @@ A server-backed staff management and weekly timesheet app for SB EMPIRE, built f
 - Employee contact updates, daily start/finish times and activity notes across all seven days, separate Save day and Commit day buttons, calculated hours, live totals and weekly submission.
 - Committed days are locked on the server. Only administrators can correct or unlock them, with a required reason and a retained change history. Admins can see draft weeks as soon as a day is saved.
 - Friday weeks run Saturday–Friday; Sunday weeks run Monday–Sunday. Dates use Australia/Brisbane.
-- Employees may submit on or after the week-ending day. Submitted records are locked and visible in the admin table and employee history.
+- Employees may submit at any time, including before their Friday/Sunday week ending when working a partial week. Entered days must be committed; days not worked can stay blank. Submitted records are locked and visible in the admin table and employee history.
 - Submission snapshots the rate, hours and weekly amount. Later rate changes do not rewrite submitted records.
 - Hashed passwords, server-side role and ownership checks, CSRF protection, login throttling and single-use 48-hour password setup invitations. Termination revokes existing employee sessions.
 
