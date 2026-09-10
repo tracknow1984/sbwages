@@ -131,3 +131,8 @@ Prestart checks use compact Pass/Fail buttons (Yes/No for greasing), with N/A on
 Equipment also includes CAT D6 DOZER, HYSTER FORKLIFT and FORKFORCE 2.5T, with dozer/forklift-specific checks and hour-meter readings. One prestart per asset per Brisbane calendar day is accepted across all employees. Completed equipment is marked in the selector and shows the submitter/time when selected. A transaction locks the daily check and insert to prevent concurrent duplicate submissions. Existing history is retained. A completed equipment check does not transfer the signer's fitness-for-duty declaration to another operator.
 
 The equipment selector groups Machines and Vehicles and immediately loads the appropriate checklist on selection, including the daily duplicate check. Machine choices are T595 BOBCAT, SUMITOMO EXCAVATOR, DEMAG ROLLER, CAT D6 DOZER, HYSTER FORKLIFT and FORKFORCE 2.5T; MITSUBISHI RIGID and ACCO TIPPER are vehicles.
+
+
+## Timesheet archive and deletion
+
+Admin timesheet rows include Archive (or Restore in the Archived view) and Delete beside View week. Archive only organises the admin list; staff history, committed locks, payment records and pay slips remain available. Delete requires a dedicated confirmation page and CSRF-protected POST. Deletion removes only the selected sheet, its daily entries and matching correction history, plus any linked payment/pay slip after explicit confirmation. If a payment is processed after the confirmation page was opened, deletion stops for a fresh review. Employee accounts and unrelated modules are retained.

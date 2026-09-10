@@ -146,6 +146,8 @@ def create_app(test_config=None):
         for name in ('licence_number', 'licence_state', 'licence_expiry'):
             if name not in user_columns:
                 db().execute(f"ALTER TABLE users ADD COLUMN {name} TEXT NOT NULL DEFAULT ''")
+        if 'archived_at' not in {row['name'] for row in db().execute('PRAGMA table_info(sheets)')}:
+            db().execute('ALTER TABLE sheets ADD COLUMN archived_at TEXT')
         if 'signature_image' not in {row['name'] for row in db().execute('PRAGMA table_info(prestarts)')}:
             db().execute('ALTER TABLE prestarts ADD COLUMN signature_image BLOB')
         columns = {row['name'] for row in db().execute('PRAGMA table_info(entries)')}
@@ -574,15 +576,54 @@ def create_app(test_config=None):
     @app.get('/admin/timesheets')
     @require('admin')
     def admin_timesheets():
-        sheets = db().execute("""SELECT s.id,s.user_id,s.week_end,s.status,s.submitted_at,u.first_name,u.last_name,
+        archived = request.args.get('archived') == '1'
+        sheets = db().execute("""SELECT s.id,s.user_id,s.week_end,s.status,s.submitted_at,s.archived_at,u.first_name,u.last_name,
             CASE WHEN s.status='submitted' THEN s.total_units ELSE COALESCE((SELECT SUM(e.units) FROM entries e WHERE e.sheet_id=s.id),0) END total_units,
             CASE WHEN s.status='submitted' THEN s.rate_cents ELSE u.rate_cents END rate_cents,
-            s.total_cents,p.id AS payment_id FROM sheets s JOIN users u ON u.id=s.user_id LEFT JOIN payments p ON p.sheet_id=s.id ORDER BY s.week_end DESC,u.first_name""").fetchall()
+            s.total_cents,p.id AS payment_id FROM sheets s JOIN users u ON u.id=s.user_id LEFT JOIN payments p ON p.sheet_id=s.id WHERE (s.archived_at IS NOT NULL)=? ORDER BY s.week_end DESC,u.first_name""", (int(archived),)).fetchall()
         sheets = [dict(row) for row in sheets]
         for row in sheets:
             if row["status"] == "draft":
                 row["total_cents"] = amount(row["total_units"], row["rate_cents"])
-        return render_template('submissions.html', sheets=sheets, week_groups=group_timesheets(sheets), tab='submissions', admin_view=True)
+        return render_template('submissions.html', sheets=sheets, week_groups=group_timesheets(sheets), tab='submissions', admin_view=True, archived=archived)
+
+    @app.post('/admin/timesheets/<int:sheet_id>/archive')
+    @require('admin')
+    def archive_sheet(sheet_id):
+        restore = request.form.get('action') == 'restore'
+        cursor = db().execute('UPDATE sheets SET archived_at=? WHERE id=?', (None if restore else timestamp(), sheet_id))
+        if not cursor.rowcount:
+            abort(404)
+        db().commit()
+        flash('Timesheet restored.' if restore else 'Timesheet archived.', 'success')
+        return redirect(url_for('admin_timesheets', archived='1' if restore else '0'))
+
+    @app.route('/admin/timesheets/<int:sheet_id>/delete', methods=['GET','POST'])
+    @require('admin')
+    def delete_sheet(sheet_id):
+        if request.method == 'POST':
+            if request.form.get('confirm_delete') != 'yes':
+                abort(400, 'Confirm deletion before continuing.')
+            db().execute('BEGIN IMMEDIATE')
+        sheet = db().execute('SELECT s.*,u.first_name,u.last_name FROM sheets s JOIN users u ON u.id=s.user_id WHERE s.id=?', (sheet_id,)).fetchone()
+        if not sheet:
+            db().rollback()
+            abort(404)
+        payment = db().execute('SELECT * FROM payments WHERE sheet_id=?', (sheet_id,)).fetchone()
+        if request.method == 'POST':
+            # Do not delete a newly processed payment that was absent from the confirmation page.
+            if request.form.get('payment_id','') != (str(payment['id']) if payment else ''):
+                db().rollback()
+                flash('Payment details changed. Review the timesheet again before deleting.', 'error')
+                return redirect(url_for('delete_sheet',sheet_id=sheet_id))
+            db().execute('DELETE FROM payments WHERE sheet_id=?', (sheet_id,))
+            db().execute('DELETE FROM entry_audit WHERE EXISTS (SELECT 1 FROM entries e WHERE e.sheet_id=? AND e.user_id=entry_audit.user_id AND e.work_date=entry_audit.work_date)', (sheet_id,))
+            db().execute('DELETE FROM entries WHERE sheet_id=?', (sheet_id,))
+            db().execute('DELETE FROM sheets WHERE id=?', (sheet_id,))
+            db().commit()
+            flash('Timesheet deleted.' + (' Its payment record and pay slip were also deleted.' if payment else ''), 'success')
+            return redirect(url_for('admin_timesheets',archived='1' if sheet['archived_at'] else '0'))
+        return render_template('delete_sheet.html',sheet=sheet,payment=payment,tab='submissions')
 
     @app.get('/admin/timesheets/<int:sheet_id>')
     @require('admin')
