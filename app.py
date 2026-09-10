@@ -88,6 +88,10 @@ def create_app(test_config=None):
         db().executescript(SCHEMA)
         # Additive migration: keep every existing timesheet and password intact.
         db().execute('BEGIN IMMEDIATE')
+        user_columns = {row['name'] for row in db().execute('PRAGMA table_info(users)')}
+        for name in ('licence_number', 'licence_state', 'licence_expiry'):
+            if name not in user_columns:
+                db().execute(f"ALTER TABLE users ADD COLUMN {name} TEXT NOT NULL DEFAULT ''")
         columns = {row['name'] for row in db().execute('PRAGMA table_info(entries)')}
         for name, definition in [('start_time', 'TEXT'), ('finish_time', 'TEXT'),
                                  ('committed_at', 'TEXT')]:
@@ -231,6 +235,22 @@ def create_app(test_config=None):
             raise ValueError('Please complete all staff contact fields.')
         if not valid_email(values['email']) or not valid_email(values['emergency_email']):
             raise ValueError('Enter valid contact and emergency contact email addresses.')
+        # Optional fields: omitted keys preserve records from older forms.
+        for field in ('licence_number', 'licence_state', 'licence_expiry'):
+            if field in request.form:
+                values[field] = request.form.get(field, '').strip()
+        if len(values.get('licence_number', '')) > 80:
+            raise ValueError('Licence number must be 80 characters or fewer.')
+        if values.get('licence_state', '') not in ('', 'ACT', 'NSW', 'NT', 'QLD', 'SA', 'TAS', 'VIC', 'WA'):
+            raise ValueError('Choose a valid licence state or territory.')
+        expiry = values.get('licence_expiry', '')
+        if expiry:
+            try:
+                if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', expiry):
+                    raise ValueError()
+                date.fromisoformat(expiry)
+            except ValueError:
+                raise ValueError('Enter a valid licence expiry date.')
         if admin:
             values['username'] = request.form.get('username', '').strip().lower()
             if not re.fullmatch(r'[a-z0-9._@+-]{3,80}', values['username']):

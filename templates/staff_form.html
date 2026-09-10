@@ -1,7 +1,7 @@
 {% extends 'base.html' %}{% block content %}
 <a class="back" href="{{ url_for('admin_staff') }}">← Staff details</a><div class="page-heading"><div><span class="eyebrow">TEAM MANAGEMENT</span><h1>{{ 'Edit staff member' if editing else 'Add staff member' }}</h1></div></div>
 <form method="post" class="form-panel panel"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
-<section><h2>Contact details</h2>{% include 'contact_fields.html' %}</section>
+<section><h2>Contact details</h2>{% include 'contact_fields.html' %}</section>{% include 'licence_fields.html' %}
 <section><h2>Employment & pay</h2><div class="form-grid three">
 <label>Hourly rate ($ AUD)<input name="hourly_rate" type="number" step="0.01" min="0" max="100000" value="{{ person.hourly_rate if person and person.hourly_rate is defined else ('%.2f'|format(person.rate_cents/100) if person and person.rate_cents is defined else '') }}" required></label>
 <label>Employment status<select name="status" required><option value="active" {{ 'selected' if not person or person.status == 'active' }}>Active</option><option value="terminated" {{ 'selected' if person and person.status == 'terminated' }}>Terminated</option></select></label>

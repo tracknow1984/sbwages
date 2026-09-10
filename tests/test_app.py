@@ -81,6 +81,42 @@ class AppTests(unittest.TestCase):
         self.assertEqual(updated['status'], 'active')
         self.assertEqual(updated['first_name'], 'Updated')
 
+    def test_licence_details_employee_admin_and_validation(self):
+        person, values = self.add()
+        licence = dict(licence_number='00123456', licence_state='QLD', licence_expiry='2028-05-15')
+        self.post('/logout')
+        self.login('alex', 'test-staff-password')
+        self.assertIn(b'Licence details', self.client.get('/employee/details').data)
+        self.assertIn(b'Your details have been updated.', self.post('/employee/details', values | licence).data)
+        row = self.query('SELECT * FROM users WHERE id=?', (person['id'],))[0]
+        for key, value in licence.items():
+            self.assertEqual(row[key], value)
+        for invalid in ({'licence_state':'INVALID'}, {'licence_expiry':'2028-02-30'}, {'licence_number':'x'*81}):
+            self.assertNotIn(b'Your details have been updated.', self.post('/employee/details', values | licence | invalid).data)
+        self.assertEqual(self.query('SELECT licence_expiry FROM users WHERE id=?', (person['id'],))[0][0], '2028-05-15')
+        self.post('/logout')
+        self.login('admin', 'test-admin-password', 'admin')
+        route = f'/admin/staff/{person["id"]}/edit'
+        self.assertIn(b'00123456', self.client.get(route).data)
+        self.assertIn(b'Staff details saved.', self.post(route, values | licence | {'licence_state':'NSW', 'password':''}).data)
+        self.assertEqual(self.query('SELECT licence_state FROM users WHERE id=?', (person['id'],))[0][0], 'NSW')
+        self.post(route, values | {key:'' for key in licence} | {'password':''})
+        self.assertEqual(self.query('SELECT licence_number FROM users WHERE id=?', (person['id'],))[0][0], '')
+
+    def test_licence_migration_preserves_staff(self):
+        person, _ = self.add()
+        with sqlite3.connect(self.path) as db:
+            for col in ('licence_number', 'licence_state', 'licence_expiry'):
+                db.execute(f'ALTER TABLE users DROP COLUMN {col}')
+        create_app(self.app.config)
+        create_app(self.app.config)
+        row = self.query('SELECT * FROM users WHERE id=?', (person['id'],))[0]
+        self.assertEqual(row['password_hash'], person['password_hash'])
+        self.assertEqual(row['first_name'], person['first_name'])
+        self.assertEqual(row['licence_number'], '')
+        self.assertEqual(row['licence_state'], '')
+        self.assertEqual(row['licence_expiry'], '')
+
     def test_friday_submission_snapshot_and_lock(self):
         person, values = self.add()
         self.post('/logout')
