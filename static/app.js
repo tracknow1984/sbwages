@@ -127,13 +127,65 @@ document.querySelectorAll('.print-slip').forEach(button => button.addEventListen
 
 const prestartForm = document.querySelector('.prestart-form');
 if (prestartForm) {
-  prestartForm.querySelectorAll('[data-prestart-check]').forEach(select => {
-    const note = select.closest('.prestart-check').querySelector('textarea');
-    const update = () => { note.required = ['fail','no'].includes(select.value); };
-    select.addEventListener('change', update); update();
+  prestartForm.querySelectorAll('.prestart-check').forEach(row => {
+    const note = row.querySelector('textarea'), details = row.querySelector('details');
+    const update = () => {
+      const failed = ['fail','no'].includes(row.querySelector('[data-prestart-check]:checked')?.value);
+      note.required = failed; row.classList.toggle('has-failure',failed);
+      if (failed) details.open = true;
+    };
+    row.querySelectorAll('[data-prestart-check]').forEach(input => input.addEventListener('change',update));
+    note.addEventListener('invalid', () => { details.open = true; });
+    update();
+    const file = row.querySelector('input[type=file]'), status = row.querySelector('.photo-status');
+    const updatePhoto = () => {
+      file.setCustomValidity(file.files[0]?.size > 5*1024*1024 ? 'Choose a photo smaller than 5 MB.' : '');
+      status.hidden = !file.files.length;
+      status.querySelector('span').textContent = file.files[0]?.name || '';
+    };
+    file.addEventListener('change',updatePhoto);
+    row.querySelector('.photo-remove').addEventListener('click', () => { file.value = ''; updatePhoto(); });
   });
-  const fit = prestartForm.elements.fit_for_duty;
-  const updateFit = () => { prestartForm.elements.notes.required = fit.value === 'no'; };
-  fit.addEventListener('change',updateFit); updateFit();
-  prestartForm.addEventListener('submit', () => { prestartForm.querySelector('button[type="submit"]').disabled = true; });
+  const updateFit = () => { prestartForm.elements.notes.required = prestartForm.querySelector('[name=fit_for_duty]:checked')?.value === 'no'; };
+  prestartForm.querySelectorAll('[name=fit_for_duty]').forEach(input => input.addEventListener('change',updateFit)); updateFit();
+  const canvas = document.querySelector('#prestart-signature'), ctx = canvas.getContext('2d');
+  const hidden = prestartForm.elements.signature_strokes, error = prestartForm.querySelector('.signature-error');
+  let strokes = [], current = null;
+  try { const saved = JSON.parse(hidden.value); if (Array.isArray(saved) && saved.length <= 100 && saved.every(s => Array.isArray(s) && s.every(p => Array.isArray(p) && p.length === 2 && p.every(Number.isFinite)))) strokes = saved; } catch (_) {}
+  const draw = () => {
+    ctx.clearRect(0,0,600,200); ctx.strokeStyle='#111827';ctx.lineWidth=3;ctx.lineCap='round';ctx.lineJoin='round';
+    for (const stroke of strokes) {
+      if (!stroke.length) continue;
+      ctx.beginPath();ctx.moveTo(...stroke[0]);for (const point of stroke.slice(1)) ctx.lineTo(...point);ctx.stroke();
+    }
+    hidden.value = JSON.stringify(strokes.filter(s => s.length >= 2));
+  };
+  const point = event => {
+    const rect=canvas.getBoundingClientRect();
+    return [Math.round(Math.max(0,Math.min(600,(event.clientX-rect.left)*600/rect.width))*10)/10,
+            Math.round(Math.max(0,Math.min(200,(event.clientY-rect.top)*200/rect.height))*10)/10];
+  };
+  canvas.addEventListener('pointerdown', event => {
+    if (!event.isPrimary || (event.pointerType==='mouse' && event.button!==0)) return;
+    event.preventDefault(); canvas.setPointerCapture(event.pointerId);
+    current=[point(event)];strokes.push(current);error.hidden=true;draw();
+  });
+  canvas.addEventListener('pointermove', event => {
+    if (!current || !event.isPrimary) return;
+    event.preventDefault();const p=point(event),last=current[current.length-1];
+    if (Math.hypot(p[0]-last[0],p[1]-last[1])>=1) {current.push(p);draw();}
+  });
+  const finish = () => {current=null;strokes=strokes.filter(s => s.length>=2);draw();};
+  canvas.addEventListener('pointerup',finish);canvas.addEventListener('pointercancel',finish);
+  prestartForm.querySelector('.signature-clear').addEventListener('click', () => {strokes=[];current=null;draw();canvas.focus();});
+  draw();
+  prestartForm.addEventListener('submit', event => {
+    const pts=strokes.flat(),length=strokes.reduce((total,s) => total+s.slice(1).reduce((n,p,i) => n+Math.hypot(p[0]-s[i][0],p[1]-s[i][1]),0),0);
+    if (!pts.length || length<40 || Math.max(...pts.map(p=>p[0]))-Math.min(...pts.map(p=>p[0]))<10 || Math.max(...pts.map(p=>p[1]))-Math.min(...pts.map(p=>p[1]))<5) {
+      event.preventDefault();error.hidden=false;canvas.focus();canvas.scrollIntoView({block:'center'});return;
+    }
+    const size=[...prestartForm.querySelectorAll('input[type=file]')].reduce((n,f)=>n+(f.files[0]?.size||0),0);
+    if(size>30*1024*1024) {event.preventDefault();window.alert('Keep the total photo size below 30 MB.');return;}
+    prestartForm.querySelector('button[type="submit"]').disabled = true;
+  });
 }

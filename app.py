@@ -19,6 +19,7 @@ from flask import Flask, abort, flash, g, redirect, render_template, request, se
 from werkzeug.utils import secure_filename
 from werkzeug.security import check_password_hash, generate_password_hash
 from prestart_config import ASSETS, DECLARATION, checklist
+from prestart_media import signature_png, photo_jpeg
 
 SCHEMA = '''
 CREATE TABLE IF NOT EXISTS prestarts (
@@ -28,6 +29,10 @@ CREATE TABLE IF NOT EXISTS prestarts (
  failure_count INTEGER NOT NULL, fit_for_duty TEXT NOT NULL CHECK(fit_for_duty IN ('yes','no')),
  notes TEXT NOT NULL, signature TEXT NOT NULL, declaration TEXT NOT NULL,
  submitted_at TEXT NOT NULL, submission_token TEXT NOT NULL UNIQUE
+);
+CREATE TABLE IF NOT EXISTS prestart_photos (
+ prestart_id INTEGER NOT NULL REFERENCES prestarts(id), check_key TEXT NOT NULL,
+ data BLOB NOT NULL, PRIMARY KEY(prestart_id,check_key)
 );
 CREATE INDEX IF NOT EXISTS prestarts_by_user ON prestarts(user_id,id);
 CREATE TABLE IF NOT EXISTS users (
@@ -140,6 +145,8 @@ def create_app(test_config=None):
         for name in ('licence_number', 'licence_state', 'licence_expiry'):
             if name not in user_columns:
                 db().execute(f"ALTER TABLE users ADD COLUMN {name} TEXT NOT NULL DEFAULT ''")
+        if 'signature_image' not in {row['name'] for row in db().execute('PRAGMA table_info(prestarts)')}:
+            db().execute('ALTER TABLE prestarts ADD COLUMN signature_image BLOB')
         columns = {row['name'] for row in db().execute('PRAGMA table_info(entries)')}
         for name, definition in [('start_time', 'TEXT'), ('finish_time', 'TEXT'),
                                  ('committed_at', 'TEXT')]:
@@ -166,7 +173,9 @@ def create_app(test_config=None):
 
     @app.before_request
     def protect():
-        if request.endpoint != 'employee_documents':
+        if request.endpoint == 'employee_prestart':
+            request.max_content_length = 32 * 1024 * 1024
+        elif request.endpoint != 'employee_documents':
             request.max_content_length = 128 * 1024
         g.user = None
         if session.get('uid'):
@@ -809,6 +818,7 @@ def create_app(test_config=None):
                 if not re.fullmatch(r'\d{1,8}(\.\d{1,2})?', reading):
                     raise ValueError('Enter a valid non-negative meter reading with up to two decimal places.')
                 answers = []
+                photos = {}
                 for key, label, allow_na in checklist(asset):
                     value = request.form.get('check_' + key, '')
                     allowed = ('yes', 'no') if key == 'greased' else ('pass', 'fail', 'na') if allow_na else ('pass', 'fail')
@@ -817,24 +827,30 @@ def create_app(test_config=None):
                         raise ValueError('Answer every checklist item.')
                     if len(note) > 500 or (value in ('fail', 'no') and not note):
                         raise ValueError('Describe each failed item in up to 500 characters.')
+                    photo = request.files.get('photo_' + key)
+                    if photo and photo.filename:
+                        photos[key] = photo_jpeg(photo)
                     answers.append(dict(key=key, label=label, value=value, note=note))
                 fit = request.form.get('fit_for_duty', '')
                 notes = request.form.get('notes', '').strip()
-                signature = request.form.get('signature', '').strip()
+                signature = (g.user['first_name'] + ' ' + g.user['last_name']).strip()
+                signature_image = signature_png(request.form.get('signature_strokes', ''))
                 if fit not in ('yes', 'no'):
                     raise ValueError('Select your fit-for-duty status.')
                 if len(notes) > 2000 or (fit == 'no' and not notes):
                     raise ValueError('Add notes for a not-fit-for-duty report (up to 2,000 characters).')
-                if len(signature) < 3 or len(signature) > 150 or request.form.get('signed') != 'yes':
-                    raise ValueError('Type your full name and tick the sign-off declaration.')
+                if request.form.get('signed') != 'yes':
+                    raise ValueError('Tick the sign-off declaration.')
                 failures = sum(a['value'] in ('fail', 'no') for a in answers)
                 try:
-                    cursor = db().execute('INSERT INTO prestarts(user_id,employee_name,asset,asset_type,reading,reading_unit,checks_json,failure_count,fit_for_duty,notes,signature,declaration,submitted_at,submission_token) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                    cursor = db().execute('INSERT INTO prestarts(user_id,employee_name,asset,asset_type,reading,reading_unit,checks_json,failure_count,fit_for_duty,notes,signature,declaration,submitted_at,submission_token,signature_image) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                         (g.user['id'], (g.user['first_name'] + ' ' + g.user['last_name']).strip(), asset, ASSETS[asset], reading,
                          'hours' if ASSETS[asset] == 'machine' else 'km', json.dumps(answers), failures, fit, notes,
-                         signature, DECLARATION, timestamp(), token))
-                    db().commit()
+                         signature, DECLARATION, timestamp(), token, signature_image))
                     record_id = cursor.lastrowid
+                    for key, data in photos.items():
+                        db().execute('INSERT INTO prestart_photos(prestart_id,check_key,data) VALUES(?,?,?)', (record_id,key,data))
+                    db().commit()
                 except sqlite3.IntegrityError:
                     db().rollback()
                     duplicate = db().execute('SELECT id FROM prestarts WHERE submission_token=? AND user_id=?', (token, g.user['id'])).fetchone()
@@ -844,7 +860,7 @@ def create_app(test_config=None):
                 flash('Prestart submitted to admin.' + (' Do not operate until defects or fitness concerns have been addressed with your supervisor.' if failures or fit == 'no' else ''), 'success')
                 return redirect(url_for('employee_prestart_detail', prestart_id=record_id))
             except ValueError as error:
-                flash(str(error), 'error')
+                flash(str(error) + ' Please reselect any photos before resubmitting.', 'error')
         if request.method == 'GET' or not session.get('prestart_token'):
             session['prestart_token'] = secrets.token_hex(24)
         return render_template('prestart_form.html', tab='prestart', assets=ASSETS, asset=asset,
@@ -864,7 +880,24 @@ def create_app(test_config=None):
         if not row or (not admin_view and row['user_id'] != g.user['id']):
             abort(404)
         return render_template('prestart_detail.html', tab='prestart', admin_view=admin_view,
-                               record=row, checks=json.loads(row['checks_json']))
+                               record=row, checks=json.loads(row['checks_json']),
+                               photo_keys={p['check_key'] for p in db().execute('SELECT check_key FROM prestart_photos WHERE prestart_id=?', (prestart_id,))})
+
+    @app.get('/prestart/<int:prestart_id>/media/<key>')
+    def prestart_media(prestart_id, key):
+        if not g.user:
+            abort(403)
+        row = db().execute('SELECT user_id,signature_image FROM prestarts WHERE id=?', (prestart_id,)).fetchone()
+        if not row or (g.user['role'] != 'admin' and row['user_id'] != g.user['id']):
+            abort(404)
+        if key == 'signature':
+            data, mime = row['signature_image'], 'image/png'
+        else:
+            photo = db().execute('SELECT data FROM prestart_photos WHERE prestart_id=? AND check_key=?', (prestart_id,key)).fetchone()
+            data, mime = (photo['data'] if photo else None), 'image/jpeg'
+        if not data:
+            abort(404)
+        return send_file(io.BytesIO(data), mimetype=mime)
 
     @app.get('/employee/prestart/<int:prestart_id>')
     @require('employee')

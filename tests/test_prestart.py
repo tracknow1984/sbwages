@@ -16,7 +16,7 @@ class PrestartTests(unittest.TestCase):
         with self.client.session_transaction() as session:
             token = session['prestart_token']
         data = dict(asset=asset, reading='1234.5', submission_token=token,
-                    fit_for_duty='yes', signature='Alex Example', signed='yes')
+                    fit_for_duty='yes', signature_strokes='[[[20,40],[80,100],[160,30],[220,90]]]', signed='yes')
         for key, _, _ in checklist(asset):
             data['check_'+key] = 'yes' if key == 'greased' else 'pass'
         return data
@@ -62,7 +62,7 @@ class PrestartTests(unittest.TestCase):
         data=self.form('SUMITOMO EXCAVATOR')
         for invalid in ({'asset':'OTHER'},{'reading':'NaN'},{'reading':'-1'}, {'reading':'1e4'},
                         {'check_oil':''},{'check_oil':'na'},{'check_oil':'fail'},
-                        {'check_greased':'no'},{'signed':''},{'signature':''},{'fit_for_duty':''},
+                        {'check_greased':'no'},{'signed':''},{'signature_strokes':''},{'fit_for_duty':''},
                         {'fit_for_duty':'no'},{'submission_token':'wrong'}):
             self.post('/employee/prestart',data | invalid)
         self.assertEqual(len(self.query('SELECT * FROM prestarts')),0)
@@ -85,3 +85,45 @@ class PrestartTests(unittest.TestCase):
         self.assertEqual(record['failure_count'],0)
         self.post('/logout');self.login('admin','test-admin-password','admin')
         self.assertIn(b'Completed prestart #1',self.client.get('/admin/prestart?failed=1').data)
+
+    def test_drawn_signature_photo_storage_and_privacy(self):
+        import io
+        from PIL import Image
+        self.prepare()
+        photo=io.BytesIO()
+        Image.new('RGB',(30,40),'blue').save(photo,format='PNG')
+        photo.seek(0)
+        data=self.form('T595 BOBCAT')
+        data['photo_tracks']=(photo,'tracks.png')
+        response=self.post('/employee/prestart',data)
+        self.assertIn(b'/prestart/1/media/tracks',response.data)
+        self.assertIn(b'/prestart/1/media/signature',response.data)
+        self.assertEqual(self.client.get('/prestart/1/media/tracks').mimetype,'image/jpeg')
+        signature=self.client.get('/prestart/1/media/signature')
+        self.assertEqual(signature.mimetype,'image/png')
+        image=Image.open(io.BytesIO(signature.data))
+        self.assertEqual(image.size,(600,200))
+        self.assertLess(image.getextrema()[0][0],255)
+        self.post('/logout');self.login('jordan','test-staff-password')
+        for key in ('tracks','signature'):
+            self.assertEqual(self.client.get('/prestart/1/media/'+key).status_code,404)
+        self.post('/logout');self.login('admin','test-admin-password','admin')
+        self.assertEqual(self.client.get('/prestart/1/media/tracks').status_code,200)
+        self.assertIn(b'/prestart/1/media/signature',self.client.get('/admin/prestart/1').data)
+        self.post('/logout')
+        self.assertEqual(self.client.get('/prestart/1/media/signature').status_code,403)
+
+    def test_invalid_media_and_blank_signatures_do_not_submit(self):
+        import io
+        self.prepare()
+        data=self.form('DEMAG ROLLER')
+        for raw in ('[]','[[[10,10],[11,11]]]','[[[0,0],[600,0]]]','[[[0,0],[601,100]]]','[[[0,0],[NaN,100]]]','typed name','{}'):
+            self.post('/employee/prestart',data | {'signature_strokes':raw})
+        self.post('/employee/prestart',data | {'photo_tracks':(io.BytesIO(b'not an image'),'photo.png')})
+        self.post('/employee/prestart',data | {'photo_tracks':(io.BytesIO(b'x'*(5*1024*1024+1)),'photo.jpg')})
+        self.assertEqual(len(self.query('SELECT * FROM prestarts')),0)
+        self.assertEqual(len(self.query('SELECT * FROM prestart_photos')),0)
+        page=self.client.get('/employee/prestart?asset=DEMAG+ROLLER').data
+        self.assertIn(b'type="radio" name="check_tracks"',page)
+        self.assertNotIn(b'name="signature"',page)
+        self.assertIn(b'<canvas',page)

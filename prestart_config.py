@@ -41,7 +41,7 @@ DECLARATION = ('I have personally completed this prestart and recorded the resul
                'without impairment from alcohol, drugs, medication, illness or injury. '
                'I am trained and authorised for this equipment and hold any required current licence. '
                'I will report defects or fitness concerns to my supervisor and will not operate '
-               'unsafe equipment or work while unfit. By typing my full name and signing below, '
+               'unsafe equipment or work while unfit. By drawing my signature and signing below, '
                'I confirm these statements and my recorded answers.')
 
 
