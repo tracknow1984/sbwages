@@ -44,6 +44,13 @@ CREATE TABLE IF NOT EXISTS invitations (
  token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), expires_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS login_attempts (key TEXT PRIMARY KEY, count INTEGER NOT NULL, started INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS staff_notices (
+ id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id),
+ admin_id INTEGER NOT NULL REFERENCES users(id), title TEXT NOT NULL,
+ body TEXT NOT NULL, priority TEXT NOT NULL DEFAULT 'normal' CHECK(priority IN ('normal','urgent')),
+ sent_at TEXT NOT NULL, read_at TEXT
+);
+CREATE INDEX IF NOT EXISTS notices_by_user ON staff_notices(user_id,read_at,id);
 CREATE TABLE IF NOT EXISTS documents (
  id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), title TEXT NOT NULL,
  filename TEXT NOT NULL, mime_type TEXT NOT NULL, data BLOB NOT NULL,
@@ -219,7 +226,7 @@ def create_app(test_config=None):
     @app.get('/')
     def index():
         if g.user:
-            return redirect(url_for('admin_dashboard' if g.user['role'] == 'admin' else 'employee_timesheet'))
+            return redirect(url_for('admin_dashboard' if g.user['role'] == 'admin' else 'employee_dashboard'))
         return redirect(url_for('login', audience='employee'))
 
     @app.route('/<audience>/login', methods=['GET', 'POST'])
@@ -604,6 +611,92 @@ def create_app(test_config=None):
 
     def timestamp():
         return datetime.now(ZoneInfo('Australia/Brisbane')).isoformat()
+
+    def notice_rows(user_id=None, limit=-1):
+        sql = "SELECT n.*,u.first_name,u.last_name,a.first_name AS sender_name FROM staff_notices n JOIN users u ON u.id=n.user_id JOIN users a ON a.id=n.admin_id"
+        if user_id is None:
+            return db().execute(sql + ' ORDER BY n.id DESC LIMIT ?', (limit,)).fetchall()
+        return db().execute(sql + ' WHERE n.user_id=? ORDER BY (n.read_at IS NULL) DESC,n.id DESC LIMIT ?', (user_id,limit)).fetchall()
+
+    def notice_summary():
+        return dict(db().execute('SELECT COUNT(*) AS total,COALESCE(SUM(read_at IS NULL),0) AS unread,COALESCE(MAX(id),0) AS latest FROM staff_notices WHERE user_id=?', (g.user['id'],)).fetchone())
+
+    @app.route('/admin/hit-me', methods=['GET','POST'])
+    @require('admin')
+    def admin_hit_me():
+        if request.method == 'POST':
+            try:
+                try:
+                    recipient_id = int(request.form.get('user_id', ''))
+                except ValueError:
+                    raise ValueError('Choose a staff member.')
+                title = request.form.get('title', '').strip() or 'Work update'
+                body = request.form.get('body', '').strip()
+                priority = request.form.get('priority', 'normal')
+                if len(title) > 150 or not body or len(body) > 10000:
+                    raise ValueError('Enter job details up to 10,000 characters and a title up to 150 characters.')
+                if priority not in ('normal','urgent'):
+                    raise ValueError('Choose Normal or Urgent priority.')
+                db().execute('BEGIN IMMEDIATE')
+                recipient = db().execute("SELECT id FROM users WHERE id=? AND role='employee' AND status='active'", (recipient_id,)).fetchone()
+                if not recipient:
+                    raise ValueError('Choose an active staff member.')
+                db().execute('INSERT INTO staff_notices(user_id,admin_id,title,body,priority,sent_at) VALUES(?,?,?,?,?,?)',
+                             (recipient_id,g.user['id'],title,body,priority,timestamp()))
+                db().commit()
+                flash('Hit Me notice sent to the staff member’s dashboard.', 'success')
+                return redirect(url_for('admin_hit_me'))
+            except ValueError as error:
+                db().rollback()
+                flash(str(error),'error')
+        people = db().execute("SELECT id,first_name,last_name FROM users WHERE role='employee' AND status='active' ORDER BY first_name,last_name").fetchall()
+        return render_template('hit_me.html', people=people, notices=notice_rows(), admin_view=True, tab='hit-me')
+
+    @app.get('/employee/hit-me')
+    @require('employee')
+    def employee_hit_me():
+        return render_template('hit_me.html', notices=notice_rows(g.user['id']), summary=notice_summary(), admin_view=False, tab='hit-me')
+
+    @app.post('/employee/hit-me/<int:notice_id>/read')
+    @require('employee')
+    def read_notice(notice_id):
+        row=db().execute('SELECT id FROM staff_notices WHERE id=? AND user_id=?', (notice_id,g.user['id'])).fetchone()
+        if not row:
+            abort(404)
+        db().execute('UPDATE staff_notices SET read_at=? WHERE id=? AND user_id=? AND read_at IS NULL', (timestamp(),notice_id,g.user['id']))
+        db().commit()
+        flash('Notice marked as read.', 'success')
+        return redirect(url_for('employee_dashboard' if request.form.get('return_to') == 'dashboard' else 'employee_hit_me'))
+
+    @app.get('/employee/hit-me/status')
+    @require('employee')
+    def hit_me_status():
+        return notice_summary()
+
+    @app.get('/employee/dashboard')
+    @require('employee')
+    def employee_dashboard():
+        day=today()
+        ending=week_end(day,6)
+        entry=db().execute('SELECT e.*,s.status AS sheet_status FROM entries e JOIN sheets s ON s.id=e.sheet_id WHERE e.user_id=? AND e.work_date=?', (g.user['id'],day.isoformat())).fetchone()
+        sheet=db().execute('SELECT status FROM sheets WHERE user_id=? AND week_end=?', (g.user['id'],ending.isoformat())).fetchone()
+        if entry and (entry['committed_at'] or entry['sheet_status']=='submitted'):
+            timesheet_state='committed'
+        elif entry:
+            timesheet_state='draft'
+        elif sheet and sheet['status']=='submitted':
+            timesheet_state='submitted'
+        else:
+            timesheet_state='missing'
+        expiry=g.user['licence_expiry']
+        try:
+            expiry_days=(date.fromisoformat(expiry)-day).days if expiry else None
+        except ValueError:
+            expiry_days=None
+        leave_pending=db().execute("SELECT COUNT(*) FROM leave_requests WHERE user_id=? AND status='pending'", (g.user['id'],)).fetchone()[0]
+        return render_template('employee_dashboard.html', tab='home', admin_view=False, summary=notice_summary(),
+                               notices=notice_rows(g.user['id'],limit=6), timesheet_state=timesheet_state,
+                               expiry_days=expiry_days, expiry=expiry, leave_pending=leave_pending)
 
     def document_rows(archived=False, user_id=None, limit=-1):
         sql = "SELECT d.id,d.user_id,d.title,d.filename,d.mime_type,length(d.data) AS size,d.uploaded_at,d.archived_at,d.viewed_at,u.first_name,u.last_name FROM documents d JOIN users u ON u.id=d.user_id"

@@ -67,6 +67,82 @@ class AppTests(unittest.TestCase):
             return {'week': end.isoformat(), 'action': 'submit'}
         return self.day_form(end, '00:00', finish, 'save_day', end - timedelta(days=6))
 
+    def test_hit_me_delivery_read_status_and_permissions(self):
+        person, _ = self.add()
+        self.add('jordan')
+        message={'user_id':str(person['id']), 'title':'Pickup at North Maclean', 'body':'Collect 4 pallets.\nContact the yard manager. <script>bad()</script>', 'priority':'urgent'}
+        self.assertIn(b'Hit Me notice sent', self.post('/admin/hit-me',message).data)
+        notice=self.query('SELECT * FROM staff_notices')[0]
+        self.assertIsNone(notice['read_at'])
+        self.post('/logout')
+        page=self.login('alex','test-staff-password')
+        self.assertEqual(page.request.path,'/employee/dashboard')
+        self.assertIn(b'Pickup at North Maclean',page.data)
+        self.assertIn(b'&lt;script&gt;',page.data)
+        self.assertNotIn(b'<script>bad()',page.data)
+        self.assertIsNone(self.query('SELECT read_at FROM staff_notices')[0][0])
+        self.assertEqual(self.client.get('/employee/hit-me/status').json['unread'],1)
+        self.assertEqual(self.post('/admin/hit-me',message).status_code,403)
+        route=f'/employee/hit-me/{notice["id"]}/read'
+        self.assertEqual(self.client.post(route).status_code,400)
+        self.post('/logout')
+        self.login('jordan','test-staff-password')
+        self.assertNotIn(b'Pickup at North Maclean',self.client.get('/employee/dashboard').data)
+        self.assertEqual(self.client.get('/employee/hit-me/status').json['total'],0)
+        self.assertEqual(self.post(route).status_code,404)
+        self.post('/logout')
+        self.login('alex','test-staff-password')
+        self.assertIn(b'Notice marked as read',self.post(route,{'return_to':'dashboard'}).data)
+        self.assertEqual(self.client.get('/employee/hit-me/status').json['unread'],0)
+        read_at=self.query('SELECT read_at FROM staff_notices')[0][0]
+        self.post(route)
+        self.assertEqual(self.query('SELECT read_at FROM staff_notices')[0][0],read_at)
+        self.post('/logout')
+        self.login('admin','test-admin-password','admin')
+        self.assertIn(b'Marked as read',self.client.get('/admin/hit-me').data)
+        self.assertEqual(self.client.get('/employee/dashboard').status_code,403)
+
+    def test_hit_me_validation_and_inactive_recipient(self):
+        person, values=self.add()
+        message={'user_id':str(person['id']), 'body':'Job details'}
+        for invalid in ({'user_id':'bad'}, {'user_id':'99999'}, {'body':''}, {'body':'x'*10001}, {'priority':'invalid'}):
+            self.post('/admin/hit-me',message | invalid)
+        self.assertEqual(len(self.query('SELECT * FROM staff_notices')),0)
+        self.post(f'/admin/staff/{person["id"]}/edit',values | {'status':'terminated','password':''})
+        self.post('/admin/hit-me',message)
+        self.assertEqual(len(self.query('SELECT * FROM staff_notices')),0)
+
+    def test_dashboard_timesheet_and_expiry_reminders(self):
+        person, _ = self.add()
+        self.post('/logout')
+        self.login('alex','test-staff-password')
+        page=self.client.get('/employee/dashboard')
+        self.assertIn(b'Remember your hours',page.data)
+        self.assertIn(b'Add your expiry date',page.data)
+        today=datetime.now(ZoneInfo('Australia/Brisbane')).date()
+        for days,expected in [(-1,b'Licence expired'),(0,b'Licence expires today'),(1,b'Expires in 1 day'),(30,b'Expires in 30 days'),(31,b'Licence up to date')]:
+            with sqlite3.connect(self.path) as db:
+                db.execute('UPDATE users SET licence_expiry=? WHERE id=?',((today+timedelta(days=days)).isoformat(),person['id']))
+            self.assertIn(expected,self.client.get('/employee/dashboard').data)
+        end=today+timedelta(days=6-today.weekday())
+        values=self.day_form(end,day=today,action='save_day')
+        self.post('/employee/timesheet',values)
+        self.assertIn(b'Finish your daily entry',self.client.get('/employee/dashboard').data)
+        self.post('/employee/timesheet',values | {'action':'commit_day'})
+        self.assertIn(b'Today is locked in',self.client.get('/employee/dashboard').data)
+        self.post('/employee/timesheet',{'week':end.isoformat(),'action':'submit'})
+        self.assertIn(b'Today is locked in',self.client.get('/employee/dashboard').data)
+
+    def test_dashboard_submitted_week_without_today_entry(self):
+        person, _ = self.add()
+        today=datetime.now(ZoneInfo('Australia/Brisbane')).date()
+        end=today+timedelta(days=6-today.weekday())
+        with sqlite3.connect(self.path) as db:
+            db.execute("INSERT INTO sheets(user_id,week_end,status,rate_cents,total_units,total_cents,submitted_at) VALUES(?,?,'submitted',3550,800,28400,?)",(person['id'],end.isoformat(),today.isoformat()))
+        self.post('/logout')
+        self.login('alex','test-staff-password')
+        self.assertIn(b'This week is submitted',self.client.get('/employee/dashboard').data)
+
     def test_staff_form_and_employee_permissions(self):
         person, values = self.add()
         self.assertNotIn('test-staff-password', person['password_hash'])
@@ -329,7 +405,7 @@ class AppTests(unittest.TestCase):
         result = self.post('/activate/' + token, {'password': 'new-safe-password', 'confirm_password': 'new-safe-password'})
         self.assertIn(b'Your password is set', result.data)
         self.assertEqual(self.client.get('/activate/' + token).status_code, 400)
-        self.assertIn(b'My timesheet', self.login('alex', 'new-safe-password').data)
+        self.assertIn(b'Hit Me notice board', self.login('alex', 'new-safe-password').data)
 
     def test_email_failure_and_rate_limit(self):
         person, _ = self.add()

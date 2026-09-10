@@ -51,3 +51,24 @@ if (summary) {
     if (dirty.size) { event.preventDefault(); event.returnValue = ''; }
   });
 }
+
+// Label table cells for the mobile card layout while preserving desktop tables.
+document.querySelectorAll('.table-wrap table').forEach(table => {
+  const headings = [...table.querySelectorAll('thead th')].map(cell => cell.textContent.trim());
+  table.querySelectorAll('tbody tr').forEach(row => [...row.cells].forEach((cell,index) => { cell.dataset.label = headings[index] || ''; }));
+});
+// Announce new notices without refreshing forms or marking notices as read.
+const liveNotices = document.querySelector('[data-notice-status]');
+if (liveNotices) {
+  const checkNotices = async () => {
+    if (document.hidden) return;
+    try {
+      const response = await fetch(liveNotices.dataset.noticeStatus, {headers: {'Accept':'application/json'}, cache:'no-store'});
+      if (!response.ok || !response.headers.get('content-type')?.includes('application/json')) return;
+      const status = await response.json();
+      if (status.latest > Number(liveNotices.dataset.noticeLatest)) liveNotices.classList.remove('hidden');
+    } catch (_) { /* Keep the current page usable while offline. */ }
+  };
+  setInterval(checkNotices, 30000);
+  document.addEventListener('visibilitychange',checkNotices);
+}
