@@ -58,3 +58,5 @@
 @media(max-width:400px){.result-option span{min-width:58px;padding:10px}.photo-picker{padding:10px 8px}.check-tools{gap:6px}}
 
 .sheet-actions{display:flex;gap:6px;align-items:center;justify-content:flex-end;flex-wrap:wrap}.sheet-actions form{margin:0}.delete-action{color:#b91c1c!important;border-color:#fecaca!important;background:#fff!important}
+
+.licence-photo-card{min-width:0;padding:14px;border:1px solid #e2e8f0;border-radius:10px;background:#f8fafc}.licence-photo-card input{max-width:100%}.licence-photo-card .actions{margin:10px 0}.licence-photo-card small{display:block}

@@ -22,6 +22,11 @@ from prestart_config import ASSETS, DECLARATION, checklist
 from prestart_media import signature_png, photo_jpeg
 
 SCHEMA = '''
+CREATE TABLE IF NOT EXISTS licence_photos (
+ user_id INTEGER NOT NULL REFERENCES users(id), side TEXT NOT NULL CHECK(side IN ('front','back')),
+ data BLOB NOT NULL, uploaded_at TEXT NOT NULL, uploaded_by INTEGER NOT NULL REFERENCES users(id),
+ PRIMARY KEY(user_id,side)
+);
 CREATE TABLE IF NOT EXISTS prestarts (
  id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id),
  employee_name TEXT NOT NULL, asset TEXT NOT NULL, asset_type TEXT NOT NULL,
@@ -180,6 +185,8 @@ def create_app(test_config=None):
     def protect():
         if request.endpoint == 'employee_prestart':
             request.max_content_length = 32 * 1024 * 1024
+        elif request.endpoint == 'upload_licence_photos':
+            request.max_content_length = 12 * 1024 * 1024
         elif request.endpoint != 'employee_documents':
             request.max_content_length = 128 * 1024
         g.user = None
@@ -374,7 +381,7 @@ def create_app(test_config=None):
                 db().rollback()
                 flash(str(error) if isinstance(error, ValueError) else 'That username or email is already in use.', 'error')
                 person = dict(request.form)
-        return render_template('staff_form.html', person=person, editing=bool(user_id), tab='staff')
+        return render_template('staff_form.html', person=person, editing=bool(user_id), tab='staff', licence_user_id=user_id, licence_photos=licence_photo_rows(user_id))
 
     @app.post('/admin/staff/<int:user_id>/invite')
     @require('admin')
@@ -457,7 +464,48 @@ def create_app(test_config=None):
                 db().rollback()
                 flash(str(error) if isinstance(error, ValueError) else 'That email is already in use.', 'error')
                 person = dict(g.user) | dict(request.form)
-        return render_template('details.html', person=person, tab='details')
+        return render_template('details.html', person=person, tab='details', licence_user_id=g.user['id'], licence_photos=licence_photo_rows(g.user['id']))
+
+    def licence_photo_rows(user_id):
+        return {row['side']: row for row in db().execute('SELECT side,uploaded_at FROM licence_photos WHERE user_id=?', (user_id,))} if user_id else {}
+
+    def licence_owner(user_id):
+        if not g.user:
+            abort(403)
+        if g.user['role'] != 'admin' and g.user['id'] != user_id:
+            abort(404)
+        return staff(user_id)
+
+    @app.post('/staff/<int:user_id>/licence-photos')
+    def upload_licence_photos(user_id):
+        licence_owner(user_id)
+        try:
+            photos = {}
+            for side in ('front','back'):
+                upload = request.files.get(side)
+                if upload and upload.filename:
+                    photos[side] = photo_jpeg(upload)
+            if not photos:
+                raise ValueError('Choose a front or back licence photo to upload.')
+            for side,data in photos.items():
+                db().execute('INSERT INTO licence_photos(user_id,side,data,uploaded_at,uploaded_by) VALUES(?,?,?,?,?) ON CONFLICT(user_id,side) DO UPDATE SET data=excluded.data,uploaded_at=excluded.uploaded_at,uploaded_by=excluded.uploaded_by',
+                             (user_id,side,data,timestamp(),g.user['id']))
+            db().commit()
+            flash('Licence photos saved.', 'success')
+        except ValueError as error:
+            db().rollback()
+            flash(str(error), 'error')
+        return redirect(url_for('edit_staff',user_id=user_id) if g.user['role']=='admin' else url_for('employee_details'))
+
+    @app.get('/staff/<int:user_id>/licence-photos/<side>')
+    def licence_photo(user_id,side):
+        licence_owner(user_id)
+        if side not in ('front','back'):
+            abort(404)
+        photo = db().execute('SELECT data FROM licence_photos WHERE user_id=? AND side=?', (user_id,side)).fetchone()
+        if not photo:
+            abort(404)
+        return send_file(io.BytesIO(photo['data']),mimetype='image/jpeg',as_attachment=request.args.get('download')=='1',download_name=f'licence-{side}.jpg')
 
     def week_end(day, ending):
         return day + timedelta(days=(ending - day.weekday()) % 7)
