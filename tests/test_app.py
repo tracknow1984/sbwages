@@ -143,6 +143,44 @@ class AppTests(unittest.TestCase):
         self.login('alex','test-staff-password')
         self.assertIn(b'This week is submitted',self.client.get('/employee/dashboard').data)
 
+    def test_day_month_year_inputs_and_displays(self):
+        from app import display_date, display_datetime, parse_calendar_date
+        self.assertEqual(display_date('2028-05-09'),'09.05.2028')
+        self.assertEqual(display_datetime('2028-05-09T14:35:00+10:00'),'09.05.2028 · 14:35')
+        self.assertEqual(display_date(None),'—')
+        self.assertEqual(parse_calendar_date('29.02.2028').isoformat(),'2028-02-29')
+        with self.assertRaises(ValueError): parse_calendar_date('29.02.2027')
+        person,values=self.add()
+        self.post('/logout');self.login('alex','test-staff-password')
+        self.assertIn(b'updated',self.post('/employee/details',values | {'licence_expiry':'09.05.2028'}).data)
+        self.assertEqual(self.query('SELECT licence_expiry FROM users WHERE id=?',(person['id'],))[0][0],'2028-05-09')
+        self.assertIn(b'value="09.05.2028"',self.client.get('/employee/details').data)
+        future=datetime.now(ZoneInfo('Australia/Brisbane')).date()+timedelta(days=10)
+        value=future.strftime('%d.%m.%Y')
+        self.assertIn(b'sent to admin',self.post('/employee/leave',{'start_date':value,'end_date':value}).data)
+        self.assertEqual(self.query('SELECT start_date FROM leave_requests')[0][0],future.isoformat())
+        self.assertIn(value.encode(),self.client.get('/employee/leave').data)
+
+    def test_timesheets_grouped_by_week_and_employee_isolation(self):
+        alex,_=self.add()
+        jordan,_=self.add('jordan')
+        end=self.last_week()
+        old=end-timedelta(days=7)
+        with sqlite3.connect(self.path) as db:
+            for uid,day,units in [(alex['id'],end,800),(jordan['id'],end,600),(alex['id'],old,400)]:
+                db.execute("INSERT INTO sheets(user_id,week_end,status,rate_cents,total_units,total_cents,submitted_at) VALUES(?,?,'submitted',3550,?,?,?)",(uid,day.isoformat(),units,int(units*3550/100),day.isoformat()))
+        page=self.client.get('/admin/timesheets').data
+        self.assertEqual(page.count(b'class="panel week-group"'),2)
+        self.assertLess(page.index(end.strftime('%d.%m.%Y').encode()),page.index(old.strftime('%d.%m.%Y').encode()))
+        self.assertIn(b'14 hours',page)
+        self.assertIn(b'$497.00',page)
+        self.assertIn(b'2 submitted',page)
+        self.post('/logout');self.login('jordan','test-staff-password')
+        history=self.client.get('/employee/history').data
+        self.assertEqual(history.count(b'class="panel week-group"'),1)
+        self.assertIn(b'6 hours',history)
+        self.assertNotIn(b'14 hours',history)
+
     def test_staff_form_and_employee_permissions(self):
         person, values = self.add()
         self.assertNotIn('test-staff-password', person['password_hash'])

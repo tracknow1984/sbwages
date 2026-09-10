@@ -202,7 +202,7 @@ def create_app(test_config=None):
     def amount(units, cents):
         return int((Decimal(units) * cents / 100).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
 
-    app.jinja_env.filters.update(money=money, hours=hours)
+    app.jinja_env.filters.update(money=money, hours=hours, display_date=display_date, display_datetime=display_datetime)
     app.context_processor(lambda: dict(csrf_token=csrf_token, current_user=g.user, today=today(), mail_ready=mail_ready()))
 
     def mail_ready():
@@ -281,9 +281,7 @@ def create_app(test_config=None):
         expiry = values.get('licence_expiry', '')
         if expiry:
             try:
-                if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', expiry):
-                    raise ValueError()
-                date.fromisoformat(expiry)
+                values['licence_expiry'] = parse_calendar_date(expiry).isoformat()
             except ValueError:
                 raise ValueError('Enter a valid licence expiry date.')
         if admin:
@@ -540,7 +538,7 @@ def create_app(test_config=None):
                 row['total_units'] = db().execute('SELECT COALESCE(SUM(units),0) FROM entries WHERE sheet_id=?', (row['id'],)).fetchone()[0]
                 row['rate_cents'] = g.user['rate_cents']
                 row['total_cents'] = amount(row['total_units'], row['rate_cents'])
-        return render_template('submissions.html', sheets=sheets, tab='history', admin_view=False)
+        return render_template('submissions.html', sheets=sheets, week_groups=group_timesheets(sheets), tab='history', admin_view=False)
 
     @app.get('/admin/timesheets')
     @require('admin')
@@ -553,7 +551,7 @@ def create_app(test_config=None):
         for row in sheets:
             if row["status"] == "draft":
                 row["total_cents"] = amount(row["total_units"], row["rate_cents"])
-        return render_template('submissions.html', sheets=sheets, tab='submissions', admin_view=True)
+        return render_template('submissions.html', sheets=sheets, week_groups=group_timesheets(sheets), tab='submissions', admin_view=True)
 
     @app.get('/admin/timesheets/<int:sheet_id>')
     @require('admin')
@@ -835,12 +833,11 @@ def create_app(test_config=None):
         if request.method == 'POST':
             try:
                 raw_start, raw_end = request.form.get('start_date', ''), request.form.get('end_date', '')
-                if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', raw_start) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', raw_end):
-                    raise ValueError('Choose valid start and end dates.')
                 try:
-                    start, end = date.fromisoformat(raw_start), date.fromisoformat(raw_end)
+                    start, end = parse_calendar_date(raw_start), parse_calendar_date(raw_end)
+                    raw_start, raw_end = start.isoformat(), end.isoformat()
                 except ValueError:
-                    raise ValueError('Choose valid start and end dates.')
+                    raise ValueError('Enter valid dates in DD.MM.YYYY format.')
                 if start < today():
                     raise ValueError('Leave must start today or in the future.')
                 if end < start:
@@ -912,3 +909,49 @@ def decimal_units(raw, label, maximum):
         return int(value * 100)
     except (InvalidOperation, ValueError):
         raise ValueError(f'{label} must be between 0 and {maximum:,}, with up to two decimal places.')
+
+
+def parse_calendar_date(value):
+    value = value.strip()
+    if re.fullmatch(r'\d{2}\.\d{2}\.\d{4}', value):
+        day, month, year = map(int, value.split('.'))
+        return date(year, month, day)
+    if re.fullmatch(r'\d{4}-\d{2}-\d{2}', value):
+        return date.fromisoformat(value)
+    raise ValueError('Use DD.MM.YYYY.')
+
+
+def display_date(value):
+    if not value:
+        return '—'
+    if isinstance(value, date):
+        return value.strftime('%d.%m.%Y')
+    try:
+        return parse_calendar_date(str(value)[:10]).strftime('%d.%m.%Y')
+    except ValueError:
+        return str(value)
+
+
+def display_datetime(value):
+    if not value:
+        return '—'
+    try:
+        parsed = datetime.fromisoformat(str(value))
+        if parsed.tzinfo:
+            parsed = parsed.astimezone(ZoneInfo('Australia/Brisbane'))
+        return parsed.strftime('%d.%m.%Y · %H:%M')
+    except ValueError:
+        return display_date(value)
+
+
+def group_timesheets(sheets):
+    groups = {}
+    for sheet in sheets:
+        end = date.fromisoformat(sheet['week_end'])
+        group = groups.setdefault(sheet['week_end'], dict(ending=end, start=end-timedelta(days=6),
+                                  legacy=end.weekday()!=6, sheets=[], total_units=0, total_cents=0, submitted=0))
+        group['sheets'].append(sheet)
+        group['total_units'] += sheet['total_units'] or 0
+        group['total_cents'] += sheet['total_cents'] or 0
+        group['submitted'] += sheet['status']=='submitted'
+    return [groups[key] for key in sorted(groups, reverse=True)]

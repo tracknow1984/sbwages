@@ -72,3 +72,32 @@ if (liveNotices) {
   setInterval(checkNotices, 30000);
   document.addEventListener('visibilitychange',checkNotices);
 }
+
+// Keep visible dates in DD.MM.YYYY while retaining the device calendar picker.
+document.querySelectorAll('input.formatted-date').forEach(field => {
+  const wrapper = document.createElement('span'); wrapper.className = 'date-entry';
+  field.parentNode.insertBefore(wrapper, field); wrapper.appendChild(field);
+  const calendar = document.createElement('span'); calendar.className = 'date-calendar';
+  const icon = document.createElement('span'); icon.textContent = '▦'; icon.setAttribute('aria-hidden','true');
+  const picker = document.createElement('input'); picker.type = 'date'; picker.className = 'native-date-picker';
+  picker.setAttribute('aria-label', `Choose ${field.name.replaceAll('_',' ')}`);
+  if (field.dataset.min) picker.min = field.dataset.min;
+  calendar.append(icon,picker); wrapper.appendChild(calendar);
+  const validate = () => {
+    const match = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(field.value);
+    if (!field.value) { field.setCustomValidity(''); picker.value = ''; return; }
+    const iso = match ? `${match[3]}-${match[2]}-${match[1]}` : '';
+    const value = iso ? new Date(`${iso}T12:00:00Z`) : null;
+    const valid = value && !Number.isNaN(value.getTime()) && value.toISOString().slice(0,10) === iso;
+    field.setCustomValidity(!valid ? 'Enter a valid date as DD.MM.YYYY.' : field.dataset.min && iso < field.dataset.min ? 'Choose today or a future date.' : '');
+    picker.value = valid ? iso : '';
+  };
+  field.addEventListener('input', () => {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(field.value)) field.value = field.value.split('-').reverse().join('.');
+    else { const digits = field.value.replace(/\D/g,'').slice(0,8); field.value = [digits.slice(0,2),digits.slice(2,4),digits.slice(4)].filter(Boolean).join('.'); }
+    validate();
+  });
+  picker.addEventListener('click', () => { if (picker.showPicker) { try { picker.showPicker(); } catch (_) {} } });
+  picker.addEventListener('change', () => { field.value = picker.value ? picker.value.split('-').reverse().join('.') : ''; validate(); });
+  validate();
+});

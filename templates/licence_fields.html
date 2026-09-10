@@ -1,5 +1,5 @@
 <section><h2>Licence details</h2><div class="form-grid three">
 <label>Licence number<input name="licence_number" type="text" maxlength="80" autocomplete="off" value="{{ person.licence_number if person else '' }}"></label>
 <label>Issuing state / territory<select name="licence_state"><option value="">Select state / territory</option>{% for state in ['ACT','NSW','NT','QLD','SA','TAS','VIC','WA'] %}<option value="{{ state }}" {{ 'selected' if person and person.licence_state == state }}>{{ state }}</option>{% endfor %}</select></label>
-<label>Licence expiry date<input name="licence_expiry" type="date" value="{{ person.licence_expiry if person else '' }}"></label>
+<label>Licence expiry date<input name="licence_expiry" type="text" class="formatted-date" inputmode="numeric" placeholder="DD.MM.YYYY" pattern="[0-9]{2}\.[0-9]{2}\.[0-9]{4}" maxlength="10" value="{{ person.licence_expiry|display_date if person and person.licence_expiry else '' }}"></label>
 </div><p class="hint">Optional — leave blank if you do not hold a licence.</p></section>

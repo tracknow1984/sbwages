@@ -100,3 +100,8 @@ All employees use Sunday week endings. Existing Friday-ending records keep their
 - Admin HIT ME selects one active employee and sends a title, pasted job/information text and normal/urgent priority. The recipient alone sees the notice and can mark it as read. Admin sees read status and time; viewing the dashboard does not mark messages read.
 - Notices are in-app, not SMS, email or device push. While staff have Home or Hit Me open, the app checks every 30 seconds for new notices and shows a View updates prompt without discarding forms.
 - Mobile navigation uses a compact grid; timesheets, document lists and leave requests become cards on narrow screens. Existing daily commit locks and early submission remain in place.
+
+## Date format and timesheet grouping
+
+- Dates are displayed as DD.MM.YYYY throughout the app; timestamps show DD.MM.YYYY · HH:MM in Brisbane time. Licence and leave date entry uses DD.MM.YYYY with an optional native calendar picker. Storage and internal URLs retain ISO dates.
+- Admin timesheets and staff history are grouped by their recorded week ending, newest first. Each expandable week shows date range, total hours, total amount and draft/submitted counts; the newest week starts open. Existing Friday-ending records keep their original dates.
