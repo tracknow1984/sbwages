@@ -1,4 +1,4 @@
 <div class="form-grid">
 {% for name,label,type,autocomplete in [('first_name','First name','text','given-name'),('last_name','Last name','text','family-name'),('email','Contact email','email','email'),('mobile','Contact mobile','tel','tel'),('emergency_name','Emergency contact name','text','off'),('emergency_email','Emergency contact email','email','off')] %}
 <label>{{ label }}<input name="{{ name }}" type="{{ type }}" value="{{ person[name] if person else '' }}" autocomplete="{{ autocomplete }}" maxlength="200" required></label>
-{% endfor %}</div>
+{% endfor %}<label>Emergency contact number<input name="emergency_phone" type="tel" value="{{ person.emergency_phone if person else '' }}" autocomplete="off" maxlength="40" placeholder="e.g. 0400 123 456"></label></div>

@@ -136,3 +136,5 @@ The equipment selector groups Machines and Vehicles and immediately loads the ap
 ## Timesheet archive and deletion
 
 Admin timesheet rows include Archive (or Restore in the Archived view) and Delete beside View week. Archive only organises the admin list; staff history, committed locks, payment records and pay slips remain available. Delete requires a dedicated confirmation page and CSRF-protected POST. Deletion removes only the selected sheet, its daily entries and matching correction history, plus any linked payment/pay slip after explicit confirmation. If a payment is processed after the confirmation page was opened, deletion stops for a fresh review. Employee accounts and unrelated modules are retained.
+
+Staff contact details include an optional emergency contact phone number, editable by admin and the employee and displayed in the admin staff table. Existing records are preserved.

@@ -143,6 +143,8 @@ def create_app(test_config=None):
         db().execute('BEGIN IMMEDIATE')
         db().execute('UPDATE users SET week_ending=6 WHERE week_ending<>6')
         user_columns = {row['name'] for row in db().execute('PRAGMA table_info(users)')}
+        if 'emergency_phone' not in user_columns:
+            db().execute("ALTER TABLE users ADD COLUMN emergency_phone TEXT NOT NULL DEFAULT ''")
         for name in ('licence_number', 'licence_state', 'licence_expiry'):
             if name not in user_columns:
                 db().execute(f"ALTER TABLE users ADD COLUMN {name} TEXT NOT NULL DEFAULT ''")
@@ -302,6 +304,11 @@ def create_app(test_config=None):
             raise ValueError('Please complete all staff contact fields.')
         if not valid_email(values['email']) or not valid_email(values['emergency_email']):
             raise ValueError('Enter valid contact and emergency contact email addresses.')
+        if 'emergency_phone' in request.form:
+            phone = request.form.get('emergency_phone', '').strip()
+            if len(phone) > 40 or (phone and (not re.fullmatch(r'[+0-9(). \-]+', phone) or not 7 <= sum(c.isdigit() for c in phone) <= 15)):
+                raise ValueError('Enter a valid emergency contact phone number, including area code where needed.')
+            values['emergency_phone'] = phone
         # Optional fields: omitted keys preserve records from older forms.
         for field in ('licence_number', 'licence_state', 'licence_expiry'):
             if field in request.form:
