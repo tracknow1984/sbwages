@@ -112,3 +112,7 @@ All employees use Sunday week endings. Existing Friday-ending records keep their
 - Each timesheet can have only one payment. A database uniqueness constraint and write transaction prevent duplicate processing. Paid timesheets cannot be corrected or unlocked, preserving their recorded total.
 - Payment records snapshot staff name, week, hours, hourly rate, cash/transfer amounts, processing date and administrator. Later staff changes do not rewrite slips. Staff see their own Pay Slips, payment status in history and the latest payment on Home. Admin can view the same slip.
 - Print / Save PDF uses the browser print dialog. Slips record the cash/transfer breakdown only; they do not calculate tax, superannuation or deductions.
+
+## SB Empire branding
+
+The header uses the SB EMPIRE .CO brand mark from the sbempire.co website icon asset (https://img1.wsimg.com/isteam/ip/9b8113f0-1359-42dd-8bb9-a95e43af7815/blob.png/:/rs=w:180,h:180,m), saved locally as static/sb-empire-logo.jpg. The visual palette is blue, black and grey; existing page layout and workflows are retained. The header and footer identify Staff, Timesheets & Operations.
