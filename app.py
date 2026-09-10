@@ -1,4 +1,5 @@
 import hashlib
+import json
 import os
 import re
 import secrets
@@ -41,6 +42,11 @@ CREATE TABLE IF NOT EXISTS invitations (
  token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), expires_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS login_attempts (key TEXT PRIMARY KEY, count INTEGER NOT NULL, started INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS entry_audit (
+ id INTEGER PRIMARY KEY, admin_id INTEGER NOT NULL REFERENCES users(id),
+ user_id INTEGER NOT NULL REFERENCES users(id), work_date TEXT NOT NULL,
+ action TEXT NOT NULL, reason TEXT NOT NULL, before_json TEXT NOT NULL, changed_at TEXT NOT NULL
+);
 '''
 
 
@@ -80,6 +86,15 @@ def create_app(test_config=None):
 
     with app.app_context():
         db().executescript(SCHEMA)
+        # Additive migration: keep every existing timesheet and password intact.
+        db().execute('BEGIN IMMEDIATE')
+        columns = {row['name'] for row in db().execute('PRAGMA table_info(entries)')}
+        for name, definition in [('start_time', 'TEXT'), ('finish_time', 'TEXT'),
+                                 ('committed_at', 'TEXT')]:
+            if name not in columns:
+                db().execute(f'ALTER TABLE entries ADD COLUMN {name} {definition}')
+        db().execute("UPDATE entries SET committed_at=COALESCE((SELECT submitted_at FROM sheets WHERE id=entries.sheet_id), 'Previously submitted') WHERE committed_at IS NULL AND sheet_id IN (SELECT id FROM sheets WHERE status='submitted')")
+        db().commit()
         if not db().execute("SELECT id FROM users WHERE role='admin'").fetchone():
             pw = app.config['ADMIN_PASSWORD']
             email = app.config['ADMIN_EMAIL']
@@ -371,6 +386,29 @@ def create_app(test_config=None):
         total = sheet['total_cents'] if sheet and sheet['status'] == 'submitted' else amount(units, rate)
         return dict(sheet=sheet, days=days, entries=by_day, total_units=units, rate=rate, total_cents=total)
 
+    def parse_day():
+        start = request.form.get('start_time', '').strip()
+        finish = request.form.get('finish_time', '').strip()
+        activity = request.form.get('activity', '').strip()
+        if len(activity) > 2000:
+            raise ValueError('Activity notes must be no more than 2,000 characters per day.')
+        if not start and not finish:
+            units = 0
+        else:
+            if not re.fullmatch(r'[0-2][0-9]:[0-5][0-9]', start) or not re.fullmatch(r'[0-2][0-9]:[0-5][0-9]', finish):
+                raise ValueError('Enter valid start and finish times.')
+            sh, sm = map(int, start.split(':'))
+            fh, fm = map(int, finish.split(':'))
+            if sh > 23 or fh > 23:
+                raise ValueError('Enter valid start and finish times.')
+            minutes = fh * 60 + fm - sh * 60 - sm
+            if minutes <= 0:
+                raise ValueError('Finish time must be after start time. Split overnight work across the two dates.')
+            units = int((Decimal(minutes) * 100 / 60).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
+            if not activity:
+                raise ValueError('Add activity notes for this day.')
+        return start or None, finish or None, units, activity
+
     @app.route('/employee/timesheet', methods=['GET', 'POST'])
     @require('employee')
     def employee_timesheet():
@@ -388,47 +426,59 @@ def create_app(test_config=None):
         if request.method == 'POST':
             try:
                 action = request.form.get('action')
-                if action not in ('save', 'submit'):
-                    raise ValueError('Choose save or submit.')
-                if action == 'submit' and today() < ending:
-                    raise ValueError('You can submit on or after your week-ending day.')
-                rows = []
-                for day in data['days']:
-                    key = day.isoformat()
-                    units = decimal_units(request.form.get('hours_' + key, '') or '0', 'Daily hours', 24)
-                    activity = request.form.get('activity_' + key, '').strip()
-                    if len(activity) > 2000:
-                        raise ValueError('Activity notes must be no more than 2,000 characters per day.')
-                    if units and not activity:
-                        raise ValueError(f'Add activity notes for {day.strftime("%A %d %b")}.')
-                    if day > today() and (units or activity):
-                        raise ValueError('Hours and activities cannot be entered for future dates.')
-                    rows.append((person['id'], key, units, activity))
-                if action == 'submit' and not sum(r[2] for r in rows):
-                    raise ValueError('Enter some worked hours before submitting.')
+                if action not in ('save_day', 'commit_day', 'submit'):
+                    raise ValueError('Choose Save day, Commit day or Submit to admin.')
                 db().execute('BEGIN IMMEDIATE')
                 current = db().execute('SELECT * FROM sheets WHERE user_id=? AND week_end=?', (person['id'], ending.isoformat())).fetchone()
                 if current and current['status'] == 'submitted':
                     raise ValueError('This timesheet has been submitted and is locked.')
-                overlap = db().execute('SELECT id FROM sheets WHERE user_id=? AND week_end BETWEEN ? AND ? AND week_end<>?', (person['id'], (ending - timedelta(days=6)).isoformat(), (ending + timedelta(days=6)).isoformat(), ending.isoformat())).fetchone()
-                if overlap:
-                    raise ValueError('This week overlaps an existing timesheet after a week-ending change. Ask admin to check the week-ending setting.')
-                if not current:
-                    sid = db().execute('INSERT INTO sheets(user_id,week_end) VALUES(?,?)', (person['id'], ending.isoformat())).lastrowid
-                else:
-                    sid = current['id']
-                for uid, key, units, activity in rows:
-                    db().execute('INSERT INTO entries VALUES(?,?,?,?,?) ON CONFLICT(user_id,work_date) DO UPDATE SET units=excluded.units,activity=excluded.activity', (uid, key, sid, units, activity))
                 if action == 'submit':
-                    units = sum(r[2] for r in rows)
+                    if today() < ending:
+                        raise ValueError('You can submit on or after your week-ending day.')
+                    rows = db().execute('SELECT * FROM entries WHERE sheet_id=?', (current['id'],)).fetchall() if current else []
+                    units = sum(row['units'] for row in rows)
+                    if not units:
+                        raise ValueError('Enter some worked hours before submitting.')
+                    if any(not row['committed_at'] for row in rows if row['units'] or row['activity']):
+                        raise ValueError('Commit each entered day before submitting the week.')
                     rate = db().execute('SELECT rate_cents FROM users WHERE id=?', (person['id'],)).fetchone()['rate_cents']
-                    db().execute("UPDATE sheets SET status='submitted',rate_cents=?,total_units=?,total_cents=?,submitted_at=? WHERE id=?", (rate, units, amount(units, rate), datetime.now(ZoneInfo('Australia/Brisbane')).isoformat(), sid))
+                    db().execute("UPDATE sheets SET status='submitted',rate_cents=?,total_units=?,total_cents=?,submitted_at=? WHERE id=?",
+                                 (rate, units, amount(units, rate), datetime.now(ZoneInfo('Australia/Brisbane')).isoformat(), current['id']))
+                else:
+                    try:
+                        day = date.fromisoformat(request.form.get('work_date', ''))
+                    except ValueError:
+                        raise ValueError('Choose a valid work date.')
+                    if day not in data['days'] or day > today():
+                        raise ValueError('Choose a day in this week that is not in the future.')
+                    old = db().execute('SELECT * FROM entries WHERE user_id=? AND work_date=?', (person['id'], day.isoformat())).fetchone()
+                    if old and (not current or old['sheet_id'] != current['id']):
+                        raise ValueError('This date belongs to another timesheet. Ask admin to check the week ending.')
+                    if old and old['committed_at']:
+                        raise ValueError('This day is committed and locked. Only an administrator can change it.')
+                    start, finish, units, activity = parse_day()
+                    if old and old['units'] and not old['start_time'] and not start and not finish:
+                        raise ValueError('This day has previous hours. Enter start and finish times before saving or committing it.')
+                    if not current:
+                        overlap = db().execute('SELECT id FROM sheets WHERE user_id=? AND week_end BETWEEN ? AND ? AND week_end<>?',
+                            (person['id'], (ending - timedelta(days=6)).isoformat(), (ending + timedelta(days=6)).isoformat(), ending.isoformat())).fetchone()
+                        if overlap:
+                            raise ValueError('This week overlaps an existing timesheet. Ask admin to check the week ending.')
+                        sid = db().execute('INSERT INTO sheets(user_id,week_end) VALUES(?,?)', (person['id'], ending.isoformat())).lastrowid
+                    else:
+                        sid = current['id']
+                    committed = datetime.now(ZoneInfo('Australia/Brisbane')).isoformat() if action == 'commit_day' else None
+                    db().execute("""INSERT INTO entries(user_id,work_date,sheet_id,units,activity,start_time,finish_time,committed_at)
+                        VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(user_id,work_date) DO UPDATE SET
+                        units=excluded.units,activity=excluded.activity,start_time=excluded.start_time,
+                        finish_time=excluded.finish_time,committed_at=excluded.committed_at""",
+                        (person['id'], day.isoformat(), sid, units, activity, start, finish, committed))
                 db().commit()
-                flash('Timesheet submitted to admin.' if action == 'submit' else 'Daily hours and activities saved.', 'success')
+                flash({'save_day': 'Day saved.', 'commit_day': 'Day committed and locked.', 'submit': 'Timesheet submitted to admin.'}[action], 'success')
                 return redirect(url_for('employee_timesheet', week=ending.isoformat()))
             except (ValueError, sqlite3.IntegrityError) as error:
                 db().rollback()
-                flash(str(error) if isinstance(error, ValueError) else 'This week overlaps existing hours. Please contact admin.', 'error')
+                flash(str(error) if isinstance(error, ValueError) else 'This date overlaps existing hours. Please contact admin.', 'error')
         return render_template('timesheet.html', **data, person=person, ending=ending, tab='timesheet', admin_view=False,
                                previous=ending - timedelta(days=7), following=ending + timedelta(days=7), current_ending=week_end(today(), person['week_ending']))
 
@@ -441,18 +491,69 @@ def create_app(test_config=None):
     @app.get('/admin/timesheets')
     @require('admin')
     def admin_timesheets():
-        sheets = db().execute("SELECT s.*,u.first_name,u.last_name FROM sheets s JOIN users u ON u.id=s.user_id WHERE s.status='submitted' ORDER BY submitted_at DESC").fetchall()
+        sheets = db().execute("""SELECT s.id,s.user_id,s.week_end,s.status,s.submitted_at,u.first_name,u.last_name,
+            CASE WHEN s.status='submitted' THEN s.total_units ELSE COALESCE((SELECT SUM(e.units) FROM entries e WHERE e.sheet_id=s.id),0) END total_units,
+            CASE WHEN s.status='submitted' THEN s.rate_cents ELSE u.rate_cents END rate_cents,
+            s.total_cents FROM sheets s JOIN users u ON u.id=s.user_id ORDER BY s.week_end DESC,u.first_name""").fetchall()
+        sheets = [dict(row) for row in sheets]
+        for row in sheets:
+            if row["status"] == "draft":
+                row["total_cents"] = amount(row["total_units"], row["rate_cents"])
         return render_template('submissions.html', sheets=sheets, tab='submissions', admin_view=True)
 
     @app.get('/admin/timesheets/<int:sheet_id>')
     @require('admin')
     def view_sheet(sheet_id):
-        sheet = db().execute("SELECT * FROM sheets WHERE id=? AND status='submitted'", (sheet_id,)).fetchone()
+        sheet = db().execute("SELECT * FROM sheets WHERE id=?", (sheet_id,)).fetchone()
         if not sheet:
             abort(404)
         person = staff(sheet['user_id'])
         ending = date.fromisoformat(sheet['week_end'])
         return render_template('timesheet.html', **sheet_data(person, ending), person=person, ending=ending, tab='submissions', admin_view=True)
+
+    @app.route('/admin/timesheets/<int:sheet_id>/days/<work_date>', methods=['GET', 'POST'])
+    @require('admin')
+    def edit_day(sheet_id, work_date):
+        sheet = db().execute('SELECT * FROM sheets WHERE id=?', (sheet_id,)).fetchone()
+        if not sheet:
+            abort(404)
+        entry = db().execute('SELECT * FROM entries WHERE sheet_id=? AND work_date=?', (sheet_id, work_date)).fetchone()
+        if not entry:
+            abort(404)
+        person = staff(sheet['user_id'])
+        if request.method == 'POST':
+            try:
+                action = request.form.get('action')
+                reason = request.form.get('reason', '').strip()
+                if action not in ('correct', 'unlock'):
+                    raise ValueError('Choose Save correction or Unlock day.')
+                if not reason or len(reason) > 1000:
+                    raise ValueError('Enter a reason for the change (up to 1,000 characters).')
+                values = parse_day() if action == 'correct' else None
+                db().execute('BEGIN IMMEDIATE')
+                before = db().execute('SELECT * FROM entries WHERE sheet_id=? AND work_date=?', (sheet_id, work_date)).fetchone()
+                current = db().execute('SELECT * FROM sheets WHERE id=?', (sheet_id,)).fetchone()
+                now = datetime.now(ZoneInfo('Australia/Brisbane')).isoformat()
+                db().execute('INSERT INTO entry_audit(admin_id,user_id,work_date,action,reason,before_json,changed_at) VALUES(?,?,?,?,?,?,?)',
+                    (g.user['id'], person['id'], work_date, action, reason, json.dumps({'entry': dict(before), 'sheet': dict(current)}), now))
+                if action == 'unlock':
+                    db().execute('UPDATE entries SET committed_at=NULL WHERE sheet_id=? AND work_date=?', (sheet_id, work_date))
+                    db().execute("UPDATE sheets SET status='draft',rate_cents=NULL,total_units=NULL,total_cents=NULL,submitted_at=NULL WHERE id=?", (sheet_id,))
+                else:
+                    start, finish, units, activity = values
+                    db().execute('UPDATE entries SET start_time=?,finish_time=?,units=?,activity=?,committed_at=? WHERE sheet_id=? AND work_date=?',
+                        (start, finish, units, activity, now, sheet_id, work_date))
+                    if current['status'] == 'submitted':
+                        total = db().execute('SELECT COALESCE(SUM(units),0) AS units FROM entries WHERE sheet_id=?', (sheet_id,)).fetchone()['units']
+                        db().execute('UPDATE sheets SET total_units=?,total_cents=? WHERE id=?', (total, amount(total, current['rate_cents']), sheet_id))
+                db().commit()
+                flash('Day unlocked. The employee must commit it again and resubmit the week.' if action == 'unlock' else 'Correction saved. The day remains locked.', 'success')
+                return redirect(url_for('view_sheet', sheet_id=sheet_id))
+            except (ValueError, sqlite3.IntegrityError) as error:
+                db().rollback()
+                flash(str(error) if isinstance(error, ValueError) else 'The correction could not be saved.', 'error')
+        audit = db().execute('SELECT a.*,u.first_name,u.last_name FROM entry_audit a JOIN users u ON u.id=a.admin_id WHERE a.user_id=? AND a.work_date=? ORDER BY a.id DESC', (person['id'], work_date)).fetchall()
+        return render_template('day_edit.html', sheet=sheet, entry=entry, person=person, audit=audit, tab='submissions')
 
     @app.get('/admin/settings')
     @require('admin')

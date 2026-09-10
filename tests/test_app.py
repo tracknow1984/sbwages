@@ -52,10 +52,19 @@ class AppTests(unittest.TestCase):
         today = datetime.now(ZoneInfo('Australia/Brisbane')).date()
         return today - timedelta(days=((today.weekday() - ending) % 7) + 7)
 
+    def day_form(self, end, start='08:00', finish='16:00', action='commit_day', day=None):
+        return dict(week=end.isoformat(), work_date=(day or end).isoformat(), action=action,
+                    start_time=start, finish_time=finish, activity='Yard maintenance')
+
     def week_form(self, end, hours='8', action='save'):
-        return {'week': end.isoformat(), 'action': action,
-                **{'hours_' + (end - timedelta(days=i)).isoformat(): hours for i in range(7)},
-                **{'activity_' + (end - timedelta(days=i)).isoformat(): 'Yard maintenance' for i in range(7)}}
+        minutes = round(float(hours) * 60)
+        finish = f'{minutes // 60:02d}:{minutes % 60:02d}'
+        for i in range(7 if action == 'submit' else 6):
+            self.post('/employee/timesheet', self.day_form(end, '00:00', finish,
+                      'commit_day' if action == 'submit' else 'save_day', end - timedelta(days=i)))
+        if action == 'submit':
+            return {'week': end.isoformat(), 'action': 'submit'}
+        return self.day_form(end, '00:00', finish, 'save_day', end - timedelta(days=6))
 
     def test_staff_form_and_employee_permissions(self):
         person, values = self.add()
@@ -97,10 +106,10 @@ class AppTests(unittest.TestCase):
         self.post('/logout')
         self.login('alex', 'test-staff-password')
         end = self.last_week(6)
-        response = self.post('/employee/timesheet', self.week_form(end, '0.01', 'submit'))
+        response = self.post('/employee/timesheet', self.week_form(end, str(1/60), 'submit'))
         self.assertIn(b'Timesheet submitted to admin.', response.data)
         sheet = self.query('SELECT * FROM sheets')[0]
-        self.assertEqual(sheet['total_cents'], 249)
+        self.assertEqual(sheet['total_cents'], 497)
         rows = self.query('SELECT work_date FROM entries ORDER BY work_date')
         self.assertEqual(datetime.fromisoformat(rows[0]['work_date']).weekday(), 0)
         self.assertEqual(datetime.fromisoformat(rows[-1]['work_date']).weekday(), 6)
@@ -111,11 +120,12 @@ class AppTests(unittest.TestCase):
         self.post('/logout')
         self.login('alex', 'test-staff-password')
         end = self.last_week()
-        for hours in ['25', '-1', 'NaN', 'Infinity', '1.001']:
-            response = self.post('/employee/timesheet', self.week_form(end, hours))
-            self.assertIn(b'Daily hours must', response.data)
-        values = self.week_form(end)
-        values['activity_' + end.isoformat()] = ''
+        for start, finish in [('25:00','26:00'), ('08:00','07:00'), ('08:00','08:00'), ('','17:00'), ('08:00','NaN')]:
+            response = self.post('/employee/timesheet', self.day_form(end, start, finish))
+            self.assertNotIn(b'Day committed and locked.', response.data)
+            self.assertEqual(len(self.query('SELECT * FROM entries')), 0)
+        values = self.day_form(end)
+        values['activity'] = ''
         self.assertIn(b'Add activity notes', self.post('/employee/timesheet', values).data)
         self.assertEqual(self.client.post('/employee/details', data={}).status_code, 400)
         self.post('/employee/timesheet', self.week_form(end, '8', 'submit'))
@@ -177,6 +187,100 @@ class AppTests(unittest.TestCase):
         self.assertIn(b'Submit existing draft', response.data)
         self.assertEqual(self.query('SELECT week_ending FROM users WHERE id=?', (person['id'],))[0]['week_ending'], 4)
 
+    def test_commit_cannot_be_changed_by_employee_and_ignores_other_days(self):
+        self.add()
+        self.post('/logout')
+        self.login('alex', 'test-staff-password')
+        end = self.last_week()
+        values = self.day_form(end, '07:30', '16:00')
+        self.assertIn(b'Day committed and locked.', self.post('/employee/timesheet', values).data)
+        entry = self.query('SELECT * FROM entries')[0]
+        self.assertEqual(entry['units'], 850)
+        self.assertTrue(entry['committed_at'])
+        for action in ['commit_day', 'save_day']:
+            result = self.post('/employee/timesheet', values | {'action': action, 'finish_time': '18:00'})
+            self.assertIn(b'Only an administrator', result.data)
+        self.assertEqual(self.query('SELECT units FROM entries')[0]['units'], 850)
+        other = self.day_form(end, day=end-timedelta(days=1), action='save_day')
+        self.assertIn(b'Day saved.', self.post('/employee/timesheet', other).data)
+        self.assertEqual(self.query('SELECT units FROM entries WHERE work_date=?', (end.isoformat(),))[0]['units'], 850)
+        self.assertIn(b'Commit each entered day', self.post('/employee/timesheet', {'week':end.isoformat(), 'action':'submit'}).data)
+
+    def test_admin_correction_and_unlock_of_submitted_week(self):
+        person, values = self.add()
+        self.post('/logout')
+        self.login('alex', 'test-staff-password')
+        end = self.last_week()
+        self.post('/employee/timesheet', self.week_form(end, '8', 'submit'))
+        sheet = self.query('SELECT * FROM sheets')[0]
+        route = f'/admin/timesheets/{sheet["id"]}/days/{end.isoformat()}'
+        self.assertEqual(self.post(route, {'action':'unlock', 'reason':'test'}).status_code, 403)
+        self.post('/logout')
+        self.login('admin', 'test-admin-password', 'admin')
+        self.post(f'/admin/staff/{person["id"]}/edit', values | {'hourly_rate':'50','password':''})
+        self.assertEqual(self.client.get(route).status_code, 200)
+        correction = dict(action='correct', start_time='08:00', finish_time='17:00',activity='Corrected work',reason='Checked clock times')
+        self.assertIn(b'Correction saved.', self.post(route, correction).data)
+        updated = self.query('SELECT * FROM sheets')[0]
+        self.assertEqual(updated['total_units'], 5700)
+        self.assertEqual(updated['total_cents'], 202350)
+        self.assertEqual(updated['rate_cents'], 3550)
+        self.assertEqual(updated['status'], 'submitted')
+        self.assertIn(b'Enter a reason', self.post(route, {'action':'unlock'}).data)
+        self.assertIn(b'Day unlocked.', self.post(route, {'action':'unlock','reason':'Employee needs to correct notes'}).data)
+        self.assertEqual(self.query('SELECT status FROM sheets')[0]['status'], 'draft')
+        self.assertEqual(len(self.query('SELECT * FROM entries WHERE committed_at IS NOT NULL')), 6)
+        self.assertEqual(len(self.query('SELECT * FROM entry_audit')), 2)
+        self.post('/logout')
+        self.login('alex', 'test-staff-password')
+        self.assertIn(b'Day committed', self.post('/employee/timesheet', self.day_form(end)).data)
+        self.assertIn(b'Timesheet submitted', self.post('/employee/timesheet', {'week':end.isoformat(),'action':'submit'}).data)
+
+    def test_draft_visible_to_admin_and_csrf_future_validation(self):
+        self.add()
+        self.post('/logout')
+        self.login('alex','test-staff-password')
+        end = self.last_week()
+        values = self.day_form(end)
+        self.assertEqual(self.client.post('/employee/timesheet',data=values).status_code,400)
+        wrong = values | {'work_date': (end+timedelta(days=1)).isoformat()}
+        self.assertIn(b'Choose a day in this week',self.post('/employee/timesheet',wrong).data)
+        self.post('/employee/timesheet',values)
+        self.post('/logout')
+        self.login('admin','test-admin-password','admin')
+        page = self.client.get('/admin/timesheets')
+        self.assertIn(b'Draft',page.data)
+        self.assertIn(b'$284.00',page.data)
+        self.assertIn(b'Edit / unlock',self.client.get('/admin/timesheets/1').data)
+
+    def test_no_work_day_and_independent_save(self):
+        self.add()
+        self.post('/logout')
+        self.login('alex','test-staff-password')
+        end=self.last_week()
+        data=self.day_form(end, '', '') | {'activity':''}
+        self.assertIn(b'Day committed',self.post('/employee/timesheet',data).data)
+        self.assertEqual(self.query('SELECT units FROM entries')[0]['units'],0)
+        self.assertIn(b'Enter some worked hours',self.post('/employee/timesheet',{'week':end.isoformat(),'action':'submit'}).data)
+
+    def test_migration_preserves_existing_records_and_passwords(self):
+        person, _ = self.add()
+        before = self.query('SELECT password_hash FROM users WHERE id=?',(person['id'],))[0]['password_hash']
+        with sqlite3.connect(self.path) as db:
+            db.execute("INSERT INTO sheets(user_id,week_end,status,rate_cents,total_units,total_cents,submitted_at) VALUES(?, '2026-01-02','submitted',3550,800,28400,'2026-01-02T17:00:00')",(person['id'],))
+            db.execute("INSERT INTO entries(user_id,work_date,sheet_id,units,activity) VALUES(?,'2026-01-02',1,800,'Historical work')",(person['id'],))
+            for col in ['start_time','finish_time','committed_at']:
+                db.execute(f'ALTER TABLE entries DROP COLUMN {col}')
+        create_app(self.app.config)
+        create_app(self.app.config)
+        entry=self.query('SELECT * FROM entries')[0]
+        self.assertEqual(entry['units'],800)
+        self.assertEqual(entry['activity'],'Historical work')
+        self.assertIsNone(entry['start_time'])
+        self.assertTrue(entry['committed_at'])
+        self.assertEqual(before,self.query('SELECT password_hash FROM users WHERE id=?',(person['id'],))[0]['password_hash'])
+
 
 if __name__ == '__main__':
     unittest.main()
+

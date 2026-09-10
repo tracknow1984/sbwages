@@ -1,0 +1,11 @@
+{% extends 'base.html' %}{% block content %}
+<a class="back" href="{{ url_for('view_sheet',sheet_id=sheet.id) }}">← Back to timesheet</a>
+<div class="page-heading"><div><span class="eyebrow">ADMINISTRATOR CORRECTION</span><h1>{{ person.first_name }} {{ person.last_name }}</h1><p class="muted">Work date: {{ entry.work_date }} · {{ entry.units|hours }} saved hours</p></div></div>
+<section class="panel admin-day-panel"><form method="post"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+<div class="time-fields"><label>Start time<input type="time" name="start_time" step="60" value="{{ request.form.get('start_time', entry.start_time or '') }}"></label><label>Finish time<input type="time" name="finish_time" step="60" value="{{ request.form.get('finish_time', entry.finish_time or '') }}"></label></div>
+<label>Activities conducted<textarea name="activity" maxlength="2000" rows="3">{{ request.form.get('activity', entry.activity) }}</textarea></label>
+<label>Reason for correction or unlocking<textarea name="reason" maxlength="1000" rows="2" required>{{ request.form.get('reason', '') }}</textarea></label>
+<p class="hint">Saving a correction keeps the day locked and recalculates the weekly amount. A submitted week retains its saved hourly rate.<br>Unlocking returns a submitted week to draft so the employee can correct this day, commit it again and resubmit. Other committed days remain locked.</p>
+<div class="actions"><button class="primary" name="action" value="correct">Save correction</button><button class="secondary" name="action" value="unlock" formnovalidate>Unlock day</button></div></form></section>
+{% if audit %}<section class="panel admin-day-panel"><h2>Change history</h2>{% for change in audit %}<p><strong>{{ change.action|capitalize }}</strong> · {{ change.changed_at[:16]|replace('T',' ') }} · {{ change.first_name }} {{ change.last_name }}<br>{{ change.reason }}</p>{% endfor %}</section>{% endif %}
+{% endblock %}

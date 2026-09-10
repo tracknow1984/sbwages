@@ -8,7 +8,8 @@ A server-backed staff management and weekly timesheet app for SB EMPIRE, built f
 - Staff contact and emergency contact details; hourly rate in AUD; username; optional password; active/terminated status; Friday/Sunday week ending.
 - Searchable staff table with edit and email invitation actions.
 - Separate `/admin/login` and `/employee/login` pages.
-- Employee contact updates, daily hours and activity notes across all seven days, draft saving, live totals and weekly submission.
+- Employee contact updates, daily start/finish times and activity notes across all seven days, separate Save day and Commit day buttons, calculated hours, live totals and weekly submission.
+- Committed days are locked on the server. Only administrators can correct or unlock them, with a required reason and a retained change history. Admins can see draft weeks as soon as a day is saved.
 - Friday weeks run Saturday–Friday; Sunday weeks run Monday–Sunday. Dates use Australia/Brisbane.
 - Employees may submit on or after the week-ending day. Submitted records are locked and visible in the admin table and employee history.
 - Submission snapshots the rate, hours and weekly amount. Later rate changes do not rewrite submitted records.
@@ -72,6 +73,16 @@ python -m unittest discover -s tests -v
 node --check static/app.js
 ```
 
-The integration tests exercise staff creation/editing, employee field restrictions and isolation, both week schedules, calculations and rounding, locked submission snapshots, invalid inputs, CSRF, termination, invitation activation and replay protection, SMTP failure and login throttling. SMTP is mocked in tests; live email and Render deployment require configuration. Browser visual testing is not included.
+The integration tests exercise staff creation/editing, employee field restrictions and isolation, both week schedules, calculations and rounding, locked submission snapshots, invalid inputs, CSRF, termination, invitation activation and replay protection, SMTP failure and login throttling. SMTP is mocked in tests; live email and Render deployment require configuration. The daily entry workflow is also checked in a local browser when browser dependencies are available.
 
-Changing a staff member's week ending is blocked while drafts exist, and overlapping weeks are rejected to prevent duplicate hours. Choose the correct week ending before entering hours. Submitted corrections/reopening and payroll exports are not part of this first version.
+Changing a staff member's week ending is blocked while drafts exist, and overlapping weeks are rejected to prevent duplicate hours. Choose the correct week ending before entering hours. Payroll exports are not included.
+
+
+## Daily commits and administrator corrections
+
+- Each date has its own start time, finish time, activity notes and Save day / Commit day actions. Committing one date does not save other unsaved dates. The interface warns before discarding unsaved edits elsewhere.
+- Hours are elapsed minutes converted to decimal hours, rounded to two places. No break time is deducted automatically. Finish must be later than start on the same date; split overnight shifts across dates. Blank times represent zero hours.
+- Weekly submission requires every entered day with hours or notes to be committed. Blank days can remain empty. Committed days and submitted weeks reject employee edits even through direct requests.
+- Admin: TIMESHEETS → View week → Edit / unlock. A correction stays locked and recalculates the total using the submitted rate if already submitted. Unlocking reopens the week as a draft and requires the employee to recommit and resubmit; draft estimates use the employee's current rate. Other committed days stay locked.
+- Administrator changes store the reason, administrator, timestamp and previous day/week values in `entry_audit`. No records are deleted.
+- Startup applies an additive SQLite migration for time fields and daily locks. Existing hours, submissions and accounts are preserved; historical submitted entries are marked locked without inventing start/finish times. Existing draft hours remain visible until the user supplies times and saves/commits the day.
