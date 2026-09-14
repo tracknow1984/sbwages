@@ -163,6 +163,8 @@ def create_app(test_config=None):
         for name in ('licence_number', 'licence_state', 'licence_expiry'):
             if name not in user_columns:
                 db().execute(f"ALTER TABLE users ADD COLUMN {name} TEXT NOT NULL DEFAULT ''")
+        if 'archived_at' not in {row['name'] for row in db().execute('PRAGMA table_info(staff_notices)')}:
+            db().execute('ALTER TABLE staff_notices ADD COLUMN archived_at TEXT')
         if 'archived_at' not in {row['name'] for row in db().execute('PRAGMA table_info(leave_requests)')}:
             db().execute('ALTER TABLE leave_requests ADD COLUMN archived_at TEXT')
         if 'archived_at' not in {row['name'] for row in db().execute('PRAGMA table_info(sheets)')}:
@@ -812,14 +814,14 @@ def create_app(test_config=None):
     def timestamp():
         return datetime.now(ZoneInfo('Australia/Brisbane')).isoformat()
 
-    def notice_rows(user_id=None, limit=-1):
+    def notice_rows(user_id=None, limit=-1, archived=False):
         sql = "SELECT n.*,u.first_name,u.last_name,a.first_name AS sender_name FROM staff_notices n JOIN users u ON u.id=n.user_id JOIN users a ON a.id=n.admin_id"
         if user_id is None:
-            return db().execute(sql + ' ORDER BY n.id DESC LIMIT ?', (limit,)).fetchall()
-        return db().execute(sql + ' WHERE n.user_id=? ORDER BY (n.read_at IS NULL) DESC,n.id DESC LIMIT ?', (user_id,limit)).fetchall()
+            return db().execute(sql + ' WHERE (n.archived_at IS NOT NULL)=? ORDER BY n.id DESC LIMIT ?', (int(archived),limit)).fetchall()
+        return db().execute(sql + ' WHERE n.user_id=? AND n.archived_at IS NULL ORDER BY (n.read_at IS NULL) DESC,n.id DESC LIMIT ?', (user_id,limit)).fetchall()
 
     def notice_summary():
-        return dict(db().execute('SELECT COUNT(*) AS total,COALESCE(SUM(read_at IS NULL),0) AS unread,COALESCE(MAX(id),0) AS latest FROM staff_notices WHERE user_id=?', (g.user['id'],)).fetchone())
+        return dict(db().execute('SELECT COUNT(*) AS total,COALESCE(SUM(read_at IS NULL),0) AS unread,COALESCE(MAX(id),0) AS latest FROM staff_notices WHERE user_id=? AND archived_at IS NULL', (g.user['id'],)).fetchone())
 
     @app.route('/admin/hit-me', methods=['GET','POST'])
     @require('admin')
@@ -850,7 +852,34 @@ def create_app(test_config=None):
                 db().rollback()
                 flash(str(error),'error')
         people = db().execute("SELECT id,first_name,last_name FROM users WHERE role='employee' AND status='active' ORDER BY first_name,last_name").fetchall()
-        return render_template('hit_me.html', people=people, notices=notice_rows(), admin_view=True, tab='hit-me')
+        return render_template('hit_me.html', people=people, notices=notice_rows(archived=request.args.get('archived') == '1'), archived=request.args.get('archived') == '1', admin_view=True, tab='hit-me')
+
+    @app.post('/admin/hit-me/<int:notice_id>/archive')
+    @require('admin')
+    def archive_notice(notice_id):
+        restore = request.form.get('action') == 'restore'
+        result = db().execute('UPDATE staff_notices SET archived_at=? WHERE id=?',
+                              (None if restore else timestamp(), notice_id))
+        if not result.rowcount:
+            abort(404)
+        db().commit()
+        flash('Notice restored to the staff board.' if restore else 'Notice archived and removed from the staff board.', 'success')
+        return redirect(url_for('admin_hit_me', archived='1' if restore else '0'))
+
+    @app.route('/admin/hit-me/<int:notice_id>/delete', methods=['GET','POST'])
+    @require('admin')
+    def delete_notice(notice_id):
+        item = db().execute('SELECT n.*,u.first_name,u.last_name FROM staff_notices n JOIN users u ON u.id=n.user_id WHERE n.id=?', (notice_id,)).fetchone()
+        if not item:
+            abort(404)
+        if request.method == 'POST':
+            if request.form.get('confirm_delete') != 'yes':
+                abort(400, 'Confirm deletion before continuing.')
+            db().execute('DELETE FROM staff_notices WHERE id=?', (notice_id,))
+            db().commit()
+            flash('EMPIRE WIRE notice permanently deleted.', 'success')
+            return redirect(url_for('admin_hit_me', archived='1' if item['archived_at'] else '0'))
+        return render_template('delete_notice.html', item=item, tab='hit-me')
 
     @app.get('/employee/hit-me')
     @require('employee')
@@ -860,7 +889,7 @@ def create_app(test_config=None):
     @app.post('/employee/hit-me/<int:notice_id>/read')
     @require('employee')
     def read_notice(notice_id):
-        row=db().execute('SELECT id FROM staff_notices WHERE id=? AND user_id=?', (notice_id,g.user['id'])).fetchone()
+        row=db().execute('SELECT id FROM staff_notices WHERE id=? AND user_id=? AND archived_at IS NULL', (notice_id,g.user['id'])).fetchone()
         if not row:
             abort(404)
         db().execute('UPDATE staff_notices SET read_at=? WHERE id=? AND user_id=? AND read_at IS NULL', (timestamp(),notice_id,g.user['id']))

@@ -1,0 +1,4 @@
+{% extends 'base.html' %}{% block content %}
+<div class="page-heading"><div><span class="eyebrow">ADMIN CONFIRMATION</span><h1>Delete EMPIRE WIRE notice?</h1></div></div>
+<form method="post" class="panel form-panel feature-panel"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><section><h2>{{ item.title }}</h2><p>To {{ item.first_name }} {{ item.last_name }} · {{ item.sent_at|display_datetime }}</p><div class="job-body">{{ item.body }}</div><p>This permanently removes this notice and its read status from admin and staff views. Use Archive to keep a record.</p><label class="prestart-sign"><input type="checkbox" name="confirm_delete" value="yes" required><span>I confirm permanent deletion of this notice.</span></label></section><div class="form-actions"><a class="button ghost" href="{{ url_for('admin_hit_me',archived=1 if item.archived_at else 0) }}">Cancel</a><button class="primary delete-action">Permanently delete</button></div></form>
+{% endblock %}
