@@ -1,0 +1,29 @@
+<section class="panel rent-summary" id="monthly-forecast" aria-labelledby="monthly-title">
+  <div class="panel-head"><h2 id="monthly-title">48-month leasing forecast</h2><span class="badge">Fixed bill: $1,000,000 / year</span></div>
+  <p class="rent-formula">Enter <strong>new sqm rented each month</strong> and the annual rate agreed for that new area. Enter any existing tenants in Month 1. Leave new sqm at zero in months with no additions.</p>
+  <p class="rent-note muted">Each addition earns a full month of rent immediately and continues at its original rate through Month 48. Total rented area is capped at 40,000 sqm. This is a separate monthly scenario; it does not overwrite your saved annual scenarios. No vacancies after letting, rent-free periods, increases, GST or outgoings are included.</p>
+  <form action="{{ url_for('admin_rent_monthly') }}" method="post" id="monthly-form">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+    <div class="monthly-actions"><button class="primary" id="save-monthly">Save 48-month forecast</button><span id="monthly-status" role="status">Forecast loaded. Save to keep edits.</span></div>
+    <div class="monthly-years">
+    {% for year in range(1, 5) %}
+      <details class="monthly-year" {% if year == 1 %}open{% endif %}>
+        <summary>Year {{ year }} · Months {{ (year-1)*12+1 }}–{{ year*12 }} <span id="monthly-year-caption-{{ year }}"></span></summary>
+        <div class="table-wrap"><table><thead><tr><th>Month</th><th>New sqm rented</th><th>Annual $/sqm for new area</th><th>Total sqm rented</th><th>Monthly income</th><th>Monthly bill</th><th>Subsidy / surplus</th><th>Cumulative balance</th></tr></thead><tbody>
+        {% for m in months[(year-1)*12:year*12] %}
+        <tr class="monthly-row" data-month="{{ m.month }}">
+          <td data-label="Month">Month {{ m.month }}</td>
+          <td data-label="New sqm rented"><input aria-label="Month {{ m.month }} new sqm rented" name="month_area_{{ m.month }}" class="monthly-area" type="number" min="0" max="40000" step="1" value="{{ m.new_area }}" required></td>
+          <td data-label="Annual $/sqm for new area"><input aria-label="Month {{ m.month }} annual rate per sqm" name="month_rate_{{ m.month }}" class="monthly-rate" type="number" min="5" max="45" step="0.01" value="{{ m.rate_cents / 100 }}" required></td>
+          <td data-label="Total sqm rented" data-output="area">—</td><td data-label="Monthly income" data-output="income">—</td><td data-label="Monthly bill">$83,333.33</td><td data-label="Subsidy / surplus" data-output="net">—</td><td data-label="Cumulative balance" data-output="balance">—</td>
+        </tr>
+        {% endfor %}</tbody></table></div>
+        <div class="monthly-year-summary" id="monthly-year-summary-{{ year }}" aria-label="Year {{ year }} summary"></div>
+      </details>
+    {% endfor %}
+    </div>
+  </form>
+  <div class="panel-head"><h2>48-month summary</h2></div>
+  <div id="monthly-overall" class="monthly-year-summary" aria-live="polite"></div>
+  <p class="rent-note muted">Monthly operating break-even is reached when income covers $1,000,000 ÷ 12. Cumulative break-even means all earlier shortfalls have also been recovered. Calculations retain full precision; displayed monthly amounts are rounded to cents, while each full year’s bill is exactly $1 million.</p>
+</section>

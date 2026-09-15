@@ -22,6 +22,13 @@ from prestart_config import ASSETS, DECLARATION, checklist
 from prestart_media import signature_png, photo_jpeg
 
 SCHEMA = '''
+CREATE TABLE IF NOT EXISTS rent_months (
+ admin_id INTEGER NOT NULL REFERENCES users(id),
+ month INTEGER NOT NULL CHECK(month BETWEEN 1 AND 48),
+ new_area INTEGER NOT NULL CHECK(new_area BETWEEN 0 AND 40000),
+ rate_cents INTEGER NOT NULL CHECK(rate_cents BETWEEN 500 AND 4500),
+ PRIMARY KEY(admin_id, month)
+);
 CREATE TABLE IF NOT EXISTS rent_partners (
  admin_id INTEGER NOT NULL REFERENCES users(id),
  partner INTEGER NOT NULL CHECK(partner BETWEEN 1 AND 4),
@@ -1099,6 +1106,27 @@ def create_app(test_config=None):
             return db().execute(sql + ' WHERE l.user_id=? ORDER BY l.id DESC LIMIT ?', (user_id, limit)).fetchall()
         return db().execute(sql + " WHERE (l.archived_at IS NOT NULL)=?" + (" AND l.status='pending'" if pending else '') + ' ORDER BY l.id DESC LIMIT ?', (int(archived),limit)).fetchall()
 
+    @app.post('/admin/rent-calculator/monthly')
+    @require('admin')
+    def admin_rent_monthly():
+        try:
+            rows = []
+            for month in range(1, 49):
+                area = int(request.form.get(f'month_area_{month}', ''))
+                rate = Decimal(request.form.get(f'month_rate_{month}', ''))
+                if not 0 <= area <= 40000 or not rate.is_finite() or not Decimal('5') <= rate <= Decimal('45') or rate != rate.quantize(Decimal('0.01')):
+                    raise ValueError('Each month needs 0–40,000 new sqm and an annual rate of $5–$45.')
+                rows.append((g.user['id'], month, area, int(rate * 100)))
+            if sum(row[2] for row in rows) > 40000:
+                raise ValueError('Total newly rented area across all 48 months cannot exceed 40,000 sqm.')
+            db().executemany('INSERT OR REPLACE INTO rent_months(admin_id,month,new_area,rate_cents) VALUES(?,?,?,?)', rows)
+            db().commit()
+            flash('48-month forecast saved.', 'success')
+        except (ValueError, InvalidOperation) as exc:
+            db().rollback()
+            flash(str(exc) if isinstance(exc, ValueError) else 'Enter valid monthly rent rates.', 'error')
+        return redirect(url_for('admin_rent_calculator') + '#monthly-forecast')
+
     @app.route('/admin/rent-calculator', methods=['GET', 'POST'])
     @require('admin')
     def admin_rent_calculator():
@@ -1151,8 +1179,10 @@ def create_app(test_config=None):
         partners = db().execute('SELECT * FROM rent_partners WHERE admin_id=? ORDER BY partner', (g.user['id'],)).fetchall()
         if not partners:
             partners = [dict(partner=i, name=f'Partner {i}', share_bps=0) for i in range(1, 5)]
+        saved_months = {row['month']: row for row in db().execute('SELECT * FROM rent_months WHERE admin_id=?', (g.user['id'],))}
+        months = [saved_months.get(i, dict(month=i, new_area=0, rate_cents=1500)) for i in range(1, 49)]
         return render_template('rent_calculator.html', tab='rent-calculator', years=years, total_cents=total_cents,
-                               actual_cents=actual_cents, subsidy_cents=subsidy_cents, surplus_cents=surplus_cents, partners=partners)
+                               actual_cents=actual_cents, subsidy_cents=subsidy_cents, surplus_cents=surplus_cents, partners=partners, months=months)
 
     @app.get('/admin/dashboard')
     @require('admin')

@@ -1,7 +1,9 @@
 {% extends 'base.html' %}{% block content %}
 <link rel="stylesheet" href="{{ url_for('static', filename='rent_calculator.css') }}">
 <script src="{{ url_for('static', filename='rent_calculator.js') }}" defer></script>
+<script src="{{ url_for('static', filename='rent_monthly.js') }}" defer></script>
 <div class="page-heading"><div><span class="eyebrow">PROPERTY PLANNING</span><h1>Rent calculator</h1><p class="muted">One block: 40,000 sqm billed at $25/sqm/year = $1,000,000 annual rent. Adjust the area you can rent out and the rate you receive.</p></div><a class="button secondary" href="{{ url_for('admin_dashboard') }}">Back to dashboard</a></div>
+{% include 'rent_monthly.html' %}
 <div class="rent-calculator" id="rent-calculator" data-area="{{ years[-1].area if years else 20000 }}" data-rate="{{ years[-1].rate_cents / 100 if years else 15 }}">
   <div class="rent-controls">
     <section class="panel rent-control" aria-labelledby="area-label">
