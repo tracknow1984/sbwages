@@ -5,10 +5,17 @@
   const number = new Intl.NumberFormat('en-AU');
   const area = document.getElementById('rent-area');
   const rate = document.getElementById('rent-rate');
+  const saved = document.getElementById('rent-calculator').dataset;
+  area.value = saved.area;
+  rate.value = saved.rate;
+  document.getElementById('rent-area-number').value = area.value;
+  document.getElementById('rent-rate-number').value = Number(rate.value).toFixed(2);
   function render() {
     const sqm = Number(area.value);
     const price = Number(rate.value);
     const annual = sqm * price;
+    document.getElementById('rent-save-area').value = String(sqm);
+    document.getElementById('rent-save-rate').value = price.toFixed(2);
     document.getElementById('rent-formula').textContent = `${number.format(sqm)} sqm × ${money.format(price)} per sqm / year`;
     document.getElementById('rent-annual').textContent = money.format(annual);
     document.getElementById('rent-monthly').textContent = money.format(annual / 12);

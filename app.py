@@ -22,6 +22,13 @@ from prestart_config import ASSETS, DECLARATION, checklist
 from prestart_media import signature_png, photo_jpeg
 
 SCHEMA = '''
+CREATE TABLE IF NOT EXISTS rent_years (
+ admin_id INTEGER NOT NULL REFERENCES users(id),
+ year INTEGER NOT NULL CHECK(year BETWEEN 1 AND 4),
+ area INTEGER NOT NULL CHECK(area BETWEEN 1 AND 40000),
+ rate_cents INTEGER NOT NULL CHECK(rate_cents BETWEEN 1500 AND 4500),
+ PRIMARY KEY(admin_id, year)
+);
 CREATE TABLE IF NOT EXISTS licence_photos (
  user_id INTEGER NOT NULL REFERENCES users(id), side TEXT NOT NULL CHECK(side IN ('front','back')),
  data BLOB NOT NULL, uploaded_at TEXT NOT NULL, uploaded_by INTEGER NOT NULL REFERENCES users(id),
@@ -1077,10 +1084,35 @@ def create_app(test_config=None):
             return db().execute(sql + ' WHERE l.user_id=? ORDER BY l.id DESC LIMIT ?', (user_id, limit)).fetchall()
         return db().execute(sql + " WHERE (l.archived_at IS NOT NULL)=?" + (" AND l.status='pending'" if pending else '') + ' ORDER BY l.id DESC LIMIT ?', (int(archived),limit)).fetchall()
 
-    @app.get('/admin/rent-calculator')
+    @app.route('/admin/rent-calculator', methods=['GET', 'POST'])
     @require('admin')
     def admin_rent_calculator():
-        return render_template('rent_calculator.html', tab='rent-calculator')
+        if request.method == 'POST':
+            try:
+                db().execute('BEGIN IMMEDIATE')
+                count = db().execute('SELECT COUNT(*) FROM rent_years WHERE admin_id=?', (g.user['id'],)).fetchone()[0]
+                expected = int(request.form.get('year', '0'))
+                if expected != count + 1:
+                    raise ValueError('The saved years changed. Please review them and try again.')
+                if request.form.get('action') == 'remove_last':
+                    db().execute('DELETE FROM rent_years WHERE admin_id=? AND year=?', (g.user['id'], count))
+                else:
+                    area = int(request.form.get('area', ''))
+                    rate = Decimal(request.form.get('rate', ''))
+                    if count >= 4:
+                        raise ValueError('All four years are saved. Remove the last year to revise it.')
+                    if not rate.is_finite() or not 1 <= area <= 40000 or not Decimal('15') <= rate <= Decimal('45') or rate != rate.quantize(Decimal('0.01')):
+                        raise ValueError('Enter 1–40,000 sqm and a rate of $15–$45 with up to two decimal places.')
+                    db().execute('INSERT INTO rent_years(admin_id,year,area,rate_cents) VALUES(?,?,?,?)',
+                                 (g.user['id'], count + 1, area, int(rate * 100)))
+                db().commit()
+            except (ValueError, InvalidOperation) as exc:
+                db().rollback()
+                flash(str(exc) if isinstance(exc, ValueError) else 'Enter a valid rent rate.', 'error')
+            return redirect(url_for('admin_rent_calculator'))
+        years = db().execute('SELECT * FROM rent_years WHERE admin_id=? ORDER BY year', (g.user['id'],)).fetchall()
+        total_cents = sum(row['area'] * row['rate_cents'] for row in years)
+        return render_template('rent_calculator.html', tab='rent-calculator', years=years, total_cents=total_cents)
 
     @app.get('/admin/dashboard')
     @require('admin')

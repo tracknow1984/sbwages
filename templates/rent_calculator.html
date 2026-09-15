@@ -2,7 +2,7 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='rent_calculator.css') }}">
 <script src="{{ url_for('static', filename='rent_calculator.js') }}" defer></script>
 <div class="page-heading"><div><span class="eyebrow">PROPERTY PLANNING</span><h1>Rent calculator</h1><p class="muted">Move either slider or enter an exact value to calculate your rent.</p></div><a class="button secondary" href="{{ url_for('admin_dashboard') }}">Back to dashboard</a></div>
-<div class="rent-calculator" id="rent-calculator">
+<div class="rent-calculator" id="rent-calculator" data-area="{{ years[-1].area if years else 20000 }}" data-rate="{{ years[-1].rate_cents / 100 if years else 15 }}">
   <div class="rent-controls">
     <section class="panel rent-control" aria-labelledby="area-label">
       <span class="eyebrow">01 · AREA</span><h2 id="area-label">Area rented</h2>
@@ -28,6 +28,27 @@
       </dl>
     </div>
     <p class="muted rent-note">Base rent only. Monthly = annual ÷ 12; weekly = annual ÷ 52. Excludes GST, outgoings and annual increases.</p>
+  </section>
+  <form method="post" class="rent-save" id="rent-save">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+    <input type="hidden" name="year" value="{{ years|length + 1 }}">
+    <input type="hidden" name="area" id="rent-save-area" value="20000">
+    <input type="hidden" name="rate" id="rent-save-rate" value="15">
+    <button type="submit" class="primary" id="rent-save-button" {% if years|length >= 4 %}disabled{% endif %}>{{ 'All four years saved' if years|length >= 4 else 'Save Year ' ~ (years|length + 1) }}</button>
+    <span class="muted">Adjust the sliders, then save each year. Saved years stay unchanged.</span>
+  </form>
+  <section class="panel rent-summary" aria-labelledby="saved-years-title">
+    <div class="panel-head"><h2 id="saved-years-title">Saved years · {{ years|length }} of 4</h2></div>
+    {% if years %}
+    <div class="table-wrap"><table><thead><tr><th>Year</th><th>Area rented</th><th>Rate / sqm / year</th><th>Annual rent</th><th>Monthly rent</th><th>Weekly rent</th></tr></thead><tbody>
+    {% for row in years %}{% set annual = row.area * row.rate_cents / 100 %}
+      <tr><td data-label="Year">Year {{ row.year }}</td><td data-label="Area rented">{{ '{:,}'.format(row.area) }} sqm</td><td data-label="Rate / sqm / year">${{ '{:,.2f}'.format(row.rate_cents / 100) }}</td><td data-label="Annual rent">${{ '{:,.2f}'.format(annual) }}</td><td data-label="Monthly rent">${{ '{:,.2f}'.format(annual / 12) }}</td><td data-label="Weekly rent">${{ '{:,.2f}'.format(annual / 52) }}</td></tr>
+    {% endfor %}</tbody></table></div>
+    <p class="rent-formula">Summary for {{ years|length }} saved {{ 'year' if years|length == 1 else 'years' }}</p>
+    <dl class="rent-totals"><div class="rent-annual"><dt>Total rent · saved years</dt><dd>${{ '{:,.2f}'.format(total_cents / 100) }}</dd></div><div><dt>Average annual rent</dt><dd>${{ '{:,.2f}'.format(total_cents / 100 / (years|length)) }}</dd></div><div><dt>Average monthly rent</dt><dd>${{ '{:,.2f}'.format(total_cents / 100 / (years|length) / 12) }}</dd></div></dl>
+    <form method="post" class="rent-remove"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="year" value="{{ years|length + 1 }}"><button class="secondary" name="action" value="remove_last">Remove Year {{ years|length }}</button></form>
+    {% else %}<p class="rent-formula">No years saved yet. Set your area and rate above, then select Save Year 1.</p>{% endif %}
+    <p class="muted rent-note">Saved to your administrator account. All amounts exclude GST and outgoings. Each year uses the rate you save; increases are not applied automatically.</p>
   </section>
   <noscript><p class="notice">Enable JavaScript to use the interactive rent calculator.</p></noscript>
 </div>
