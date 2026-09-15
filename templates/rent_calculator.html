@@ -62,6 +62,22 @@
     {% else %}<p class="rent-formula">No years saved yet. Set your area and rate above, then select Save Year 1.</p>{% endif %}
     <p class="muted rent-note">Saved to your administrator account. All amounts exclude GST and outgoings. Each year bills the full 40,000 sqm at $25/sqm ($1 million); four saved years cost $4 million. Existing saved areas and rates are retained and recalculated on this basis. Total subsidy sums yearly shortfalls; net result also offsets any yearly surpluses. No annual rent increases are applied.</p>
   </section>
+  <section class="panel rent-summary" id="rent-partners" aria-labelledby="partner-title">
+    <div class="panel-head"><h2 id="partner-title">Partner ownership &amp; subsidy</h2></div>
+    <p class="rent-formula">Enter the four ownership shares. Owned area, rental income and the rent shortfall are split in proportion to ownership.</p>
+    <form method="post" id="partner-form" class="partner-form">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="action" value="save_partners">
+      <div class="partner-inputs">
+      {% for p in partners %}
+        <div><label for="partner-name-{{ p.partner }}">Partner {{ p.partner }} name</label><input id="partner-name-{{ p.partner }}" name="partner_name_{{ p.partner }}" value="{{ p.name }}" required maxlength="80"><label for="partner-share-{{ p.partner }}">Ownership %</label><input class="partner-share" id="partner-share-{{ p.partner }}" name="partner_share_{{ p.partner }}" type="number" min="0" max="100" step="0.01" value="{{ p.share_bps / 100 }}" required></div>
+      {% endfor %}
+      </div>
+      <p id="partner-validation" role="status"></p><button id="save-partners" class="primary" type="submit">Save ownership</button><p id="partner-save-status" class="muted">Calculations use the values shown. Save ownership to keep changes.</p>
+    </form>
+    <div id="partner-years" hidden>{% for row in years %}<span data-subsidy="{{ [0, 100000000 - row.area * row.rate_cents]|max }}"></span>{% endfor %}</div>
+    <div class="table-wrap"><table><thead><tr><th>Partner</th><th>Ownership</th><th>Owned sqm</th><th>Annual bill share</th><th>Current slider subsidy / year</th>{% for i in range(1,5) %}<th>Year {{ i }} subsidy</th>{% endfor %}<th>Total saved subsidy</th></tr></thead><tbody id="partner-results"></tbody></table></div>
+    <p class="muted rent-note">Current slider subsidy is a preview. Year 1–4 and the total use saved years only. Ownership applies to all years; each year’s amounts are rounded and allocated to match the lot’s subsidy exactly. These are ownership-based shares, not separate physical tenancy allocations.</p>
+  </section>
   <noscript><p class="notice">Enable JavaScript to use the interactive rent calculator.</p></noscript>
 </div>
 {% endblock %}

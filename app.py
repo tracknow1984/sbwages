@@ -22,6 +22,13 @@ from prestart_config import ASSETS, DECLARATION, checklist
 from prestart_media import signature_png, photo_jpeg
 
 SCHEMA = '''
+CREATE TABLE IF NOT EXISTS rent_partners (
+ admin_id INTEGER NOT NULL REFERENCES users(id),
+ partner INTEGER NOT NULL CHECK(partner BETWEEN 1 AND 4),
+ name TEXT NOT NULL,
+ share_bps INTEGER NOT NULL CHECK(share_bps BETWEEN 0 AND 10000),
+ PRIMARY KEY(admin_id, partner)
+);
 CREATE TABLE IF NOT EXISTS rent_years (
  admin_id INTEGER NOT NULL REFERENCES users(id),
  year INTEGER NOT NULL CHECK(year BETWEEN 1 AND 4),
@@ -1087,6 +1094,24 @@ def create_app(test_config=None):
     @app.route('/admin/rent-calculator', methods=['GET', 'POST'])
     @require('admin')
     def admin_rent_calculator():
+        if request.method == 'POST' and request.form.get('action') == 'save_partners':
+            try:
+                partners = []
+                for i in range(1, 5):
+                    name = request.form.get(f'partner_name_{i}', '').strip()
+                    share = Decimal(request.form.get(f'partner_share_{i}', ''))
+                    if not name or len(name) > 80 or not share.is_finite() or not 0 <= share <= 100 or share != share.quantize(Decimal('0.01')):
+                        raise ValueError('Enter all four partner names and percentages from 0 to 100 with up to two decimal places.')
+                    partners.append((g.user['id'], i, name, int(share * 100)))
+                if sum(p[3] for p in partners) != 10000:
+                    raise ValueError('Partner ownership must total exactly 100%.')
+                db().executemany('INSERT OR REPLACE INTO rent_partners(admin_id,partner,name,share_bps) VALUES(?,?,?,?)', partners)
+                db().commit()
+                flash('Partner ownership saved. All years use these percentages.', 'success')
+            except (ValueError, InvalidOperation) as exc:
+                db().rollback()
+                flash(str(exc) if isinstance(exc, ValueError) else 'Enter valid ownership percentages.', 'error')
+            return redirect(url_for('admin_rent_calculator'))
         if request.method == 'POST':
             try:
                 db().execute('BEGIN IMMEDIATE')
@@ -1115,8 +1140,11 @@ def create_app(test_config=None):
         actual_cents = len(years) * 100000000
         subsidy_cents = sum(max(0, 100000000 - row['area'] * row['rate_cents']) for row in years)
         surplus_cents = sum(max(0, row['area'] * row['rate_cents'] - 100000000) for row in years)
+        partners = db().execute('SELECT * FROM rent_partners WHERE admin_id=? ORDER BY partner', (g.user['id'],)).fetchall()
+        if not partners:
+            partners = [dict(partner=i, name=f'Partner {i}', share_bps=0) for i in range(1, 5)]
         return render_template('rent_calculator.html', tab='rent-calculator', years=years, total_cents=total_cents,
-                               actual_cents=actual_cents, subsidy_cents=subsidy_cents, surplus_cents=surplus_cents)
+                               actual_cents=actual_cents, subsidy_cents=subsidy_cents, surplus_cents=surplus_cents, partners=partners)
 
     @app.get('/admin/dashboard')
     @require('admin')
