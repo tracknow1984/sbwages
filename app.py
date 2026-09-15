@@ -1077,6 +1077,11 @@ def create_app(test_config=None):
             return db().execute(sql + ' WHERE l.user_id=? ORDER BY l.id DESC LIMIT ?', (user_id, limit)).fetchall()
         return db().execute(sql + " WHERE (l.archived_at IS NOT NULL)=?" + (" AND l.status='pending'" if pending else '') + ' ORDER BY l.id DESC LIMIT ?', (int(archived),limit)).fetchall()
 
+    @app.get('/admin/rent-calculator')
+    @require('admin')
+    def admin_rent_calculator():
+        return render_template('rent_calculator.html', tab='rent-calculator')
+
     @app.get('/admin/dashboard')
     @require('admin')
     def admin_dashboard():

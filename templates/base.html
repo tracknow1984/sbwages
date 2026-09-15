@@ -13,6 +13,7 @@
 {% if current_user %}<nav class="tabs" aria-label="Main navigation">
 {% if current_user.role == 'admin' %}
 <a class="{{ 'selected' if tab == 'dashboard' }}" href="{{ url_for('admin_dashboard') }}">DASHBOARD</a>
+<a class="{{ 'selected' if tab == 'rent-calculator' }}" href="{{ url_for('admin_rent_calculator') }}">RENT CALCULATOR</a>
 <a class="{{ 'selected' if tab == 'hit-me' }}" href="{{ url_for('admin_hit_me') }}">EMPIRE WIRE</a>
 <a class="{{ 'selected' if tab == 'staff' }}" href="{{ url_for('admin_staff') }}">STAFF DETAILS</a>
 <a class="{{ 'selected' if tab == 'submissions' }}" href="{{ url_for('admin_timesheets') }}">TIMESHEETS</a>
