@@ -1112,10 +1112,11 @@ def create_app(test_config=None):
             return redirect(url_for('admin_rent_calculator'))
         years = db().execute('SELECT * FROM rent_years WHERE admin_id=? ORDER BY year', (g.user['id'],)).fetchall()
         total_cents = sum(row['area'] * row['rate_cents'] for row in years)
-        actual_cents = sum(row['area'] * 2500 for row in years)
-        subsidy_cents = sum(row['area'] * max(0, 2500 - row['rate_cents']) for row in years)
+        actual_cents = len(years) * 100000000
+        subsidy_cents = sum(max(0, 100000000 - row['area'] * row['rate_cents']) for row in years)
+        surplus_cents = sum(max(0, row['area'] * row['rate_cents'] - 100000000) for row in years)
         return render_template('rent_calculator.html', tab='rent-calculator', years=years, total_cents=total_cents,
-                               actual_cents=actual_cents, subsidy_cents=subsidy_cents)
+                               actual_cents=actual_cents, subsidy_cents=subsidy_cents, surplus_cents=surplus_cents)
 
     @app.get('/admin/dashboard')
     @require('admin')

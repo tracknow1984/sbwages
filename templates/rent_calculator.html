@@ -1,19 +1,19 @@
 {% extends 'base.html' %}{% block content %}
 <link rel="stylesheet" href="{{ url_for('static', filename='rent_calculator.css') }}">
 <script src="{{ url_for('static', filename='rent_calculator.js') }}" defer></script>
-<div class="page-heading"><div><span class="eyebrow">PROPERTY PLANNING</span><h1>Rent calculator</h1><p class="muted">Move either slider or enter an exact value to calculate your rent.</p></div><a class="button secondary" href="{{ url_for('admin_dashboard') }}">Back to dashboard</a></div>
+<div class="page-heading"><div><span class="eyebrow">PROPERTY PLANNING</span><h1>Rent calculator</h1><p class="muted">One block: 40,000 sqm billed at $25/sqm/year = $1,000,000 annual rent. Adjust the area you can rent out and the rate you receive.</p></div><a class="button secondary" href="{{ url_for('admin_dashboard') }}">Back to dashboard</a></div>
 <div class="rent-calculator" id="rent-calculator" data-area="{{ years[-1].area if years else 20000 }}" data-rate="{{ years[-1].rate_cents / 100 if years else 15 }}">
   <div class="rent-controls">
     <section class="panel rent-control" aria-labelledby="area-label">
-      <span class="eyebrow">01 · AREA</span><h2 id="area-label">Area rented</h2>
+      <span class="eyebrow">01 · AREA</span><h2 id="area-label">Area rented out</h2>
       <div class="rent-entry"><label for="rent-area-number">Square metres (sqm)</label><input id="rent-area-number" type="number" min="1" max="40000" step="1" value="20000" inputmode="numeric"></div>
       <label class="rent-slider-label" for="rent-area">Adjust area rented</label><input id="rent-area" type="range" min="1" max="40000" step="1" value="20000">
       <div class="rent-limits"><span>1 sqm</span><span>40,000 sqm</span></div>
     </section>
     <section class="panel rent-control" aria-labelledby="rate-label">
-      <span class="eyebrow">02 · ANNUAL RATE</span><h2 id="rate-label">Affordable rent per sqm</h2>
-      <div class="rent-entry"><label for="rent-rate-number">What you can afford · $ / sqm / year</label><input id="rent-rate-number" type="number" min="15" max="45" step="0.01" value="15.00" inputmode="decimal"></div>
-      <label class="rent-slider-label" for="rent-rate">Adjust affordable annual rent rate</label><input id="rent-rate" type="range" min="15" max="45" step="0.01" value="15">
+      <span class="eyebrow">02 · ANNUAL RATE</span><h2 id="rate-label">Rental income per sqm</h2>
+      <div class="rent-entry"><label for="rent-rate-number">Rate received · $ / sqm / year</label><input id="rent-rate-number" type="number" min="15" max="45" step="0.01" value="15.00" inputmode="decimal"></div>
+      <label class="rent-slider-label" for="rent-rate">Adjust annual rental income rate</label><input id="rent-rate" type="range" min="15" max="45" step="0.01" value="15">
       <div class="rent-limits"><span>$15 / sqm</span><span>$45 / sqm</span></div>
     </section>
   </div>
@@ -22,17 +22,18 @@
     <div aria-live="polite" aria-atomic="true">
       <p id="rent-formula" class="rent-formula">20,000 sqm × $15.00 per sqm / year</p>
       <dl class="rent-totals">
-        <div class="rent-annual"><dt>Affordable annual rent</dt><dd id="rent-annual">$300,000.00</dd></div>
-        <div><dt>Affordable monthly rent</dt><dd id="rent-monthly">$25,000.00</dd></div>
-        <div><dt>Affordable weekly rent</dt><dd id="rent-weekly">$5,769.23</dd></div>
+        <div class="rent-annual"><dt>Annual rental income</dt><dd id="rent-annual">$300,000.00</dd></div>
+        <div><dt>Monthly rental income</dt><dd id="rent-monthly">$25,000.00</dd></div>
+        <div><dt>Weekly rental income</dt><dd id="rent-weekly">$5,769.23</dd></div>
       </dl>
       <dl class="rent-totals">
-        <div><dt>Actual annual rent · $25 / sqm</dt><dd id="rent-actual">$500,000.00</dd></div>
-        <div class="rent-annual"><dt>Annual subsidy required</dt><dd id="rent-subsidy">$200,000.00</dd></div>
-        <div><dt>Monthly subsidy required</dt><dd id="rent-subsidy-monthly">$16,666.67</dd></div>
+        <div><dt>Fixed bill · 40,000 sqm × $25</dt><dd id="rent-actual">$1,000,000.00</dd></div>
+        <div class="rent-annual"><dt>Annual subsidy required</dt><dd id="rent-subsidy">$700,000.00</dd></div>
+        <div><dt>Monthly subsidy required</dt><dd id="rent-subsidy-monthly">$58,333.33</dd></div>
       </dl>
+      <dl class="rent-totals"><div><dt>Unlet area · still billed</dt><dd id="rent-vacant">20,000 sqm</dd></div><div><dt>Break-even rate on rented area</dt><dd id="rent-break-even">$50.00 / sqm</dd></div><div><dt>Annual surplus after base rent</dt><dd id="rent-surplus">$0.00</dd></div></dl>
     </div>
-    <p class="muted rent-note">Subsidy = area × the shortfall between $25 and your affordable rate. Rates of $25 or more require no subsidy. Base rent only. Monthly = annual ÷ 12; weekly = annual ÷ 52. Excludes GST, outgoings and annual increases.</p>
+    <p class="muted rent-note">Subsidy = $1,000,000 fixed annual bill minus rental income, with a minimum of zero. The entire 40,000 sqm is billed even when some land is unlet. Income above the bill is shown as surplus. Base rent only. Monthly = annual ÷ 12; weekly = annual ÷ 52. Excludes GST, outgoings and annual increases.</p>
   </section>
   <form method="post" class="rent-save" id="rent-save">
     <input type="hidden" name="csrf" value="{{ csrf_token() }}">
@@ -45,20 +46,21 @@
   <section class="panel rent-summary" aria-labelledby="saved-years-title">
     <div class="panel-head"><h2 id="saved-years-title">Saved years · {{ years|length }} of 4</h2></div>
     {% if years %}
-    <div class="table-wrap"><table><thead><tr><th>Year</th><th>Area rented</th><th>Affordable rate / sqm</th><th>Affordable annual rent</th><th>Actual annual rent · $25/sqm</th><th>Annual rent subsidy</th></tr></thead><tbody>
+    <div class="table-wrap"><table><thead><tr><th>Year</th><th>Area rented out</th><th>Rate received / sqm</th><th>Annual rental income</th><th>Fixed annual bill · 40,000 sqm</th><th>Annual rent subsidy</th><th>Annual surplus</th></tr></thead><tbody>
     {% for row in years %}{% set annual = row.area * row.rate_cents / 100 %}
-      <tr><td data-label="Year">Year {{ row.year }}</td><td data-label="Area rented">{{ '{:,}'.format(row.area) }} sqm</td><td data-label="Affordable rate / sqm">${{ '{:,.2f}'.format(row.rate_cents / 100) }}</td><td data-label="Affordable annual rent">${{ '{:,.2f}'.format(annual) }}</td><td data-label="Actual annual rent · $25/sqm">${{ '{:,.2f}'.format(row.area * 25) }}</td><td data-label="Annual rent subsidy">${{ '{:,.2f}'.format(row.area * ([0, 2500 - row.rate_cents]|max) / 100) }}</td></tr>
+      <tr><td data-label="Year">Year {{ row.year }}</td><td data-label="Area rented out">{{ '{:,}'.format(row.area) }} sqm</td><td data-label="Rate received / sqm">${{ '{:,.2f}'.format(row.rate_cents / 100) }}</td><td data-label="Annual rental income">${{ '{:,.2f}'.format(annual) }}</td><td data-label="Fixed annual bill · 40,000 sqm">${{ '{:,.2f}'.format(1000000) }}</td><td data-label="Annual rent subsidy">${{ '{:,.2f}'.format(([0, 1000000 - annual]|max)) }}</td><td data-label="Annual surplus">${{ '{:,.2f}'.format(([0, annual - 1000000]|max)) }}</td></tr>
     {% endfor %}</tbody></table></div>
     <p class="rent-formula">Summary for {{ years|length }} saved {{ 'year' if years|length == 1 else 'years' }}</p>
-    <dl class="rent-totals"><div class="rent-annual"><dt>Total affordable rent · saved years</dt><dd>${{ '{:,.2f}'.format(total_cents / 100) }}</dd></div><div><dt>Average affordable annual rent</dt><dd>${{ '{:,.2f}'.format(total_cents / 100 / (years|length)) }}</dd></div><div><dt>Average affordable monthly rent</dt><dd>${{ '{:,.2f}'.format(total_cents / 100 / (years|length) / 12) }}</dd></div></dl>
+    <dl class="rent-totals"><div class="rent-annual"><dt>Total rental income · saved years</dt><dd>${{ '{:,.2f}'.format(total_cents / 100) }}</dd></div><div><dt>Average annual rental income</dt><dd>${{ '{:,.2f}'.format(total_cents / 100 / (years|length)) }}</dd></div><div><dt>Average monthly rental income</dt><dd>${{ '{:,.2f}'.format(total_cents / 100 / (years|length) / 12) }}</dd></div></dl>
     <dl class="rent-totals">
-      <div><dt>Total actual rent · saved years</dt><dd id="saved-actual">${{ '{:,.2f}'.format(actual_cents / 100) }}</dd></div>
+      <div><dt>Total fixed rent · saved years</dt><dd id="saved-actual">${{ '{:,.2f}'.format(actual_cents / 100) }}</dd></div>
       <div class="rent-annual"><dt>Total subsidy · saved years</dt><dd id="saved-subsidy">${{ '{:,.2f}'.format(subsidy_cents / 100) }}</dd></div>
       <div><dt>Average monthly subsidy</dt><dd>${{ '{:,.2f}'.format(subsidy_cents / 100 / (years|length) / 12) }}</dd></div>
     </dl>
+    <dl class="rent-totals"><div><dt>Total surplus · profitable years</dt><dd>${{ '{:,.2f}'.format(surplus_cents / 100) }}</dd></div><div><dt>Net result · income less fixed rent</dt><dd id="saved-net">${{ '{:,.2f}'.format((total_cents - actual_cents) / 100) }}</dd></div></dl>
     <form method="post" class="rent-remove"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="year" value="{{ years|length + 1 }}"><button class="secondary" name="action" value="remove_last">Remove Year {{ years|length }}</button></form>
     {% else %}<p class="rent-formula">No years saved yet. Set your area and rate above, then select Save Year 1.</p>{% endif %}
-    <p class="muted rent-note">Saved to your administrator account. All amounts exclude GST and outgoings. Actual rent stays at $25/sqm/year. Each saved slider rate is your affordable budget. Subsidy is calculated separately for each year; an above-$25 budget does not offset another year’s subsidy.</p>
+    <p class="muted rent-note">Saved to your administrator account. All amounts exclude GST and outgoings. Each year bills the full 40,000 sqm at $25/sqm ($1 million); four saved years cost $4 million. Existing saved areas and rates are retained and recalculated on this basis. Total subsidy sums yearly shortfalls; net result also offsets any yearly surpluses. No annual rent increases are applied.</p>
   </section>
   <noscript><p class="notice">Enable JavaScript to use the interactive rent calculator.</p></noscript>
 </div>
