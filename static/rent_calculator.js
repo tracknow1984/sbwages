@@ -14,6 +14,10 @@
     const sqm = Number(area.value);
     const price = Number(rate.value);
     const annual = sqm * price;
+    const subsidy = sqm * Math.max(0, 2500 - Math.round(price * 100)) / 100;
+    document.getElementById('rent-actual').textContent = money.format(sqm * 25);
+    document.getElementById('rent-subsidy').textContent = money.format(subsidy);
+    document.getElementById('rent-subsidy-monthly').textContent = money.format(subsidy / 12);
     document.getElementById('rent-save-area').value = String(sqm);
     document.getElementById('rent-save-rate').value = price.toFixed(2);
     document.getElementById('rent-formula').textContent = `${number.format(sqm)} sqm × ${money.format(price)} per sqm / year`;
