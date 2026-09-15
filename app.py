@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS rent_years (
  admin_id INTEGER NOT NULL REFERENCES users(id),
  year INTEGER NOT NULL CHECK(year BETWEEN 1 AND 4),
  area INTEGER NOT NULL CHECK(area BETWEEN 1 AND 40000),
- rate_cents INTEGER NOT NULL CHECK(rate_cents BETWEEN 1500 AND 4500),
+ rate_cents INTEGER NOT NULL CHECK(rate_cents BETWEEN 500 AND 4500),
  PRIMARY KEY(admin_id, year)
 );
 CREATE TABLE IF NOT EXISTS licence_photos (
@@ -161,6 +161,14 @@ def create_app(test_config=None):
         db().executescript(SCHEMA)
         # Additive migration: keep every existing timesheet and password intact.
         db().execute('BEGIN IMMEDIATE')
+        # Widen the saved rental-rate range while preserving existing yearly scenarios.
+        rent_definition = db().execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='rent_years'").fetchone()[0]
+        if 'BETWEEN 1500 AND 4500' in rent_definition:
+            definition = SCHEMA.split('CREATE TABLE IF NOT EXISTS rent_years (', 1)[1].split(');', 1)[0]
+            db().execute('CREATE TABLE rent_years_new (' + definition + ')')
+            db().execute('INSERT INTO rent_years_new SELECT admin_id,year,area,rate_cents FROM rent_years')
+            db().execute('DROP TABLE rent_years')
+            db().execute('ALTER TABLE rent_years_new RENAME TO rent_years')
         db().execute('UPDATE users SET week_ending=6 WHERE week_ending<>6')
         # Rebuild the old payment constraint atomically; historical deductions default to zero.
         if 'deduction_cents' not in {row['name'] for row in db().execute('PRAGMA table_info(payments)')}:
@@ -1126,8 +1134,8 @@ def create_app(test_config=None):
                     rate = Decimal(request.form.get('rate', ''))
                     if count >= 4:
                         raise ValueError('All four years are saved. Remove the last year to revise it.')
-                    if not rate.is_finite() or not 1 <= area <= 40000 or not Decimal('15') <= rate <= Decimal('45') or rate != rate.quantize(Decimal('0.01')):
-                        raise ValueError('Enter 1–40,000 sqm and a rate of $15–$45 with up to two decimal places.')
+                    if not rate.is_finite() or not 1 <= area <= 40000 or not Decimal('5') <= rate <= Decimal('45') or rate != rate.quantize(Decimal('0.01')):
+                        raise ValueError('Enter 1–40,000 sqm and a rate of $5–$45 with up to two decimal places.')
                     db().execute('INSERT INTO rent_years(admin_id,year,area,rate_cents) VALUES(?,?,?,?)',
                                  (g.user['id'], count + 1, area, int(rate * 100)))
                 db().commit()
