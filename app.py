@@ -1106,9 +1106,14 @@ def create_app(test_config=None):
             return db().execute(sql + ' WHERE l.user_id=? ORDER BY l.id DESC LIMIT ?', (user_id, limit)).fetchall()
         return db().execute(sql + " WHERE (l.archived_at IS NOT NULL)=?" + (" AND l.status='pending'" if pending else '') + ' ORDER BY l.id DESC LIMIT ?', (int(archived),limit)).fetchall()
 
+    def rent_monthly_revision():
+        records = [tuple(row) for row in db().execute('SELECT month,new_area,rate_cents FROM rent_months WHERE admin_id=? ORDER BY month', (g.user['id'],))]
+        return hashlib.sha256(json.dumps(records).encode()).hexdigest()
+
     @app.post('/admin/rent-calculator/monthly')
     @require('admin')
     def admin_rent_monthly():
+        ajax = request.headers.get('Accept') == 'application/json'
         try:
             rows = []
             for month in range(1, 49):
@@ -1119,11 +1124,20 @@ def create_app(test_config=None):
                 rows.append((g.user['id'], month, area, int(rate * 100)))
             if sum(row[2] for row in rows) > 40000:
                 raise ValueError('Total newly rented area across all 48 months cannot exceed 40,000 sqm.')
+            db().execute('BEGIN IMMEDIATE')
+            if ajax and request.form.get('revision') != rent_monthly_revision():
+                db().rollback()
+                return {'ok': False, 'error': 'This forecast changed in another tab or device. Your draft is retained. Reload to compare before saving.'}, 409
             db().executemany('INSERT OR REPLACE INTO rent_months(admin_id,month,new_area,rate_cents) VALUES(?,?,?,?)', rows)
+            saved_revision = rent_monthly_revision()
             db().commit()
+            if ajax:
+                return {'ok': True, 'revision': saved_revision}
             flash('48-month forecast saved.', 'success')
         except (ValueError, InvalidOperation) as exc:
             db().rollback()
+            if ajax:
+                return {'ok': False, 'error': str(exc) if isinstance(exc, ValueError) else 'Enter valid monthly rent rates.'}, 400
             flash(str(exc) if isinstance(exc, ValueError) else 'Enter valid monthly rent rates.', 'error')
         return redirect(url_for('admin_rent_calculator') + '#monthly-forecast')
 
@@ -1182,7 +1196,8 @@ def create_app(test_config=None):
         saved_months = {row['month']: row for row in db().execute('SELECT * FROM rent_months WHERE admin_id=?', (g.user['id'],))}
         months = [saved_months.get(i, dict(month=i, new_area=0, rate_cents=1500)) for i in range(1, 49)]
         return render_template('rent_calculator.html', tab='rent-calculator', years=years, total_cents=total_cents,
-                               actual_cents=actual_cents, subsidy_cents=subsidy_cents, surplus_cents=surplus_cents, partners=partners, months=months)
+                               actual_cents=actual_cents, subsidy_cents=subsidy_cents, surplus_cents=surplus_cents, partners=partners, months=months,
+                               monthly_revision=rent_monthly_revision())
 
     @app.get('/admin/dashboard')
     @require('admin')
