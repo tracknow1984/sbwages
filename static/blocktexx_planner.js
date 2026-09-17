@@ -45,6 +45,13 @@ window.createBlocktexxPlanner = function() {
     const config=settings[state]||(settings[state]={category:'Weekly',span:4,start:1,all:true});
     const runs=model.states[state].runs,sites=model.sites;
     const refresh=()=>onSelect(selected);
+    function openAllocation(run, target) {
+      config.dayOpen=false;config.allocateId=run.id;config.allocationDraft=null;
+      if(target)config.allocationDraft={
+        frequency:run.planner_frequency||(run.runs_4w===4?'Weekly':run.runs_4w===2?'Fortnightly':run.runs_4w===1?'Monthly':'Ad hoc'),
+        day:target.day,week:target.week};
+      onSelect(run.id);
+    }
     root.append(e('h2','Collection planner'),e('p','Working day: 6:30 am–3:30 pm (9 hours), for company and subcontractor runs. Includes driving, collections, depot handling, preparation, waiting and breaks. One daily truck/driver schedule per state.','bx-muted'));
     const bar=e('div',null,'bx-planner-controls');
     const frequencyLabel=e('label','Frequency'),frequency=e('select');frequency.id='bx-frequency-select';frequency.setAttribute('aria-label','Collection frequency');
@@ -61,7 +68,7 @@ window.createBlocktexxPlanner = function() {
     root.append(bar);
     const legend=e('div',null,'bx-frequency-legend');legend.setAttribute('aria-label','Frequency colours');
     categories.forEach(c=>{const badge=e('span',c,'bx-frequency-label');badge.dataset.frequency=c;legend.append(badge);});root.append(legend);
-    root.append(e('p','Click VIEW DAY for a popup summary, or select a run card for its details. Mixed-frequency runs appear in each relevant category. Monthly is a four-week planning cycle; eight-weekly work is labelled separately.','bx-muted'));
+    root.append(e('p','Click a run to reallocate it, or VIEW DAY for a summary and quick allocation. Mixed-frequency runs appear in each relevant category. Monthly is a four-week planning cycle; eight-weekly work is labelled separately.','bx-muted'));
     const visible=runs.filter(r=>config.all||groups(r,sites).includes(config.category));
     function card(r,week,day) {
       const b=e('button',null,'bx-planner-run');b.type='button';b.dataset.runId=r.id;b.dataset.frequency=(week==null||config.all)?groups(r,sites)[0]:config.category;b.setAttribute('aria-pressed',String(r.id===selected));
@@ -74,7 +81,7 @@ window.createBlocktexxPlanner = function() {
       if(week!=null&&r.runs_4w!=null&&slots(r).length!==r.runs_4w)b.append(e('small','Review frequency: '+slots(r).length+' allocated / '+fmt(r.runs_4w)+' planned'));
       const badges=e('div',null,'bx-frequency-badges');
       groups(r,sites).forEach(c=>{const badge=e('span',c,'bx-frequency-label');badge.dataset.frequency=c;badges.append(badge);});b.append(badges);
-      b.addEventListener('click',event=>{event.stopPropagation();if(week!=null){config.selectedDay={week,day};config.dayOpen=true;}if(week==null){config.allocateId=r.id;config.allocationDraft=null;config.dayOpen=false;}onSelect(r.id);});return b;
+      b.title='Click to allocate or reallocate this run';b.addEventListener('click',event=>{event.stopPropagation();if(week!=null)config.selectedDay={week,day};openAllocation(r,week==null?null:{week,day});});return b;
     }
     const hiddenAllocated=runs.filter(r=>slots(r).length&&!visible.includes(r)).length;
     if(hiddenAllocated)root.append(e('p',hiddenAllocated+' allocated runs hidden by the frequency filter. Choose All frequencies to see them.','bx-warning'));
@@ -110,6 +117,11 @@ window.createBlocktexxPlanner = function() {
       panel.append(e('h3','Week '+week+' · '+days[day]+' activities'),
         e('p','All frequencies for this day are shown below, including runs outside the selected category.'));
       panel.append(e('p','6:30 am start · '+loadText(dayLoad(runs,week,day)), 'bx-warning'));
+      const quick=e('div',null,'bx-planner-controls'),pick=e('select');pick.setAttribute('aria-label','Run to allocate to this day');
+      const empty=e('option','Choose a run to allocate / move here');empty.value='';pick.append(empty);
+      runs.forEach(r=>{const option=e('option',r.name+(slots(r).length?' (allocated)':' (unallocated)'));option.value=r.id;pick.append(option);});
+      pick.addEventListener('change',()=>{const r=runs.find(r=>r.id===pick.value);if(r)openAllocation(r,{week,day});});
+      quick.append(pick);panel.append(quick);
       if(!activities.length)panel.append(e('p','No activities allocated to this day.'));
       else {
         const timeKeys=['drive_min','service_min','depot_min','prep_min','wait_min','break_min'];
@@ -125,6 +137,8 @@ window.createBlocktexxPlanner = function() {
           const badges=e('div',null,'bx-frequency-badges');
           groups(r,sites).forEach(c=>{const badge=e('span',c,'bx-frequency-label');badge.dataset.frequency=c;badges.append(badge);});activity.append(badges);
           activity.append(e('h4',(index+1)+'. '+r.name),e('p','Start / finish: '+(model.states[state].depot||'Depot to confirm')));
+          const reallocate=e('button','Reallocate','primary');reallocate.type='button';
+          reallocate.addEventListener('click',()=>openAllocation(r,{week,day}));activity.append(reallocate);
           if(r.runs_4w===0)activity.append(e('p','Paused run — review this allocation.','bx-warning'));
           const p=plans?.[state]?.[r.id];
           const rows=[];
@@ -193,7 +207,7 @@ window.createBlocktexxPlanner = function() {
       if(!allocationPopup){allocationPopup=e('div',null,'bx-modal-backdrop');allocationPopup.id='bx-allocation-popup';document.body.append(allocationPopup);}
       const draft=config.allocationDraft||(config.allocationDraft={frequency:allocationRun.planner_frequency||(allocationRun.runs_4w===4?'Weekly':allocationRun.runs_4w===2?'Fortnightly':allocationRun.runs_4w===1?'Monthly':'Ad hoc'),day:slots(allocationRun)[0]?.day??0,week:slots(allocationRun)[0]?.week??1});
       const box=e('div',null,'bx-day-dialog bx-allocation-dialog');box.setAttribute('role','dialog');box.setAttribute('aria-modal','true');box.setAttribute('aria-labelledby','bx-allocation-title');
-      const header=e('div',null,'bx-day-dialog-header'),title=e('h2','Allocate this run');title.id='bx-allocation-title';
+      const header=e('div',null,'bx-day-dialog-header'),title=e('h2',slots(allocationRun).length?'Reallocate this run':'Allocate this run');title.id='bx-allocation-title';
       const close=e('button','Cancel','secondary');close.type='button';header.append(title,close);box.append(header);
       const dismiss=()=>{config.allocateId=null;config.allocationDraft=null;allocationPopup.hidden=true;document.body.classList.remove('bx-popup-open');root.querySelector('[data-run-id="'+allocationRun.id+'"]')?.focus();};
       close.addEventListener('click',dismiss);
@@ -211,15 +225,16 @@ window.createBlocktexxPlanner = function() {
       field('Collection day','day',days.map((d,i)=>[i,d]));
       const weekSelect=field('Starting week','week',[1,2,3,4].map(w=>[w,'Week '+w]));
       const hint=e('p',null,'bx-muted'),capacityHint=e('p',null,'bx-warning');
-      const apply=e('button','Lock in allocation','primary');apply.type='button';
+      const apply=e('button',slots(allocationRun).length?'Save reallocation':'Lock in allocation','primary');apply.type='button';
       const proposed=()=> (draft.frequency==='Weekly'?[1,2,3,4]:draft.frequency==='Fortnightly'?(draft.week%2?[1,3]:[2,4]):[draft.week]).map(week=>({week,day:draft.day}));
       body.append(hint,capacityHint);
       function updateHint(){weekSelect.disabled=draft.frequency==='Weekly';hint.textContent=draft.frequency==='Weekly'?'Every week on the selected day.':draft.frequency==='Fortnightly'?'Weeks '+(draft.week%2? '1 and 3':'2 and 4')+' on the selected day.':draft.frequency==='Monthly'?'Once per four-week cycle, in the selected week.':'One booking in the selected week. No recurring collection frequency.';
-        const error=allocationError(runs,allocationRun,proposed());
+        const fixed=sites.filter(s=>allocationRun.site_ids.includes(s.id)&&s.day_rule==='fixed'&&!s.service_days?.includes(draft.day));
+        const error=fixed.length?'Customer-set day conflict: '+fixed.map(s=>s.name).join(', '):allocationError(runs,allocationRun,proposed());
         capacityHint.textContent=error||proposed().map(slot=>'Week '+slot.week+': '+loadText(dayLoad(runs.filter(r=>r.id!==allocationRun.id).concat({...allocationRun,planner_slots:proposed()}),slot.week,slot.day))).join(' · ');
         apply.disabled=!!error;
       }
-      updateHint();body.append(e('p','This updates this run only. Customer frequency differences remain flagged for proposal review.','bx-muted'));
+      updateHint();body.append(e('p','This replaces this run’s entire calendar allocation. Weekly moves all four weeks; fortnightly moves both weeks. Customer frequency differences remain flagged for proposal review.','bx-muted'));
       apply.addEventListener('click',()=>{
         const blocked=sites.filter(s=>allocationRun.site_ids.includes(s.id)&&s.day_rule==='fixed'&&!s.service_days?.includes(draft.day));
         if(blocked.length){alert('Customer-set day conflict: '+blocked.map(s=>s.name).join(', '));return;}
