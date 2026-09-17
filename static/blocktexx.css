@@ -40,3 +40,14 @@
 .bx-planner-run small {color:inherit}
 .bx-planner-controls select {min-height:40px;padding:7px 10px;border:1px solid #b8c8dc;border-radius:6px;background:white;color:#203349}
 @media print {.bx-frequency-label,.bx-planner-run {print-color-adjust:exact;-webkit-print-color-adjust:exact}}
+.bx-view-day {width:100%;min-height:46px;padding:10px 8px;margin-bottom:10px;border:1px solid #a5bddb;border-radius:7px;background:white;color:#174478;text-decoration:none;font-size:17px;font-weight:800;letter-spacing:.04em}
+.bx-view-day:hover {background:#e7f0fc;border-color:#2469b4}
+.bx-day-dialog {width:min(1100px,94vw);max-width:94vw;max-height:90vh;padding:0;border:0;border-radius:14px;box-shadow:0 24px 80px #13233955;background:#f7faff;color:#203349;overflow:auto}
+.bx-day-dialog::backdrop {background:rgba(15,28,48,.6)}
+.bx-day-dialog-header {position:sticky;top:0;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px 22px;background:white;border-bottom:1px solid #dbe4ef}
+#blocktexx .bx-day-dialog-header h2 {margin:0;font-size:1.25rem}
+.bx-day-dialog-header button {flex-shrink:0;min-height:42px}
+.bx-day-dialog .bx-day-activities {border:0;margin:0;padding:20px}
+.bx-day-dialog .bx-customers {min-width:650px}
+@media(max-width:600px){.bx-day-dialog-header {padding:14px}.bx-day-dialog .bx-day-activities {padding:12px}}
+@media print {.bx-day-dialog[open] {position:static;width:100%;max-width:none;max-height:none;overflow:visible;box-shadow:none}.bx-day-dialog-header button{display:none}}

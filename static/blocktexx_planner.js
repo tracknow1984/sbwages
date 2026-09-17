@@ -40,7 +40,7 @@ window.createBlocktexxPlanner = function() {
     root.append(bar);
     const legend=e('div',null,'bx-frequency-legend');legend.setAttribute('aria-label','Frequency colours');
     categories.forEach(c=>{const badge=e('span',c,'bx-frequency-label');badge.dataset.frequency=c;legend.append(badge);});root.append(legend);
-    root.append(e('p','Click a day to see its activities below the planner, or select a run card for its details. Mixed-frequency runs appear in each relevant category. Monthly is a four-week planning cycle; eight-weekly work is labelled separately.','bx-muted'));
+    root.append(e('p','Click VIEW DAY for a popup summary, or select a run card for its details. Mixed-frequency runs appear in each relevant category. Monthly is a four-week planning cycle; eight-weekly work is labelled separately.','bx-muted'));
     const visible=runs.filter(r=>config.all||groups(r,sites).includes(config.category));
     function card(r,week,day) {
       const b=e('button',null,'bx-planner-run');b.type='button';b.dataset.runId=r.id;b.dataset.frequency=config.all?groups(r,sites)[0]:config.category;b.setAttribute('aria-pressed',String(r.id===selected));
@@ -63,9 +63,9 @@ window.createBlocktexxPlanner = function() {
         const cell=e('td');cell.dataset.week=week;cell.dataset.day=d;
         const active=config.selectedDay?.week===week&&config.selectedDay?.day===d;
         cell.classList.toggle('bx-day-selected',active);
-        const choose=()=>{config.selectedDay={week,day:d};onSelect(null);};
+        const choose=()=>{config.selectedDay={week,day:d};config.dayOpen=true;onSelect(null);};
         cell.addEventListener('click',choose);
-        const dayButton=e('button','View day','bx-view-day');dayButton.type='button';
+        const dayButton=e('button','VIEW DAY','bx-view-day');dayButton.type='button';
         dayButton.setAttribute('aria-label','View activities for Week '+week+' '+day);
         dayButton.setAttribute('aria-pressed',String(active));
         dayButton.addEventListener('click',event=>{event.stopPropagation();choose();});cell.append(dayButton);
@@ -116,13 +116,25 @@ window.createBlocktexxPlanner = function() {
             e('p',r.sequence||'Route sequence to confirm'));
           if(p?.issues.length)activity.append(e('p',p.issues.join('; '),'bx-warning'));
           if(p?.extra_loads)activity.append(e('p',p.extra_loads+' extra loads need updated distance/time allowances.','bx-warning'));
-          const detail=e('button','Open / edit run details','secondary');detail.type='button';detail.addEventListener('click',()=>onSelect(r.id));activity.append(detail);
+          const detail=e('button','Open / edit run details','secondary');detail.type='button';detail.addEventListener('click',()=>{config.dayOpen=false;onSelect(r.id);root.querySelector('.bx-selected-run')?.scrollIntoView({block:'start',behavior:'smooth'});});activity.append(detail);
           panel.append(activity);
         });
         panel.append(e('p','Activity order follows the saved run/load sequence. Run order within the day is not a timed dispatch schedule.','bx-muted'));
       }
     }
-    root.append(panel);
+    if(config.selectedDay){
+      const dialog=e('dialog',null,'bx-day-dialog');dialog.id='bx-day-dialog';
+      const title=e('h2','Week '+config.selectedDay.week+' · '+days[config.selectedDay.day]+' summary');title.id='bx-day-dialog-title';
+      dialog.setAttribute('aria-labelledby',title.id);
+      const header=e('div',null,'bx-day-dialog-header'),close=e('button','Close ×','secondary');close.type='button';close.setAttribute('aria-label','Close day summary');
+      header.append(title,close);dialog.append(header,panel);root.append(dialog);
+      const restoreFocus=()=>{config.dayOpen=false;root.querySelector('[data-week="'+config.selectedDay.week+'"][data-day="'+config.selectedDay.day+'"] .bx-view-day')?.focus({preventScroll:true});};
+      close.addEventListener('click',()=>dialog.close());
+      dialog.addEventListener('close',restoreFocus);
+      dialog.addEventListener('cancel',()=>{config.dayOpen=false;});
+      dialog.addEventListener('click',event=>{if(event.target===dialog){const rect=dialog.getBoundingClientRect();if(event.clientX<rect.left||event.clientX>rect.right||event.clientY<rect.top||event.clientY>rect.bottom)dialog.close();}});
+      if(config.dayOpen){dialog.showModal();close.focus({preventScroll:true});}
+    }
     const pending=visible.filter(r=>!slots(r).length||r.runs_4w==null||slots(r).length!==r.runs_4w);
     const backlog=e('div',null,'bx-planner-backlog');backlog.append(e('h3',config.category==='Ad hoc'&&!config.all?'Ad hoc / awaiting booking':'Needs allocation or review'));
     if(!pending.length)backlog.append(e('p','All runs in this view have their planned occurrences allocated.'));
