@@ -112,7 +112,7 @@ window.createBlocktexxPlanner = function() {
     if(hiddenAllocated)root.append(e('p',hiddenAllocated+' allocated runs hidden by the frequency filter. Choose All frequencies to see them.','bx-warning'));
     const assigned=visible.filter(r=>slots(r).length),hasWeekend=assigned.some(r=>slots(r).some(s=>s.day>4));
     const wrap=e('div',null,'bx-scroll'),table=e('table',null,'bx-planner-grid'),head=e('tr');
-    head.append(e('th','Week'));days.slice(0,hasWeekend?7:5).forEach(day=>head.append(e('th',day)));table.append(head);
+    head.append(e('th','Week'));days.slice(0,hasWeekend?7:5).forEach(day=>head.append(e('th',day)));head.append(e('th','Financial analysis'));table.append(head);
     for(let week=config.start;week<config.start+config.span;week++){
       const row=e('tr');row.append(e('th','Week '+week));
       days.slice(0,hasWeekend?7:5).forEach((day,d)=>{
@@ -160,9 +160,17 @@ window.createBlocktexxPlanner = function() {
         const entries=assigned.flatMap(r=>slots(r).filter(s=>s.week===week&&s.day===d).map(()=>r));
         entries.forEach(r=>cell.append(card(r,week,d)));
         if(!entries.length)cell.append(e('span','—','bx-muted'));row.append(cell);
-      });table.append(row);
+      });
+      const financial=e('td'),button=e('button','Weekly financial analysis','secondary');button.type='button';button.dataset.financeWeek=week;
+      button.addEventListener('click',()=>{config.financePeriod=week;config.dayOpen=false;config.allocateId=null;refresh();});
+      financial.append(button);row.append(financial);table.append(row);
     }
     wrap.append(table);root.append(wrap);
+    const month=e('button','Monthly financial analysis','primary');month.type='button';month.dataset.financeWeek='month';
+    month.addEventListener('click',()=>{config.financePeriod='month';config.dayOpen=false;config.allocateId=null;refresh();});root.append(month);
+    const showFinance=()=>{if(config.financePeriod!=null)window.BlocktexxCosts?.showPeriodReport(model.states[state],state,config.financePeriod==='month'?null:config.financePeriod,()=>{
+      const period=config.financePeriod;config.financePeriod=null;root.querySelector('[data-finance-week="'+period+'"]')?.focus({preventScroll:true});
+    },plans,sites);};
     const panel=e('section',null,'bx-day-activities');panel.id='bx-day-activities';
     if(!config.selectedDay){
       panel.append(e('p','Click a week and day above to see all activities for that day.'));
@@ -319,6 +327,7 @@ window.createBlocktexxPlanner = function() {
       for(let w=1;w<=4;w++){const l=e('label','Week '+w),c=e('input');c.type='checkbox';c.checked=slots(r).some(s=>s.week===w);c.setAttribute('aria-label','Allocate week '+w);checks.push(c);l.prepend(c);weeks.append(l);}box.append(weeks);
       const apply=e('button','Apply allocation','secondary');apply.type='button';apply.addEventListener('click',()=>{const blocked=sites.filter(s=>r.site_ids.includes(s.id)&&s.day_rule==='fixed'&&!s.service_days?.includes(Number(day.value)));if(blocked.length){alert('Customer-set day conflict: '+blocked.map(s=>s.name).join(', '));return;}const proposed=checks.flatMap((c,i)=>c.checked?[{week:i+1,day:Number(day.value)}]:[]);const error=allocationError(runs,r,proposed);if(error){alert(error);return;}r.planner_slots=proposed;config.all=true;config.span=4;config.start=1;onChange();});box.append(apply);root.append(box);
     }
+    showFinance();
   }
   return {render,slots,groups,dayLoad,allocationError};
 };

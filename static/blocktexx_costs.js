@@ -104,5 +104,74 @@ window.BlocktexxCosts = (() => {
     const saving=e('tr');saving.append(e('th','Monthly saving vs company'),e('td','—'));[c.hourly,c.daily].forEach(v=>saving.append(e('td',v==null||c.owned==null?'Incomplete':money(c.owned-v))));table.append(saving);wrap.append(table);root.append(wrap);
     root.append(e('p','Positive savings mean the contractor option costs less. Container purchase/rental, interstate freight, decommissioning and shredding are excluded unless you explicitly add an allowance.','bx-muted'));
   }
-  return {calculate,renderInputs,renderComparison};
+
+  function periodCosts(data,week) {
+    const schedule=window.createBlocktexxPlanner();
+    const filtered={...data,runs:data.runs.flatMap(r=>{
+      const chosen=schedule.slots(r).filter(s=>week==null||s.week===week);
+      return chosen.length?[{...r,planner_slots:chosen,runs_4w:chosen.length}]:[];
+    })};
+    const c=calculate(filtered),p=profile(data);
+    const fixed=week==null?12/13:12/52,variable=12/13;
+    const scale=(n,f)=>n==null?null:n*f;
+    const add=values=>values.some(v=>v==null)?null:values.reduce((a,v)=>a+v,0);
+    const rows=[
+      ['Staff wages',scale(c.wages,fixed),0,0],
+      ['Workers compensation',scale(c.workers_comp,fixed),0,0],
+      ['Super / pension',scale(c.super_cost,fixed),0,0],
+      ['Truck insurance',scale(p.truck_insurance_month,fixed),0,0],
+      ['Truck lease',scale(p.truck_lease_month,fixed),0,0],
+      ['Fuel budget',scale(p.fuel_month,fixed),0,0],
+      ['Building insurance',...Array(3).fill(scale(p.building_insurance_month,fixed))],
+      ['Building lease',...Array(3).fill(scale(p.building_lease_month,fixed))],
+      ['Contractor base charge',0,scale(c.hourly_base,variable),scale(c.daily_base,variable)],
+      ['Demurrage',0,scale(c.demurrage,variable),scale(c.demurrage,variable)],
+      ['Other costs',scale(p.owned_other_month,fixed),scale(p.contractor_other_month,fixed),scale(p.contractor_other_month,fixed)]
+    ];
+    return {rows,totals:[1,2,3].map(i=>add(rows.map(row=>row[i]))),
+      days:c.days_month*variable,hours:c.hours_month*variable,billed:c.billed_hours_month*variable,
+      demurrage:c.demurrage_hours_month*variable,complete:c.schedule_complete,
+      occurrences:filtered.runs.reduce((n,r)=>n+r.planner_slots.length,0),
+      unallocated:data.runs.filter(r=>!schedule.slots(r).length&&r.runs_4w!==0).length};
+  }
+  function showPeriodReport(data,state,week,onClose,plans,sites) {
+    let backdrop=document.getElementById('bx-finance-popup');
+    const fresh=!backdrop;
+    if(!backdrop){backdrop=e('div',null,'bx-modal-backdrop');backdrop.id='bx-finance-popup';document.body.append(backdrop);}
+    const c=periodCosts(data,week),p=profile(data),dialog=e('div',null,'bx-day-dialog');
+    dialog.setAttribute('role','dialog');dialog.setAttribute('aria-modal','true');dialog.setAttribute('aria-labelledby','bx-finance-title');
+    const title=e('h2',state+' · '+(week==null?'Monthly financial analysis':'Week '+week+' financial analysis'));title.id='bx-finance-title';
+    const header=e('div',null,'bx-day-dialog-header'),close=e('button','Close ×','secondary');close.type='button';
+    const dismiss=()=>{backdrop.remove();document.body.classList.remove('bx-popup-open');onClose();};
+    close.addEventListener('click',dismiss);header.append(title,close);dialog.append(header);
+    const content=e('section',null,'bx-day-activities');
+    content.append(e('p',week==null?'Planned month: complete four-week cycle (28 days). Average calendar-month equivalent is shown separately below.':'Planned costs for this calendar week, across every frequency and day, including weekends.'),
+      e('p',c.occurrences+' run occurrences · '+fmt(c.days)+' collection days · '+fmt(c.hours)+' working hours · '+fmt(c.billed)+' contractor base hours · '+fmt(c.demurrage)+' demurrage hours.'));
+    if(!p.enabled)content.append(e('p','Detailed cost profile is not enabled. This is a profile preview; previous aggregate pricing is not included.','bx-warning'));
+    if(!c.complete||c.unallocated)content.append(e('p','Incomplete plan: '+c.unallocated+' unallocated runs are excluded. Missing timings or overbooked days must be resolved before relying on the totals.','bx-warning'));
+    const slotter=window.createBlocktexxPlanner();
+    const included=data.runs.filter(r=>slotter.slots(r).some(s=>week==null||s.week===week));
+    const unresolved=included.filter(r=>plans?.[state]?.[r.id]?.issues?.length||plans?.[state]?.[r.id]?.extra_loads);
+    const demandGaps=(sites||[]).filter(s=>s.state===state&&s.visits_4w!=null&&Math.abs(s.visits_4w-data.runs.filter(r=>r.site_ids.includes(s.id)).reduce((n,r)=>n+(r.runs_4w||0),0))>.001);
+    if(unresolved.length||demandGaps.length)content.append(e('p',unresolved.length+' runs need truck capacity/time review; '+demandGaps.length+' customer frequencies differ from the route plan. These are planning estimates.','bx-warning'));
+    const selected=data.cost_mode==='owned'?0:data.cost_mode==='contractor'?(p.contractor_basis==='daily'?2:1):null;
+    content.append(e('p','Proposal option: '+(selected==null?'not selected':['Company operation','Contractor hourly','Contractor daily'][selected])+(selected==null?'':' · '+money(c.totals[selected]))));
+    const wrap=e('div',null,'bx-scroll'),table=e('table',null,'bx-resource-table'),head=e('tr');
+    ['Cost item','Company operation','Contractor hourly','Contractor daily'].forEach(t=>head.append(e('th',t)));table.append(head);
+    const append=(label,values,total=false)=>{const row=e('tr',null,total?'bx-resource-total':null);row.append(e('th',label));values.forEach(v=>row.append(e('td',money(v))));table.append(row);};
+    c.rows.forEach(([label,...values])=>append(label,values));append(week==null?'Total · four-week month':'Total · week',c.totals,true);
+    if(week==null)append('Average calendar month · four weeks × 13 ÷ 12',c.totals.map(v=>v==null?null:v*13/12));
+    wrap.append(table);content.append(wrap);
+    content.append(e('p','AUD excluding GST. Monthly staff and overhead budgets are allocated at monthly × 12 ÷ 52 per week, including quiet weeks. Fuel is a budget allocation, not measured fuel usage. Contractor charges use only this period’s scheduled days and hours, with daily minimums and demurrage applied once per day.','bx-muted'),
+      e('p','Blank prices remain incomplete. Uses current on-screen figures, including unsaved edits. Container purchases/rental, interstate freight, decommissioning and shredding are excluded unless included in an Other costs allowance.','bx-muted'),
+      e('p','Profitability: pending confirmed costs and revenue assumptions. No profit figure is calculated.','bx-muted'));
+    dialog.append(content);backdrop.replaceChildren(dialog);document.body.classList.add('bx-popup-open');
+    backdrop.onpointerdown=event=>{if(event.target===backdrop)dismiss();};
+    backdrop.onkeydown=event=>{
+      if(event.key==='Escape'){event.preventDefault();dismiss();}
+      if(event.key==='Tab'){event.preventDefault();close.focus();}
+    };
+    if(fresh||!dialog.contains(document.activeElement))close.focus({preventScroll:true});
+  }
+  return {calculate,renderInputs,renderComparison,periodCosts,showPeriodReport};
 })();
