@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 {% block content %}
-<link rel="stylesheet" href="{{ url_for('static', filename='blocktexx.css', v='switch-outs-5') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='blocktexx.css', v='resources-1') }}">
 <div id="blocktexx" data-revision="{{ revision }}" data-csrf="{{ csrf_token() }}">
   <div class="page-heading"><div><p class="bx-kicker">SB EMPIRE / PROPOSAL MODELLING</p><h1>BlockTexx collections</h1><p>Build the collection cost first. Add each downstream movement once.</p></div>
     <div class="actions no-print"><button type="button" id="bx-save" class="primary">Save model</button><button type="button" id="bx-print" class="secondary">Print analysis</button></div></div>
@@ -9,6 +9,9 @@
   <div class="bx-banner"><strong>Collection analysis only — not a final proposal rate.</strong> Distance and time estimates are editable. Downstream delivery, decommissioning, returns, consolidation and shredding are not included. Historic intake kilograms are counted once.</div>
   <details class="bx-card"><summary>View national overview</summary><div class="bx-overview" id="bx-overview"></div></details>
   <nav class="bx-state-tabs" aria-label="Collection state">{% for state in model.states %}<button type="button" data-state="{{ state }}" aria-pressed="{{ 'true' if loop.first else 'false' }}">{{ state }}</button>{% endfor %}</nav>
+  <nav class="bx-state-tabs" aria-label="State view"><button type="button" data-bx-pane="planner" aria-pressed="true">Planner</button><button type="button" data-bx-pane="resources" aria-pressed="false">Resources</button></nav>
+  <section id="bx-resources" class="bx-card" hidden></section>
+  <div id="bx-planner-pane">
   <section id="bx-run-view" class="bx-card"></section>
   <details class="bx-card"><summary>View / hide state settings</summary><div class="bx-section-head"><h2 id="bx-state-title">State settings</h2><span id="bx-depot-status"></span></div>
     <div id="bx-settings" class="bx-settings"></div>
@@ -24,10 +27,12 @@
   <details class="bx-card"><summary>View / edit customer collection frequencies</summary><p>Change a frequency or enter a custom number of visits per four weeks. Visit totals update immediately. The original spreadsheet frequency remains visible. If demand differs from the grouped route plan, update its run frequency above before using the cost/kg result. Expand a customer for source equipment and rows.</p><div id="bx-sites" class="bx-scroll"></div></details>
   <details class="bx-card"><summary>Decommissioning partners for the next stage</summary><p>Address register only. These movements contribute no collection kilometres or costs yet.</p><div id="bx-partners"></div></details>
   <details class="bx-card no-print"><summary>View import, export and source information</summary><p id="bx-source"></p><p id="bx-notes"></p><div class="actions"><button class="secondary" type="button" id="bx-download">Download current draft JSON</button><a class="button secondary" href="{{ url_for('export_blocktexx', format='csv') }}">Export saved runs CSV</a><a class="button secondary" href="{{ url_for('export_blocktexx') }}">Export saved model JSON</a></div><label class="bx-import">Import a model file <input type="file" id="bx-import" accept=".json,application/json"></label><label class="bx-confirm"><input type="checkbox" id="bx-replace"> Replace the model currently shown with the imported file. Saved history is retained.</label><p>Import loads a draft. Review it and select Save model to persist it. Download your draft before closing if saving fails.</p></details>
+  </div>
 </div>
 <script id="bx-data" type="application/json">{{ model | tojson }}</script>
 <script src="{{ url_for('static', filename='blocktexx_capacity.js', v='switch-outs-5') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_planner.js', v='switch-outs-5') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_run_view.js', v='switch-outs-5') }}" defer></script>
-<script src="{{ url_for('static', filename='blocktexx.js') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx_resources.js', v='resources-1') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx.js', v='resources-1') }}" defer></script>
 {% endblock %}

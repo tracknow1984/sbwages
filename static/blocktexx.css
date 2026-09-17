@@ -62,3 +62,11 @@ body.bx-popup-open {overflow:hidden}
 .bx-allocation-body label {display:block;font-weight:650;margin:16px 0}
 .bx-allocation-body select {display:block;width:100%;margin-top:6px;padding:10px;border:1px solid #b8c8dc;border-radius:6px;background:white}
 .bx-allocation-body > button {width:100%;min-height:46px}
+.bx-resource-table {width:100%;min-width:560px;border-collapse:collapse;margin:14px 0}
+.bx-resource-table th,.bx-resource-table td {padding:14px 16px;border-bottom:1px solid #dbe4ef;text-align:right}
+.bx-resource-table th:first-child {text-align:left}
+.bx-resource-table tr:first-child {background:#edf3fb}
+.bx-resource-table td:last-child {font-weight:800;color:#174478}
+.bx-resource-total {background:#e3eefc;font-weight:800}
+.bx-resource-table input {width:80px;padding:8px;border:1px solid #b8c8dc;border-radius:5px}
+#bx-resources[hidden],#bx-planner-pane[hidden] {display:none!important}
