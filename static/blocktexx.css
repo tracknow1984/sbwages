@@ -9,3 +9,18 @@
 .bx-load-card {border-left:3px solid #377dc3;padding:12px 16px;margin:10px 0;background:#f3f7fc;border-radius:6px}
 #bx-run-view > button {margin-top:16px}
 @media print {#blocktexx details:not([open]) {display:none}}
+.bx-planner-controls {display:flex;gap:18px;align-items:center;flex-wrap:wrap;margin:16px 0}
+.bx-planner-controls label {display:flex;align-items:center;gap:8px}
+.bx-planner-controls input[type=checkbox],.bx-planner-allocate input[type=checkbox] {width:auto}
+.bx-planner-grid {width:100%;table-layout:fixed;min-width:850px;border-collapse:collapse}
+.bx-planner-grid th,.bx-planner-grid td {border:1px solid #dbe4ef;padding:8px;vertical-align:top}
+.bx-planner-grid th {background:#edf3fb;text-align:left}
+.bx-planner-grid th:first-child {width:75px}
+.bx-planner-grid td {height:100px;background:#fafcff}
+.bx-planner-run {display:block;width:100%;text-align:left;white-space:normal;background:#e8f1ff;color:#173854;border:1px solid #bad1ed;border-radius:8px;padding:10px;margin:0 0 8px;cursor:pointer}
+.bx-planner-run small {display:block;margin-top:5px;color:#38516c;font-weight:400}
+.bx-planner-run[aria-pressed=true] {outline:3px solid #2868b2}
+.bx-planner-backlog {display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin:20px 0}
+.bx-planner-backlog h3,.bx-planner-backlog > p {grid-column:1/-1}
+.bx-selected-run {border-top:2px solid #dbe4ef;margin-top:24px;padding-top:20px}
+.bx-planner-allocate {padding:14px;background:#f3f7fc;border-radius:8px}

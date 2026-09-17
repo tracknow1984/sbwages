@@ -100,6 +100,15 @@ class PersistenceTests(unittest.TestCase):
         self.assertEqual(self.client.get('/admin/blocktexx/export').json['states']['VIC']['runs'][0]['km'],50)
         self.assertIn(b"'=1+1",self.client.get('/admin/blocktexx/export?format=csv').data)
 
+    def test_planner_allocations_persist_and_reject_invalid_days(self):
+        m=example()
+        m['states']['VIC']['runs'][0]['planner_slots']=[{'week':1,'day':2},{'week':3,'day':2}]
+        self.assertEqual(self.save(m).status_code,200)
+        saved=self.client.get('/admin/blocktexx/export').json
+        self.assertEqual(saved['states']['VIC']['runs'][0]['planner_slots'],[{'week':1,'day':2},{'week':3,'day':2}])
+        saved['states']['VIC']['runs'][0]['planner_slots'][0]['day']=7
+        self.assertEqual(self.save(saved,1).status_code,400)
+
     def test_import_validation_normalizes_without_saving(self):
         m=example();m['states']['VIC']['hourly_rate']='125'
         r=self.client.post('/admin/blocktexx/validate',data={'csrf':'test','model':json.dumps(m)})

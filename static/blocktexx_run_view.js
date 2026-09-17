@@ -1,23 +1,20 @@
-window.createBlocktexxRunView = function(getModel,getState,getPlans) {
-  const root=document.getElementById('bx-run-view'),selection={};
+window.createBlocktexxRunView = function(getModel,getState,getPlans,onChange) {
+  const host=document.getElementById('bx-run-view'),selection={},planner=window.createBlocktexxPlanner();
   const labels={cage:'cages',bin660:'660L bins',bin240:'240L bins',bin120:'120L bins',pallecon:'pallecons'};
   const e=(tag,text,cls)=>{const n=document.createElement(tag);if(text!=null)n.textContent=text;if(cls)n.className=cls;return n;};
   const fmt=n=>n==null?'To confirm':Number(n).toLocaleString('en-AU',{maximumFractionDigits:2});
   const contents=c=>Object.entries(labels).filter(([k])=>c?.[k]).map(([k,l])=>fmt(c[k])+' '+l).join(', ')||'Quantity to confirm';
   function render() {
     const model=getModel(),state=getState(),data=model.states[state],runs=data.runs;
-    root.replaceChildren(e('h2','View one collection run'));
-    const label=e('label','Select a run'),select=e('select');select.id='bx-run-select';
-    select.setAttribute('aria-label','Select a collection run');
-    runs.forEach(r=>{const o=e('option',r.name);o.value=r.id;select.append(o);});
-    if(!runs.some(r=>r.id===selection[state]))selection[state]=runs[0]?.id;
-    select.value=selection[state]||'';
-    select.addEventListener('change',()=>{selection[state]=select.value;render();});
-    label.append(select);root.append(label);
+    host.replaceChildren();
+    planner.render(host,model,state,selection[state],id=>{selection[state]=id;render();},onChange);
     const r=runs.find(r=>r.id===selection[state]);
-    if(!r){root.append(e('p','No collection runs in this state yet.'));return;}
+    if(!r){host.append(e('p','Select a run above to view its collection details.'));return;}
+    const root=e('section',null,'bx-selected-run');host.append(root);
+    const close=e('button','Close run details','secondary');close.type='button';close.addEventListener('click',()=>{selection[state]=null;render();});root.append(close);
     const sites=r.site_ids.map(id=>model.sites.find(s=>s.id===id)).filter(Boolean);
     const p=getPlans()?.[state]?.[r.id];
+    const allocated=planner.slots(r);
     const day=r.name.match(/\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\b/gi);
     const week=r.name.match(/\bWeek\s+\d+\b/gi);
     const times=['drive_min','service_min','depot_min','prep_min','wait_min'];
@@ -26,7 +23,7 @@ window.createBlocktexxRunView = function(getModel,getState,getPlans) {
     const unknown=sites.filter(s=>!Object.values(s.containers||{}).some(Boolean)).length;
     const stops=p&&!p.issues.length?p.loads.reduce((a,l)=>a+l.stops.length,0):null;
     root.append(e('h3',r.name),e('p',state+' · Depot: '+(data.depot||'To confirm')),
-      e('p',(week?week.join(', ')+' · ':'')+(day?[...new Set(day)].join(', ')+' (from run name)':'Day of week: to confirm')+' · '+(r.runs_4w==null?'Frequency to confirm':r.runs_4w===0?'Paused':fmt(r.runs_4w)+' occurrences per four weeks')));
+      e('p',(allocated.length?'Allocated: '+allocated.map(s=>'Week '+s.week+' '+['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'][s.day]).join(', ')+' · ':week?week.join(', ')+' · ':'')+(allocated.length?'':day?[...new Set(day)].join(', ')+' (from run name)':'Day of week: to confirm')+' · '+(r.runs_4w==null?'Frequency to confirm':r.runs_4w===0?'Paused':fmt(r.runs_4w)+' occurrences per four weeks')));
     const cards=e('div',null,'bx-metrics');
     [['Pickup locations',sites.length],['Estimated pickup stops / run',stops==null?(p?'To confirm':sites.length+' before load splits'):stops],['Distance / run',r.km==null?'To confirm':fmt(r.km)+' km'],['Elapsed time / run',work==null||r.break_min==null?'To confirm':fmt((work+r.break_min)/60)+' hours'],['Bins / run',fmt(totals.bin660+totals.bin240+totals.bin120)+(unknown?' + unknown':'')],['Cages / run',fmt(totals.cage)+(unknown?' + unknown':'')],['Depot loads',p?fmt(p.load_count):'To confirm'],['Measurement status',r.status]].forEach(([k,v])=>{const c=e('div',k);c.append(e('strong',v));cards.append(c);});
     root.append(cards,e('p','Quantities are per occurrence. Pickup stops include repeat visits when a collection spans multiple loads. Distance and time are whole-run allowances; estimated rows still need verification.'));

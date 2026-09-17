@@ -127,6 +127,21 @@ def validate_model(value):
             if run.get('status') not in ('estimated', 'verified', 'unmeasured'):
                 raise ValueError('Invalid measurement status.')
             r['status'] = run['status']
+            slots = run.get('planner_slots')
+            if slots is not None:
+                if not isinstance(slots, list) or len(slots) > 124:
+                    raise ValueError('Use at most 124 planner allocations per run.')
+                normalized = []
+                for slot in slots:
+                    if not isinstance(slot, dict):
+                        raise ValueError('Invalid planner allocation.')
+                    week = number(slot.get('week'), 'Planner week', 4)
+                    day = number(slot.get('day'), 'Planner day', 6)
+                    if week < 1 or week != int(week) or day != int(day):
+                        raise ValueError('Planner weeks must be 1–4 and days 0–6.')
+                    normalized.append({'week': int(week), 'day': int(day)})
+                r['planner_slots'] = normalized
+
             r['included_loads'] = number(run.get('included_loads', max(1,len(re.findall(r'\bdepot\b',r['sequence'], re.I))-1)), 'Loads already included in time and km', 500)
             if r['included_loads'] < 1 or r['included_loads'] != int(r['included_loads']):
                 raise ValueError('Included loads must be a whole number of at least one.')
