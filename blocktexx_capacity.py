@@ -53,13 +53,28 @@ def plan_run(model, state, run):
                 load['stops'][-1]['containers'][kind] += 1
     for load in loads:
         load['spare_spaces'] = slots - load['spaces']
+        empty = {k: sum(stop['containers'][k] for stop in load['stops']) for k in KINDS}
+        full = dict.fromkeys(KINDS, 0)
+        load['outbound_empty'] = empty.copy()
+        load['return_full'] = empty.copy()
+        load['container_moves'] = 2 * sum(empty.values())
+        for stop in load['stops']:
+            stop['deliver_empty'] = stop['containers'].copy()
+            stop['collect_full'] = stop['containers'].copy()
+            for kind in KINDS:
+                empty[kind] -= stop['containers'][kind]
+                full[kind] += stop['containers'][kind]
+            stop['onboard_empty_after'] = empty.copy()
+            stop['onboard_full_after'] = full.copy()
+            stop['onboard_spaces_after'] = sum((empty[k]+full[k])*settings['spaces'][k] for k in KINDS)
     original_loads = run['included_loads']
     return {'loads':loads, 'containers':total, 'container_count':sum(total.values()),
+            'outbound_empty':total.copy(), 'return_full':total.copy(), 'customer_container_moves':2*sum(total.values()),
             'bin_count':sum(total[k] for k in ('bin120','bin240','bin660')),
             'spaces':sum(load['spaces'] for load in loads), 'load_count':len(loads),
             'extra_loads':max(0,len(loads)-original_loads), 'issues':missing,
             'payload_checked':bool(loads) and payload is not None and all(l['weight_complete'] for l in loads),
-            'notes':'Planning assumes one-for-one exchanges using the same footprint; no nesting or stacking credit. Payload and tailgate limits require confirmation.'}
+            'notes':'Unload matching empties before loading full containers at each stop. Same footprint throughout the load; no nesting or stacking credit. Loaded weights must include the container. Stock availability, handling time and tailgate limits require confirmation. Full returns cannot supply the next load of empties until emptied.'}
 
 
 def capacity_plans(model):

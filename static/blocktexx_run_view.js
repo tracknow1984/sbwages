@@ -28,14 +28,15 @@ window.createBlocktexxRunView = function(getModel,getState,getPlans,onChange) {
     [['Pickup locations',sites.length],['Estimated pickup stops / run',stops==null?(p?'To confirm':sites.length+' before load splits'):stops],['Distance / run',r.km==null?'To confirm':fmt(r.km)+' km'],['Elapsed time / run',work==null||r.break_min==null?'To confirm':fmt((work+r.break_min)/60)+' hours'],['Bins / run',fmt(totals.bin660+totals.bin240+totals.bin120)+(unknown?' + unknown':'')],['Cages / run',fmt(totals.cage)+(unknown?' + unknown':'')],['Depot loads',p?fmt(p.load_count):'To confirm'],['Measurement status',r.status]].forEach(([k,v])=>{const c=e('div',k);c.append(e('strong',v));cards.append(c);});
     root.append(cards,e('p','Quantities are per occurrence. Pickup stops include repeat visits when a collection spans multiple loads. Distance and time are whole-run allowances; estimated rows still need verification.'));
     const wrap=e('div',null,'bx-scroll'),table=e('table',null,'bx-customers'),head=e('tr');
-    ['Pickup customer','Address','What is collected / visit','Collection frequency'].forEach(t=>head.append(e('th',t)));table.append(head);
-    sites.forEach(s=>{const row=e('tr');[s.name,s.address||'To confirm',contents(s.containers),s.frequency||'To confirm'].forEach(t=>row.append(e('td',t)));table.append(row);});
+    ['Pickup customer','Address','Switch-out per visit','Collection frequency'].forEach(t=>head.append(e('th',t)));table.append(head);
+    sites.forEach(s=>{const row=e('tr');[s.name,s.address||'To confirm','Deliver '+contents(s.containers)+' empty → collect same full',s.frequency||'To confirm'].forEach(t=>row.append(e('td',t)));table.append(row);});
     wrap.append(table);root.append(e('h3','What is being picked up'),wrap);
     if(unknown)root.append(e('p',unknown+' customers have unconfirmed container quantities. Totals are incomplete.','bx-warning'));
-    root.append(e('h3','Route and depot returns'),e('p',r.sequence||'Sequence to confirm'));
+    root.append(e('p','Empty containers required across this run: '+contents(totals)+'. Unload matching empties before collecting full containers. Confirm depot stock and swap handling times.'),e('h3','Route and depot returns'),e('p',r.sequence||'Sequence to confirm'));
     if(p){
       p.loads.forEach((l,i)=>{const card=e('div',null,'bx-load-card');card.append(e('strong','Load '+(i+1)+' · '+fmt(l.spaces)+' positions used · '+fmt(l.spare_spaces)+' spare'));
-        card.append(e('p',l.stops.map(s=>s.name+': '+contents(s.containers)).join(' → ')+' → depot'));root.append(card);});
+        card.append(e('p','Depart with EMPTY: '+contents(l.outbound_empty||{})));
+        card.append(e('p',l.stops.map(s=>s.name+': '+contents(s.containers)).join(' → ')+' → depot'));card.append(e('p','Return with FULL: '+contents(l.return_full||{})));root.append(card);});
       if(p.extra_loads)root.append(e('p',fmt(p.extra_loads)+' extra loads need revised distance and time allowances.','bx-warning'));
       if(p.issues.length)root.append(e('p',p.issues.join('; '),'bx-warning'));
       root.append(e('p',p.payload_checked?'Configured loaded weights checked.':'Space-only estimate; loaded weights and usable payload need confirmation.'));

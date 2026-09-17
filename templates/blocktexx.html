@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 {% block content %}
-<link rel="stylesheet" href="{{ url_for('static', filename='blocktexx.css', v='allocation-visible-4') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='blocktexx.css', v='switch-outs-5') }}">
 <div id="blocktexx" data-revision="{{ revision }}" data-csrf="{{ csrf_token() }}">
   <div class="page-heading"><div><p class="bx-kicker">SB EMPIRE / PROPOSAL MODELLING</p><h1>BlockTexx collections</h1><p>Build the collection cost first. Add each downstream movement once.</p></div>
     <div class="actions no-print"><button type="button" id="bx-save" class="primary">Save model</button><button type="button" id="bx-print" class="secondary">Print analysis</button></div></div>
@@ -26,8 +26,8 @@
   <details class="bx-card no-print"><summary>View import, export and source information</summary><p id="bx-source"></p><p id="bx-notes"></p><div class="actions"><button class="secondary" type="button" id="bx-download">Download current draft JSON</button><a class="button secondary" href="{{ url_for('export_blocktexx', format='csv') }}">Export saved runs CSV</a><a class="button secondary" href="{{ url_for('export_blocktexx') }}">Export saved model JSON</a></div><label class="bx-import">Import a model file <input type="file" id="bx-import" accept=".json,application/json"></label><label class="bx-confirm"><input type="checkbox" id="bx-replace"> Replace the model currently shown with the imported file. Saved history is retained.</label><p>Import loads a draft. Review it and select Save model to persist it. Download your draft before closing if saving fails.</p></details>
 </div>
 <script id="bx-data" type="application/json">{{ model | tojson }}</script>
-<script src="{{ url_for('static', filename='blocktexx_capacity.js') }}" defer></script>
-<script src="{{ url_for('static', filename='blocktexx_planner.js', v='allocation-visible-4') }}" defer></script>
-<script src="{{ url_for('static', filename='blocktexx_run_view.js') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx_capacity.js', v='switch-outs-5') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx_planner.js', v='switch-outs-5') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx_run_view.js', v='switch-outs-5') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx.js') }}" defer></script>
 {% endblock %}

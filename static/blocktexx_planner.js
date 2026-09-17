@@ -106,12 +106,17 @@ window.createBlocktexxPlanner = function() {
           if(r.runs_4w===0)activity.append(e('p','Paused run — review this allocation.','bx-warning'));
           const p=plans?.[state]?.[r.id];
           const rows=[];
+          const required=Object.fromEntries(Object.keys(labels).map(k=>[k,r.site_ids.reduce((n,id)=>n+(sites.find(s=>s.id===id)?.containers?.[k]||0),0)]));
+          activity.append(e('p','Empty stock required across this run: '+contents(required)+'. Match each container type. Unknown customer quantities are additional.'),
+            e('p','Unload empties first, then load full containers. Full returns must be emptied before they can be reused. Confirm depot loading and customer swap time allowances.','bx-muted'));
           if(p&&!p.issues.length&&p.loads.length){
             p.loads.forEach((load,i)=>{
-              load.stops.forEach(stop=>rows.push(['Load '+(i+1)+' · Collect',stop.name,stop.address,contents(stop.containers)]));
-              rows.push(['Load '+(i+1)+' · Return / unload',model.states[state].depot||'Depot to confirm','',fmt(load.spaces)+' positions · '+fmt(load.spare_spaces)+' spare']);
+              const outbound=load.outbound_empty||Object.fromEntries(Object.keys(labels).map(k=>[k,load.stops.reduce((n,s)=>n+(s.containers[k]||0),0)]));
+              rows.push(['Load '+(i+1)+' · Load empties',model.states[state].depot||'Depot to confirm','',contents(outbound)+' EMPTY']);
+              load.stops.forEach(stop=>rows.push(['Load '+(i+1)+' · Switch out',stop.name,stop.address,'Deliver '+contents(stop.deliver_empty||stop.containers)+' EMPTY → collect '+contents(stop.collect_full||stop.containers)+' FULL'+(stop.onboard_empty_after?' | On board after: '+(Object.values(stop.onboard_empty_after).some(Boolean)?contents(stop.onboard_empty_after):'0')+' empty; '+contents(stop.onboard_full_after)+' full':'' )]));
+              rows.push(['Load '+(i+1)+' · Return / unload',model.states[state].depot||'Depot to confirm','',contents(load.return_full||outbound)+' FULL · '+fmt(load.spaces)+' positions · '+fmt(load.spare_spaces)+' spare']);
             });
-          }else r.site_ids.forEach(id=>{const s=sites.find(s=>s.id===id);if(s)rows.push(['Collect',s.name,s.address,contents(s.containers)]);});
+          }else r.site_ids.forEach(id=>{const s=sites.find(s=>s.id===id);if(s)rows.push(['Switch out',s.name,s.address,'Deliver '+contents(s.containers)+' EMPTY → collect same FULL']);});
           const scroll=e('div',null,'bx-scroll'),t=e('table',null,'bx-customers'),head=e('tr');
           ['Activity','Location','Address','What / quantity'].forEach(x=>head.append(e('th',x)));t.append(head);
           rows.forEach(values=>{const row=e('tr');values.forEach(x=>row.append(e('td',x||'—')));t.append(row);});scroll.append(t);activity.append(scroll);
@@ -171,6 +176,10 @@ window.createBlocktexxPlanner = function() {
       const dismiss=()=>{config.allocateId=null;config.allocationDraft=null;allocationPopup.hidden=true;document.body.classList.remove('bx-popup-open');root.querySelector('[data-run-id="'+allocationRun.id+'"]')?.focus();};
       close.addEventListener('click',dismiss);
       const body=e('div',null,'bx-allocation-body');body.append(e('h3',allocationRun.name));
+      const swapLabels={cage:'cages',bin660:'660L bins',bin240:'240L bins',bin120:'120L bins',pallecon:'pallecons'};
+      const swaps=Object.entries(swapLabels).map(([k,label])=>{const count=allocationRun.site_ids.reduce((n,id)=>n+(sites.find(s=>s.id===id)?.containers?.[k]||0),0);return count?fmt(count)+' '+label:null;}).filter(Boolean).join(', ');
+      body.append(e('p',swaps?'Each run requires '+swaps+' EMPTY for switch-outs, with matching FULL returns. Truckload splits appear in the day summary.':'Switch-out quantities need confirmation before loading.'));
+
       function field(label,key,options){
         const l=e('label',label),select=e('select');select.setAttribute('aria-label',label);
         options.forEach(([v,t])=>{const o=e('option',t);o.value=v;select.append(o);});select.value=draft[key];
