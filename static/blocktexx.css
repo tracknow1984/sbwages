@@ -83,3 +83,14 @@ body.bx-popup-open {overflow:hidden}
 #bx-cost-inputs > details {margin:14px 0;padding:14px;border:1px solid #dbe2ea;border-radius:8px}
 #bx-cost-inputs summary {cursor:pointer;font-weight:650;margin-bottom:10px}
 #bx-cost-comparison {margin:20px 0}
+
+.bx-planner-run[draggable=true] {cursor:grab}
+.bx-planner-run.bx-dragging {opacity:.45;cursor:grabbing}
+.bx-planner-grid td.bx-drop-ok {outline:3px solid #16a34a;outline-offset:-3px;background:#ecfdf5}
+.bx-planner-grid td.bx-drop-blocked {outline:3px solid #dc2626;outline-offset:-3px;background:#fff1f2}
+.bx-day-spare {display:block;width:100%;text-align:left;padding:10px;margin:8px 0;background:#e5f5ec;color:#14532d;border:1px solid #a7d9ba;border-radius:7px}
+.bx-day-spare strong,.bx-day-spare small {display:block}
+.bx-day-spare small {font-size:.72rem;margin-top:4px}
+.bx-day-spare[data-capacity=unknown],.bx-day-spare[data-capacity=full] {background:#fff7df;color:#805500;border-color:#e5ca81}
+.bx-day-spare[data-capacity=over] {background:#fff1f2;color:#991b1b;border-color:#fca5a5}
+.bx-planner-grid progress {display:block;width:100%;height:6px;margin:6px 0;accent-color:#16a34a}

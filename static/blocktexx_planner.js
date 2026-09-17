@@ -2,7 +2,7 @@ window.createBlocktexxPlanner = function() {
   const days=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
   const categories=['Weekly','Fortnightly','Monthly','Ad hoc'];
   const settings={};
-  let popup=null, dismissPopup=null, allocationPopup=null;
+  let popup=null, dismissPopup=null, allocationPopup=null, drag=null, ignoreClickUntil=0;
   const e=(tag,text,cls)=>{const n=document.createElement(tag);if(text!=null)n.textContent=text;if(cls)n.className=cls;return n;};
   const fmt=n=>n==null?'TBC':Number(n).toLocaleString('en-AU',{maximumFractionDigits:1});
   function slots(r) {
@@ -68,7 +68,24 @@ window.createBlocktexxPlanner = function() {
     root.append(bar);
     const legend=e('div',null,'bx-frequency-legend');legend.setAttribute('aria-label','Frequency colours');
     categories.forEach(c=>{const badge=e('span',c,'bx-frequency-label');badge.dataset.frequency=c;legend.append(badge);});root.append(legend);
-    root.append(e('p','Click a run to reallocate it, or VIEW DAY for a summary and quick allocation. Mixed-frequency runs appear in each relevant category. Monthly is a four-week planning cycle; eight-weekly work is labelled separately.','bx-muted'));
+    root.append(e('p','Drag a calendar run to move that occurrence only. Drag an unallocated run onto a day to choose its frequency. Click a run to change its recurring allocation, or VIEW DAY for details. Mixed-frequency runs appear in each relevant category. Monthly is a four-week planning cycle; eight-weekly work is labelled separately.','bx-muted'));
+    const feedback=e('p',config.dragMessage||'','bx-warning');feedback.setAttribute('role','status');root.append(feedback);
+    function dropProposal(week,day) {
+      const run=drag?.state===state?runs.find(r=>r.id===drag.id):null;
+      if(!run)return null;
+      const proposed=slots(run).map(s=>({...s}));
+      if(drag.week!=null){
+        const index=proposed.findIndex(s=>s.week===drag.week&&s.day===drag.day);
+        if(index<0)return null;
+        proposed.splice(index,1);
+      }
+      if(proposed.some(s=>s.week===week&&s.day===day))return {run,error:'This run is already allocated to that day.'};
+      proposed.push({week,day});
+      const fixed=sites.filter(s=>run.site_ids.includes(s.id)&&s.day_rule==='fixed'&&!s.service_days?.includes(day));
+      const error=fixed.length?'Customer-set day conflict: '+fixed.map(s=>s.name).join(', '):allocationError(runs,run,proposed);
+      return {run,proposed,error};
+    }
+    function clearDragStyles(){root.querySelectorAll('.bx-drop-ok,.bx-drop-blocked').forEach(n=>n.classList.remove('bx-drop-ok','bx-drop-blocked'));}
     const visible=runs.filter(r=>config.all||groups(r,sites).includes(config.category));
     function card(r,week,day) {
       const b=e('button',null,'bx-planner-run');b.type='button';b.dataset.runId=r.id;b.dataset.frequency=(week==null||config.all)?groups(r,sites)[0]:config.category;b.setAttribute('aria-pressed',String(r.id===selected));
@@ -81,7 +98,15 @@ window.createBlocktexxPlanner = function() {
       if(week!=null&&r.runs_4w!=null&&slots(r).length!==r.runs_4w)b.append(e('small','Review frequency: '+slots(r).length+' allocated / '+fmt(r.runs_4w)+' planned'));
       const badges=e('div',null,'bx-frequency-badges');
       groups(r,sites).forEach(c=>{const badge=e('span',c,'bx-frequency-label');badge.dataset.frequency=c;badges.append(badge);});b.append(badges);
-      b.title='Click to allocate or reallocate this run';b.addEventListener('click',event=>{event.stopPropagation();if(week!=null)config.selectedDay={week,day};openAllocation(r,week==null?null:{week,day});});return b;
+      b.draggable=true;
+      b.addEventListener('dragstart',event=>{
+        if(document.getElementById('bx-save')?.disabled){event.preventDefault();return;}
+        drag={id:r.id,state,week,day};ignoreClickUntil=Date.now()+300;
+        event.dataTransfer?.setData('text/plain',r.id);if(event.dataTransfer)event.dataTransfer.effectAllowed='move';
+        b.classList.add('bx-dragging');config.dragMessage='';
+      });
+      b.addEventListener('dragend',()=>{drag=null;ignoreClickUntil=Date.now()+300;b.classList.remove('bx-dragging');clearDragStyles();});
+      b.title='Drag to move this occurrence, or click to edit the recurring allocation';b.addEventListener('click',event=>{event.stopPropagation();if(Date.now()<ignoreClickUntil)return;if(week!=null)config.selectedDay={week,day};openAllocation(r,week==null?null:{week,day});});return b;
     }
     const hiddenAllocated=runs.filter(r=>slots(r).length&&!visible.includes(r)).length;
     if(hiddenAllocated)root.append(e('p',hiddenAllocated+' allocated runs hidden by the frequency filter. Choose All frequencies to see them.','bx-warning'));
@@ -95,13 +120,43 @@ window.createBlocktexxPlanner = function() {
         const active=config.selectedDay?.week===week&&config.selectedDay?.day===d;
         cell.classList.toggle('bx-day-selected',active);
         const choose=()=>{config.selectedDay={week,day:d};config.dayOpen=true;onSelect(null);};
-        cell.addEventListener('click',choose);
+        cell.addEventListener('click',()=>{if(Date.now()>=ignoreClickUntil)choose();});
+        cell.addEventListener('dragover',event=>{
+          const proposal=dropProposal(week,d);if(!proposal)return;
+          event.preventDefault();clearDragStyles();
+          cell.classList.add(proposal.error?'bx-drop-blocked':'bx-drop-ok');
+          if(event.dataTransfer)event.dataTransfer.dropEffect=proposal.error?'none':'move';
+          feedback.textContent=proposal.error||'Drop on Week '+week+' '+day+(drag.week==null?' to choose the allocation frequency.':' to move this occurrence only.');
+        });
+        cell.addEventListener('dragleave',event=>{if(!cell.contains(event.relatedTarget))cell.classList.remove('bx-drop-ok','bx-drop-blocked');});
+        cell.addEventListener('drop',event=>{
+          event.preventDefault();event.stopPropagation();
+          const proposal=dropProposal(week,d),fromBacklog=drag?.week==null;
+          drag=null;ignoreClickUntil=Date.now()+300;clearDragStyles();
+          if(!proposal)return;
+          if(document.getElementById('bx-save')?.disabled){feedback.textContent='Wait for the current save to finish, then move the run.';return;}
+          if(proposal.error){config.dragMessage=proposal.error;feedback.textContent=proposal.error;return;}
+          if(fromBacklog){openAllocation(proposal.run,{week,day:d});return;}
+          proposal.run.planner_slots=proposal.proposed;
+          config.selectedDay={week,day:d};config.dayOpen=false;config.all=true;
+          config.dragMessage='Moved '+proposal.run.name+' to Week '+week+' '+day+'. Other occurrences are unchanged. Check the save status for database confirmation.';
+          onChange();document.getElementById('bx-save')?.click();
+        });
         const dayButton=e('button','VIEW DAY','bx-view-day');dayButton.type='button';
         dayButton.setAttribute('aria-label','View activities for Week '+week+' '+day);
         dayButton.setAttribute('aria-pressed',String(active));
         dayButton.addEventListener('click',event=>{event.stopPropagation();choose();});cell.append(dayButton);
         const load=dayLoad(runs,week,d);
-        cell.append(e('p',loadText(load),load.unknown||load.minutes>540?'bx-warning':'bx-muted'));
+        const spare=e('button',null,'bx-day-spare');spare.type='button';
+        const remaining=540-load.minutes;
+        spare.dataset.capacity=load.unknown?'unknown':remaining<0?'over':remaining===0?'full':'spare';
+        const hours=Math.floor(Math.max(0,remaining)/60),minutes=Math.floor(Math.max(0,remaining)%60);
+        const label=load.unknown?'Time to confirm':remaining<0?'Over by '+fmt(-remaining)+' min':remaining===0?'Day full':hours+'h '+minutes+'m spare';
+        spare.append(e('strong',label),e('small',load.unknown?'Complete timings first':fmt(load.minutes/60)+' / 9h allocated · '+(remaining>0?'Click to allocate':'View day')));
+        spare.setAttribute('aria-label','Week '+week+' '+day+': '+label);
+        spare.addEventListener('click',event=>{event.stopPropagation();choose();});cell.append(spare);
+        if(!load.unknown){const meter=e('progress');meter.max=540;meter.value=Math.min(load.minutes,540);meter.setAttribute('aria-label','Allocated day capacity');cell.append(meter);}
+        cell.append(e('small',load.unknown?'Spare time cannot be confirmed.':'Estimated finish '+finish(load.minutes),'bx-muted'));
         const entries=assigned.flatMap(r=>slots(r).filter(s=>s.week===week&&s.day===d).map(()=>r));
         entries.forEach(r=>cell.append(card(r,week,d)));
         if(!entries.length)cell.append(e('span','—','bx-muted'));row.append(cell);
