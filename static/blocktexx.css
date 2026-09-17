@@ -75,5 +75,7 @@ body.bx-popup-open {overflow:hidden}
 #bx-consolidation td label {display:inline-block;white-space:nowrap}
 #bx-consolidation select {padding:8px;margin:4px}
 #bx-consolidation button {margin:8px}
-#bx-resources > .bx-scroll > .bx-resource-table {min-width:1200px}
-#bx-resources > .bx-scroll input {width:105px}
+#bx-resource-content > .bx-scroll > .bx-resource-table {min-width:1200px}
+#bx-resource-content > .bx-scroll input {width:105px}
+
+#bx-resources-save-status {font-size:.84rem;color:#334155;min-width:180px}

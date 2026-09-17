@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 {% block content %}
-<link rel="stylesheet" href="{{ url_for('static', filename='blocktexx.css', v='resource-pricing-2') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='blocktexx.css', v='resource-save-1') }}">
 <div id="blocktexx" data-revision="{{ revision }}" data-csrf="{{ csrf_token() }}">
   <div class="page-heading"><div><p class="bx-kicker">SB EMPIRE / PROPOSAL MODELLING</p><h1>BlockTexx collections</h1><p>Build the collection cost first. Add each downstream movement once.</p></div>
     <div class="actions no-print"><button type="button" id="bx-save" class="primary">Save model</button><button type="button" id="bx-print" class="secondary">Print analysis</button></div></div>
@@ -10,7 +10,14 @@
   <details class="bx-card"><summary>View national overview</summary><div class="bx-overview" id="bx-overview"></div></details>
   <nav class="bx-state-tabs" aria-label="Collection state">{% for state in model.states %}<button type="button" data-state="{{ state }}" aria-pressed="{{ 'true' if loop.first else 'false' }}">{{ state }}</button>{% endfor %}</nav>
   <nav class="bx-state-tabs" aria-label="State view"><button type="button" data-bx-pane="planner" aria-pressed="true">Planner</button><button type="button" data-bx-pane="resources" aria-pressed="false">Resources</button></nav>
-  <section id="bx-resources" class="bx-card" hidden></section>
+  <section id="bx-resources" class="bx-card" hidden>
+    <div class="bx-section-head">
+      <div><button type="button" id="bx-save-resources" class="primary">Save resources</button>
+      <p class="bx-muted">Saves quantities, purchase costs and rental rates to the database, together with all current model changes across states.</p></div>
+      <p id="bx-resources-save-status" role="status">{{ 'Saved model loaded.' if saved else 'No saved resources yet.' }}</p>
+    </div>
+    <div id="bx-resource-content"></div>
+  </section>
   <div id="bx-planner-pane">
 <details class="bx-card"><summary>Consolidate nearby runs</summary><section id="bx-consolidation"></section></details>
   <section id="bx-run-view" class="bx-card"></section>
@@ -34,7 +41,7 @@
 <script src="{{ url_for('static', filename='blocktexx_capacity.js', v='switch-outs-5') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_planner.js', v='consolidation-1') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_run_view.js', v='switch-outs-5') }}" defer></script>
-<script src="{{ url_for('static', filename='blocktexx_resources.js', v='resource-pricing-2') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx_resources.js', v='resource-save-1') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_consolidation.js', v='consolidation-1') }}" defer></script>
-<script src="{{ url_for('static', filename='blocktexx.js', v='consolidation-1') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx.js', v='resource-save-1') }}" defer></script>
 {% endblock %}

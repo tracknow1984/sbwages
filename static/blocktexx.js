@@ -16,7 +16,11 @@
   const plannedVisits = s => model.states[s.state].runs.filter(r=>r.site_ids.includes(s.id)).reduce((a,r)=>a+(r.runs_4w||0),0);
   const el = (tag, text, className) => { const n = document.createElement(tag); if (text != null) n.textContent = text; if (className) n.className = className; return n; };
   const working = r => ['drive_min','service_min','depot_min','prep_min','wait_min'].some(k => r[k] == null) ? null : ['drive_min','service_min','depot_min','prep_min','wait_min'].reduce((a,k) => a + r[k], 0) / 60;
-  function changed() { dirty = true; generation++; $('bx-save-status').textContent = 'Unsaved changes — select Save model.'; capacityUI?.render(); renderMetrics(); renderOverview(); runView?.render(); renderResources();consolidation?.render(); }
+  function saveStatus(message) {
+    $('bx-save-status').textContent=message;
+    $('bx-resources-save-status').textContent=message;
+  }
+  function changed() { dirty = true; generation++; saveStatus('Unsaved changes — select Save resources or Save model.'); capacityUI?.render(); renderMetrics(); renderOverview(); runView?.render(); renderResources();consolidation?.render(); }
   function summary(s) {
     const d = model.states[s]; let km = 0, work = 0, billed = 0, elapsed = 0, pending = 0, estimates = 0, active = 0;
     d.runs.forEach(r => {
@@ -117,16 +121,29 @@
   document.querySelectorAll('[data-state]').forEach(b=>b.addEventListener('click',()=>{state=b.dataset.state;render();}));
   document.querySelectorAll('[data-bx-pane]').forEach(b=>b.addEventListener('click',()=>{activePane=b.dataset.bxPane;renderResources();renderPane();}));
   $('bx-add').addEventListener('click',()=>{model.states[state].runs.push({id:crypto.randomUUID(),name:'New collection day',sequence:'',notes:'',evidence:'',status:'unmeasured',site_ids:[],runs_4w:null,km:null,drive_min:null,service_min:0,depot_min:0,prep_min:15,wait_min:0,break_min:30});changed();renderRuns();});
-  $('bx-save').addEventListener('click',async()=>{
-    if(saving)return;saving=true;$('bx-save').disabled=true;const sentGeneration=generation;$('bx-save-status').textContent='Saving…';
-    try {const response=await fetch('/admin/blocktexx',{method:'POST',headers:{'Accept':'application/json'},body:new URLSearchParams({csrf:root.dataset.csrf,revision:String(revision),model:JSON.stringify(model)})});if(!response.headers.get('content-type')?.includes('application/json'))throw new Error('Session expired or server unavailable. Download your draft before signing in again.');const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.error||'Save failed.');revision=result.revision;dirty=generation!==sentGeneration;$('bx-save-status').textContent=dirty?'Earlier changes saved. New changes remain unsaved.':'Saved to SB Empire · '+new Date(result.saved).toLocaleString('en-AU');}
-    catch(e){dirty=true;$('bx-save-status').textContent='Not saved: '+e.message;}
-    finally{saving=false;$('bx-save').disabled=false;}
-  });
+  async function saveModel() {
+    if(saving)return;
+    const invalid=$('bx-resource-content').querySelector('input:invalid');
+    if(invalid){activePane='resources';renderPane();invalid.closest('details')?.setAttribute('open','');invalid.reportValidity();saveStatus('Not saved: correct the highlighted resource value.');return;}
+    saving=true;
+    [$('bx-save'),$('bx-save-resources')].forEach(b=>b.disabled=true);
+    const sentGeneration=generation;saveStatus('Saving to database…');
+    try {
+      const response=await fetch('/admin/blocktexx',{method:'POST',headers:{'Accept':'application/json'},body:new URLSearchParams({csrf:root.dataset.csrf,revision:String(revision),model:JSON.stringify(model)})});
+      if(!response.headers.get('content-type')?.includes('application/json'))throw new Error('Session expired or server unavailable. Download your draft before signing in again.');
+      const result=await response.json();
+      if(!response.ok||!result.ok)throw new Error(result.error||'Save failed.');
+      revision=result.revision;dirty=generation!==sentGeneration;
+      saveStatus(dirty?'Earlier changes saved. New changes remain unsaved.':'Saved to database · '+new Date(result.saved).toLocaleString('en-AU'));
+    } catch(e){dirty=true;saveStatus('Not saved: '+e.message);}
+    finally{saving=false;[$('bx-save'),$('bx-save-resources')].forEach(b=>b.disabled=false);}
+  }
+  $('bx-save').addEventListener('click',saveModel);
+  $('bx-save-resources').addEventListener('click',saveModel);
   $('bx-download').addEventListener('click',()=>{const u=URL.createObjectURL(new Blob([JSON.stringify(model,null,2)],{type:'application/json'})),a=el('a');a.href=u;a.download='BlockTexx-collection-draft.json';a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);});
   $('bx-import').addEventListener('change',async e=>{
     const file=e.target.files[0];if(!file)return;
-    try{if(!$('bx-replace').checked)throw new Error('Tick the replacement acknowledgement before importing.');if(file.size>900000)throw new Error('File exceeds 900 KB.');const response=await fetch('/admin/blocktexx/validate',{method:'POST',body:new URLSearchParams({csrf:root.dataset.csrf,model:await file.text()})});if(!response.headers.get('content-type')?.includes('application/json'))throw new Error('Session expired or validation unavailable. Existing draft retained.');const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.error||'Invalid model file.');model=result.model;render();changed();$('bx-save-status').textContent='Imported draft — review the four states, then Save model.';}catch(err){$('bx-save-status').textContent=err.message;}finally{e.target.value='';$('bx-replace').checked=false;}
+    try{if(!$('bx-replace').checked)throw new Error('Tick the replacement acknowledgement before importing.');if(file.size>900000)throw new Error('File exceeds 900 KB.');const response=await fetch('/admin/blocktexx/validate',{method:'POST',body:new URLSearchParams({csrf:root.dataset.csrf,model:await file.text()})});if(!response.headers.get('content-type')?.includes('application/json'))throw new Error('Session expired or validation unavailable. Existing draft retained.');const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.error||'Invalid model file.');model=result.model;render();changed();saveStatus('Imported draft — review the four states, then Save model.');}catch(err){saveStatus(err.message);}finally{e.target.value='';$('bx-replace').checked=false;}
   });
   $('bx-print').addEventListener('click',()=>window.print());
   window.addEventListener('beforeunload',e=>{if(dirty||saving){e.preventDefault();e.returnValue='';}});

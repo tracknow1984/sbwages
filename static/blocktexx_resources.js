@@ -1,5 +1,5 @@
 window.renderBlocktexxResources = function(model,state,onChange) {
-  const root=document.getElementById('bx-resources');
+  const root=document.getElementById('bx-resource-content');
   const wasOpen=root.querySelector('details')?.open||false;
   const labels={bin120:'120L bins',bin240:'240L bins',bin660:'660L bins',cage:'Cages',pallecon:'Pallecons'};
   const kinds=Object.keys(labels);
@@ -47,5 +47,5 @@ window.renderBlocktexxResources = function(model,state,onChange) {
   sites.forEach(s=>{const row=e('tr');row.append(e('th',s.name));
     kinds.forEach(k=>{const td=e('td'),input=e('input');input.type='number';input.min='0';input.max='500';input.step='1';input.value=s.containers?.[k]??0;input.setAttribute('aria-label',s.name+' resource '+labels[k]);
       input.addEventListener('change',()=>{if(input.value===''||!input.checkValidity()){input.value=s.containers?.[k]??0;input.reportValidity();return;}s.containers=s.containers||{};s.containers[k]=Number(input.value);onChange();});td.append(input);row.append(td);});customers.append(row);});
-  scroll.append(customers);detail.append(scroll);root.append(detail,e('p','Quantity edits update resources and truck load plans. Select Save model to keep quantities and price profiles.','bx-muted'));
+  scroll.append(customers);detail.append(scroll);root.append(detail,e('p','Quantity edits update resources and truck load plans. Select Save resources to keep quantities and price profiles in the database.','bx-muted'));
 };
