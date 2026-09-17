@@ -226,7 +226,9 @@ def create_app(test_config=None):
 
     @app.before_request
     def protect():
-        if request.endpoint == 'employee_prestart':
+        if request.endpoint in ('save_blocktexx', 'validate_blocktexx'):
+            request.max_content_length = 4 * 1024 * 1024
+        elif request.endpoint == 'employee_prestart':
             request.max_content_length = 32 * 1024 * 1024
         elif request.endpoint == 'upload_licence_photos':
             request.max_content_length = 12 * 1024 * 1024
@@ -1419,6 +1421,8 @@ def create_app(test_config=None):
     def error_page(error):
         return render_template('error.html', message=error.description), error.code
 
+    from blocktexx import register_blocktexx
+    register_blocktexx(app, db, require)
     return app
 
 
