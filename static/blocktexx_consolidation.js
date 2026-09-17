@@ -68,9 +68,9 @@ window.createBlocktexxConsolidation = function(getModel,getState,onChange,csrf) 
             const parts=['Depot'];p.loads.forEach(load=>{load.stops.forEach(s=>parts.push(s.name));parts.push('depot');});r.sequence=parts.join(' → ');
             output.append(e('p',p.container_count+' empty switch-outs / full returns · '+p.load_count+' truckloads. Depot returns are required between loads.'));
           }else output.append(e('p','Truck capacity must be confirmed for this state.'));
-          output.append(e('p','One grouped attendance replaces two for each selected week. Kilometres, driving and depot handling will be marked incomplete until remeasured. Savings are not yet quantified.'));
+          output.append(e('p','One grouped attendance replaces two for each selected week. The grouped run stays unallocated until kilometres, driving and depot handling are remeasured and the 9-hour day limit can be checked. Savings are not yet quantified.'));
           const apply=e('button','Use grouped run in draft','primary');apply.type='button';
-          apply.addEventListener('click',()=>{if(token!==generation)return;model.states[state].runs=d.runs;onChange();});output.append(apply);
+          apply.addEventListener('click',()=>{if(token!==generation)return;r.planner_slots=[];model.states[state].runs=d.runs;onChange();});output.append(apply);
         }catch(error){if(token===generation)output.textContent=error.message;}
         finally{preview.disabled=false;}
       });

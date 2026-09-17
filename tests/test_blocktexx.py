@@ -121,6 +121,44 @@ class PersistenceTests(unittest.TestCase):
         saved['states']['VIC']['runs'][0]['planner_slots'][0]['day']=7
         self.assertEqual(self.save(saved,1).status_code,400)
 
+    def test_day_limit_blocks_combined_runs_and_retains_saved_data(self):
+        for mode in ('owned', 'contractor'):
+            m=example()
+            m['states']['VIC']['cost_mode']=mode
+            r=m['states']['VIC']['runs'][0]
+            r.update(drive_min=450, planner_slots=[dict(week=1,day=0)])
+            self.assertEqual(self.save(m).status_code,200) if mode=='owned' else None
+            # 450 driving + 90 handling/breaks = exactly 9 hours.
+            r['drive_min']=451
+            response=self.save(m,1)
+            self.assertEqual(response.status_code,400)
+            self.assertIn('540-minute',response.json['error'])
+        saved=self.client.get('/admin/blocktexx/export').json
+        self.assertEqual(saved['states']['VIC']['runs'][0]['drive_min'],450)
+        second=copy.deepcopy(saved['states']['VIC']['runs'][0])
+        second.update(id='two',drive_min=0)
+        saved['states']['VIC']['runs'].append(second)
+        self.assertEqual(self.save(saved,1).status_code,400)
+        second['planner_slots']=[dict(week=1,day=1)]
+        self.assertEqual(self.save(saved,1).status_code,200)
+        second['drive_min']=None
+        self.assertEqual(self.save(saved,2).status_code,400)
+
+    def test_legacy_days_remain_editable_but_cannot_be_worsened(self):
+        from blocktexx import check_calendar_limits
+        old=example()
+        r=old['states']['VIC']['runs'][0]
+        r.update(name='Monday run',drive_min=600)
+        new=copy.deepcopy(old)
+        check_calendar_limits(new,old)
+        new['states']['VIC']['runs'][0]['drive_min']=590
+        check_calendar_limits(new,old)
+        new['states']['VIC']['runs'][0]['drive_min']=601
+        with self.assertRaises(ValueError):check_calendar_limits(new,old)
+        new=copy.deepcopy(old)
+        new['states']['VIC']['runs'][0]['planner_slots']=[dict(week=1,day=1)]
+        with self.assertRaises(ValueError):check_calendar_limits(new,old)
+
     def test_resource_price_profiles_persist_without_conflating_blank_and_zero(self):
         m=example()
         m['states']['VIC']['resource_pricing']={'cage':{'purchase_each':250.50,'weekly_rent_each':4.25,'rental_qty':10},'bin240':{'purchase_each':0,'weekly_rent_each':None,'rental_qty':None}}

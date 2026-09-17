@@ -191,6 +191,60 @@ def validate_model(value):
     return model
 
 
+DAY_TIME_KEYS = ('drive_min', 'service_min', 'depot_min', 'prep_min', 'wait_min', 'break_min')
+DAY_NAMES = ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday')
+
+
+def calendar_slots(run):
+    if isinstance(run.get('planner_slots'), list):
+        return run['planner_slots']
+    day = next((i for i, name in enumerate(DAY_NAMES) if re.search(r'\b' + name + r'\b', run['name'], re.I)), None)
+    if day is None or not run.get('runs_4w'):
+        return []
+    week = re.search(r'\bWeek\s+([1-4])\b', run['name'], re.I)
+    if week and run['runs_4w'] == 1:
+        return [dict(week=int(week[1]), day=day)]
+    if not week and run['runs_4w'] == 4:
+        return [dict(week=w, day=day) for w in range(1, 5)]
+    return []
+
+
+def check_calendar_limits(model, previous):
+    def days(data):
+        result = {}
+        for run in data['runs']:
+            values = tuple(run.get(k) for k in DAY_TIME_KEYS)
+            duration = None if None in values else sum(values)
+            for slot in calendar_slots(run):
+                result.setdefault((slot['week'], slot['day']), []).append((run['id'], duration))
+        return result
+
+    for state in STATES:
+        old_days = days(previous['states'][state])
+        for (week, day), entries in days(model['states'][state]).items():
+            unknown = any(minutes is None for _, minutes in entries)
+            total = sum(minutes or 0 for _, minutes in entries)
+            if not unknown and total <= 540:
+                continue
+            # Retain or reduce existing problem days without preventing unrelated saves.
+            remaining = list(old_days.get((week, day), []))
+            unchanged_or_reduced = True
+            for run_id, minutes in entries:
+                match = next((i for i, (old_id, old_minutes) in enumerate(remaining)
+                              if old_id == run_id and (old_minutes is None or
+                                 (minutes is not None and minutes <= old_minutes))), None)
+                if match is None:
+                    unchanged_or_reduced = False
+                    break
+                remaining.pop(match)
+            if unchanged_or_reduced:
+                continue
+            reason = 'run times are incomplete' if unknown else f'{total:g} minutes exceeds the 540-minute limit'
+            raise ValueError(f'{state} Week {week} {DAY_NAMES[day]}: {reason}. '
+                             'Working day is 6:30 am–3:30 pm, including handling and breaks. '
+                             'Reduce or move the allocation before saving.')
+
+
 def summarize(model):
     plans = capacity_plans(model)
     result = {}
@@ -378,10 +432,15 @@ def register_blocktexx(app, db, require):
         except (ValueError, TypeError, KeyError, AttributeError, OverflowError) as exc:
             return {'ok': False, 'error': str(exc) if isinstance(exc, ValueError) else 'Invalid model structure.'}, 400
         db().execute('BEGIN IMMEDIATE')
-        _, actual, _ = current()
+        previous, actual, _ = current()
         if revision != actual:
             db().rollback()
             return {'ok': False, 'error': 'Another administrator saved changes. Export your draft, then reload and compare.'}, 409
+        try:
+            check_calendar_limits(model, previous)
+        except ValueError as exc:
+            db().rollback()
+            return {'ok': False, 'error': str(exc)}, 400
         saved = datetime.now(timezone.utc).isoformat()
         payload = json.dumps(model, allow_nan=False)
         db().execute('INSERT OR REPLACE INTO blocktexx_model VALUES(1,?,?,?,?)',
