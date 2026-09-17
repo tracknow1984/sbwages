@@ -79,3 +79,7 @@ body.bx-popup-open {overflow:hidden}
 #bx-resource-content > .bx-scroll input {width:105px}
 
 #bx-resources-save-status {font-size:.84rem;color:#334155;min-width:180px}
+
+#bx-cost-inputs > details {margin:14px 0;padding:14px;border:1px solid #dbe2ea;border-radius:8px}
+#bx-cost-inputs summary {cursor:pointer;font-weight:650;margin-bottom:10px}
+#bx-cost-comparison {margin:20px 0}

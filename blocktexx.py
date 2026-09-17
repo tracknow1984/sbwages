@@ -1,4 +1,5 @@
 """Private, admin-only collection modelling. No customer data ships in source."""
+from blocktexx_costs import validate_cost_profile, cost_comparison
 import csv
 import io
 import json
@@ -102,6 +103,8 @@ def validate_model(value):
         if not isinstance(data, dict):
             raise ValueError('Invalid state settings.')
         out = model['states'][state]
+        if 'cost_profile' in data:
+            out['cost_profile'] = validate_cost_profile(data['cost_profile'])
         pricing = data.get('resource_pricing', {})
         if not isinstance(pricing, dict):
             raise ValueError('Resource pricing must contain model profiles.')
@@ -288,10 +291,15 @@ def summarize(model):
                 cost = billed * factor * data['hourly_rate']
             elif data['cost_mode'] == 'owned' and data['fixed_monthly'] is not None:
                 cost = data['fixed_monthly']
+        comparison = cost_comparison(data, calendar_slots) if data.get('cost_profile', {}).get('enabled') else None
+        if comparison:
+            cost = comparison['selected']
+            if not comparison['schedule_complete']:
+                gaps.append('Cost comparison: calendar allocation or day times incomplete')
         kg = data['monthly_kg']
         result[state] = {'km_4w': km, 'work_4w': work, 'billed_4w': billed, 'elapsed_4w': elapsed,
                          'monthly_km': km * factor, 'monthly_work': work * factor,
-                         'monthly_cost': cost, 'collection_per_kg': cost / kg if cost is not None and kg and not gaps else None,
+                         'cost_comparison': comparison, 'monthly_cost': cost, 'collection_per_kg': cost / kg if cost is not None and kg and not gaps else None,
                          'spare_4w': data['available_weekly_hours'] * 4 - work,
                          'gaps': gaps, 'estimated': sum(r['status'] != 'verified' for r in active),
                          'active_runs': len(active)}

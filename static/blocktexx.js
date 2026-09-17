@@ -19,8 +19,9 @@
   function saveStatus(message) {
     $('bx-save-status').textContent=message;
     $('bx-resources-save-status').textContent=message;
+    $('bx-cost-save-status').textContent=message;
   }
-  function changed() { dirty = true; generation++; saveStatus('Unsaved changes — select Save resources or Save model.'); capacityUI?.render(); renderMetrics(); renderOverview(); runView?.render(); renderResources();consolidation?.render(); }
+  function changed() { dirty = true; generation++; saveStatus('Unsaved changes — select Save model, Save resources or Save cost model.'); capacityUI?.render(); renderMetrics(); renderOverview(); runView?.render(); renderResources();consolidation?.render(); }
   function summary(s) {
     const d = model.states[s]; let km = 0, work = 0, billed = 0, elapsed = 0, pending = 0, estimates = 0, active = 0;
     d.runs.forEach(r => {
@@ -43,6 +44,10 @@
       if (d.cost_mode === 'owned') cost = d.fixed_monthly;
       if (d.cost_mode === 'contractor' && d.hourly_rate != null) cost = billed * 13/12 * d.hourly_rate;
     }
+    if(d.cost_profile?.enabled&&window.BlocktexxCosts){
+      const comparison=window.BlocktexxCosts.calculate(d);cost=comparison.selected;billed=comparison.billed_hours_month*12/13;
+      if(!comparison.schedule_complete)pending++;
+    }
     return {km,work,billed,elapsed,pending,estimates,cost,rate:!pending && d.monthly_kg && cost != null ? cost/d.monthly_kg : null, spare:d.available_weekly_hours*4-work};
   }
   function renderOverview() {
@@ -53,6 +58,7 @@
   }
   function renderMetrics() {
     const v = summary(state);
+    window.BlocktexxCosts?.renderComparison($('bx-cost-comparison'),model.states[state],v.pending);
     const items = [['Known km / 4 weeks',fmt(v.km,0)],['Known working hours / 4 weeks',fmt(v.work)],['Calendar-month working hours',fmt(v.work*13/12)],['Unallocated hours / 4 weeks',fmt(v.spare)],['Elapsed hours / 4 weeks',fmt(v.elapsed)],['Billable hours / 4 weeks',fmt(v.billed)],['Known collection cost / month',money(v.cost)],['Collection-only cost / kg',v.rate == null ? 'Incomplete' : '$'+fmt(v.rate,3)]];
     $('bx-metrics').replaceChildren(...items.map(([a,b]) => { const n=el('div',a); n.append(el('strong',b)); return n; }));
     $('bx-gaps').textContent = `${v.pending} gaps: missing frequency/measurements, unresolved truck capacity, unassigned customers or customer frequencies that differ from the route plan. ${v.estimates} active rows use estimates. Customer frequency edits update visit demand immediately; revise affected grouped runs to update kilometres, hours and costs. Historic kilograms do not change automatically. Unallocated hours still need to cover downstream work.`;
@@ -70,12 +76,14 @@
     }); wrap.append(input); return wrap;
   }
   function renderSettings() {
-    const d=model.states[state]; $('bx-state-title').textContent=state+' collection assumptions'; $('bx-depot-status').textContent='Depot: '+d.depot_status;
+    const d=model.states[state]; $('bx-state-title').textContent=state+' cost modelling'; $('bx-depot-status').textContent='Depot: '+d.depot_status;
     $('bx-settings').replaceChildren(
       inputField('depot','Depot / starting location'),inputField('depot_status','Depot status',[['unconfirmed','Unconfirmed'],['assumed','Assumed'],['confirmed','Confirmed']]),
       inputField('monthly_kg','Average incoming kg / calendar month'),inputField('available_weekly_hours','Driver working hours / week'),
-      inputField('cost_mode','Collection cost method',[['unpriced','Not priced yet'],['owned','Own truck + employee'],['contractor','Contractor']]),
-      inputField('hourly_rate','Contractor $ / hour, ex GST'),inputField('minimum_hours','Minimum billed hours / attendance'),inputField('fixed_monthly','Owned collection cost $ / month, ex GST'));
+      inputField('cost_mode','Collection cost method',[['unpriced','Not priced yet'],['owned','Own truck + employee'],['contractor','Contractor']]));
+    $('bx-legacy-costs').replaceChildren(
+      inputField('hourly_rate','Legacy contractor $ / hour (profile disabled)'),inputField('minimum_hours','Legacy minimum hours (profile disabled)'),inputField('fixed_monthly','Legacy company $ / month (profile disabled)'));
+    window.BlocktexxCosts?.renderInputs($('bx-cost-inputs'),d,changed);
     $('bx-state-notes').textContent=d.notes;
   }
   function renderRuns() {
@@ -123,10 +131,10 @@
   $('bx-add').addEventListener('click',()=>{model.states[state].runs.push({id:crypto.randomUUID(),name:'New collection day',sequence:'',notes:'',evidence:'',status:'unmeasured',site_ids:[],runs_4w:null,km:null,drive_min:null,service_min:0,depot_min:0,prep_min:15,wait_min:0,break_min:30});changed();renderRuns();});
   async function saveModel() {
     if(saving)return;
-    const invalid=$('bx-resource-content').querySelector('input:invalid');
-    if(invalid){activePane='resources';renderPane();invalid.closest('details')?.setAttribute('open','');invalid.reportValidity();saveStatus('Not saved: correct the highlighted resource value.');return;}
+    const invalid=$('bx-resource-content').querySelector('input:invalid')||$('bx-cost-inputs').querySelector('input:invalid');
+    if(invalid){activePane=invalid.closest('#bx-resources')?'resources':'planner';renderPane();let parent=invalid.parentElement;while(parent){if(parent.tagName==='DETAILS')parent.open=true;parent=parent.parentElement;}invalid.reportValidity();saveStatus('Not saved: correct the highlighted value.');return;}
     saving=true;
-    [$('bx-save'),$('bx-save-resources')].forEach(b=>b.disabled=true);
+    [$('bx-save'),$('bx-save-resources'),$('bx-save-costs')].forEach(b=>b.disabled=true);
     const sentGeneration=generation;saveStatus('Saving to database…');
     try {
       const response=await fetch('/admin/blocktexx',{method:'POST',headers:{'Accept':'application/json'},body:new URLSearchParams({csrf:root.dataset.csrf,revision:String(revision),model:JSON.stringify(model)})});
@@ -136,10 +144,11 @@
       revision=result.revision;dirty=generation!==sentGeneration;
       saveStatus(dirty?'Earlier changes saved. New changes remain unsaved.':'Saved to database · '+new Date(result.saved).toLocaleString('en-AU'));
     } catch(e){dirty=true;saveStatus('Not saved: '+e.message);}
-    finally{saving=false;[$('bx-save'),$('bx-save-resources')].forEach(b=>b.disabled=false);}
+    finally{saving=false;[$('bx-save'),$('bx-save-resources'),$('bx-save-costs')].forEach(b=>b.disabled=false);}
   }
   $('bx-save').addEventListener('click',saveModel);
   $('bx-save-resources').addEventListener('click',saveModel);
+  $('bx-save-costs').addEventListener('click',saveModel);
   $('bx-download').addEventListener('click',()=>{const u=URL.createObjectURL(new Blob([JSON.stringify(model,null,2)],{type:'application/json'})),a=el('a');a.href=u;a.download='BlockTexx-collection-draft.json';a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);});
   $('bx-import').addEventListener('change',async e=>{
     const file=e.target.files[0];if(!file)return;

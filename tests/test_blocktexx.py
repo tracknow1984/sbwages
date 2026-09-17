@@ -159,6 +159,21 @@ class PersistenceTests(unittest.TestCase):
         new['states']['VIC']['runs'][0]['planner_slots']=[dict(week=1,day=1)]
         with self.assertRaises(ValueError):check_calendar_limits(new,old)
 
+    def test_cost_profiles_persist_and_use_selected_comparison(self):
+        from tests.test_blocktexx_costs import priced_model
+        m=priced_model()
+        self.assertEqual(self.save(m).status_code,200)
+        saved=self.client.get('/admin/blocktexx/export').json
+        self.assertEqual(saved['states']['VIC']['cost_profile']['staff_qty'],1)
+        self.assertNotIn('cost_profile',saved['states']['QLD'])
+        result=summarize(saved)['VIC']
+        self.assertAlmostEqual(result['monthly_cost'],5157.5)
+        self.assertAlmostEqual(result['collection_per_kg'],5.1575)
+        saved['states']['VIC']['cost_profile']['contractor_basis']='daily'
+        self.assertAlmostEqual(self.save(saved,1).json['summary']['VIC']['monthly_cost'],6620)
+        saved['states']['VIC']['cost_profile']['staff_qty']=1.5
+        self.assertEqual(self.save(saved,2).status_code,400)
+
     def test_resource_price_profiles_persist_without_conflating_blank_and_zero(self):
         m=example()
         m['states']['VIC']['resource_pricing']={'cage':{'purchase_each':250.50,'weekly_rent_each':4.25,'rental_qty':10},'bin240':{'purchase_each':0,'weekly_rent_each':None,'rental_qty':None}}

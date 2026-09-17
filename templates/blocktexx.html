@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 {% block content %}
-<link rel="stylesheet" href="{{ url_for('static', filename='blocktexx.css', v='resource-save-1') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='blocktexx.css', v='cost-model-1') }}">
 <div id="blocktexx" data-revision="{{ revision }}" data-csrf="{{ csrf_token() }}">
   <div class="page-heading"><div><p class="bx-kicker">SB EMPIRE / PROPOSAL MODELLING</p><h1>BlockTexx collections</h1><p>Build the collection cost first. Add each downstream movement once.</p></div>
     <div class="actions no-print"><button type="button" id="bx-save" class="primary">Save model</button><button type="button" id="bx-print" class="secondary">Print analysis</button></div></div>
@@ -21,8 +21,13 @@
   <div id="bx-planner-pane">
 <details class="bx-card"><summary>Consolidate nearby runs</summary><section id="bx-consolidation"></section></details>
   <section id="bx-run-view" class="bx-card"></section>
-  <details class="bx-card"><summary>View / hide state settings</summary><div class="bx-section-head"><h2 id="bx-state-title">State settings</h2><span id="bx-depot-status"></span></div>
+  <details class="bx-card"><summary>View / hide state cost modelling</summary><div class="bx-section-head"><h2 id="bx-state-title">State settings</h2><span id="bx-depot-status"></span></div>
     <div id="bx-settings" class="bx-settings"></div>
+    <details><summary>Previous aggregate pricing</summary><div id="bx-legacy-costs" class="bx-settings"></div></details>
+    <div id="bx-cost-inputs"></div>
+    <div id="bx-cost-comparison"></div>
+    <button type="button" id="bx-save-costs" class="primary">Save cost model</button>
+    <p id="bx-cost-save-status" role="status"></p>
     <p id="bx-state-notes" class="bx-muted"></p>
   </details>
   <details class="bx-card"><summary>View / hide state totals and costs</summary><div id="bx-metrics" class="bx-metrics"></div></details>
@@ -41,7 +46,8 @@
 <script src="{{ url_for('static', filename='blocktexx_capacity.js', v='switch-outs-5') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_planner.js', v='day-limit-1') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_run_view.js', v='switch-outs-5') }}" defer></script>
-<script src="{{ url_for('static', filename='blocktexx_resources.js', v='resource-save-1') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx_resources.js', v='cost-model-1') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_consolidation.js', v='day-limit-1') }}" defer></script>
-<script src="{{ url_for('static', filename='blocktexx.js', v='resource-save-1') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx_costs.js', v='cost-model-1') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx.js', v='cost-model-1') }}" defer></script>
 {% endblock %}
