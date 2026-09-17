@@ -23,7 +23,7 @@ window.createBlocktexxPlanner = function() {
     return [...result];
   }
   function render(root,model,state,selected,onSelect,onChange,plans) {
-    const config=settings[state]||(settings[state]={category:'Weekly',span:4,start:1,all:false});
+    const config=settings[state]||(settings[state]={category:'Weekly',span:4,start:1,all:true});
     const runs=model.states[state].runs,sites=model.sites;
     const refresh=()=>onSelect(selected);
     root.append(e('h2','Collection planner'));
@@ -45,17 +45,20 @@ window.createBlocktexxPlanner = function() {
     root.append(e('p','Click VIEW DAY for a popup summary, or select a run card for its details. Mixed-frequency runs appear in each relevant category. Monthly is a four-week planning cycle; eight-weekly work is labelled separately.','bx-muted'));
     const visible=runs.filter(r=>config.all||groups(r,sites).includes(config.category));
     function card(r,week,day) {
-      const b=e('button',null,'bx-planner-run');b.type='button';b.dataset.runId=r.id;b.dataset.frequency=config.all?groups(r,sites)[0]:config.category;b.setAttribute('aria-pressed',String(r.id===selected));
+      const b=e('button',null,'bx-planner-run');b.type='button';b.dataset.runId=r.id;b.dataset.frequency=(week==null||config.all)?groups(r,sites)[0]:config.category;b.setAttribute('aria-pressed',String(r.id===selected));
       const name=r.name.replace(/^Week\s+\d+\s+/i,'').replace(/^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Weekly|Fortnightly)\s*—?\s*/i,'');
       const minutes=['drive_min','service_min','depot_min','prep_min','wait_min','break_min'];
       const hours=minutes.some(k=>r[k]==null)?null:minutes.reduce((n,k)=>n+r[k],0)/60;
       b.append(e('strong',name),e('small',r.site_ids.length+' locations · '+fmt(r.km)+' km · '+fmt(hours)+' h'));
       if(r.runs_4w===.5)b.append(e('small','Every 8 weeks — allocate only when due'));
       if(r.runs_4w===0)b.append(e('small','Paused'));
+      if(week!=null&&r.runs_4w!=null&&slots(r).length!==r.runs_4w)b.append(e('small','Review frequency: '+slots(r).length+' allocated / '+fmt(r.runs_4w)+' planned'));
       const badges=e('div',null,'bx-frequency-badges');
       groups(r,sites).forEach(c=>{const badge=e('span',c,'bx-frequency-label');badge.dataset.frequency=c;badges.append(badge);});b.append(badges);
       b.addEventListener('click',event=>{event.stopPropagation();if(week!=null){config.selectedDay={week,day};config.dayOpen=true;}if(week==null){config.allocateId=r.id;config.allocationDraft=null;config.dayOpen=false;}onSelect(r.id);});return b;
     }
+    const hiddenAllocated=runs.filter(r=>slots(r).length&&!visible.includes(r)).length;
+    if(hiddenAllocated)root.append(e('p',hiddenAllocated+' allocated runs hidden by the frequency filter. Choose All frequencies to see them.','bx-warning'));
     const assigned=visible.filter(r=>slots(r).length),hasWeekend=assigned.some(r=>slots(r).some(s=>s.day>4));
     const wrap=e('div',null,'bx-scroll'),table=e('table',null,'bx-planner-grid'),head=e('tr');
     head.append(e('th','Week'));days.slice(0,hasWeekend?7:5).forEach(day=>head.append(e('th',day)));table.append(head);
@@ -152,11 +155,10 @@ window.createBlocktexxPlanner = function() {
     }else if(popup){
       popup.hidden=true;document.body.classList.remove('bx-popup-open');
     }
-    const pending=visible.filter(r=>!slots(r).length||(r.runs_4w!=null&&slots(r).length!==r.runs_4w));
-    const backlog=e('div',null,'bx-planner-backlog');backlog.append(e('h3',config.category==='Ad hoc'&&!config.all?'Ad hoc / awaiting booking':'Needs allocation or review'));
-    if(!pending.length)backlog.append(e('p','All runs in this view have their planned occurrences allocated.'));
+    const pending=runs.filter(r=>!slots(r).length);
+    const backlog=e('div',null,'bx-planner-backlog');backlog.append(e('h3','Needs allocation'));
+    if(!pending.length)backlog.append(e('p','All runs have a calendar allocation.'));
     pending.forEach(r=>{const item=e('div');item.append(card(r));
-      if(slots(r).length)item.append(e('small',slots(r).length+' allocated vs '+fmt(r.runs_4w)+' occurrences / four weeks. Review frequency.'));
       backlog.append(item);});root.append(backlog);
 
     const allocationRun=runs.find(r=>r.id===config.allocateId);
@@ -186,6 +188,7 @@ window.createBlocktexxPlanner = function() {
         allocationRun.planner_frequency=draft.frequency;
         allocationRun.planner_slots=weeks.map(week=>({week,day:draft.day}));
         allocationRun.runs_4w={Weekly:4,Fortnightly:2,Monthly:1,'Ad hoc':null}[draft.frequency];
+        config.all=true;config.span=4;config.start=1;config.selectedDay={week:weeks[0],day:draft.day};
         config.allocateId=null;config.allocationDraft=null;allocationPopup.hidden=true;document.body.classList.remove('bx-popup-open');
         onChange();document.getElementById('bx-save')?.click();
       });body.append(apply);box.append(body);
@@ -204,7 +207,7 @@ window.createBlocktexxPlanner = function() {
       const label=e('label','Day'),day=e('select');day.setAttribute('aria-label','Allocation day');days.forEach((d,i)=>{const o=e('option',d);o.value=i;day.append(o);});day.value=slots(r)[0]?.day??0;label.append(day);box.append(label);
       const weeks=e('div',null,'bx-planner-controls'),checks=[];
       for(let w=1;w<=4;w++){const l=e('label','Week '+w),c=e('input');c.type='checkbox';c.checked=slots(r).some(s=>s.week===w);c.setAttribute('aria-label','Allocate week '+w);checks.push(c);l.prepend(c);weeks.append(l);}box.append(weeks);
-      const apply=e('button','Apply allocation','secondary');apply.type='button';apply.addEventListener('click',()=>{r.planner_slots=checks.flatMap((c,i)=>c.checked?[{week:i+1,day:Number(day.value)}]:[]);onChange();});box.append(apply);root.append(box);
+      const apply=e('button','Apply allocation','secondary');apply.type='button';apply.addEventListener('click',()=>{r.planner_slots=checks.flatMap((c,i)=>c.checked?[{week:i+1,day:Number(day.value)}]:[]);config.all=true;config.span=4;config.start=1;onChange();});box.append(apply);root.append(box);
     }
   }
   return {render,slots,groups};
