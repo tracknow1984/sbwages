@@ -121,6 +121,22 @@ class PersistenceTests(unittest.TestCase):
         saved['states']['VIC']['runs'][0]['planner_slots'][0]['day']=7
         self.assertEqual(self.save(saved,1).status_code,400)
 
+    def test_resource_price_profiles_persist_without_conflating_blank_and_zero(self):
+        m=example()
+        m['states']['VIC']['resource_pricing']={'cage':{'purchase_each':250.50,'weekly_rent_each':4.25,'rental_qty':10},'bin240':{'purchase_each':0,'weekly_rent_each':None,'rental_qty':None}}
+        self.assertEqual(self.save(m).status_code,200)
+        saved=self.client.get('/admin/blocktexx/export').json
+        p=saved['states']['VIC']['resource_pricing']
+        self.assertEqual(p['cage'],{'purchase_each':250.50,'weekly_rent_each':4.25,'rental_qty':10})
+        self.assertEqual(p['bin240']['purchase_each'],0)
+        self.assertIsNone(p['bin240']['weekly_rent_each'])
+        self.assertIsNone(saved['states']['NSW']['resource_pricing']['cage']['purchase_each'])
+        p['cage']['rental_qty']=1.5
+        self.assertEqual(self.save(saved,1).status_code,400)
+        p['cage']['rental_qty']=10
+        p['cage']['purchase_each']=-1
+        self.assertEqual(self.save(saved,1).status_code,400)
+
     def test_import_validation_normalizes_without_saving(self):
         m=example();m['states']['VIC']['hourly_rate']='125'
         r=self.client.post('/admin/blocktexx/validate',data={'csrf':'test','model':json.dumps(m)})

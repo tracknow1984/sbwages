@@ -75,3 +75,5 @@ body.bx-popup-open {overflow:hidden}
 #bx-consolidation td label {display:inline-block;white-space:nowrap}
 #bx-consolidation select {padding:8px;margin:4px}
 #bx-consolidation button {margin:8px}
+#bx-resources > .bx-scroll > .bx-resource-table {min-width:1200px}
+#bx-resources > .bx-scroll input {width:105px}

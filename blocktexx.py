@@ -102,6 +102,21 @@ def validate_model(value):
         if not isinstance(data, dict):
             raise ValueError('Invalid state settings.')
         out = model['states'][state]
+        pricing = data.get('resource_pricing', {})
+        if not isinstance(pricing, dict):
+            raise ValueError('Resource pricing must contain model profiles.')
+        out['resource_pricing'] = {}
+        for kind in KINDS:
+            profile = pricing.get(kind, {})
+            if not isinstance(profile, dict):
+                raise ValueError('Invalid resource price profile.')
+            rental_qty = number(profile.get('rental_qty'), 'Rental quantity', 1000000, True)
+            if rental_qty is not None and rental_qty != int(rental_qty):
+                raise ValueError('Rental quantities must be whole numbers.')
+            out['resource_pricing'][kind] = {
+                'purchase_each': number(profile.get('purchase_each'), 'Purchase cost per container', 1000000, True),
+                'weekly_rent_each': number(profile.get('weekly_rent_each'), 'Weekly rental per container', 1000000, True),
+                'rental_qty': rental_qty}
         truck = data.get('truck', {})
         positions = number(truck.get('pallet_positions', 14), 'Pallet positions', 40)
         if positions < 1:
