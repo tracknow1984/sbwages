@@ -193,6 +193,8 @@ window.createBlocktexxPlanner = function() {
       updateHint();body.append(e('p','This updates this run only. Customer frequency differences remain flagged for proposal review.','bx-muted'));
       const apply=e('button','Lock in allocation','primary');apply.type='button';
       apply.addEventListener('click',()=>{
+        const blocked=sites.filter(s=>allocationRun.site_ids.includes(s.id)&&s.day_rule==='fixed'&&!s.service_days?.includes(draft.day));
+        if(blocked.length){alert('Customer-set day conflict: '+blocked.map(s=>s.name).join(', '));return;}
         const weeks=draft.frequency==='Weekly'?[1,2,3,4]:draft.frequency==='Fortnightly'?(draft.week%2?[1,3]:[2,4]):[draft.week];
         allocationRun.planner_frequency=draft.frequency;
         allocationRun.planner_slots=weeks.map(week=>({week,day:draft.day}));
@@ -216,7 +218,7 @@ window.createBlocktexxPlanner = function() {
       const label=e('label','Day'),day=e('select');day.setAttribute('aria-label','Allocation day');days.forEach((d,i)=>{const o=e('option',d);o.value=i;day.append(o);});day.value=slots(r)[0]?.day??0;label.append(day);box.append(label);
       const weeks=e('div',null,'bx-planner-controls'),checks=[];
       for(let w=1;w<=4;w++){const l=e('label','Week '+w),c=e('input');c.type='checkbox';c.checked=slots(r).some(s=>s.week===w);c.setAttribute('aria-label','Allocate week '+w);checks.push(c);l.prepend(c);weeks.append(l);}box.append(weeks);
-      const apply=e('button','Apply allocation','secondary');apply.type='button';apply.addEventListener('click',()=>{r.planner_slots=checks.flatMap((c,i)=>c.checked?[{week:i+1,day:Number(day.value)}]:[]);config.all=true;config.span=4;config.start=1;onChange();});box.append(apply);root.append(box);
+      const apply=e('button','Apply allocation','secondary');apply.type='button';apply.addEventListener('click',()=>{const blocked=sites.filter(s=>r.site_ids.includes(s.id)&&s.day_rule==='fixed'&&!s.service_days?.includes(Number(day.value)));if(blocked.length){alert('Customer-set day conflict: '+blocked.map(s=>s.name).join(', '));return;}r.planner_slots=checks.flatMap((c,i)=>c.checked?[{week:i+1,day:Number(day.value)}]:[]);config.all=true;config.span=4;config.start=1;onChange();});box.append(apply);root.append(box);
     }
   }
   return {render,slots,groups};

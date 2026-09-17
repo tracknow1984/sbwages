@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 {% block content %}
-<link rel="stylesheet" href="{{ url_for('static', filename='blocktexx.css', v='resources-1') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='blocktexx.css', v='consolidation-1') }}">
 <div id="blocktexx" data-revision="{{ revision }}" data-csrf="{{ csrf_token() }}">
   <div class="page-heading"><div><p class="bx-kicker">SB EMPIRE / PROPOSAL MODELLING</p><h1>BlockTexx collections</h1><p>Build the collection cost first. Add each downstream movement once.</p></div>
     <div class="actions no-print"><button type="button" id="bx-save" class="primary">Save model</button><button type="button" id="bx-print" class="secondary">Print analysis</button></div></div>
@@ -12,6 +12,7 @@
   <nav class="bx-state-tabs" aria-label="State view"><button type="button" data-bx-pane="planner" aria-pressed="true">Planner</button><button type="button" data-bx-pane="resources" aria-pressed="false">Resources</button></nav>
   <section id="bx-resources" class="bx-card" hidden></section>
   <div id="bx-planner-pane">
+<details class="bx-card"><summary>Consolidate nearby runs</summary><section id="bx-consolidation"></section></details>
   <section id="bx-run-view" class="bx-card"></section>
   <details class="bx-card"><summary>View / hide state settings</summary><div class="bx-section-head"><h2 id="bx-state-title">State settings</h2><span id="bx-depot-status"></span></div>
     <div id="bx-settings" class="bx-settings"></div>
@@ -31,8 +32,9 @@
 </div>
 <script id="bx-data" type="application/json">{{ model | tojson }}</script>
 <script src="{{ url_for('static', filename='blocktexx_capacity.js', v='switch-outs-5') }}" defer></script>
-<script src="{{ url_for('static', filename='blocktexx_planner.js', v='switch-outs-5') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx_planner.js', v='consolidation-1') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_run_view.js', v='switch-outs-5') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_resources.js', v='resources-1') }}" defer></script>
-<script src="{{ url_for('static', filename='blocktexx.js', v='resources-1') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx_consolidation.js', v='consolidation-1') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx.js', v='consolidation-1') }}" defer></script>
 {% endblock %}

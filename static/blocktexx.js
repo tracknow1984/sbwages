@@ -4,7 +4,7 @@
   if (!root) return;
   let model = JSON.parse(document.getElementById('bx-data').textContent);
   let state = 'QLD', revision = Number(root.dataset.revision), dirty = false, saving = false, generation = 0;
-  let capacityUI, runView;
+  let capacityUI, runView, consolidation;
   let activePane = 'planner';
   function renderResources() { window.renderBlocktexxResources?.(model,state,()=>{changed();renderSites();}); }
   function renderPane() { $('bx-planner-pane').hidden=activePane!=='planner';$('bx-resources').hidden=activePane!=='resources';document.querySelectorAll('[data-bx-pane]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.bxPane===activePane))); }
@@ -16,7 +16,7 @@
   const plannedVisits = s => model.states[s.state].runs.filter(r=>r.site_ids.includes(s.id)).reduce((a,r)=>a+(r.runs_4w||0),0);
   const el = (tag, text, className) => { const n = document.createElement(tag); if (text != null) n.textContent = text; if (className) n.className = className; return n; };
   const working = r => ['drive_min','service_min','depot_min','prep_min','wait_min'].some(k => r[k] == null) ? null : ['drive_min','service_min','depot_min','prep_min','wait_min'].reduce((a,k) => a + r[k], 0) / 60;
-  function changed() { dirty = true; generation++; $('bx-save-status').textContent = 'Unsaved changes — select Save model.'; capacityUI?.render(); renderMetrics(); renderOverview(); runView?.render(); renderResources(); }
+  function changed() { dirty = true; generation++; $('bx-save-status').textContent = 'Unsaved changes — select Save model.'; capacityUI?.render(); renderMetrics(); renderOverview(); runView?.render(); renderResources();consolidation?.render(); }
   function summary(s) {
     const d = model.states[s]; let km = 0, work = 0, billed = 0, elapsed = 0, pending = 0, estimates = 0, active = 0;
     d.runs.forEach(r => {
@@ -113,7 +113,7 @@
     });table.append(body);$('bx-sites').replaceChildren(table);
     const partners=model.partners.filter(s=>s.state===state);$('bx-partners').replaceChildren(...(partners.length?partners.map(p=>{const n=el('div',null,'bx-site');n.append(el('strong',p.name),el('p',p.address+' · '+p.frequency),el('p',p.notes));return n;}):[el('p','No decommissioning partner confirmed in the supplied source for this state.')]));
   }
-  function render() { renderResources();renderPane();renderOverview();renderSettings();renderRuns();renderMetrics();renderSites();capacityUI?.render();$('bx-source').textContent=model.source;$('bx-notes').textContent=model.notes;document.querySelectorAll('[data-state]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.state===state))); }
+  function render() { consolidation?.render();renderResources();renderPane();renderOverview();renderSettings();renderRuns();renderMetrics();renderSites();capacityUI?.render();$('bx-source').textContent=model.source;$('bx-notes').textContent=model.notes;document.querySelectorAll('[data-state]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.state===state))); }
   document.querySelectorAll('[data-state]').forEach(b=>b.addEventListener('click',()=>{state=b.dataset.state;render();}));
   document.querySelectorAll('[data-bx-pane]').forEach(b=>b.addEventListener('click',()=>{activePane=b.dataset.bxPane;renderResources();renderPane();}));
   $('bx-add').addEventListener('click',()=>{model.states[state].runs.push({id:crypto.randomUUID(),name:'New collection day',sequence:'',notes:'',evidence:'',status:'unmeasured',site_ids:[],runs_4w:null,km:null,drive_min:null,service_min:0,depot_min:0,prep_min:15,wait_min:0,break_min:30});changed();renderRuns();});
@@ -132,5 +132,6 @@
   window.addEventListener('beforeunload',e=>{if(dirty||saving){e.preventDefault();e.returnValue='';}});
   capacityUI=window.createBlocktexxCapacity?.(()=>model,()=>state,()=>{changed();renderRuns();renderSites();},root.dataset.csrf,()=>{renderMetrics();runView?.render();});
   runView=window.createBlocktexxRunView(()=>model,()=>state,()=>capacityUI?.getPlans(),()=>{changed();renderRuns();renderSites();});
+  consolidation=window.createBlocktexxConsolidation?.(()=>model,()=>state,()=>{changed();renderRuns();renderSites();},root.dataset.csrf);
   render();
 })();

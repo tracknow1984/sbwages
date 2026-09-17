@@ -73,6 +73,18 @@ def validate_model(value):
             if key == 'sites':
                 item['source_frequency'] = text(row.get('source_frequency', item['frequency']), 'Source frequency')
                 item['visits_4w'] = number(row.get('visits_4w', source_visits(item['frequency'])), 'Visits per four weeks', 124, True)
+                source_days = [i for i, day in enumerate(('mon','tue','wed','thu','fri','sat','sun')) if re.search(r'\b'+day+r'(?:day|sday|nesday|rsday|urday)?\b', item['source_frequency'], re.I)]
+                item['day_rule'] = row.get('day_rule', 'fixed' if source_days else 'unknown')
+                if item['day_rule'] not in ('unknown','flexible','fixed'):
+                    raise ValueError('Invalid customer day rule.')
+                days = row.get('service_days', source_days)
+                if not isinstance(days, list) or any(isinstance(d,bool) or not isinstance(d,int) or d not in range(7) for d in days):
+                    raise ValueError('Customer service days must be weekdays 0–6.')
+                item['service_days'] = sorted(set(days))
+                if item['day_rule']=='fixed' and not days:
+                    raise ValueError('Select at least one fixed customer day.')
+                address_parts=item['address'].split(',')
+                item['service_area'] = text(row.get('service_area', address_parts[-2].strip() if len(address_parts)>1 else ''), 'Collection area', 100)
                 containers = row.get('containers', infer_containers(item['equipment']))
                 item['containers'] = {}
                 for kind in KINDS:

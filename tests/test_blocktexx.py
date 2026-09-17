@@ -22,6 +22,18 @@ def example():
 
 
 class CalculationTests(unittest.TestCase):
+    def test_customer_day_rules_are_preserved_and_source_days_protected(self):
+        m=example()
+        m['sites']=[dict(id='fixed',state='QLD',name='Customer',address='Street, Eagle Farm, QLD',frequency='Tue Fri - Weekly',equipment='1 × 660L Bin',source_rows='',notes='')]
+        saved=validate_model(m)
+        self.assertEqual(saved['sites'][0]['day_rule'],'fixed')
+        self.assertEqual(saved['sites'][0]['service_days'],[1,4])
+        self.assertEqual(saved['sites'][0]['service_area'],'Eagle Farm')
+        saved['sites'][0]['day_rule']='flexible'
+        self.assertEqual(validate_model(saved)['sites'][0]['day_rule'],'flexible')
+        saved['sites'][0].update(day_rule='fixed',service_days=[])
+        with self.assertRaises(ValueError):validate_model(saved)
+
     def test_calendar_conversion_and_daily_minimum(self):
         s = summarize(validate_model(example()))['VIC']
         self.assertEqual(s['work_4w'], 8)

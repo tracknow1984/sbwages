@@ -70,3 +70,8 @@ body.bx-popup-open {overflow:hidden}
 .bx-resource-total {background:#e3eefc;font-weight:800}
 .bx-resource-table input {width:80px;padding:8px;border:1px solid #b8c8dc;border-radius:5px}
 #bx-resources[hidden],#bx-planner-pane[hidden] {display:none!important}
+#bx-consolidation input[type=text] {width:180px}
+#bx-consolidation input[type=checkbox] {width:auto;margin:0 4px 0 8px}
+#bx-consolidation td label {display:inline-block;white-space:nowrap}
+#bx-consolidation select {padding:8px;margin:4px}
+#bx-consolidation button {margin:8px}
