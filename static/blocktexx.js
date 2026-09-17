@@ -4,7 +4,7 @@
   if (!root) return;
   let model = JSON.parse(document.getElementById('bx-data').textContent);
   let state = 'QLD', revision = Number(root.dataset.revision), dirty = false, saving = false, generation = 0;
-  let capacityUI;
+  let capacityUI, runView;
   const $ = id => document.getElementById(id);
   const fmt = (n, places = 1) => n == null ? 'Not set' : Number(n).toLocaleString('en-AU', {maximumFractionDigits: places});
   const money = n => n == null ? 'Not priced' : '$' + fmt(n, 0);
@@ -13,7 +13,7 @@
   const plannedVisits = s => model.states[s.state].runs.filter(r=>r.site_ids.includes(s.id)).reduce((a,r)=>a+(r.runs_4w||0),0);
   const el = (tag, text, className) => { const n = document.createElement(tag); if (text != null) n.textContent = text; if (className) n.className = className; return n; };
   const working = r => ['drive_min','service_min','depot_min','prep_min','wait_min'].some(k => r[k] == null) ? null : ['drive_min','service_min','depot_min','prep_min','wait_min'].reduce((a,k) => a + r[k], 0) / 60;
-  function changed() { dirty = true; generation++; $('bx-save-status').textContent = 'Unsaved changes — select Save model.'; capacityUI?.render(); renderMetrics(); renderOverview(); }
+  function changed() { dirty = true; generation++; $('bx-save-status').textContent = 'Unsaved changes — select Save model.'; capacityUI?.render(); renderMetrics(); renderOverview(); runView?.render(); }
   function summary(s) {
     const d = model.states[s]; let km = 0, work = 0, billed = 0, elapsed = 0, pending = 0, estimates = 0, active = 0;
     d.runs.forEach(r => {
@@ -72,6 +72,7 @@
     $('bx-state-notes').textContent=d.notes;
   }
   function renderRuns() {
+    runView?.render();
     $('bx-runs').replaceChildren(); document.querySelectorAll('.bx-editor').forEach(n=>n.remove());
     model.states[state].runs.forEach(r=>{
       const tr=el('tr'), first=el('td'); first.append(el('strong',r.name),el('small',r.sequence),el('small',r.notes)); tr.append(first);
@@ -125,6 +126,7 @@
   });
   $('bx-print').addEventListener('click',()=>window.print());
   window.addEventListener('beforeunload',e=>{if(dirty||saving){e.preventDefault();e.returnValue='';}});
-  capacityUI=window.createBlocktexxCapacity?.(()=>model,()=>state,()=>{changed();renderRuns();renderSites();},root.dataset.csrf,renderMetrics);
+  capacityUI=window.createBlocktexxCapacity?.(()=>model,()=>state,()=>{changed();renderRuns();renderSites();},root.dataset.csrf,()=>{renderMetrics();runView?.render();});
+  runView=window.createBlocktexxRunView(()=>model,()=>state,()=>capacityUI?.getPlans());
   render();
 })();
