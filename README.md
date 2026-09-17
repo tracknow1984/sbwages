@@ -164,3 +164,12 @@ Focused checks: `python -m unittest discover -s tests -p test_blocktexx.py -v` a
 Collection sites now retain their original spreadsheet frequency alongside editable model frequency and visits per four weeks. State cards show dynamic visit demand and average calendar-month visits. Frequency changes flag discrepancies with linked run attendances; collection cost/kg remains incomplete until the grouped route plan is reconciled. Changing frequency does not invent new kilograms or silently multiply unrelated customers on a shared route.
 
 Deployment can populate the initial model from private `BLOCKTEXX_INITIAL_MODEL_GZIP_B64` configuration (gzip-compressed UTF-8 version-1 JSON, base64-encoded). Bootstrap validates the full data, attributes the initial revision to an existing admin and logs only the imported count. It initializes an absent/empty customer model once. Any populated model is retained on subsequent restarts so saved frequency edits are never reset.
+
+The BlockTexx collection model includes editable 14-pallet-position load planning
+for NSW and QLD. Container quantities are inferred from physical equipment rows,
+with separate editable quantities, space allowances and loaded weights. Load
+splits preserve customer order and show depot returns; they are not road routing
+or verified vehicle-fit calculations. Unknown payloads remain explicitly
+space-only. Additional loads block complete collection rates until revised
+distance and handling allowances are entered. Startup performs one audited
+capacity migration of existing runs, preserving the previous revision.

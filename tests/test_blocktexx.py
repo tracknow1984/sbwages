@@ -12,6 +12,7 @@ from blocktexx import empty_model, validate_model, summarize
 
 def example():
     model = empty_model()
+    model['capacity_version'] = 1
     d = model['states']['VIC']
     d.update(depot='Example depot', monthly_kg=1000, cost_mode='contractor', hourly_rate=125, minimum_hours=4)
     d['runs'] = [dict(id='one', name='Example day', sequence='Depot / site / depot', notes='', evidence='',

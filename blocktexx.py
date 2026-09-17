@@ -8,6 +8,8 @@ import base64
 import gzip
 from datetime import datetime, timezone
 from flask import abort, g, render_template, request, Response
+from blocktexx_capacity import KINDS, DEFAULT_SPACES, infer_containers, capacity_plans, load_sequence
+import re
 
 STATES = ('QLD', 'NSW', 'VIC', 'SA')
 STAGES = ('Collections', 'Deliver to decom', 'Return from decom', 'Consolidation', 'Deliver to Threadtexx')
@@ -55,6 +57,7 @@ def validate_model(value):
     if not isinstance(value, dict) or value.get('version') != 1 or set(value.get('states', {})) != set(STATES):
         raise ValueError('Use a version 1 model containing QLD, NSW, VIC and SA.')
     model = empty_model()
+    model['capacity_version'] = int(number(value.get('capacity_version', 0), 'Capacity model version', 1))
     for key in ('name', 'source', 'notes'):
         model[key] = text(value.get(key, ''), key)
     seen = set()
@@ -70,6 +73,13 @@ def validate_model(value):
             if key == 'sites':
                 item['source_frequency'] = text(row.get('source_frequency', item['frequency']), 'Source frequency')
                 item['visits_4w'] = number(row.get('visits_4w', source_visits(item['frequency'])), 'Visits per four weeks', 124, True)
+                containers = row.get('containers', infer_containers(item['equipment']))
+                item['containers'] = {}
+                for kind in KINDS:
+                    qty = number(containers.get(kind, 0), 'Container quantity', 500)
+                    if qty != int(qty):
+                        raise ValueError('Container quantities must be whole numbers.')
+                    item['containers'][kind] = int(qty)
             if not item['id'] or item['id'] in seen:
                 raise ValueError('Location IDs must be unique and nonempty.')
             seen.add(item['id'])
@@ -80,6 +90,17 @@ def validate_model(value):
         if not isinstance(data, dict):
             raise ValueError('Invalid state settings.')
         out = model['states'][state]
+        truck = data.get('truck', {})
+        positions = number(truck.get('pallet_positions', 14), 'Pallet positions', 40)
+        if positions < 1:
+            raise ValueError('Truck must have at least one pallet position.')
+        out['truck'] = {'pallet_positions': positions, 'payload_kg': number(truck.get('payload_kg'), 'Usable payload kg', 100000, True), 'spaces':{}, 'weights_kg':{}}
+        for kind in KINDS:
+            space = number(truck.get('spaces', {}).get(kind, DEFAULT_SPACES[kind]), 'Positions per container', 40)
+            if space <= 0:
+                raise ValueError('Positions per container must be greater than zero.')
+            out['truck']['spaces'][kind] = space
+            out['truck']['weights_kg'][kind] = number(truck.get('weights_kg', {}).get(kind), 'Loaded container weight', 100000, True)
         for key in ('depot', 'notes'):
             out[key] = text(data.get(key, ''), key)
         if data.get('depot_status') not in ('unconfirmed', 'assumed', 'confirmed'):
@@ -99,13 +120,16 @@ def validate_model(value):
         for run in runs:
             if not isinstance(run, dict):
                 raise ValueError('Invalid run.')
-            r = {k: text(run.get(k, ''), k) for k in ('id', 'name', 'sequence', 'notes', 'evidence')}
+            r = {k: text(run.get(k, ''), k) for k in ('id', 'name', 'sequence', 'original_sequence', 'notes', 'evidence')}
             if not r['id'] or r['id'] in run_ids:
                 raise ValueError('Run IDs must be unique within the state.')
             run_ids.add(r['id'])
             if run.get('status') not in ('estimated', 'verified', 'unmeasured'):
                 raise ValueError('Invalid measurement status.')
             r['status'] = run['status']
+            r['included_loads'] = number(run.get('included_loads', max(1,len(re.findall(r'\bdepot\b',r['sequence'], re.I))-1)), 'Loads already included in time and km', 500)
+            if r['included_loads'] < 1 or r['included_loads'] != int(r['included_loads']):
+                raise ValueError('Included loads must be a whole number of at least one.')
             for key, limit in [('runs_4w', 124), ('km', 20000), ('drive_min', 10080),
                                ('service_min', 10080), ('depot_min', 10080), ('prep_min', 1440),
                                ('wait_min', 10080), ('break_min', 1440)]:
@@ -121,6 +145,7 @@ def validate_model(value):
 
 
 def summarize(model):
+    plans = capacity_plans(model)
     result = {}
     for state, data in model['states'].items():
         km = work = billed = elapsed = 0
@@ -134,6 +159,9 @@ def summarize(model):
             if count == 0:
                 continue
             active.append(run)
+            plan = plans.get(state, {}).get(run['id'])
+            if plan and (plan['issues'] or plan['extra_loads']):
+                gaps.append(run['name'] + ': capacity plan needs quantities or extra-trip distance/time')
             fields = ('drive_min', 'service_min', 'depot_min', 'prep_min', 'wait_min')
             if run['km'] is not None:
                 km += run['km'] * count
@@ -201,6 +229,37 @@ def register_blocktexx(app, db, require):
                 db().commit()
                 app.logger.warning('BlockTexx bootstrap: imported %s collection sites across QLD, NSW, VIC and SA.', len(model['sites']))
 
+        # One-time, audited capacity regrouping of the already saved collection model.
+        db().execute('BEGIN IMMEDIATE')
+        saved_model = db().execute('SELECT * FROM blocktexx_model WHERE id=1').fetchone()
+        if saved_model and json.loads(saved_model['data']).get('capacity_version', 0) == 0:
+            upgraded = validate_model(json.loads(saved_model['data']))
+            plans = capacity_plans(upgraded)
+            changed = 0
+            for state in ('NSW', 'QLD'):
+                for run in upgraded['states'][state]['runs']:
+                    plan = plans[state][run['id']]
+                    if plan['issues'] or not plan['loads']:
+                        continue
+                    run['original_sequence'] = run['sequence']
+                    run['sequence'] = load_sequence(plan)
+                    run['included_loads'] = plan['load_count']
+                    run['status'] = 'estimated'
+                    run['evidence'] = '14-position load regrouping. Existing distance/time allowances retained where trip count fits; remeasure changed stop order. No road navigation validation.'
+                    if plan['extra_loads']:
+                        run['km'] = run['drive_min'] = run['depot_min'] = None
+                    changed += 1
+            upgraded['capacity_version'] = 1
+            payload = json.dumps(validate_model(upgraded), allow_nan=False)
+            revision = saved_model['revision'] + 1
+            now = datetime.now(timezone.utc).isoformat()
+            db().execute('UPDATE blocktexx_model SET revision=?,data=?,updated_at=? WHERE id=1', (revision,payload,now))
+            db().execute('INSERT INTO blocktexx_model_history VALUES(?,?,?,?)', (revision,payload,saved_model['updated_by'],now))
+            db().commit()
+            app.logger.warning('BlockTexx capacity: updated %s NSW/QLD run sequences for 14-position trucks; previous model retained in revision history.', changed)
+        else:
+            db().rollback()
+
     def current():
         row = db().execute('SELECT * FROM blocktexx_model WHERE id=1').fetchone()
         return (validate_model(json.loads(row['data'])), row['revision'], row['updated_at']) if row else (empty_model(), 0, None)
@@ -211,6 +270,18 @@ def register_blocktexx(app, db, require):
         model, revision, saved = current()
         return render_template('blocktexx.html', tab='blocktexx', model=model, revision=revision,
                                saved=saved, stages=STAGES, summary=summarize(model))
+
+    @app.post('/admin/blocktexx/capacity')
+    @require('admin')
+    def preview_blocktexx_capacity():
+        try:
+            raw = request.form.get('model', '')
+            if len(raw.encode()) > 900000:
+                raise ValueError('Model is too large.')
+            model = validate_model(json.loads(raw))
+            return {'ok': True, 'plans': capacity_plans(model)}
+        except (ValueError, TypeError, KeyError, AttributeError, OverflowError) as exc:
+            return {'ok': False, 'error': str(exc) if isinstance(exc, ValueError) else 'Invalid capacity model.'}, 400
 
     @app.post('/admin/blocktexx')
     @require('admin')
