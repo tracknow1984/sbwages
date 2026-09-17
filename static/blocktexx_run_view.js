@@ -5,6 +5,7 @@ window.createBlocktexxRunView = function(getModel,getState,getPlans,onChange) {
   const fmt=n=>n==null?'To confirm':Number(n).toLocaleString('en-AU',{maximumFractionDigits:2});
   const contents=c=>Object.entries(labels).filter(([k])=>c?.[k]).map(([k,l])=>fmt(c[k])+' '+l).join(', ')||'Quantity to confirm';
   function render() {
+    if(planner.isDragging())return;
     const model=getModel(),state=getState(),data=model.states[state],runs=data.runs;
     host.replaceChildren();
     planner.render(host,model,state,selection[state],id=>{selection[state]=id;render();},onChange,getPlans());

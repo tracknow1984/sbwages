@@ -73,6 +73,7 @@ window.createBlocktexxPlanner = function() {
     function dropProposal(week,day) {
       const run=drag?.state===state?runs.find(r=>r.id===drag.id):null;
       if(!run)return null;
+      if(drag.week===week&&drag.day===day)return {run,noop:true};
       const proposed=slots(run).map(s=>({...s}));
       if(drag.week!=null){
         const index=proposed.findIndex(s=>s.week===drag.week&&s.day===drag.day);
@@ -85,7 +86,7 @@ window.createBlocktexxPlanner = function() {
       const load=dayLoad(runs.filter(r=>r.id!==run.id).concat({...run,planner_slots:proposed}),week,day);
       const overtime=!load.unknown&&load.minutes>540;
       if(overtime)proposed[proposed.length-1].overtime_limit_min=load.minutes;
-      const error=fixed.length?'Customer-set day conflict: '+fixed.map(s=>s.name).join(', '):allocationError(runs,run,proposed);
+      const error=fixed.length?'Customer-set day conflict: '+fixed.map(s=>s.name).join(', '):load.unknown?'Week '+week+' '+days[day]+': confirm all time estimates on the destination day before moving this run.':'';
       return {run,proposed,error,overtime,load};
     }
     function clearDragStyles(){root.querySelectorAll('.bx-drop-ok,.bx-drop-blocked').forEach(n=>n.classList.remove('bx-drop-ok','bx-drop-blocked'));}
@@ -108,7 +109,7 @@ window.createBlocktexxPlanner = function() {
         event.dataTransfer?.setData('text/plain',r.id);if(event.dataTransfer)event.dataTransfer.effectAllowed='move';
         b.classList.add('bx-dragging');config.dragMessage='';
       });
-      b.addEventListener('dragend',()=>{drag=null;ignoreClickUntil=Date.now()+300;b.classList.remove('bx-dragging');clearDragStyles();});
+      b.addEventListener('dragend',()=>{const refreshNeeded=!!drag;drag=null;ignoreClickUntil=Date.now()+300;b.classList.remove('bx-dragging');clearDragStyles();if(refreshNeeded)refresh();});
       b.title='Drag to move this occurrence, or click to edit the recurring allocation';b.addEventListener('click',event=>{event.stopPropagation();if(Date.now()<ignoreClickUntil)return;if(week!=null)config.selectedDay={week,day};openAllocation(r,week==null?null:{week,day});});return b;
     }
     const hiddenAllocated=runs.filter(r=>slots(r).length&&!visible.includes(r)).length;
@@ -129,6 +130,7 @@ window.createBlocktexxPlanner = function() {
           event.preventDefault();clearDragStyles();
           cell.classList.add(proposal.error?'bx-drop-blocked':'bx-drop-ok');
           if(event.dataTransfer)event.dataTransfer.dropEffect=proposal.error?'none':'move';
+          if(proposal.noop){feedback.textContent='Already on this day — no move needed.';return;}
           feedback.textContent=proposal.error||(proposal.overtime?'Overtime approval required · '+fmt(proposal.load.minutes-540)+' extra minutes. ':'')+'Drop on Week '+week+' '+day+(drag.week==null?' to choose the allocation frequency.':' to move this occurrence only.');
         });
         cell.addEventListener('dragleave',event=>{if(!cell.contains(event.relatedTarget))cell.classList.remove('bx-drop-ok','bx-drop-blocked');});
@@ -136,7 +138,7 @@ window.createBlocktexxPlanner = function() {
           event.preventDefault();event.stopPropagation();
           const proposal=dropProposal(week,d),fromBacklog=drag?.week==null;
           drag=null;ignoreClickUntil=Date.now()+300;clearDragStyles();
-          if(!proposal)return;
+          if(!proposal||proposal.noop)return;
           if(document.getElementById('bx-save')?.disabled){feedback.textContent='Wait for the current save to finish, then move the run.';return;}
           if(proposal.error){config.dragMessage=proposal.error;feedback.textContent=proposal.error;return;}
           if(proposal.overtime&&!window.confirm('Approve overtime for Week '+week+' '+day+'?\n\nThis day will total '+fmt(proposal.load.minutes/60)+' hours, finishing at '+finish(proposal.load.minutes)+' — '+fmt(proposal.load.minutes-540)+' minutes past the 3:30 pm finish.\n\nOK approves this day only. Cancel keeps the run where it is. Review overtime costs separately.')){
@@ -335,5 +337,5 @@ window.createBlocktexxPlanner = function() {
     }
     showFinance();
   }
-  return {render,slots,groups,dayLoad,allocationError};
+  return {render,slots,groups,dayLoad,allocationError,isDragging:()=>!!drag};
 };
