@@ -57,3 +57,8 @@ body.bx-popup-open {overflow:hidden}
 .bx-modal-backdrop .bx-day-dialog {position:relative;display:block;margin:0;box-sizing:border-box}
 .bx-modal-backdrop .bx-day-dialog-header h2 {margin:0;font-size:1.25rem}
 @media print {.bx-modal-backdrop:not([hidden]) {position:static;display:block;background:white;padding:0}.bx-modal-backdrop .bx-day-dialog {max-height:none;width:100%;max-width:none;box-shadow:none}}
+.bx-allocation-dialog {width:min(540px,94vw)}
+.bx-allocation-body {padding:22px}
+.bx-allocation-body label {display:block;font-weight:650;margin:16px 0}
+.bx-allocation-body select {display:block;width:100%;margin-top:6px;padding:10px;border:1px solid #b8c8dc;border-radius:6px;background:white}
+.bx-allocation-body > button {width:100%;min-height:46px}

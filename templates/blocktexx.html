@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 {% block content %}
-<link rel="stylesheet" href="{{ url_for('static', filename='blocktexx.css', v='day-popup-2') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='blocktexx.css', v='allocation-popup-3') }}">
 <div id="blocktexx" data-revision="{{ revision }}" data-csrf="{{ csrf_token() }}">
   <div class="page-heading"><div><p class="bx-kicker">SB EMPIRE / PROPOSAL MODELLING</p><h1>BlockTexx collections</h1><p>Build the collection cost first. Add each downstream movement once.</p></div>
     <div class="actions no-print"><button type="button" id="bx-save" class="primary">Save model</button><button type="button" id="bx-print" class="secondary">Print analysis</button></div></div>
@@ -27,7 +27,7 @@
 </div>
 <script id="bx-data" type="application/json">{{ model | tojson }}</script>
 <script src="{{ url_for('static', filename='blocktexx_capacity.js') }}" defer></script>
-<script src="{{ url_for('static', filename='blocktexx_planner.js', v='day-popup-2') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx_planner.js', v='allocation-popup-3') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_run_view.js') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx.js') }}" defer></script>
 {% endblock %}

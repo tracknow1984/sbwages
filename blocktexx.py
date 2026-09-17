@@ -127,6 +127,11 @@ def validate_model(value):
             if run.get('status') not in ('estimated', 'verified', 'unmeasured'):
                 raise ValueError('Invalid measurement status.')
             r['status'] = run['status']
+            planner_frequency = run.get('planner_frequency')
+            if planner_frequency is not None:
+                if planner_frequency not in ('Weekly', 'Fortnightly', 'Monthly', 'Ad hoc'):
+                    raise ValueError('Invalid planner frequency.')
+                r['planner_frequency'] = planner_frequency
             slots = run.get('planner_slots')
             if slots is not None:
                 if not isinstance(slots, list) or len(slots) > 124:

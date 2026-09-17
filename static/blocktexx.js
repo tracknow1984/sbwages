@@ -127,6 +127,6 @@
   $('bx-print').addEventListener('click',()=>window.print());
   window.addEventListener('beforeunload',e=>{if(dirty||saving){e.preventDefault();e.returnValue='';}});
   capacityUI=window.createBlocktexxCapacity?.(()=>model,()=>state,()=>{changed();renderRuns();renderSites();},root.dataset.csrf,()=>{renderMetrics();runView?.render();});
-  runView=window.createBlocktexxRunView(()=>model,()=>state,()=>capacityUI?.getPlans(),()=>{changed();});
+  runView=window.createBlocktexxRunView(()=>model,()=>state,()=>capacityUI?.getPlans(),()=>{changed();renderRuns();renderSites();});
   render();
 })();

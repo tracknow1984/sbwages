@@ -2,7 +2,7 @@ window.createBlocktexxPlanner = function() {
   const days=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
   const categories=['Weekly','Fortnightly','Monthly','Ad hoc'];
   const settings={};
-  let popup=null, dismissPopup=null;
+  let popup=null, dismissPopup=null, allocationPopup=null;
   const e=(tag,text,cls)=>{const n=document.createElement(tag);if(text!=null)n.textContent=text;if(cls)n.className=cls;return n;};
   const fmt=n=>n==null?'TBC':Number(n).toLocaleString('en-AU',{maximumFractionDigits:1});
   function slots(r) {
@@ -15,6 +15,7 @@ window.createBlocktexxPlanner = function() {
     return [];
   }
   function groups(r,sites) {
+    if(r.planner_frequency)return [r.planner_frequency];
     if(r.runs_4w==null||r.runs_4w===0)return ['Ad hoc'];
     const values=sites.filter(s=>r.site_ids.includes(s.id)).map(s=>s.visits_4w);
     const result=new Set(values.map(v=>v==null?'Ad hoc':v>=4?'Weekly':v>=2?'Fortnightly':'Monthly'));
@@ -53,7 +54,7 @@ window.createBlocktexxPlanner = function() {
       if(r.runs_4w===0)b.append(e('small','Paused'));
       const badges=e('div',null,'bx-frequency-badges');
       groups(r,sites).forEach(c=>{const badge=e('span',c,'bx-frequency-label');badge.dataset.frequency=c;badges.append(badge);});b.append(badges);
-      b.addEventListener('click',event=>{event.stopPropagation();if(week!=null){config.selectedDay={week,day};config.dayOpen=true;}onSelect(r.id);});return b;
+      b.addEventListener('click',event=>{event.stopPropagation();if(week!=null){config.selectedDay={week,day};config.dayOpen=true;}if(week==null){config.allocateId=r.id;config.allocationDraft=null;config.dayOpen=false;}onSelect(r.id);});return b;
     }
     const assigned=visible.filter(r=>slots(r).length),hasWeekend=assigned.some(r=>slots(r).some(s=>s.day>4));
     const wrap=e('div',null,'bx-scroll'),table=e('table',null,'bx-planner-grid'),head=e('tr');
@@ -151,12 +152,51 @@ window.createBlocktexxPlanner = function() {
     }else if(popup){
       popup.hidden=true;document.body.classList.remove('bx-popup-open');
     }
-    const pending=visible.filter(r=>!slots(r).length||r.runs_4w==null||slots(r).length!==r.runs_4w);
+    const pending=visible.filter(r=>!slots(r).length||(r.runs_4w!=null&&slots(r).length!==r.runs_4w));
     const backlog=e('div',null,'bx-planner-backlog');backlog.append(e('h3',config.category==='Ad hoc'&&!config.all?'Ad hoc / awaiting booking':'Needs allocation or review'));
     if(!pending.length)backlog.append(e('p','All runs in this view have their planned occurrences allocated.'));
     pending.forEach(r=>{const item=e('div');item.append(card(r));
       if(slots(r).length)item.append(e('small',slots(r).length+' allocated vs '+fmt(r.runs_4w)+' occurrences / four weeks. Review frequency.'));
       backlog.append(item);});root.append(backlog);
+
+    const allocationRun=runs.find(r=>r.id===config.allocateId);
+    if(allocationRun){
+      if(!allocationPopup){allocationPopup=e('div',null,'bx-modal-backdrop');allocationPopup.id='bx-allocation-popup';document.body.append(allocationPopup);}
+      const draft=config.allocationDraft||(config.allocationDraft={frequency:allocationRun.planner_frequency||(allocationRun.runs_4w===4?'Weekly':allocationRun.runs_4w===2?'Fortnightly':allocationRun.runs_4w===1?'Monthly':'Ad hoc'),day:slots(allocationRun)[0]?.day??0,week:slots(allocationRun)[0]?.week??1});
+      const box=e('div',null,'bx-day-dialog bx-allocation-dialog');box.setAttribute('role','dialog');box.setAttribute('aria-modal','true');box.setAttribute('aria-labelledby','bx-allocation-title');
+      const header=e('div',null,'bx-day-dialog-header'),title=e('h2','Allocate this run');title.id='bx-allocation-title';
+      const close=e('button','Cancel','secondary');close.type='button';header.append(title,close);box.append(header);
+      const dismiss=()=>{config.allocateId=null;config.allocationDraft=null;allocationPopup.hidden=true;document.body.classList.remove('bx-popup-open');root.querySelector('[data-run-id="'+allocationRun.id+'"]')?.focus();};
+      close.addEventListener('click',dismiss);
+      const body=e('div',null,'bx-allocation-body');body.append(e('h3',allocationRun.name));
+      function field(label,key,options){
+        const l=e('label',label),select=e('select');select.setAttribute('aria-label',label);
+        options.forEach(([v,t])=>{const o=e('option',t);o.value=v;select.append(o);});select.value=draft[key];
+        select.addEventListener('change',()=>{draft[key]=key==='frequency'?select.value:Number(select.value);updateHint();});l.append(select);body.append(l);return select;
+      }
+      field('Collection frequency','frequency',categories.map(c=>[c,c]));
+      field('Collection day','day',days.map((d,i)=>[i,d]));
+      const weekSelect=field('Starting week','week',[1,2,3,4].map(w=>[w,'Week '+w]));
+      const hint=e('p',null,'bx-muted');body.append(hint);
+      function updateHint(){weekSelect.disabled=draft.frequency==='Weekly';hint.textContent=draft.frequency==='Weekly'?'Every week on the selected day.':draft.frequency==='Fortnightly'?'Weeks '+(draft.week%2? '1 and 3':'2 and 4')+' on the selected day.':draft.frequency==='Monthly'?'Once per four-week cycle, in the selected week.':'One booking in the selected week. No recurring collection frequency.';}
+      updateHint();body.append(e('p','This updates this run only. Customer frequency differences remain flagged for proposal review.','bx-muted'));
+      const apply=e('button','Lock in allocation','primary');apply.type='button';
+      apply.addEventListener('click',()=>{
+        const weeks=draft.frequency==='Weekly'?[1,2,3,4]:draft.frequency==='Fortnightly'?(draft.week%2?[1,3]:[2,4]):[draft.week];
+        allocationRun.planner_frequency=draft.frequency;
+        allocationRun.planner_slots=weeks.map(week=>({week,day:draft.day}));
+        allocationRun.runs_4w={Weekly:4,Fortnightly:2,Monthly:1,'Ad hoc':null}[draft.frequency];
+        config.allocateId=null;config.allocationDraft=null;allocationPopup.hidden=true;document.body.classList.remove('bx-popup-open');
+        onChange();document.getElementById('bx-save')?.click();
+      });body.append(apply);box.append(body);
+      allocationPopup.replaceChildren(box);allocationPopup.hidden=false;document.body.classList.add('bx-popup-open');
+      allocationPopup.onpointerdown=event=>{if(event.target===allocationPopup)dismiss();};
+      allocationPopup.onkeydown=event=>{
+        if(event.key==='Escape'){event.preventDefault();dismiss();}
+        if(event.key==='Tab'){const fields=[...box.querySelectorAll('button,select')].filter(n=>!n.disabled),first=fields[0],last=fields[fields.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}}
+      };
+      close.focus({preventScroll:true});
+    }else if(allocationPopup){allocationPopup.hidden=true;}
     const r=runs.find(r=>r.id===selected);
     if(r){
       const box=e('details',null,'bx-planner-allocate');box.append(e('summary','Allocate / move this run'));
