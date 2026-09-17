@@ -3,6 +3,9 @@ import json
 import sqlite3
 import tempfile
 import unittest
+import gzip
+import base64
+from unittest.mock import patch
 from app import create_app
 from blocktexx import empty_model, validate_model, summarize
 
@@ -103,6 +106,35 @@ class PersistenceTests(unittest.TestCase):
         self.assertEqual(r.json['model']['states']['VIC']['hourly_rate'],125)
         self.assertEqual(self.client.get('/admin/blocktexx/export').json['states']['VIC']['runs'],[])
         self.assertEqual(self.client.post('/admin/blocktexx/validate',data={'csrf':'bad','model':json.dumps(m)}).status_code,400)
+
+    def test_frequency_change_persists_and_flags_route_mismatch(self):
+        m=example()
+        m['sites']=[dict(id='site',state='VIC',name='Example customer',address='Example address',frequency='Weekly',equipment='',source_rows='1',notes='')]
+        m['states']['VIC']['runs'][0]['site_ids']=['site']
+        self.assertEqual(self.save(m).status_code,200)
+        saved=self.client.get('/admin/blocktexx/export').json
+        self.assertEqual(saved['sites'][0]['visits_4w'],4)
+        saved['sites'][0].update(visits_4w=8,frequency='Twice weekly')
+        result=self.save(saved,1)
+        self.assertIsNone(result.json['summary']['VIC']['collection_per_kg'])
+        reread=self.client.get('/admin/blocktexx/export').json
+        self.assertEqual(reread['sites'][0]['source_frequency'],'Weekly')
+        self.assertEqual(reread['sites'][0]['visits_4w'],8)
+        reread['states']['VIC']['runs'][0]['runs_4w']=8
+        self.assertIsNotNone(self.save(reread,2).json['summary']['VIC']['collection_per_kg'])
+
+    def test_private_bootstrap_runs_once_and_preserves_saved_edits(self):
+        m=example()
+        m['sites']=[dict(id='site',state='VIC',name='Example customer',address='',frequency='Weekly',equipment='',source_rows='',notes='')]
+        seed=base64.b64encode(gzip.compress(json.dumps(m).encode())).decode()
+        with patch.dict('os.environ',{'BLOCKTEXX_INITIAL_MODEL_GZIP_B64':seed}):
+            create_app(self.config)
+            loaded=self.client.get('/admin/blocktexx/export').json
+            self.assertEqual(len(loaded['sites']),1)
+            loaded['sites'][0]['visits_4w']=2
+            self.assertEqual(self.save(loaded,1).status_code,200)
+            create_app(self.config)
+        self.assertEqual(self.client.get('/admin/blocktexx/export').json['sites'][0]['visits_4w'],2)
 
 
 if __name__ == '__main__': unittest.main()

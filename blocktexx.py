@@ -3,11 +3,20 @@ import csv
 import io
 import json
 import math
+import os
+import base64
+import gzip
 from datetime import datetime, timezone
 from flask import abort, g, render_template, request, Response
 
 STATES = ('QLD', 'NSW', 'VIC', 'SA')
 STAGES = ('Collections', 'Deliver to decom', 'Return from decom', 'Consolidation', 'Deliver to Threadtexx')
+
+
+def source_visits(frequency):
+    value = frequency.strip().lower()
+    return {'weekly': 4, 'fortnightly': 2, 'every 4 weeks': 1, 'every 8 weeks': .5,
+            'tue fri - weekly': 8, 'mon wed fri - weekly': 12}.get(value)
 
 
 def empty_model():
@@ -58,6 +67,9 @@ def validate_model(value):
                 raise ValueError('Each location needs a valid state.')
             item = {k: text(row.get(k, ''), k) for k in ('id', 'name', 'address', 'frequency', 'equipment', 'source_rows', 'notes')}
             item['state'] = row['state']
+            if key == 'sites':
+                item['source_frequency'] = text(row.get('source_frequency', item['frequency']), 'Source frequency')
+                item['visits_4w'] = number(row.get('visits_4w', source_visits(item['frequency'])), 'Visits per four weeks', 124, True)
             if not item['id'] or item['id'] in seen:
                 raise ValueError('Location IDs must be unique and nonempty.')
             seen.add(item['id'])
@@ -136,6 +148,11 @@ def summarize(model):
         factor = 13 / 12
         assigned = {i for r in data['runs'] if r['runs_4w'] != 0 for i in r['site_ids']}
         gaps.extend(s['name'] + ': no run assigned' for s in model['sites'] if s['state'] == state and s['id'] not in assigned)
+        for site in (s for s in model['sites'] if s['state'] == state):
+            required = site.get('visits_4w', source_visits(site['frequency']))
+            planned = sum(r['runs_4w'] or 0 for r in data['runs'] if site['id'] in r['site_ids'])
+            if required is not None and abs(required - planned) > .001:
+                gaps.append(site['name'] + ': customer frequency differs from route plan')
         cost = None
         if active:
             if data['cost_mode'] == 'contractor' and data['hourly_rate'] is not None:
@@ -162,10 +179,31 @@ def register_blocktexx(app, db, require):
               revision INTEGER PRIMARY KEY, data TEXT NOT NULL,
               updated_by INTEGER NOT NULL REFERENCES users(id), updated_at TEXT NOT NULL);
         ''')
+        # Private deployment data is supplied through Render configuration, never public source.
+        seed = os.environ.get('BLOCKTEXX_INITIAL_MODEL_GZIP_B64')
+        if seed:
+            model = validate_model(json.loads(gzip.decompress(base64.b64decode(seed, validate=True))))
+            db().execute('BEGIN IMMEDIATE')
+            existing = db().execute('SELECT * FROM blocktexx_model WHERE id=1').fetchone()
+            if existing and json.loads(existing['data']).get('sites'):
+                db().rollback()
+                app.logger.warning('BlockTexx bootstrap: existing populated model retained; no edits overwritten.')
+            else:
+                admin = db().execute("SELECT id FROM users WHERE role='admin' ORDER BY id LIMIT 1").fetchone()
+                if not admin:
+                    db().rollback()
+                    raise RuntimeError('BlockTexx initialization requires an existing administrator.')
+                revision = existing['revision'] + 1 if existing else 1
+                saved = datetime.now(timezone.utc).isoformat()
+                payload = json.dumps(model, allow_nan=False)
+                db().execute('INSERT OR REPLACE INTO blocktexx_model VALUES(1,?,?,?,?)', (revision, payload, admin['id'], saved))
+                db().execute('INSERT INTO blocktexx_model_history VALUES(?,?,?,?)', (revision, payload, admin['id'], saved))
+                db().commit()
+                app.logger.warning('BlockTexx bootstrap: imported %s collection sites across QLD, NSW, VIC and SA.', len(model['sites']))
 
     def current():
         row = db().execute('SELECT * FROM blocktexx_model WHERE id=1').fetchone()
-        return (json.loads(row['data']), row['revision'], row['updated_at']) if row else (empty_model(), 0, None)
+        return (validate_model(json.loads(row['data'])), row['revision'], row['updated_at']) if row else (empty_model(), 0, None)
 
     @app.get('/admin/blocktexx')
     @require('admin')

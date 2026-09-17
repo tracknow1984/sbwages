@@ -7,6 +7,9 @@
   const $ = id => document.getElementById(id);
   const fmt = (n, places = 1) => n == null ? 'Not set' : Number(n).toLocaleString('en-AU', {maximumFractionDigits: places});
   const money = n => n == null ? 'Not priced' : '$' + fmt(n, 0);
+  const frequencies = [['Weekly',4],['Twice weekly',8],['Three times weekly',12],['Weekdays',20],['Fortnightly',2],['Every 4 weeks',1],['Every 8 weeks',.5],['Paused',0],['Ad hoc / unconfirmed',null],['Custom','custom']];
+  const visits = s => s.visits_4w ?? null;
+  const plannedVisits = s => model.states[s.state].runs.filter(r=>r.site_ids.includes(s.id)).reduce((a,r)=>a+(r.runs_4w||0),0);
   const el = (tag, text, className) => { const n = document.createElement(tag); if (text != null) n.textContent = text; if (className) n.className = className; return n; };
   const working = r => ['drive_min','service_min','depot_min','prep_min','wait_min'].some(k => r[k] == null) ? null : ['drive_min','service_min','depot_min','prep_min','wait_min'].reduce((a,k) => a + r[k], 0) / 60;
   function changed() { dirty = true; generation++; $('bx-save-status').textContent = 'Unsaved changes — select Save model.'; renderMetrics(); renderOverview(); }
@@ -23,7 +26,8 @@
       if (h != null) { work += h * r.runs_4w; billed += Math.max(h,d.minimum_hours) * r.runs_4w; elapsed += (h + (r.break_min || 0)/60) * r.runs_4w; }
     });
     const assigned = new Set(d.runs.filter(r=>r.runs_4w!==0).flatMap(r=>r.site_ids));
-    pending += model.sites.filter(s=>s.state===state&&!assigned.has(s.id)).length;
+    pending += model.sites.filter(site=>site.state===s&&!assigned.has(site.id)).length;
+    pending += model.sites.filter(site=>site.state===s&&visits(site)!=null&&Math.abs(visits(site)-plannedVisits(site))>.001).length;
     let cost = null;
     if (active) {
       if (d.cost_mode === 'owned') cost = d.fixed_monthly;
@@ -33,14 +37,15 @@
   }
   function renderOverview() {
     $('bx-overview').replaceChildren(...Object.entries(model.states).map(([s,d]) => {
-      const card=el('div'); card.append(el('span',s),el('strong',fmt(d.monthly_kg,0)+' kg'),el('small','Historical average / month'),el('p',d.depot || 'Depot not set')); return card;
+      const customers=model.sites.filter(site=>site.state===s),total=customers.reduce((a,site)=>a+(visits(site)||0),0),unknown=customers.filter(site=>visits(site)==null).length;
+      const card=el('div'); card.append(el('span',s),el('strong',fmt(d.monthly_kg,0)+' kg'),el('small','Historical average / month'),el('p',d.depot || 'Depot not set'),el('small',`${customers.length} customers · ${fmt(total,1)} planned visits / 4 weeks · ${fmt(total*13/12,1)} / month${unknown?' · '+unknown+' unconfirmed':''}`)); return card;
     }));
   }
   function renderMetrics() {
     const v = summary(state);
     const items = [['Known km / 4 weeks',fmt(v.km,0)],['Known working hours / 4 weeks',fmt(v.work)],['Calendar-month working hours',fmt(v.work*13/12)],['Unallocated hours / 4 weeks',fmt(v.spare)],['Elapsed hours / 4 weeks',fmt(v.elapsed)],['Billable hours / 4 weeks',fmt(v.billed)],['Known collection cost / month',money(v.cost)],['Collection-only cost / kg',v.rate == null ? 'Incomplete' : '$'+fmt(v.rate,3)]];
     $('bx-metrics').replaceChildren(...items.map(([a,b]) => { const n=el('div',a); n.append(el('strong',b)); return n; }));
-    $('bx-gaps').textContent = `${v.pending} run rows have missing frequency or measurements. ${v.estimates} active rows use estimates. Unallocated hours are not promised compaction capacity; allow for unplanned work and downstream loading. Cost excludes later stages and unentered costs. One contractor minimum per run row.`;
+    $('bx-gaps').textContent = `${v.pending} gaps: missing frequency/measurements, unassigned customers or customer frequencies that differ from the route plan. ${v.estimates} active rows use estimates. Customer frequency edits update visit demand immediately; revise affected grouped runs to update kilometres, hours and costs. Historic kilograms do not change automatically. Unallocated hours still need to cover downstream work.`;
   }
   function inputField(key,label,options) {
     const d=model.states[state], wrap=el('label',label); let input;
@@ -69,7 +74,7 @@
       const tr=el('tr'), first=el('td'); first.append(el('strong',r.name),el('small',r.sequence),el('small',r.notes)); tr.append(first);
       ['runs_4w','km','drive_min','service_min','depot_min','prep_min','wait_min','break_min'].forEach(k=>{
         const td=el('td'),input=el('input'); input.type='number';input.min='0';input.step='any';input.value=r[k]??'';input.placeholder='TBC';input.setAttribute('aria-label',r.name+' '+k);
-        input.addEventListener('change',()=>{if(!input.checkValidity()){input.reportValidity();return;}r[k]=input.value===''?null:Number(input.value);if(k==='km'||k==='drive_min'){r.status='estimated';badge.textContent='estimated';badge.className='bx-status';}hours.textContent=working(r)==null?'TBC':fmt(working(r),2);changed();});td.append(input);tr.append(td);
+        input.addEventListener('change',()=>{if(!input.checkValidity()){input.reportValidity();return;}r[k]=input.value===''?null:Number(input.value);if(k==='km'||k==='drive_min'){r.status='estimated';badge.textContent='estimated';badge.className='bx-status';}hours.textContent=working(r)==null?'TBC':fmt(working(r),2);changed();if(k==='runs_4w')renderSites();});td.append(input);tr.append(td);
       });
       const hours=el('td',working(r)==null?'TBC':fmt(working(r),2));tr.append(hours);
       const status=el('td'),badge=el('span',r.status,'bx-status '+r.status);status.append(badge,el('small',r.evidence));tr.append(status);
@@ -88,10 +93,17 @@
   }
   function renderSites() {
     const assigned=new Set(model.states[state].runs.filter(r=>r.runs_4w!==0).flatMap(r=>r.site_ids));
-    $('bx-sites').replaceChildren(...model.sites.filter(s=>s.state===state).map(s=>{
-      const n=el('details',null,'bx-site'),head=el('summary',s.name+' · '+s.frequency+(assigned.has(s.id)?'':' · Not linked to a run'));
-      if(!assigned.has(s.id))head.className='bx-unassigned';n.append(head,el('p',s.address),el('p',s.equipment),el('p','Source rows: '+s.source_rows),el('p',s.notes));return n;
-    }));
+    const table=el('table',null,'bx-customers'),thead=el('thead'),head=el('tr');
+    ['Customer / address','Spreadsheet frequency','Model frequency','Visits / 4 weeks','Visits / month','Route plan / 4 weeks'].forEach(t=>head.append(el('th',t)));thead.append(head);table.append(thead);const body=el('tbody');
+    model.sites.filter(s=>s.state===state).forEach(s=>{
+      const row=el('tr'),who=el('td'),details=el('details'),title=el('summary',s.name);details.append(title,el('p',s.equipment),el('p','Source rows: '+s.source_rows),el('p',s.notes));who.append(details,el('small',s.address));row.append(who,el('td',s.source_frequency||s.frequency));
+      const choice=el('select'),td=el('td');choice.setAttribute('aria-label',s.name+' frequency');frequencies.forEach(([label,value])=>{const o=el('option',label);o.value=String(value);choice.append(o);});
+      choice.value=frequencies.some(([,n])=>n===visits(s))?String(visits(s)):'custom';td.append(choice);row.append(td);
+      const input=el('input'),count=el('td');input.type='number';input.min='0';input.max='124';input.step='any';input.value=visits(s)??'';input.placeholder='TBC';input.setAttribute('aria-label',s.name+' visits per four weeks');count.append(input);row.append(count,el('td',visits(s)==null?'TBC':fmt(visits(s)*13/12,2)));
+      const planned=plannedVisits(s),mismatch=visits(s)!=null&&Math.abs(planned-visits(s))>.001,last=el('td',fmt(planned,2)+(mismatch?' — update runs':!assigned.has(s.id)?' — unassigned':''));if(mismatch)last.className='bx-frequency-gap';row.append(last);
+      choice.addEventListener('change',()=>{if(choice.value==='custom'){input.focus();return;}s.visits_4w=choice.value==='null'?null:Number(choice.value);s.frequency=choice.selectedOptions[0].textContent;changed();renderSites();});
+      input.addEventListener('change',()=>{if(!input.checkValidity()){input.reportValidity();return;}s.visits_4w=input.value===''?null:Number(input.value);s.frequency=s.visits_4w==null?'Ad hoc / unconfirmed':`Custom: ${s.visits_4w} visits / 4 weeks`;changed();renderSites();});body.append(row);
+    });table.append(body);$('bx-sites').replaceChildren(table);
     const partners=model.partners.filter(s=>s.state===state);$('bx-partners').replaceChildren(...(partners.length?partners.map(p=>{const n=el('div',null,'bx-site');n.append(el('strong',p.name),el('p',p.address+' · '+p.frequency),el('p',p.notes));return n;}):[el('p','No decommissioning partner confirmed in the supplied source for this state.')]));
   }
   function render() { renderOverview();renderSettings();renderRuns();renderMetrics();renderSites();$('bx-source').textContent=model.source;$('bx-notes').textContent=model.notes;document.querySelectorAll('[data-state]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.state===state))); }

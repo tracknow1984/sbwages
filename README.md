@@ -160,3 +160,7 @@ The later-stage partner address register is retained separately. Decom deliverie
 Model data is stored in new additive SQLite tables with administrator attribution and revision history. Saves reject stale revisions so another admin's work cannot be overwritten silently. Every page, save and export requires admin access; saves use existing CSRF protection. JSON supports model transfer and draft recovery; CSV exports the saved run tables. The screen warns before closing an unsaved draft. Existing payroll, rental and staff tables are unchanged.
 
 Focused checks: `python -m unittest discover -s tests -p test_blocktexx.py -v` and `node --check static/blocktexx.js`.
+
+Collection sites now retain their original spreadsheet frequency alongside editable model frequency and visits per four weeks. State cards show dynamic visit demand and average calendar-month visits. Frequency changes flag discrepancies with linked run attendances; collection cost/kg remains incomplete until the grouped route plan is reconciled. Changing frequency does not invent new kilograms or silently multiply unrelated customers on a shared route.
+
+Deployment can populate the initial model from private `BLOCKTEXX_INITIAL_MODEL_GZIP_B64` configuration (gzip-compressed UTF-8 version-1 JSON, base64-encoded). Bootstrap validates the full data, attributes the initial revision to an existing admin and logs only the imported count. It initializes an absent/empty customer model once. Any populated model is retained on subsequent restarts so saved frequency edits are never reset.
