@@ -159,6 +159,23 @@ class PersistenceTests(unittest.TestCase):
         new['states']['VIC']['runs'][0]['planner_slots']=[dict(week=1,day=1)]
         with self.assertRaises(ValueError):check_calendar_limits(new,old)
 
+    def test_explicit_overtime_approval_persists_and_is_bounded(self):
+        m=example()
+        r=m['states']['VIC']['runs'][0]
+        r.update(drive_min=510,planner_slots=[dict(week=1,day=0)])
+        self.assertEqual(self.save(m).status_code,400)
+        r['planner_slots'][0]['overtime_limit_min']=600
+        self.assertEqual(self.save(m).status_code,200)
+        saved=self.client.get('/admin/blocktexx/export').json
+        self.assertEqual(saved['states']['VIC']['runs'][0]['planner_slots'][0]['overtime_limit_min'],600)
+        r['drive_min']=511
+        self.assertEqual(self.save(m,1).status_code,400)
+        r['drive_min']=None
+        self.assertEqual(self.save(m,1).status_code,400)
+        r['drive_min']=510
+        r['planner_slots'].append(dict(week=2,day=0))
+        self.assertEqual(self.save(m,1).status_code,400)
+
     def test_cost_profiles_persist_and_use_selected_comparison(self):
         from tests.test_blocktexx_costs import priced_model
         m=priced_model()

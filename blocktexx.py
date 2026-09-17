@@ -174,7 +174,13 @@ def validate_model(value):
                     day = number(slot.get('day'), 'Planner day', 6)
                     if week < 1 or week != int(week) or day != int(day):
                         raise ValueError('Planner weeks must be 1–4 and days 0–6.')
-                    normalized.append({'week': int(week), 'day': int(day)})
+                    item = {'week': int(week), 'day': int(day)}
+                    if slot.get('overtime_limit_min') is not None:
+                        limit = number(slot['overtime_limit_min'], 'Approved overtime day minutes', 10080)
+                        if limit <= 540:
+                            raise ValueError('Overtime approval must exceed 540 minutes.')
+                        item['overtime_limit_min'] = limit
+                    normalized.append(item)
                 r['planner_slots'] = normalized
 
             r['included_loads'] = number(run.get('included_loads', max(1,len(re.findall(r'\bdepot\b',r['sequence'], re.I))-1)), 'Loads already included in time and km', 500)
@@ -227,7 +233,10 @@ def check_calendar_limits(model, previous):
         for (week, day), entries in days(model['states'][state]).items():
             unknown = any(minutes is None for _, minutes in entries)
             total = sum(minutes or 0 for _, minutes in entries)
-            if not unknown and total <= 540:
+            approved = max([540] + [slot.get('overtime_limit_min', 540)
+                for run in model['states'][state]['runs'] for slot in calendar_slots(run)
+                if slot['week'] == week and slot['day'] == day])
+            if not unknown and total <= approved:
                 continue
             # Retain or reduce existing problem days without preventing unrelated saves.
             remaining = list(old_days.get((week, day), []))
