@@ -204,6 +204,8 @@ class PersistenceTests(unittest.TestCase):
         saved['interstate']['bookings'][0]['day']=2
         self.assertEqual(self.save(saved,1).status_code,200)
         self.assertEqual(self.client.get('/admin/blocktexx/export').json['interstate']['bookings'][0]['day'],2)
+        create_app(self.config)
+        self.assertEqual(self.client.get('/admin/blocktexx/export').json['states']['NSW']['runs'][0]['activity_type'],'deliver_decomm')
 
     def test_resource_price_profiles_persist_without_conflating_blank_and_zero(self):
         m=example()

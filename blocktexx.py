@@ -376,8 +376,8 @@ def register_blocktexx(app, db, require):
             changed = 0
             for state in ('NSW', 'QLD'):
                 for run in upgraded['states'][state]['runs']:
-                    plan = plans[state][run['id']]
-                    if plan['issues'] or not plan['loads']:
+                    plan = plans[state].get(run['id'])
+                    if not plan or plan['issues'] or not plan['loads']:
                         continue
                     run['original_sequence'] = run['sequence']
                     run['sequence'] = load_sequence(plan)
