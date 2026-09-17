@@ -31,3 +31,12 @@
 .bx-day-activities {margin:20px 0;padding:18px;border:1px solid #bdd3ec;border-radius:10px;background:#f7faff}
 .bx-day-activity {background:white;border:1px solid #dbe4ef;border-radius:8px;margin:14px 0;padding:16px}
 .bx-day-activity h4 {margin:0 0 10px}
+.bx-frequency-legend,.bx-frequency-badges {display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.bx-frequency-label {display:inline-block;border:1px solid;padding:3px 8px;border-radius:5px;font-size:12px;font-weight:650}
+.bx-frequency-label[data-frequency="Weekly"],.bx-planner-run[data-frequency="Weekly"] {background:#e2edff;border-color:#2563eb;color:#173e86}
+.bx-frequency-label[data-frequency="Fortnightly"],.bx-planner-run[data-frequency="Fortnightly"] {background:#dcf4e4;border-color:#23844e;color:#175932}
+.bx-frequency-label[data-frequency="Monthly"],.bx-planner-run[data-frequency="Monthly"] {background:#fff2ad;border-color:#bb9318;color:#604900}
+.bx-frequency-label[data-frequency="Ad hoc"],.bx-planner-run[data-frequency="Ad hoc"] {background:#efe3ff;border-color:#8850c1;color:#5b258a}
+.bx-planner-run small {color:inherit}
+.bx-planner-controls select {min-height:40px;padding:7px 10px;border:1px solid #b8c8dc;border-radius:6px;background:white;color:#203349}
+@media print {.bx-frequency-label,.bx-planner-run {print-color-adjust:exact;-webkit-print-color-adjust:exact}}

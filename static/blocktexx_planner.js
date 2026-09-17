@@ -25,28 +25,33 @@ window.createBlocktexxPlanner = function() {
     const runs=model.states[state].runs,sites=model.sites;
     const refresh=()=>onSelect(selected);
     root.append(e('h2','Collection planner'));
-    const tabs=e('div',null,'bx-state-tabs');
-    categories.forEach(category=>{const b=e('button',category);b.type='button';b.setAttribute('aria-pressed',String(config.category===category));b.addEventListener('click',()=>{config.category=category;config.all=false;onSelect(null);});tabs.append(b);});
-    root.append(tabs);
     const bar=e('div',null,'bx-planner-controls');
+    const frequencyLabel=e('label','Frequency'),frequency=e('select');frequency.id='bx-frequency-select';frequency.setAttribute('aria-label','Collection frequency');
+    ['All frequencies',...categories].forEach(c=>{const o=e('option',c);o.value=c;frequency.append(o);});
+    frequency.value=config.all?'All frequencies':config.category;
+    frequency.addEventListener('change',()=>{config.all=frequency.value==='All frequencies';if(!config.all)config.category=frequency.value;onSelect(null);});
+    frequencyLabel.append(frequency);bar.append(frequencyLabel);
     const view=e('label','Planner view'),select=e('select');select.setAttribute('aria-label','Planner view');
     [[1,'Week'],[2,'Fortnight'],[4,'Month (4-week cycle)']].forEach(([v,t])=>{const o=e('option',t);o.value=v;select.append(o);});select.value=config.span;
     select.addEventListener('change',()=>{config.span=Number(select.value);config.start=1;refresh();});view.append(select);bar.append(view);
     if(config.span<4){const label=e('label','Cycle period'),period=e('select');period.setAttribute('aria-label','Cycle period');
       (config.span===1?[1,2,3,4]:[1,3]).forEach(w=>{const o=e('option',config.span===1?'Week '+w:'Weeks '+w+'–'+(w+1));o.value=w;period.append(o);});
       period.value=config.start;period.addEventListener('change',()=>{config.start=Number(period.value);refresh();});label.append(period);bar.append(label);}
-    const all=e('label'),checkbox=e('input');checkbox.type='checkbox';checkbox.checked=config.all;checkbox.addEventListener('change',()=>{config.all=checkbox.checked;refresh();});all.append(checkbox,document.createTextNode(' Show all frequencies together'));bar.append(all);root.append(bar);
+    root.append(bar);
+    const legend=e('div',null,'bx-frequency-legend');legend.setAttribute('aria-label','Frequency colours');
+    categories.forEach(c=>{const badge=e('span',c,'bx-frequency-label');badge.dataset.frequency=c;legend.append(badge);});root.append(legend);
     root.append(e('p','Click a day to see its activities below the planner, or select a run card for its details. Mixed-frequency runs appear in each relevant category. Monthly is a four-week planning cycle; eight-weekly work is labelled separately.','bx-muted'));
     const visible=runs.filter(r=>config.all||groups(r,sites).includes(config.category));
     function card(r,week,day) {
-      const b=e('button',null,'bx-planner-run');b.type='button';b.dataset.runId=r.id;b.setAttribute('aria-pressed',String(r.id===selected));
+      const b=e('button',null,'bx-planner-run');b.type='button';b.dataset.runId=r.id;b.dataset.frequency=config.all?groups(r,sites)[0]:config.category;b.setAttribute('aria-pressed',String(r.id===selected));
       const name=r.name.replace(/^Week\s+\d+\s+/i,'').replace(/^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Weekly|Fortnightly)\s*—?\s*/i,'');
       const minutes=['drive_min','service_min','depot_min','prep_min','wait_min','break_min'];
       const hours=minutes.some(k=>r[k]==null)?null:minutes.reduce((n,k)=>n+r[k],0)/60;
       b.append(e('strong',name),e('small',r.site_ids.length+' locations · '+fmt(r.km)+' km · '+fmt(hours)+' h'));
       if(r.runs_4w===.5)b.append(e('small','Every 8 weeks — allocate only when due'));
       if(r.runs_4w===0)b.append(e('small','Paused'));
-      if(groups(r,sites).length>1)b.append(e('small','Mixed: '+groups(r,sites).join(' / ')));
+      const badges=e('div',null,'bx-frequency-badges');
+      groups(r,sites).forEach(c=>{const badge=e('span',c,'bx-frequency-label');badge.dataset.frequency=c;badges.append(badge);});b.append(badges);
       b.addEventListener('click',event=>{event.stopPropagation();if(week!=null)config.selectedDay={week,day};onSelect(r.id);});return b;
     }
     const assigned=visible.filter(r=>slots(r).length),hasWeekend=assigned.some(r=>slots(r).some(s=>s.day>4));
@@ -90,6 +95,8 @@ window.createBlocktexxPlanner = function() {
         const contents=c=>Object.entries(labels).filter(([k])=>c?.[k]).map(([k,l])=>fmt(c[k])+' '+l).join(', ')||'Quantity to confirm';
         activities.forEach((r,index)=>{
           const activity=e('article',null,'bx-day-activity');
+          const badges=e('div',null,'bx-frequency-badges');
+          groups(r,sites).forEach(c=>{const badge=e('span',c,'bx-frequency-label');badge.dataset.frequency=c;badges.append(badge);});activity.append(badges);
           activity.append(e('h4',(index+1)+'. '+r.name),e('p','Start / finish: '+(model.states[state].depot||'Depot to confirm')));
           if(r.runs_4w===0)activity.append(e('p','Paused run — review this allocation.','bx-warning'));
           const p=plans?.[state]?.[r.id];
