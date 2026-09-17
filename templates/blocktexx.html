@@ -1,0 +1,28 @@
+{% extends 'base.html' %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='blocktexx.css') }}">
+<div id="blocktexx" data-revision="{{ revision }}" data-csrf="{{ csrf_token() }}">
+  <div class="page-heading"><div><p class="bx-kicker">SB EMPIRE / PROPOSAL MODELLING</p><h1>BlockTexx collections</h1><p>Build the collection cost first. Add each downstream movement once.</p></div>
+    <div class="actions no-print"><button type="button" id="bx-save" class="primary">Save model</button><button type="button" id="bx-print" class="secondary">Print analysis</button></div></div>
+  <ol class="bx-stages">{% for stage in stages %}<li class="{{ 'active' if loop.first }}"><span>{{ loop.index }}</span>{{ stage }}{% if not loop.first %}<small>Next stage</small>{% endif %}</li>{% endfor %}</ol>
+  <p id="bx-save-status" role="status">{{ 'Saved model loaded.' if saved else 'Import the prepared collection data to begin, or enter your own runs.' }}</p>
+  <div class="bx-banner"><strong>Collection analysis only — not a final proposal rate.</strong> Distance and time estimates are editable. Downstream delivery, decommissioning, returns, consolidation and shredding are not included. Historic intake kilograms are counted once.</div>
+  <div class="bx-overview" id="bx-overview"></div>
+  <nav class="bx-state-tabs" aria-label="Collection state">{% for state in model.states %}<button type="button" data-state="{{ state }}" aria-pressed="{{ 'true' if loop.first else 'false' }}">{{ state }}</button>{% endfor %}</nav>
+  <section class="bx-card"><div class="bx-section-head"><h2 id="bx-state-title">State settings</h2><span id="bx-depot-status"></span></div>
+    <div id="bx-settings" class="bx-settings"></div>
+    <p id="bx-state-notes" class="bx-muted"></p>
+  </section>
+  <div id="bx-metrics" class="bx-metrics"></div>
+  <section class="bx-card"><div class="bx-section-head"><div><h2>Collection runs</h2><p>One row = one complete working day or contractor attendance, including all depot returns. A four-hour minimum applies once to that row.</p></div><button type="button" id="bx-add" class="secondary no-print">Add run</button></div>
+    <p class="bx-muted">Four-week cycle × 13 ÷ 12 = average calendar month. Breaks increase elapsed time but are excluded from working and billable hours. Group multiple same-day trips in one row.</p>
+    <div class="bx-scroll"><table class="bx-table"><thead><tr><th>Run / stops</th><th>Runs / 4 weeks</th><th>Km / run</th><th>Drive min</th><th>Customer min</th><th>Depot min</th><th>Prep min</th><th>Wait min</th><th>Break min</th><th>Work h / run</th><th>Evidence</th><th class="no-print">Edit</th></tr></thead><tbody id="bx-runs"></tbody></table></div>
+    <p id="bx-gaps" class="bx-warning"></p>
+  </section>
+  <section class="bx-card"><h2>Current customer schedule</h2><p>Source locations and service frequencies. Listed quantities retain unresolved repeats; service lines are not unique bins or separate truck trips. Expand a customer to inspect source rows.</p><div id="bx-sites"></div></section>
+  <details class="bx-card"><summary>Decommissioning partners for the next stage</summary><p>Address register only. These movements contribute no collection kilometres or costs yet.</p><div id="bx-partners"></div></details>
+  <section class="bx-card no-print"><h2>Save and transfer</h2><p id="bx-source"></p><p id="bx-notes"></p><div class="actions"><button class="secondary" type="button" id="bx-download">Download current draft JSON</button><a class="button secondary" href="{{ url_for('export_blocktexx', format='csv') }}">Export saved runs CSV</a><a class="button secondary" href="{{ url_for('export_blocktexx') }}">Export saved model JSON</a></div><label class="bx-import">Import a model file <input type="file" id="bx-import" accept=".json,application/json"></label><label class="bx-confirm"><input type="checkbox" id="bx-replace"> Replace the model currently shown with the imported file. Saved history is retained.</label><p>Import loads a draft. Review it and select Save model to persist it. Download your draft before closing if saving fails.</p></section>
+</div>
+<script id="bx-data" type="application/json">{{ model | tojson }}</script>
+<script src="{{ url_for('static', filename='blocktexx.js') }}" defer></script>
+{% endblock %}

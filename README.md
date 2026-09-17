@@ -146,3 +146,17 @@ Admin annual leave includes Archive/Restore and confirmed Delete controls. Archi
 Payment deductions default to zero for historical payments. The payment-table constraint is migrated atomically while retaining payment IDs and snapshots. Cash + transfer + deductions must equal the submitted timesheet total. Net pay on slips and staff Home excludes deductions.
 
 Payment processing prominently displays a live balance remaining and total allocated as cash, transfer and deductions are entered. Over-allocation is highlighted; processing is enabled only when all inputs are valid and the balance is zero.
+
+## BlockTexx collection modelling
+
+Admin → BLOCKTEXX MODEL provides a shared, saved collection-analysis model for QLD, NSW, VIC and SA. Import a prepared version-1 JSON model through the admin screen, review it, then Save model. Customer schedules and commercial assumptions belong in the private database/import file, not the public repository. No customer data is seeded by this change.
+
+Each run row is one complete workday or contractor attendance, including all depot returns. Enter occurrences per four weeks, round-trip kilometres, driving, customer handling, depot handling, preparation, waiting and unpaid break minutes. Working time excludes breaks; elapsed time includes them. The contractor minimum applies once per run row. Combine trips sharing one attendance rather than billing the minimum repeatedly. Calendar-month totals use four-week values × 13 / 12. Eight-week services average 0.5 occurrences per four weeks; ad hoc frequencies remain blank until budgeted.
+
+Customer source schedules and proposed grouped runs are separate. Rows retain source references, equipment descriptions, frequency and assumptions. Missing frequencies/measurements and unassigned customers prevent a complete collection-only per-kg result. Known cost subtotals remain visible; these are not final proposal prices. Depot or sequence changes invalidate the draft route distance/driving estimates. Verified measurements require source/date evidence. Kilograms are a single state intake denominator and are not re-added for later movements.
+
+The later-stage partner address register is retained separately. Decom deliveries, returns, consolidation, Threadtexx delivery and shredding do not enter stage-one totals. Own-fleet monthly allowances and contractor rates are editable; unset prices stay unpriced.
+
+Model data is stored in new additive SQLite tables with administrator attribution and revision history. Saves reject stale revisions so another admin's work cannot be overwritten silently. Every page, save and export requires admin access; saves use existing CSRF protection. JSON supports model transfer and draft recovery; CSV exports the saved run tables. The screen warns before closing an unsaved draft. Existing payroll, rental and staff tables are unchanged.
+
+Focused checks: `python -m unittest discover -s tests -p test_blocktexx.py -v` and `node --check static/blocktexx.js`.
