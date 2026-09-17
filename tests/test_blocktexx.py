@@ -137,6 +137,24 @@ class PersistenceTests(unittest.TestCase):
         p['cage']['purchase_each']=-1
         self.assertEqual(self.save(saved,1).status_code,400)
 
+    def test_private_depot_update_applies_once_and_preserves_later_edits(self):
+        m=example()
+        self.assertEqual(self.save(m).status_code,200)
+        update=json.dumps({'id':'test-depot-update','state':'QLD','depot':'Test storage — test address'})
+        with patch.dict('os.environ',{'BLOCKTEXX_DEPOT_UPDATE_JSON':update}):
+            create_app(self.config)
+            loaded=self.client.get('/admin/blocktexx/export').json
+            self.assertEqual(loaded['states']['QLD']['depot'],'Test storage — test address')
+            self.assertEqual(loaded['states']['QLD']['depot_status'],'confirmed')
+            self.assertEqual(loaded['states']['VIC']['monthly_kg'],1000)
+            loaded['states']['QLD']['depot']='Later user edit'
+            self.assertEqual(self.save(loaded,2).status_code,200)
+            create_app(self.config)
+        self.assertEqual(self.client.get('/admin/blocktexx/export').json['states']['QLD']['depot'],'Later user edit')
+        with sqlite3.connect(self.path) as c:
+            self.assertEqual(c.execute('SELECT COUNT(*) FROM blocktexx_applied_updates').fetchone()[0],1)
+            self.assertEqual(c.execute('SELECT COUNT(*) FROM blocktexx_model_history').fetchone()[0],3)
+
     def test_import_validation_normalizes_without_saving(self):
         m=example();m['states']['VIC']['hourly_rate']='125'
         r=self.client.post('/admin/blocktexx/validate',data={'csrf':'test','model':json.dumps(m)})

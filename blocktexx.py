@@ -307,6 +307,42 @@ def register_blocktexx(app, db, require):
         else:
             db().rollback()
 
+    # Apply an explicitly configured, one-time depot correction to the saved model.
+    # Operational addresses remain in private deployment configuration, not source.
+    depot_update = os.environ.get('BLOCKTEXX_DEPOT_UPDATE_JSON')
+    if depot_update:
+        update = json.loads(depot_update)
+        update_id = text(update.get('id', ''), 'Depot update ID', 100)
+        state = update.get('state')
+        depot = text(update.get('depot', ''), 'Depot', 2000)
+        if not update_id or state not in STATES or not depot:
+            raise ValueError('Depot update needs an ID, valid state and depot.')
+        with app.app_context():
+            db().execute('CREATE TABLE IF NOT EXISTS blocktexx_applied_updates (id TEXT PRIMARY KEY, applied_at TEXT NOT NULL)')
+            db().commit()
+            db().execute('BEGIN IMMEDIATE')
+            done = db().execute('SELECT id FROM blocktexx_applied_updates WHERE id=?', (update_id,)).fetchone()
+            saved_model = db().execute('SELECT * FROM blocktexx_model WHERE id=1').fetchone()
+            if done or not saved_model:
+                db().rollback()
+            else:
+                updated = json.loads(saved_model['data'])
+                updated['states'][state]['depot'] = depot
+                updated['states'][state]['depot_status'] = 'confirmed'
+                for run in updated['states'][state]['runs']:
+                    if run.get('status') == 'verified':
+                        run['status'] = 'estimated'
+                    note = 'Exact depot address confirmed; recheck distance and driving allowances.'
+                    run['evidence'] = (run.get('evidence', '')[:1900] + ' ' + note).strip()
+                payload = json.dumps(validate_model(updated), allow_nan=False)
+                revision = saved_model['revision'] + 1
+                now = datetime.now(timezone.utc).isoformat()
+                db().execute('UPDATE blocktexx_model SET revision=?,data=?,updated_at=? WHERE id=1', (revision,payload,now))
+                db().execute('INSERT INTO blocktexx_model_history VALUES(?,?,?,?)', (revision,payload,saved_model['updated_by'],now))
+                db().execute('INSERT INTO blocktexx_applied_updates VALUES(?,?)', (update_id,now))
+                db().commit()
+                app.logger.warning('BlockTexx depot update: %s applied to %s; saved revision %s with history retained.', update_id,state,revision)
+
     def current():
         row = db().execute('SELECT * FROM blocktexx_model WHERE id=1').fetchone()
         return (validate_model(json.loads(row['data'])), row['revision'], row['updated_at']) if row else (empty_model(), 0, None)
