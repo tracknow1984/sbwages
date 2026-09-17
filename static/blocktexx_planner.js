@@ -2,6 +2,7 @@ window.createBlocktexxPlanner = function() {
   const days=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
   const categories=['Weekly','Fortnightly','Monthly','Ad hoc'];
   const settings={};
+  let popup=null, dismissPopup=null;
   const e=(tag,text,cls)=>{const n=document.createElement(tag);if(text!=null)n.textContent=text;if(cls)n.className=cls;return n;};
   const fmt=n=>n==null?'TBC':Number(n).toLocaleString('en-AU',{maximumFractionDigits:1});
   function slots(r) {
@@ -52,7 +53,7 @@ window.createBlocktexxPlanner = function() {
       if(r.runs_4w===0)b.append(e('small','Paused'));
       const badges=e('div',null,'bx-frequency-badges');
       groups(r,sites).forEach(c=>{const badge=e('span',c,'bx-frequency-label');badge.dataset.frequency=c;badges.append(badge);});b.append(badges);
-      b.addEventListener('click',event=>{event.stopPropagation();if(week!=null)config.selectedDay={week,day};onSelect(r.id);});return b;
+      b.addEventListener('click',event=>{event.stopPropagation();if(week!=null){config.selectedDay={week,day};config.dayOpen=true;}onSelect(r.id);});return b;
     }
     const assigned=visible.filter(r=>slots(r).length),hasWeekend=assigned.some(r=>slots(r).some(s=>s.day>4));
     const wrap=e('div',null,'bx-scroll'),table=e('table',null,'bx-planner-grid'),head=e('tr');
@@ -122,18 +123,33 @@ window.createBlocktexxPlanner = function() {
         panel.append(e('p','Activity order follows the saved run/load sequence. Run order within the day is not a timed dispatch schedule.','bx-muted'));
       }
     }
-    if(config.selectedDay){
-      const dialog=e('dialog',null,'bx-day-dialog');dialog.id='bx-day-dialog';
+    if(config.selectedDay&&config.dayOpen){
+      if(!popup){
+        popup=e('div',null,'bx-modal-backdrop');popup.id='bx-day-popup';
+        const dialog=e('div',null,'bx-day-dialog');dialog.id='bx-day-dialog';
+        dialog.setAttribute('role','dialog');dialog.setAttribute('aria-modal','true');dialog.setAttribute('aria-labelledby','bx-day-dialog-title');dialog.tabIndex=-1;
+        popup.append(dialog);document.body.append(popup);
+        popup.addEventListener('pointerdown',event=>{if(event.target===popup)dismissPopup?.();});
+        popup.addEventListener('keydown',event=>{
+          if(event.key==='Escape'){event.preventDefault();dismissPopup?.();return;}
+          if(event.key==='Tab'){
+            const focusable=[...popup.querySelectorAll('button,a[href],input,select,textarea,[tabindex="0"]')].filter(n=>!n.disabled);
+            const first=focusable[0],last=focusable[focusable.length-1];
+            if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}
+            else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}
+          }
+        });
+      }
+      const dialog=popup.querySelector('#bx-day-dialog'),wasHidden=popup.hidden||!dialog.children.length;
       const title=e('h2','Week '+config.selectedDay.week+' · '+days[config.selectedDay.day]+' summary');title.id='bx-day-dialog-title';
-      dialog.setAttribute('aria-labelledby',title.id);
       const header=e('div',null,'bx-day-dialog-header'),close=e('button','Close ×','secondary');close.type='button';close.setAttribute('aria-label','Close day summary');
-      header.append(title,close);dialog.append(header,panel);root.append(dialog);
-      const restoreFocus=()=>{config.dayOpen=false;root.querySelector('[data-week="'+config.selectedDay.week+'"][data-day="'+config.selectedDay.day+'"] .bx-view-day')?.focus({preventScroll:true});};
-      close.addEventListener('click',()=>dialog.close());
-      dialog.addEventListener('close',restoreFocus);
-      dialog.addEventListener('cancel',()=>{config.dayOpen=false;});
-      dialog.addEventListener('click',event=>{if(event.target===dialog){const rect=dialog.getBoundingClientRect();if(event.clientX<rect.left||event.clientX>rect.right||event.clientY<rect.top||event.clientY>rect.bottom)dialog.close();}});
-      if(config.dayOpen){dialog.showModal();close.focus({preventScroll:true});}
+      dismissPopup=()=>{config.dayOpen=false;popup.hidden=true;document.body.classList.remove('bx-popup-open');root.querySelector('[data-week="'+config.selectedDay.week+'"][data-day="'+config.selectedDay.day+'"] .bx-view-day')?.focus({preventScroll:true});};
+      close.addEventListener('click',()=>dismissPopup());
+      const focusedLabel=popup.contains(document.activeElement)?document.activeElement.getAttribute('aria-label'):null;
+      header.append(title,close);dialog.replaceChildren(header,panel);popup.hidden=false;document.body.classList.add('bx-popup-open');
+      if(wasHidden||focusedLabel||document.activeElement===document.body)close.focus({preventScroll:true});
+    }else if(popup){
+      popup.hidden=true;document.body.classList.remove('bx-popup-open');
     }
     const pending=visible.filter(r=>!slots(r).length||r.runs_4w==null||slots(r).length!==r.runs_4w);
     const backlog=e('div',null,'bx-planner-backlog');backlog.append(e('h3',config.category==='Ad hoc'&&!config.all?'Ad hoc / awaiting booking':'Needs allocation or review'));

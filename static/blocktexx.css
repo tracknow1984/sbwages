@@ -51,3 +51,9 @@
 .bx-day-dialog .bx-customers {min-width:650px}
 @media(max-width:600px){.bx-day-dialog-header {padding:14px}.bx-day-dialog .bx-day-activities {padding:12px}}
 @media print {.bx-day-dialog[open] {position:static;width:100%;max-width:none;max-height:none;overflow:visible;box-shadow:none}.bx-day-dialog-header button{display:none}}
+.bx-modal-backdrop {position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;padding:3vh 3vw;background:rgba(15,28,48,.65)}
+.bx-modal-backdrop[hidden] {display:none!important}
+body.bx-popup-open {overflow:hidden}
+.bx-modal-backdrop .bx-day-dialog {position:relative;display:block;margin:0;box-sizing:border-box}
+.bx-modal-backdrop .bx-day-dialog-header h2 {margin:0;font-size:1.25rem}
+@media print {.bx-modal-backdrop:not([hidden]) {position:static;display:block;background:white;padding:0}.bx-modal-backdrop .bx-day-dialog {max-height:none;width:100%;max-width:none;box-shadow:none}}
