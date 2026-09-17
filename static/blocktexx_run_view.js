@@ -7,7 +7,7 @@ window.createBlocktexxRunView = function(getModel,getState,getPlans,onChange) {
   function render() {
     const model=getModel(),state=getState(),data=model.states[state],runs=data.runs;
     host.replaceChildren();
-    planner.render(host,model,state,selection[state],id=>{selection[state]=id;render();},onChange);
+    planner.render(host,model,state,selection[state],id=>{selection[state]=id;render();},onChange,getPlans());
     const r=runs.find(r=>r.id===selection[state]);
     if(!r){host.append(e('p','Select a run above to view its collection details.'));return;}
     const root=e('section',null,'bx-selected-run');host.append(root);

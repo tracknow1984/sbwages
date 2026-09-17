@@ -20,7 +20,7 @@ window.createBlocktexxPlanner = function() {
     if(!result.size)result.add(r.runs_4w>=4?'Weekly':r.runs_4w>=2?'Fortnightly':'Monthly');
     return [...result];
   }
-  function render(root,model,state,selected,onSelect,onChange) {
+  function render(root,model,state,selected,onSelect,onChange,plans) {
     const config=settings[state]||(settings[state]={category:'Weekly',span:4,start:1,all:false});
     const runs=model.states[state].runs,sites=model.sites;
     const refresh=()=>onSelect(selected);
@@ -36,9 +36,9 @@ window.createBlocktexxPlanner = function() {
       (config.span===1?[1,2,3,4]:[1,3]).forEach(w=>{const o=e('option',config.span===1?'Week '+w:'Weeks '+w+'–'+(w+1));o.value=w;period.append(o);});
       period.value=config.start;period.addEventListener('change',()=>{config.start=Number(period.value);refresh();});label.append(period);bar.append(label);}
     const all=e('label'),checkbox=e('input');checkbox.type='checkbox';checkbox.checked=config.all;checkbox.addEventListener('change',()=>{config.all=checkbox.checked;refresh();});all.append(checkbox,document.createTextNode(' Show all frequencies together'));bar.append(all);root.append(bar);
-    root.append(e('p','Select a run card for pickups, quantities, kilometres and load details. Mixed-frequency runs appear in each relevant category. Monthly is a four-week planning cycle; eight-weekly work is labelled separately.','bx-muted'));
+    root.append(e('p','Click a day to see its activities below the planner, or select a run card for its details. Mixed-frequency runs appear in each relevant category. Monthly is a four-week planning cycle; eight-weekly work is labelled separately.','bx-muted'));
     const visible=runs.filter(r=>config.all||groups(r,sites).includes(config.category));
-    function card(r) {
+    function card(r,week,day) {
       const b=e('button',null,'bx-planner-run');b.type='button';b.dataset.runId=r.id;b.setAttribute('aria-pressed',String(r.id===selected));
       const name=r.name.replace(/^Week\s+\d+\s+/i,'').replace(/^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Weekly|Fortnightly)\s*—?\s*/i,'');
       const minutes=['drive_min','service_min','depot_min','prep_min','wait_min','break_min'];
@@ -47,7 +47,7 @@ window.createBlocktexxPlanner = function() {
       if(r.runs_4w===.5)b.append(e('small','Every 8 weeks — allocate only when due'));
       if(r.runs_4w===0)b.append(e('small','Paused'));
       if(groups(r,sites).length>1)b.append(e('small','Mixed: '+groups(r,sites).join(' / ')));
-      b.addEventListener('click',()=>onSelect(r.id));return b;
+      b.addEventListener('click',event=>{event.stopPropagation();if(week!=null)config.selectedDay={week,day};onSelect(r.id);});return b;
     }
     const assigned=visible.filter(r=>slots(r).length),hasWeekend=assigned.some(r=>slots(r).some(s=>s.day>4));
     const wrap=e('div',null,'bx-scroll'),table=e('table',null,'bx-planner-grid'),head=e('tr');
@@ -56,12 +56,66 @@ window.createBlocktexxPlanner = function() {
       const row=e('tr');row.append(e('th','Week '+week));
       days.slice(0,hasWeekend?7:5).forEach((day,d)=>{
         const cell=e('td');cell.dataset.week=week;cell.dataset.day=d;
+        const active=config.selectedDay?.week===week&&config.selectedDay?.day===d;
+        cell.classList.toggle('bx-day-selected',active);
+        const choose=()=>{config.selectedDay={week,day:d};onSelect(null);};
+        cell.addEventListener('click',choose);
+        const dayButton=e('button','View day','bx-view-day');dayButton.type='button';
+        dayButton.setAttribute('aria-label','View activities for Week '+week+' '+day);
+        dayButton.setAttribute('aria-pressed',String(active));
+        dayButton.addEventListener('click',event=>{event.stopPropagation();choose();});cell.append(dayButton);
         const entries=assigned.flatMap(r=>slots(r).filter(s=>s.week===week&&s.day===d).map(()=>r));
-        entries.forEach(r=>cell.append(card(r)));
+        entries.forEach(r=>cell.append(card(r,week,d)));
         if(!entries.length)cell.append(e('span','—','bx-muted'));row.append(cell);
       });table.append(row);
     }
     wrap.append(table);root.append(wrap);
+    const panel=e('section',null,'bx-day-activities');panel.id='bx-day-activities';
+    if(!config.selectedDay){
+      panel.append(e('p','Click a week and day above to see all activities for that day.'));
+    }else{
+      const {week,day}=config.selectedDay;
+      const activities=runs.flatMap(r=>slots(r).filter(s=>s.week===week&&s.day===day).map(()=>r));
+      panel.append(e('h3','Week '+week+' · '+days[day]+' activities'),
+        e('p','All frequencies for this day are shown below, including runs outside the selected category.'));
+      if(!activities.length)panel.append(e('p','No activities allocated to this day.'));
+      else {
+        const timeKeys=['drive_min','service_min','depot_min','prep_min','wait_min','break_min'];
+        const kmUnknown=activities.some(r=>r.km==null);
+        const timeUnknown=activities.some(r=>timeKeys.some(k=>r[k]==null));
+        const km=activities.reduce((a,r)=>a+(r.km||0),0);
+        const hours=activities.reduce((a,r)=>a+timeKeys.reduce((n,k)=>n+(r[k]||0),0),0)/60;
+        panel.append(e('p',activities.length+' run occurrences · '+activities.reduce((a,r)=>a+r.site_ids.length,0)+' customer visits before load splits · '+fmt(km)+' km'+(kmUnknown?' known (incomplete)':'')+' · '+fmt(hours)+' hours'+(timeUnknown?' known (incomplete)':' estimated elapsed')));
+        const labels={cage:'cages',bin660:'660L bins',bin240:'240L bins',bin120:'120L bins',pallecon:'pallecons'};
+        const contents=c=>Object.entries(labels).filter(([k])=>c?.[k]).map(([k,l])=>fmt(c[k])+' '+l).join(', ')||'Quantity to confirm';
+        activities.forEach((r,index)=>{
+          const activity=e('article',null,'bx-day-activity');
+          activity.append(e('h4',(index+1)+'. '+r.name),e('p','Start / finish: '+(model.states[state].depot||'Depot to confirm')));
+          if(r.runs_4w===0)activity.append(e('p','Paused run — review this allocation.','bx-warning'));
+          const p=plans?.[state]?.[r.id];
+          const rows=[];
+          if(p&&!p.issues.length&&p.loads.length){
+            p.loads.forEach((load,i)=>{
+              load.stops.forEach(stop=>rows.push(['Load '+(i+1)+' · Collect',stop.name,stop.address,contents(stop.containers)]));
+              rows.push(['Load '+(i+1)+' · Return / unload',model.states[state].depot||'Depot to confirm','',fmt(load.spaces)+' positions · '+fmt(load.spare_spaces)+' spare']);
+            });
+          }else r.site_ids.forEach(id=>{const s=sites.find(s=>s.id===id);if(s)rows.push(['Collect',s.name,s.address,contents(s.containers)]);});
+          const scroll=e('div',null,'bx-scroll'),t=e('table',null,'bx-customers'),head=e('tr');
+          ['Activity','Location','Address','What / quantity'].forEach(x=>head.append(e('th',x)));t.append(head);
+          rows.forEach(values=>{const row=e('tr');values.forEach(x=>row.append(e('td',x||'—')));t.append(row);});scroll.append(t);activity.append(scroll);
+          const duration=timeKeys.some(k=>r[k]==null)?null:timeKeys.reduce((a,k)=>a+r[k],0)/60;
+          activity.append(e('p',fmt(r.km)+' km · '+fmt(duration)+' hours elapsed · '+r.status),
+            e('p','Driving '+fmt(r.drive_min)+' min · Collections '+fmt(r.service_min)+' min · Depot '+fmt(r.depot_min)+' min · Prep '+fmt(r.prep_min)+' min · Waiting '+fmt(r.wait_min)+' min · Breaks '+fmt(r.break_min)+' min'),
+            e('p',r.sequence||'Route sequence to confirm'));
+          if(p?.issues.length)activity.append(e('p',p.issues.join('; '),'bx-warning'));
+          if(p?.extra_loads)activity.append(e('p',p.extra_loads+' extra loads need updated distance/time allowances.','bx-warning'));
+          const detail=e('button','Open / edit run details','secondary');detail.type='button';detail.addEventListener('click',()=>onSelect(r.id));activity.append(detail);
+          panel.append(activity);
+        });
+        panel.append(e('p','Activity order follows the saved run/load sequence. Run order within the day is not a timed dispatch schedule.','bx-muted'));
+      }
+    }
+    root.append(panel);
     const pending=visible.filter(r=>!slots(r).length||r.runs_4w==null||slots(r).length!==r.runs_4w);
     const backlog=e('div',null,'bx-planner-backlog');backlog.append(e('h3',config.category==='Ad hoc'&&!config.all?'Ad hoc / awaiting booking':'Needs allocation or review'));
     if(!pending.length)backlog.append(e('p','All runs in this view have their planned occurrences allocated.'));

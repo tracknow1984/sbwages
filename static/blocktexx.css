@@ -24,3 +24,10 @@
 .bx-planner-backlog h3,.bx-planner-backlog > p {grid-column:1/-1}
 .bx-selected-run {border-top:2px solid #dbe4ef;margin-top:24px;padding-top:20px}
 .bx-planner-allocate {padding:14px;background:#f3f7fc;border-radius:8px}
+.bx-planner-grid td {cursor:pointer}
+.bx-planner-grid td.bx-day-selected {background:#dcecff;box-shadow:inset 0 0 0 2px #2469b4}
+.bx-view-day {display:block;background:transparent;color:#215e9f;border:0;text-decoration:underline;padding:4px 0;margin-bottom:8px;font-size:13px;cursor:pointer}
+.bx-view-day:focus-visible {outline:2px solid #2469b4;outline-offset:3px}
+.bx-day-activities {margin:20px 0;padding:18px;border:1px solid #bdd3ec;border-radius:10px;background:#f7faff}
+.bx-day-activity {background:white;border:1px solid #dbe4ef;border-radius:8px;margin:14px 0;padding:16px}
+.bx-day-activity h4 {margin:0 0 10px}
