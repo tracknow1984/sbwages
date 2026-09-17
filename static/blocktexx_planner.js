@@ -52,7 +52,7 @@ window.createBlocktexxPlanner = function() {
         day:target.day,week:target.week,override:target.override};
       onSelect(run.id);
     }
-    root.append(e('h2','Collection planner'),e('p','Normal working day: 6:30 am–3:30 pm (9 hours), for company and subcontractor runs. Dragging beyond this asks for overtime approval. Includes driving, collections, depot handling, preparation, waiting and breaks. One daily truck/driver schedule per state.','bx-muted'));
+    root.append(e('h2','Local transport planner'),e('p','Normal working day: 6:30 am–3:30 pm (9 hours), for company and subcontractor runs. Dragging beyond this asks for overtime approval. Includes driving, collections, depot handling, preparation, waiting and breaks. One daily truck/driver schedule per state.','bx-muted'));
     const bar=e('div',null,'bx-planner-controls');
     const frequencyLabel=e('label','Frequency'),frequency=e('select');frequency.id='bx-frequency-select';frequency.setAttribute('aria-label','Collection frequency');
     ['All frequencies',...categories].forEach(c=>{const o=e('option',c);o.value=c;frequency.append(o);});
@@ -96,7 +96,7 @@ window.createBlocktexxPlanner = function() {
       const name=r.name.replace(/^Week\s+\d+\s+/i,'').replace(/^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Weekly|Fortnightly)\s*—?\s*/i,'');
       const minutes=['drive_min','service_min','depot_min','prep_min','wait_min','break_min'];
       const hours=minutes.some(k=>r[k]==null)?null:minutes.reduce((n,k)=>n+r[k],0)/60;
-      b.append(e('strong',name),e('small',r.site_ids.length+' locations · '+fmt(r.km)+' km · '+fmt(hours)+' h'));
+      b.append(e('strong',name),e('small',(r.activity_type&&r.activity_type!=='collection'?(window.BlocktexxActivityLabels?.[r.activity_type]||r.activity_type):r.site_ids.length+' collection locations')+' · '+fmt(r.km)+' km · '+fmt(hours)+' h'));
       if(r.runs_4w===.5)b.append(e('small','Every 8 weeks — allocate only when due'));
       if(r.runs_4w===0)b.append(e('small','Paused'));
       if(week!=null&&r.runs_4w!=null&&slots(r).length!==r.runs_4w)b.append(e('small','Review frequency: '+slots(r).length+' allocated / '+fmt(r.runs_4w)+' planned'));
@@ -207,10 +207,15 @@ window.createBlocktexxPlanner = function() {
           const activity=e('article',null,'bx-day-activity');
           const badges=e('div',null,'bx-frequency-badges');
           groups(r,sites).forEach(c=>{const badge=e('span',c,'bx-frequency-label');badge.dataset.frequency=c;badges.append(badge);});activity.append(badges);
-          activity.append(e('h4',(index+1)+'. '+r.name),e('p','Start / finish: '+(model.states[state].depot||'Depot to confirm')));
+          activity.append(e('h4',(index+1)+'. '+r.name),e('p',r.activity_type&&r.activity_type!=='collection'?(window.BlocktexxActivityLabels?.[r.activity_type]||r.activity_type):'Start / finish: '+(model.states[state].depot||'Depot to confirm')));
           const reallocate=e('button','Reallocate','primary');reallocate.type='button';
           reallocate.addEventListener('click',()=>openAllocation(r,{week,day}));activity.append(reallocate);
           if(r.runs_4w===0)activity.append(e('p','Paused run — review this allocation.','bx-warning'));
+          if(r.activity_type && r.activity_type!=='collection'){
+            activity.append(e('p',r.origin+' → '+r.destination),e('p','Cargo: '+(r.cargo||'To confirm')+' · '+fmt(r.movement_kg)+' kg moved'),
+              e('p',fmt(r.km)+' km · '+fmt(timeKeys.some(k=>r[k]==null)?null:timeKeys.reduce((n,k)=>n+r[k],0)/60)+' hours · check downstream cargo capacity.'));
+            const edit=e('button','Edit movement','secondary');edit.type='button';edit.onclick=()=>{config.dayOpen=false;onSelect(r.id);document.dispatchEvent(new CustomEvent('bx-edit-movement',{detail:r.id}));};activity.append(edit);panel.append(activity);return;
+          }
           const p=plans?.[state]?.[r.id];
           const rows=[];
           const required=Object.fromEntries(Object.keys(labels).map(k=>[k,r.site_ids.reduce((n,id)=>n+(sites.find(s=>s.id===id)?.containers?.[k]||0),0)]));
@@ -285,7 +290,7 @@ window.createBlocktexxPlanner = function() {
       const body=e('div',null,'bx-allocation-body');body.append(e('h3',allocationRun.name));
       const swapLabels={cage:'cages',bin660:'660L bins',bin240:'240L bins',bin120:'120L bins',pallecon:'pallecons'};
       const swaps=Object.entries(swapLabels).map(([k,label])=>{const count=allocationRun.site_ids.reduce((n,id)=>n+(sites.find(s=>s.id===id)?.containers?.[k]||0),0);return count?fmt(count)+' '+label:null;}).filter(Boolean).join(', ');
-      body.append(e('p',swaps?'Each run requires '+swaps+' EMPTY for switch-outs, with matching FULL returns. Truckload splits appear in the day summary.':'Switch-out quantities need confirmation before loading.'));
+      body.append(e('p',allocationRun.activity_type&&allocationRun.activity_type!=='collection'?allocationRun.origin+' → '+allocationRun.destination+' · '+(allocationRun.cargo||'Cargo to confirm'):swaps?'Each run requires '+swaps+' EMPTY for switch-outs, with matching FULL returns. Truckload splits appear in the day summary.':'Switch-out quantities need confirmation before loading.'));
 
       function field(label,key,options){
         const l=e('label',label),select=e('select');select.setAttribute('aria-label',label);

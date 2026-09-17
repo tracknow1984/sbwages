@@ -4,10 +4,10 @@
   if (!root) return;
   let model = JSON.parse(document.getElementById('bx-data').textContent);
   let state = 'QLD', revision = Number(root.dataset.revision), dirty = false, saving = false, generation = 0;
-  let capacityUI, runView, consolidation;
+  let capacityUI, runView, consolidation, movementUI, interstateUI;
   let activePane = 'planner';
   function renderResources() { window.renderBlocktexxResources?.(model,state,()=>{changed();renderSites();}); }
-  function renderPane() { $('bx-planner-pane').hidden=activePane!=='planner';$('bx-resources').hidden=activePane!=='resources';document.querySelectorAll('[data-bx-pane]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.bxPane===activePane))); }
+  function renderPane() { $('bx-interstate-pane').hidden=activePane!=='interstate';document.querySelector('[aria-label="Collection state"]').hidden=activePane==='interstate';$('bx-planner-pane').hidden=activePane!=='planner';$('bx-resources').hidden=activePane!=='resources';document.querySelectorAll('[data-bx-pane]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.bxPane===activePane))); }
   const $ = id => document.getElementById(id);
   const fmt = (n, places = 1) => n == null ? 'Not set' : Number(n).toLocaleString('en-AU', {maximumFractionDigits: places});
   const money = n => n == null ? 'Not priced' : '$' + fmt(n, 0);
@@ -20,21 +20,23 @@
     $('bx-save-status').textContent=message;
     $('bx-resources-save-status').textContent=message;
     $('bx-cost-save-status').textContent=message;
+    $('bx-interstate-save-status').textContent=message;
   }
-  function changed() { dirty = true; generation++; saveStatus('Unsaved changes — select Save model, Save resources or Save cost model.'); capacityUI?.render(); renderMetrics(); renderOverview(); runView?.render(); renderResources();consolidation?.render(); }
+  function changed() { dirty = true; generation++; saveStatus('Unsaved changes — select Save model, Save resources or Save cost model.'); capacityUI?.render(); renderMetrics(); renderOverview(); runView?.render(); renderResources();consolidation?.render();interstateUI?.refresh(); }
   function summary(s) {
     const d = model.states[s]; let km = 0, work = 0, billed = 0, elapsed = 0, pending = 0, estimates = 0, active = 0;
     d.runs.forEach(r => {
-      if (r.runs_4w == null) { pending++; return; }
-      if (!r.runs_4w) return;
+      const count=r.runs_4w??(r.activity_type&&r.activity_type!=='collection'&&r.planner_slots?.length?r.planner_slots.length:null);
+      if (count == null) { pending++; return; }
+      if (!count) return;
       active++;
       if (r.status !== 'verified') estimates++;
       const plan = capacityUI?.getPlans()?.[s]?.[r.id];
-      if (['NSW','QLD'].includes(s) && (!plan || plan.issues.length || plan.extra_loads)) pending++;
+      if ((!r.activity_type||r.activity_type==='collection') && ['NSW','QLD'].includes(s) && (!plan || plan.issues.length || plan.extra_loads)) pending++;
       const h = working(r);
       if (r.km == null || h == null || r.break_min == null) pending++;
-      km += (r.km || 0) * r.runs_4w;
-      if (h != null) { work += h * r.runs_4w; billed += Math.max(h,d.minimum_hours) * r.runs_4w; elapsed += (h + (r.break_min || 0)/60) * r.runs_4w; }
+      km += (r.km || 0) * count;
+      if (h != null) { work += h * count; billed += Math.max(h,d.minimum_hours) * count; elapsed += (h + (r.break_min || 0)/60) * count; }
     });
     const assigned = new Set(d.runs.filter(r=>r.runs_4w!==0).flatMap(r=>r.site_ids));
     pending += model.sites.filter(site=>site.state===s&&!assigned.has(site.id)).length;
@@ -59,9 +61,9 @@
   function renderMetrics() {
     const v = summary(state);
     window.BlocktexxCosts?.renderComparison($('bx-cost-comparison'),model.states[state],v.pending);
-    const items = [['Known km / 4 weeks',fmt(v.km,0)],['Known working hours / 4 weeks',fmt(v.work)],['Calendar-month working hours',fmt(v.work*13/12)],['Unallocated hours / 4 weeks',fmt(v.spare)],['Elapsed hours / 4 weeks',fmt(v.elapsed)],['Billable hours / 4 weeks',fmt(v.billed)],['Known collection cost / month',money(v.cost)],['Collection-only cost / kg',v.rate == null ? 'Incomplete' : '$'+fmt(v.rate,3)]];
+    const items = [['Known km / 4 weeks',fmt(v.km,0)],['Known working hours / 4 weeks',fmt(v.work)],['Calendar-month working hours',fmt(v.work*13/12)],['Unallocated hours / 4 weeks',fmt(v.spare)],['Elapsed hours / 4 weeks',fmt(v.elapsed)],['Billable hours / 4 weeks',fmt(v.billed)],['Known local transport cost / month',money(v.cost)],['Local transport cost / kg',v.rate == null ? 'Incomplete' : '$'+fmt(v.rate,3)]];
     $('bx-metrics').replaceChildren(...items.map(([a,b]) => { const n=el('div',a); n.append(el('strong',b)); return n; }));
-    $('bx-gaps').textContent = `${v.pending} gaps: missing frequency/measurements, unresolved truck capacity, unassigned customers or customer frequencies that differ from the route plan. ${v.estimates} active rows use estimates. Customer frequency edits update visit demand immediately; revise affected grouped runs to update kilometres, hours and costs. Historic kilograms do not change automatically. Unallocated hours still need to cover downstream work.`;
+    $('bx-gaps').textContent = `${v.pending} gaps: missing frequency/measurements, unresolved truck capacity, unassigned customers or customer frequencies that differ from the route plan. ${v.estimates} active rows use estimates. Customer frequency edits update visit demand immediately; revise affected grouped runs to update kilometres, hours and costs. Historic kilograms do not change automatically. All entered local movements share these hours. Interstate transfers have their own calendar and cost centre.`;
   }
   function inputField(key,label,options) {
     const d=model.states[state], wrap=el('label',label); let input;
@@ -101,6 +103,7 @@
     });
   }
   function editRun(r,tr) {
+    if(r.activity_type&&r.activity_type!=='collection'){movementUI.edit(r);return;}
     document.querySelectorAll('.bx-editor').forEach(n=>n.remove());
     const box=el('div',null,'bx-editor'),fields={};
     [['name','Run name'],['sequence','Sequence — include every depot return'],['notes','Capacity, access and other assumptions'],['evidence','Distance/time source and date']].forEach(([k,label])=>{const l=el('label',label),i=el(k==='name'?'input':'textarea');i.value=r[k];i.maxLength=2000;fields[k]=i;l.append(i);box.append(l);});
@@ -125,16 +128,16 @@
     });table.append(body);$('bx-sites').replaceChildren(table);
     const partners=model.partners.filter(s=>s.state===state);$('bx-partners').replaceChildren(...(partners.length?partners.map(p=>{const n=el('div',null,'bx-site');n.append(el('strong',p.name),el('p',p.address+' · '+p.frequency),el('p',p.notes));return n;}):[el('p','No decommissioning partner confirmed in the supplied source for this state.')]));
   }
-  function render() { consolidation?.render();renderResources();renderPane();renderOverview();renderSettings();renderRuns();renderMetrics();renderSites();capacityUI?.render();$('bx-source').textContent=model.source;$('bx-notes').textContent=model.notes;document.querySelectorAll('[data-state]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.state===state))); }
+  function render() { movementUI?.reset();interstateUI?.render();consolidation?.render();renderResources();renderPane();renderOverview();renderSettings();renderRuns();renderMetrics();renderSites();capacityUI?.render();$('bx-source').textContent=model.source;$('bx-notes').textContent=model.notes;document.querySelectorAll('[data-state]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.state===state))); }
   document.querySelectorAll('[data-state]').forEach(b=>b.addEventListener('click',()=>{state=b.dataset.state;render();}));
-  document.querySelectorAll('[data-bx-pane]').forEach(b=>b.addEventListener('click',()=>{activePane=b.dataset.bxPane;renderResources();renderPane();}));
+  document.querySelectorAll('[data-bx-pane]').forEach(b=>b.addEventListener('click',()=>{activePane=b.dataset.bxPane;if(activePane==='interstate')interstateUI?.render();renderResources();renderPane();}));
   $('bx-add').addEventListener('click',()=>{model.states[state].runs.push({id:crypto.randomUUID(),name:'New collection day',sequence:'',notes:'',evidence:'',status:'unmeasured',site_ids:[],runs_4w:null,km:null,drive_min:null,service_min:0,depot_min:0,prep_min:15,wait_min:0,break_min:30});changed();renderRuns();});
   async function saveModel() {
     if(saving)return;
-    const invalid=$('bx-resource-content').querySelector('input:invalid')||$('bx-cost-inputs').querySelector('input:invalid');
-    if(invalid){activePane=invalid.closest('#bx-resources')?'resources':'planner';renderPane();let parent=invalid.parentElement;while(parent){if(parent.tagName==='DETAILS')parent.open=true;parent=parent.parentElement;}invalid.reportValidity();saveStatus('Not saved: correct the highlighted value.');return;}
+    const invalid=$('bx-resource-content').querySelector('input:invalid')||$('bx-cost-inputs').querySelector('input:invalid')||$('bx-interstate-content').querySelector('details input:invalid');
+    if(invalid){activePane=invalid.closest('#bx-resources')?'resources':invalid.closest('#bx-interstate-pane')?'interstate':'planner';renderPane();let parent=invalid.parentElement;while(parent){if(parent.tagName==='DETAILS')parent.open=true;parent=parent.parentElement;}invalid.reportValidity();saveStatus('Not saved: correct the highlighted value.');return;}
     saving=true;
-    [$('bx-save'),$('bx-save-resources'),$('bx-save-costs')].forEach(b=>b.disabled=true);
+    [$('bx-save'),$('bx-save-resources'),$('bx-save-costs'),$('bx-save-interstate')].forEach(b=>b.disabled=true);
     const sentGeneration=generation;saveStatus('Saving to database…');
     try {
       const response=await fetch('/admin/blocktexx',{method:'POST',headers:{'Accept':'application/json'},body:new URLSearchParams({csrf:root.dataset.csrf,revision:String(revision),model:JSON.stringify(model)})});
@@ -144,11 +147,12 @@
       revision=result.revision;dirty=generation!==sentGeneration;
       saveStatus(dirty?'Earlier changes saved. New changes remain unsaved.':'Saved to database · '+new Date(result.saved).toLocaleString('en-AU'));
     } catch(e){dirty=true;saveStatus('Not saved: '+e.message);}
-    finally{saving=false;[$('bx-save'),$('bx-save-resources'),$('bx-save-costs')].forEach(b=>b.disabled=false);}
+    finally{saving=false;[$('bx-save'),$('bx-save-resources'),$('bx-save-costs'),$('bx-save-interstate')].forEach(b=>b.disabled=false);}
   }
   $('bx-save').addEventListener('click',saveModel);
   $('bx-save-resources').addEventListener('click',saveModel);
   $('bx-save-costs').addEventListener('click',saveModel);
+  $('bx-save-interstate').addEventListener('click',saveModel);
   $('bx-download').addEventListener('click',()=>{const u=URL.createObjectURL(new Blob([JSON.stringify(model,null,2)],{type:'application/json'})),a=el('a');a.href=u;a.download='BlockTexx-collection-draft.json';a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);});
   $('bx-import').addEventListener('change',async e=>{
     const file=e.target.files[0];if(!file)return;
@@ -156,8 +160,11 @@
   });
   $('bx-print').addEventListener('click',()=>window.print());
   window.addEventListener('beforeunload',e=>{if(dirty||saving){e.preventDefault();e.returnValue='';}});
-  capacityUI=window.createBlocktexxCapacity?.(()=>model,()=>state,()=>{changed();renderRuns();renderSites();},root.dataset.csrf,()=>{renderMetrics();runView?.render();});
+  capacityUI=window.createBlocktexxCapacity?.(()=>model,()=>state,()=>{changed();renderRuns();renderSites();},root.dataset.csrf,()=>{renderMetrics();runView?.render();interstateUI?.refresh();});
   runView=window.createBlocktexxRunView(()=>model,()=>state,()=>capacityUI?.getPlans(),()=>{changed();renderRuns();renderSites();});
   consolidation=window.createBlocktexxConsolidation?.(()=>model,()=>state,()=>{changed();renderRuns();renderSites();},root.dataset.csrf);
+  movementUI=window.createBlocktexxMovements?.(()=>model,()=>state,()=>{changed();renderRuns();renderSites();});
+  interstateUI=window.BlocktexxInterstate?.create(()=>model,changed,()=>Object.fromEntries(Object.keys(model.states).map(s=>[s,summary(s)])));
+  document.addEventListener('bx-edit-movement',event=>{const r=model.states[state].runs.find(r=>r.id===event.detail);if(r)movementUI?.edit(r);});
   render();
 })();

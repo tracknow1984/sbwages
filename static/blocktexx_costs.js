@@ -100,9 +100,9 @@ window.BlocktexxCosts = (() => {
       ['Demurrage',0,c.demurrage,c.demurrage],['Other costs',p.owned_other_month,p.contractor_other_month,p.contractor_other_month],
       ['Total / month',c.owned,c.hourly,c.daily]];
     rows.forEach(([label,...values])=>{const row=e('tr');if(label==='Total / month')row.className='bx-resource-total';row.append(e('th',label));values.forEach(v=>row.append(e('td',money(v))));table.append(row);});
-    const kg=e('tr');kg.append(e('th','Collection cost / kg'));[c.owned,c.hourly,c.daily].forEach(v=>kg.append(e('td',ready&&data.monthly_kg&&v!=null?'$'+(v/data.monthly_kg).toLocaleString('en-AU',{minimumFractionDigits:3,maximumFractionDigits:3}):'Incomplete')));table.append(kg);
+    const kg=e('tr');kg.append(e('th','Local transport cost / kg'));[c.owned,c.hourly,c.daily].forEach(v=>kg.append(e('td',ready&&data.monthly_kg&&v!=null?'$'+(v/data.monthly_kg).toLocaleString('en-AU',{minimumFractionDigits:3,maximumFractionDigits:3}):'Incomplete')));table.append(kg);
     const saving=e('tr');saving.append(e('th','Monthly saving vs company'),e('td','—'));[c.hourly,c.daily].forEach(v=>saving.append(e('td',v==null||c.owned==null?'Incomplete':money(c.owned-v))));table.append(saving);wrap.append(table);root.append(wrap);
-    root.append(e('p','Positive savings mean the contractor option costs less. Container purchase/rental, interstate freight, decommissioning and shredding are excluded unless you explicitly add an allowance.','bx-muted'));
+    root.append(e('p','Positive savings mean the contractor option costs less. Entered local transport movements are included. Container purchase/rental, processing and shredding fees are excluded unless added as an allowance. Interstate freight is costed separately in Interstate transfers.','bx-muted'));
   }
 
   function periodCosts(data,week) {
@@ -163,7 +163,7 @@ window.BlocktexxCosts = (() => {
     if(week==null)append('Average calendar month · four weeks × 13 ÷ 12',c.totals.map(v=>v==null?null:v*13/12));
     wrap.append(table);content.append(wrap);
     content.append(e('p','AUD excluding GST. Monthly staff and overhead budgets are allocated at monthly × 12 ÷ 52 per week, including quiet weeks. Fuel is a budget allocation, not measured fuel usage. Contractor charges use only this period’s scheduled days and hours, with daily minimums and demurrage applied once per day.','bx-muted'),
-      e('p','Blank prices remain incomplete. Uses current on-screen figures, including unsaved edits. Container purchases/rental, interstate freight, decommissioning and shredding are excluded unless included in an Other costs allowance.','bx-muted'),
+      e('p','Blank prices remain incomplete. Uses current on-screen figures, including unsaved edits. Entered local transport movements are included. Container purchases/rental and processing/shredding fees are excluded unless included in Other costs. Interstate freight is shown in its separate cost centre.','bx-muted'),
       e('p','Profitability: pending confirmed costs and revenue assumptions. No profit figure is calculated.','bx-muted'));
     dialog.append(content);backdrop.replaceChildren(dialog);document.body.classList.add('bx-popup-open');
     backdrop.onpointerdown=event=>{if(event.target===backdrop)dismiss();};

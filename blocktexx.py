@@ -1,5 +1,6 @@
 """Private, admin-only collection modelling. No customer data ships in source."""
 from blocktexx_costs import validate_cost_profile, cost_comparison
+from blocktexx_interstate import validate_interstate, interstate_summary
 import csv
 import io
 import json
@@ -61,6 +62,7 @@ def validate_model(value):
     model['capacity_version'] = int(number(value.get('capacity_version', 0), 'Capacity model version', 1))
     for key in ('name', 'source', 'notes'):
         model[key] = text(value.get(key, ''), key)
+    model['interstate'] = validate_interstate(value.get('interstate', {}), number, text)
     seen = set()
     for key in ('sites', 'partners'):
         rows = value.get(key, [])
@@ -157,6 +159,20 @@ def validate_model(value):
             if run.get('status') not in ('estimated', 'verified', 'unmeasured'):
                 raise ValueError('Invalid measurement status.')
             r['status'] = run['status']
+            r['activity_type'] = run.get('activity_type', 'collection')
+            if r['activity_type'] not in ('collection', 'deliver_decomm', 'collect_decomm', 'deliver_threadtexx', 'deliver_blocktexx', 'return_storage'):
+                raise ValueError('Invalid local activity type.')
+            for field in ('partner_id', 'origin', 'destination', 'cargo'):
+                r[field] = text(run.get(field, ''), field)
+            r['movement_kg'] = number(run.get('movement_kg'), 'Movement kg', 1000000, True)
+            if r['activity_type'] != 'collection':
+                if not r['origin'] or not r['destination']:
+                    raise ValueError('Local movements need an origin and destination.')
+                if r['activity_type'] in ('deliver_decomm', 'collect_decomm') and not r['partner_id']:
+                    raise ValueError('Select a decomm partner for this movement.')
+                if r['partner_id'] and not any(p['id'] == r['partner_id'] and p['state'] == state for p in model['partners']):
+                    raise ValueError('Choose a decomm partner in this state.')
+
             planner_frequency = run.get('planner_frequency')
             if planner_frequency is not None:
                 if planner_frequency not in ('Weekly', 'Fortnightly', 'Monthly', 'Ad hoc'):
@@ -195,6 +211,8 @@ def validate_model(value):
             ids = run.get('site_ids', [])
             if not isinstance(ids, list) or len(ids) > 100 or any(not isinstance(i, str) or site_states.get(i) != state for i in ids):
                 raise ValueError('Run locations must belong to that state’s customer register.')
+            if r['activity_type'] != 'collection' and ids:
+                raise ValueError('Downstream movements cannot count as customer collections.')
             r['site_ids'] = list(dict.fromkeys(ids))
             out['runs'].append(r)
     return model
@@ -266,6 +284,8 @@ def summarize(model):
         active = []
         for run in data['runs']:
             count = run['runs_4w']
+            if count is None and run.get('activity_type', 'collection') != 'collection' and calendar_slots(run):
+                count = len(calendar_slots(run))
             if count is None:
                 gaps.append(run['name'] + ': frequency missing')
                 continue
@@ -465,7 +485,7 @@ def register_blocktexx(app, db, require):
         db().execute('INSERT INTO blocktexx_model_history VALUES(?,?,?,?)',
                      (actual + 1, payload, g.user['id'], saved))
         db().commit()
-        return {'ok': True, 'revision': actual + 1, 'saved': saved, 'summary': summarize(model)}
+        return {'ok': True, 'revision': actual + 1, 'saved': saved, 'summary': summarize(model), 'interstate_summary': interstate_summary(model['interstate'])}
 
     @app.post('/admin/blocktexx/validate')
     @require('admin')

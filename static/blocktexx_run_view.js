@@ -13,6 +13,13 @@ window.createBlocktexxRunView = function(getModel,getState,getPlans,onChange) {
     if(!r){host.append(e('p','Select a run above to view its collection details.'));return;}
     const root=e('section',null,'bx-selected-run');host.append(root);
     const close=e('button','Close run details','secondary');close.type='button';close.addEventListener('click',()=>{selection[state]=null;render();});root.append(close);
+    if(r.activity_type && r.activity_type!=='collection'){
+      root.append(e('h3',r.name),e('p',window.BlocktexxActivityLabels?.[r.activity_type]||r.activity_type),
+        e('p',r.origin+' → '+r.destination),e('p','Cargo: '+(r.cargo||'To confirm')+' · '+fmt(r.movement_kg)+' kg moved (not additional intake)'),
+        e('p',fmt(r.km)+' km · '+fmt(['drive_min','service_min','depot_min','prep_min','wait_min','break_min'].some(k=>r[k]==null)?null:['drive_min','service_min','depot_min','prep_min','wait_min','break_min'].reduce((n,k)=>n+r[k],0)/60)+' hours'),
+        e('p','Included in local day hours and state costs. Verify this cargo fits the vehicle; collection switch-out planning does not apply.','bx-warning'));
+      const edit=e('button','Edit movement','secondary');edit.type='button';edit.onclick=()=>document.dispatchEvent(new CustomEvent('bx-edit-movement',{detail:r.id}));root.append(edit);return;
+    }
     const sites=r.site_ids.map(id=>model.sites.find(s=>s.id===id)).filter(Boolean);
     const p=getPlans()?.[state]?.[r.id];
     const allocated=planner.slots(r);

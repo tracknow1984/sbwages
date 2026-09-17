@@ -78,7 +78,7 @@ def plan_run(model, state, run):
 
 
 def capacity_plans(model):
-    return {state:{run['id']:plan_run(model,state,run) for run in data['runs']}
+    return {state:{run['id']:plan_run(model,state,run) for run in data['runs'] if run.get('activity_type', 'collection') == 'collection'}
             for state,data in model['states'].items() if state in ('NSW','QLD')}
 
 

@@ -14,7 +14,18 @@ window.createBlocktexxCapacity = function(getModel, getState, onChange, csrf, on
   }
   function render() {
     clearTimeout(timer);const token=++requestId,state=getState(),model=getModel();root.replaceChildren();plans={};
-    if(!['NSW','QLD'].includes(state)){root.hidden=true;return;}root.hidden=false;
+    if(!['NSW','QLD'].includes(state)){
+      root.hidden=true;
+      timer=setTimeout(async()=>{
+        try{
+          const response=await fetch('/admin/blocktexx/capacity',{method:'POST',body:new URLSearchParams({csrf,model:JSON.stringify(model)})});
+          if(!response.headers.get('content-type')?.includes('application/json'))return;
+          const result=await response.json();if(token!==requestId||!response.ok||!result.ok)return;
+          plans=result.plans;onPlans();
+        }catch(error){/* National rates stay incomplete when capacity cannot be checked. */}
+      },250);
+      return;
+    }root.hidden=false;
     const truck=model.states[state].truck;
     if(!truck){root.append(e('p','Load the saved model to initialise truck settings.'));return;}
     root.append(e('h2',state+' · Truck capacity and load splits'),e('p','Editable planning footprints, not measured fit. Default: 14 cages or 14 × 660L bins or 28 × 240L bins per load. Mixed loads share the same 14 positions. Each load departs with matching empties. Unload empties before loading full containers; no stacking/nesting credit. Verify container dimensions, usable payload and tailgate capacity.'));
@@ -27,7 +38,7 @@ window.createBlocktexxCapacity = function(getModel, getState, onChange, csrf, on
     timer=setTimeout(async()=>{
       try {const response=await fetch('/admin/blocktexx/capacity',{method:'POST',body:new URLSearchParams({csrf,model:JSON.stringify(model)})});if(!response.headers.get('content-type')?.includes('application/json'))throw Error('Sign in again to calculate capacity.');const result=await response.json();if(token!==requestId)return;if(!response.ok||!result.ok)throw Error(result.error||'Capacity calculation failed.');plans=result.plans;onPlans();output.replaceChildren();
         let monthlyBins=0,monthlyCages=0,monthlyLoads=0;
-        model.states[state].runs.forEach(r=>{const p=plans[state][r.id];monthlyBins+=p.bin_count*(r.runs_4w||0);monthlyCages+=p.containers.cage*(r.runs_4w||0);monthlyLoads+=p.load_count*(r.runs_4w||0);
+        model.states[state].runs.forEach(r=>{const p=plans[state][r.id];if(!p)return;monthlyBins+=p.bin_count*(r.runs_4w||0);monthlyCages+=p.containers.cage*(r.runs_4w||0);monthlyLoads+=p.load_count*(r.runs_4w||0);
           const detail=e('details');detail.className='bx-site';detail.append(e('summary',`${r.name}: ${p.bin_count} bins + ${p.containers.cage} cages + ${p.containers.pallecon} pallecons · ${p.load_count} loads`));
           detail.append(e('p',p.payload_checked?'Configured payload checked; geometry and tailgate still need verification.':'Space-only plan: loaded weights / usable payload not fully confirmed.'));
           p.loads.forEach((load,index)=>{detail.append(e('p','Load '+(index+1)+' outbound EMPTY: '+contents(load.outbound_empty)+'; return FULL: '+contents(load.return_full)));const description=load.stops.map(s=>s.name.replace('Blocktexx - ','')+': '+kinds.filter(k=>s.containers[k]).map(k=>s.containers[k]+' '+labels[k]).join(', ')).join(' → ');detail.append(e('p',`Load ${index+1}: depot → ${description} → depot. ${load.spaces}/ ${truck.pallet_positions} positions; ${load.spare_spaces} spare.`));});

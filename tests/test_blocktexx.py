@@ -191,6 +191,20 @@ class PersistenceTests(unittest.TestCase):
         saved['states']['VIC']['cost_profile']['staff_qty']=1.5
         self.assertEqual(self.save(saved,2).status_code,400)
 
+    def test_interstate_and_downstream_save_without_changing_intake(self):
+        from tests.test_blocktexx_interstate import transport_model
+        m=transport_model()
+        result=self.save(m)
+        self.assertEqual(result.status_code,200)
+        self.assertEqual(result.json['interstate_summary']['cost_4w'],8950)
+        saved=self.client.get('/admin/blocktexx/export').json
+        self.assertEqual(saved['interstate']['bookings'][0]['trips'],2)
+        self.assertEqual(saved['states']['NSW']['monthly_kg'],40000)
+        self.assertEqual(saved['states']['NSW']['runs'][0]['activity_type'],'deliver_decomm')
+        saved['interstate']['bookings'][0]['day']=2
+        self.assertEqual(self.save(saved,1).status_code,200)
+        self.assertEqual(self.client.get('/admin/blocktexx/export').json['interstate']['bookings'][0]['day'],2)
+
     def test_resource_price_profiles_persist_without_conflating_blank_and_zero(self):
         m=example()
         m['states']['VIC']['resource_pricing']={'cage':{'purchase_each':250.50,'weekly_rent_each':4.25,'rental_qty':10},'bin240':{'purchase_each':0,'weekly_rent_each':None,'rental_qty':None}}
