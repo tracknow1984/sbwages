@@ -9,10 +9,18 @@ let d=C.dailySummary(data,1,0);assert.equal(d.kg,400);assert.equal(d.cost,410);a
 let w=C.periodSummary(data,1);assert.equal(w.kg,500);assert.equal(w.cost,870);assert.equal(w.rate,870/500);assert.equal(C.dailySummary(data,1,2).cost,10);assert.equal(C.dailySummary(data,1,2).rate,null);
 assert.ok(Math.abs(C.periodCosts(data,1).totals[1]-w.cost)<1e-8);
 assert.ok(Math.abs(C.periodCosts(data,null).totals[1]-C.periodSummary(data).cost)<1e-8);
-data.runs[0].planner_slots[0].pickup_kg=null;assert.equal(C.dailySummary(data,1,0).rate,null);assert.equal(C.periodSummary(data,1).rate,null);
+data.runs[0].planner_slots[0].pickup_kg=null;assert.equal(C.dailySummary(data,1,0).rate,410/300);assert.equal(C.dailySummary(data,1,0).provisional,true);assert.equal(C.periodSummary(data,1).rate,870/400);
 data.runs[0].planner_slots[0].pickup_kg=0;assert.equal(C.dailySummary(data,1,0).kg,300);
 data.cost_profile.enabled=false;assert.equal(C.dailySummary(data,1,0).cost,null);
-data.cost_profile.enabled=true;data.cost_profile.contractor_hourly=null;assert.equal(C.dailySummary(data,1,0).rate,null);
+data.cost_profile.enabled=true;data.cost_profile.contractor_hourly=null;
+d=C.dailySummary(data,1,0);assert.equal(d.cost,10);assert.equal(d.rate,10/300);assert.equal(d.complete,false);assert.equal(d.provisional,true);assert.deepEqual(d.missingCosts,['Contractor base charge']);assert.match(C.summaryRateText(d),/provisional/);
+assert.equal(C.summaryRateText(C.dailySummary(data,1,2)),'No pickup kg');
+assert.equal(C.periodSummary(data,1).cost,70);assert.equal(C.periodSummary(data,1).rate,70/400);
+data.cost_profile.contractor_hourly=100;data.cost_profile.building_insurance_month=null;
+d=C.dailySummary(data,1,0);assert.equal(d.cost,410);assert.equal(d.rate,410/300);assert.deepEqual(d.missingCosts,['Building insurance']);
+data.cost_profile.building_insurance_month=0;data.cost_profile.building_lease_month=0;data.cost_profile.contractor_hourly=0;
+d=C.dailySummary(data,1,0);assert.equal(d.rate,0);assert.equal(d.provisional,false);
+data.runs[0].drive_min=null;assert.equal(C.dailySummary(data,1,0).provisional,true);assert.equal(C.dailySummary(data,1,0).rate,0);
 console.log('Daily kg: shared minimum, transfer exclusion, overheads, weighted rates, missing/zero weights and incomplete prices passed.');
 require('../static/blocktexx_weights.js');
 const W=window.BlocktexxWeights,model={sites:[{id:'s1'},{id:'s2'}],weight_history:{pickups:[{site_id:'s1',kg:300},{site_id:'s1',kg:500},{site_id:'s2',kg:100},{site_id:'',kg:999}]}};
@@ -27,3 +35,4 @@ const be=C.breakEven({selling_per_kg:.5},{complete:true,missing:0,cost:1000,kg:1
 assert.equal(C.breakEven({selling_per_kg:0},{complete:true,missing:0,cost:1000,kg:0}).result,-1000);
 assert.equal(C.breakEven({selling_per_kg:.5},{complete:false,missing:0,cost:1000,kg:1500}).result,null);
 console.log('Historical averages, per-customer and per-occurrence scenarios, zero overrides and break-even arithmetic passed.');
+
