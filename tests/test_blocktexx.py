@@ -121,6 +121,17 @@ class PersistenceTests(unittest.TestCase):
         saved['states']['VIC']['runs'][0]['planner_slots'][0]['day']=7
         self.assertEqual(self.save(saved,1).status_code,400)
 
+    def test_daily_pickup_weights_round_trip_and_validate(self):
+        m=example()
+        slots=[{'week':1,'day':2,'pickup_kg':1250.5},{'week':3,'day':2,'pickup_kg':0}]
+        m['states']['VIC']['runs'][0]['planner_slots']=slots
+        self.assertEqual(self.save(m).status_code,200)
+        saved=self.client.get('/admin/blocktexx/export').json
+        self.assertEqual(saved['states']['VIC']['runs'][0]['planner_slots'],slots)
+        for value in (-1, float('nan'), 1000001, True):
+            saved['states']['VIC']['runs'][0]['planner_slots'][0]['pickup_kg']=value
+            self.assertEqual(self.save(saved,1).status_code,400)
+
     def test_day_limit_blocks_combined_runs_and_retains_saved_data(self):
         for mode in ('owned', 'contractor'):
             m=example()

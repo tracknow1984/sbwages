@@ -1,0 +1,16 @@
+const assert=require('node:assert/strict');
+global.window={};
+require('../static/blocktexx_planner.js');require('../static/blocktexx_costs.js');
+const C=window.BlocktexxCosts;
+const p={enabled:true,contractor_basis:'hourly',staff_qty:0,staff_hourly:0,paid_hours_week:0,workers_comp_pct:0,super_pct:0,truck_insurance_month:0,truck_lease_month:0,fuel_month:0,owned_other_month:0,building_insurance_month:0,building_lease_month:3640/12,contractor_hourly:100,contractor_daily:700,minimum_hours:4,free_wait_minutes:0,demurrage_hourly:100,contractor_other_month:0};
+const run=(id,kg,day=0,type='collection')=>({id,activity_type:type,runs_4w:1,planner_slots:[{week:1,day,pickup_kg:kg}],drive_min:60,service_min:0,depot_min:0,prep_min:0,wait_min:0,break_min:0});
+const data={cost_profile:p,cost_mode:'contractor',runs:[run('a',100),run('b',300),run('transfer',900,0,'deliver_threadtexx'),run('c',100,1)]};
+let d=C.dailySummary(data,1,0);assert.equal(d.kg,400);assert.equal(d.cost,410);assert.equal(d.rate,410/400);
+let w=C.periodSummary(data,1);assert.equal(w.kg,500);assert.equal(w.cost,870);assert.equal(w.rate,870/500);assert.equal(C.dailySummary(data,1,2).cost,10);assert.equal(C.dailySummary(data,1,2).rate,null);
+assert.ok(Math.abs(C.periodCosts(data,1).totals[1]-w.cost)<1e-8);
+assert.ok(Math.abs(C.periodCosts(data,null).totals[1]-C.periodSummary(data).cost)<1e-8);
+data.runs[0].planner_slots[0].pickup_kg=null;assert.equal(C.dailySummary(data,1,0).rate,null);assert.equal(C.periodSummary(data,1).rate,null);
+data.runs[0].planner_slots[0].pickup_kg=0;assert.equal(C.dailySummary(data,1,0).kg,300);
+data.cost_profile.enabled=false;assert.equal(C.dailySummary(data,1,0).cost,null);
+data.cost_profile.enabled=true;data.cost_profile.contractor_hourly=null;assert.equal(C.dailySummary(data,1,0).rate,null);
+console.log('Daily kg: shared minimum, transfer exclusion, overheads, weighted rates, missing/zero weights and incomplete prices passed.');

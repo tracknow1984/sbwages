@@ -105,14 +105,14 @@ window.BlocktexxCosts = (() => {
     root.append(e('p','Positive savings mean the contractor option costs less. Entered local transport movements are included. Container purchase/rental, processing and shredding fees are excluded unless added as an allowance. Interstate freight is costed separately in Interstate transfers.','bx-muted'));
   }
 
-  function periodCosts(data,week) {
+  function periodCosts(data,week,day=null) {
     const schedule=window.createBlocktexxPlanner();
     const filtered={...data,runs:data.runs.flatMap(r=>{
-      const chosen=schedule.slots(r).filter(s=>week==null||s.week===week);
+      const chosen=schedule.slots(r).filter(s=>(week==null||s.week===week)&&(day==null||s.day===day));
       return chosen.length?[{...r,planner_slots:chosen,runs_4w:chosen.length}]:[];
     })};
     const c=calculate(filtered),p=profile(data);
-    const fixed=week==null?12/13:12/52,variable=12/13;
+    const fixed=day!=null?12/364:week==null?12/13:12/52,variable=12/13;
     const scale=(n,f)=>n==null?null:n*f;
     const add=values=>values.some(v=>v==null)?null:values.reduce((a,v)=>a+v,0);
     const rows=[
@@ -134,6 +134,40 @@ window.BlocktexxCosts = (() => {
       occurrences:filtered.runs.reduce((n,r)=>n+r.planner_slots.length,0),
       unallocated:data.runs.filter(r=>!schedule.slots(r).length&&r.runs_4w!==0).length};
   }
+  function dailySummary(data,week,day) {
+    const schedule=window.createBlocktexxPlanner(),c=periodCosts(data,week,day),p=profile(data);
+    const entries=data.runs.flatMap(r=>schedule.slots(r).filter(s=>s.week===week&&s.day===day).map(slot=>({run:r,slot})));
+    const pickups=entries.filter(x=>!x.run.activity_type||x.run.activity_type==='collection');
+    const missing=pickups.filter(x=>x.slot.pickup_kg==null).length;
+    const kg=pickups.reduce((n,x)=>n+(x.slot.pickup_kg??0),0);
+    const selected=data.cost_mode==='owned'?0:data.cost_mode==='contractor'?(p.contractor_basis==='daily'?2:1):null;
+    // A priced result must use the enabled profile. Legacy budgets are visibly excluded.
+    const cost=p.enabled&&selected!=null?c.totals[selected]:null;
+    return {week,day,kg,missing,cost,rate:!missing&&kg>0&&cost!=null&&c.complete?cost/kg:null,complete:c.complete,occurrences:entries.length};
+  }
+  function periodSummary(data,week=null) {
+    const days=(week==null?[1,2,3,4]:[week]).flatMap(w=>Array.from({length:7},(_,d)=>dailySummary(data,w,d)));
+    const kg=days.reduce((n,d)=>n+d.kg,0),missing=days.reduce((n,d)=>n+d.missing,0);
+    const cost=days.some(d=>d.cost==null)?null:days.reduce((n,d)=>n+d.cost,0);
+    const complete=days.every(d=>d.complete)&&!periodCosts(data,week).unallocated;
+    return {days,kg,missing,cost,rate:complete&&!missing&&kg>0&&cost!=null?cost/kg:null};
+  }
+  const kgText=d=>fmt(d.kg)+' kg'+(d.missing?' + '+d.missing+' unweighed pickups':'');
+  const rateText=n=>n==null?'Incomplete / no collected kg':'$'+Number(n).toLocaleString('en-AU',{minimumFractionDigits:3,maximumFractionDigits:3})+' / kg';
+  function renderDailySummary(root,data,week,day,onChange) {
+    const d=dailySummary(data,week,day),cards=e('div',null,'bx-metrics');
+    [['Net kg collected',kgText(d)],['Total daily cost',money(d.cost)],['Daily cost / kg',rateText(d.rate)]].forEach(([label,value])=>{const card=e('div',label);card.append(e('strong',value));cards.append(card);});root.append(cards);
+    root.append(e('p','Enter net material kg for each pickup below, excluding container weight. Costs include every local movement and 1/7 of weekly overheads; transferred material is not counted again.','bx-muted'));
+    const schedule=window.createBlocktexxPlanner();
+    data.runs.filter(r=>!r.activity_type||r.activity_type==='collection').forEach(r=>{
+      schedule.slots(r).forEach((slot,index)=>{
+        if(slot.week!==week||slot.day!==day)return;
+        const label=e('label',r.name+' · net kg collected '),input=e('input');input.type='number';input.min=0;input.max=1000000;input.step='any';input.value=slot.pickup_kg??'';input.placeholder='Not weighed';input.setAttribute('aria-label',r.name+' net kg collected occurrence '+(index+1));
+        input.addEventListener('change',()=>{if(!input.checkValidity()){input.reportValidity();return;}if(!Array.isArray(r.planner_slots))r.planner_slots=schedule.slots(r).map(s=>({...s}));r.planner_slots[index].pickup_kg=input.value===''?null:Number(input.value);onChange();});label.append(input);root.append(label);
+      });
+    });
+    if(!profile(data).enabled)root.append(e('p','Enable and complete the detailed cost profile to calculate total daily costs and cost/kg.','bx-warning'));
+  }
   function showPeriodReport(data,state,week,onClose,plans,sites) {
     let backdrop=document.getElementById('bx-finance-popup');
     const fresh=!backdrop;
@@ -154,6 +188,12 @@ window.BlocktexxCosts = (() => {
     const unresolved=included.filter(r=>plans?.[state]?.[r.id]?.issues?.length||plans?.[state]?.[r.id]?.extra_loads);
     const demandGaps=(sites||[]).filter(s=>s.state===state&&s.visits_4w!=null&&Math.abs(s.visits_4w-data.runs.filter(r=>r.site_ids.includes(s.id)).reduce((n,r)=>n+(r.runs_4w||0),0))>.001);
     if(unresolved.length||demandGaps.length)content.append(e('p',unresolved.length+' runs need truck capacity/time review; '+demandGaps.length+' customer frequencies differ from the route plan. These are planning estimates.','bx-warning'));
+    const summary=periodSummary(data,week),metrics=e('div',null,'bx-metrics');
+    [['Total collected kg',kgText(summary)],['Total period cost',money(summary.cost)],['Cost per collected kg',rateText(summary.rate)]].forEach(([label,value])=>{const card=e('div',label);card.append(e('strong',value));metrics.append(card);});content.append(metrics);
+    const dailyWrap=e('div',null,'bx-scroll'),dailyTable=e('table',null,'bx-resource-table'),dailyHead=e('tr');
+    ['Day','Net kg picked up','Total daily costs','Cost / kg'].forEach(t=>dailyHead.append(e('th',t)));dailyTable.append(dailyHead);
+    summary.days.forEach(d=>{const row=e('tr');['Week '+d.week+' '+['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][d.day],kgText(d),money(d.cost),rateText(d.rate)].forEach(t=>row.append(e('td',t)));dailyTable.append(row);});dailyWrap.append(dailyTable);content.append(dailyWrap);
+    content.append(e('p','Period cost/kg = all daily costs ÷ all collected kg, including costs on zero-pickup days. Daily weights are entered in View day. Blank weights are incomplete; zero means no material collected. Rates are planning figures based on entered costs and weights. Local deliveries and decomm returns add costs but no new intake. Interstate costs remain separate.','bx-muted'));
     const selected=data.cost_mode==='owned'?0:data.cost_mode==='contractor'?(p.contractor_basis==='daily'?2:1):null;
     content.append(e('p','Proposal option: '+(selected==null?'not selected':['Company operation','Contractor hourly','Contractor daily'][selected])+(selected==null?'':' · '+money(c.totals[selected]))));
     const wrap=e('div',null,'bx-scroll'),table=e('table',null,'bx-resource-table'),head=e('tr');
@@ -173,5 +213,5 @@ window.BlocktexxCosts = (() => {
     };
     if(fresh||!dialog.contains(document.activeElement))close.focus({preventScroll:true});
   }
-  return {calculate,renderInputs,renderComparison,periodCosts,showPeriodReport};
+  return {calculate,renderInputs,renderComparison,periodCosts,dailySummary,periodSummary,renderDailySummary,kgText,rateText,showPeriodReport};
 })();

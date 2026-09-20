@@ -191,6 +191,8 @@ def validate_model(value):
                     if week < 1 or week != int(week) or day != int(day):
                         raise ValueError('Planner weeks must be 1–4 and days 0–6.')
                     item = {'week': int(week), 'day': int(day)}
+                    if 'pickup_kg' in slot:
+                        item['pickup_kg'] = number(slot.get('pickup_kg'), 'Net collected kg', 1000000, True)
                     if slot.get('overtime_limit_min') is not None:
                         limit = number(slot['overtime_limit_min'], 'Approved overtime day minutes', 10080)
                         if limit <= 540:

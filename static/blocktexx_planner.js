@@ -81,7 +81,8 @@ window.createBlocktexxPlanner = function() {
         proposed.splice(index,1);
       }
       if(proposed.some(s=>s.week===week&&s.day===day))return {run,error:'This run is already allocated to that day.'};
-      proposed.push({week,day});
+      const moved=slots(run).find(s=>s.week===drag.week&&s.day===drag.day);
+      proposed.push({...moved,week,day});
       const fixed=sites.filter(s=>run.site_ids.includes(s.id)&&s.day_rule==='fixed'&&!s.service_days?.includes(day));
       const load=dayLoad(runs.filter(r=>r.id!==run.id).concat({...run,planner_slots:proposed}),week,day);
       const overtime=!load.unknown&&load.minutes>540;
@@ -165,6 +166,8 @@ window.createBlocktexxPlanner = function() {
         spare.addEventListener('click',event=>{event.stopPropagation();choose();});cell.append(spare);
         if(!load.unknown){const meter=e('progress');meter.max=540;meter.value=Math.min(load.minutes,540);meter.setAttribute('aria-label','Allocated day capacity');cell.append(meter);}
         cell.append(e('small',load.unknown?'Spare time cannot be confirmed.':'Estimated finish '+finish(load.minutes),'bx-muted'));
+        const daily=window.BlocktexxCosts.dailySummary(model.states[state],week,d);
+        cell.append(e('strong',window.BlocktexxCosts.kgText(daily)),e('small',window.BlocktexxCosts.rateText(daily.rate)));
         const entries=assigned.flatMap(r=>slots(r).filter(s=>s.week===week&&s.day===d).map(()=>r));
         entries.forEach(r=>cell.append(card(r,week,d)));
         if(!entries.length)cell.append(e('span','—','bx-muted'));row.append(cell);
@@ -187,6 +190,7 @@ window.createBlocktexxPlanner = function() {
       const activities=runs.flatMap(r=>slots(r).filter(s=>s.week===week&&s.day===day).map(()=>r));
       panel.append(e('h3','Week '+week+' · '+days[day]+' activities'),
         e('p','All frequencies for this day are shown below, including runs outside the selected category.'));
+      window.BlocktexxCosts.renderDailySummary(panel,model.states[state],week,day,onChange);
       panel.append(e('p','6:30 am start · '+loadText(dayLoad(runs,week,day)), 'bx-warning'));
       const quick=e('div',null,'bx-planner-controls'),pick=e('select');pick.setAttribute('aria-label','Run to allocate to this day');
       const empty=e('option','Choose a run to allocate / move here');empty.value='';pick.append(empty);
@@ -302,7 +306,7 @@ window.createBlocktexxPlanner = function() {
       const weekSelect=field('Starting week','week',[1,2,3,4].map(w=>[w,'Week '+w]));
       const hint=e('p',null,'bx-muted'),capacityHint=e('p',null,'bx-warning');
       const apply=e('button',slots(allocationRun).length?'Save reallocation':'Lock in allocation','primary');apply.type='button';
-      const proposed=()=> (draft.frequency==='Weekly'?[1,2,3,4]:draft.frequency==='Fortnightly'?(draft.week%2?[1,3]:[2,4]):[draft.week]).map(week=>({week,day:draft.day,...(draft.override&&week===draft.week?{overtime_limit_min:draft.override}:{})}));
+      const proposed=()=> (draft.frequency==='Weekly'?[1,2,3,4]:draft.frequency==='Fortnightly'?(draft.week%2?[1,3]:[2,4]):[draft.week]).map(week=>({...slots(allocationRun).find(s=>s.week===week),week,day:draft.day,...(draft.override&&week===draft.week?{overtime_limit_min:draft.override}:{})}));
       body.append(hint,capacityHint);
       function updateHint(){weekSelect.disabled=draft.frequency==='Weekly';hint.textContent=draft.frequency==='Weekly'?'Every week on the selected day.':draft.frequency==='Fortnightly'?'Weeks '+(draft.week%2? '1 and 3':'2 and 4')+' on the selected day.':draft.frequency==='Monthly'?'Once per four-week cycle, in the selected week.':'One booking in the selected week. No recurring collection frequency.';
         const fixed=sites.filter(s=>allocationRun.site_ids.includes(s.id)&&s.day_rule==='fixed'&&!s.service_days?.includes(draft.day));
@@ -338,7 +342,7 @@ window.createBlocktexxPlanner = function() {
       const label=e('label','Day'),day=e('select');day.setAttribute('aria-label','Allocation day');days.forEach((d,i)=>{const o=e('option',d);o.value=i;day.append(o);});day.value=slots(r)[0]?.day??0;label.append(day);box.append(label);
       const weeks=e('div',null,'bx-planner-controls'),checks=[];
       for(let w=1;w<=4;w++){const l=e('label','Week '+w),c=e('input');c.type='checkbox';c.checked=slots(r).some(s=>s.week===w);c.setAttribute('aria-label','Allocate week '+w);checks.push(c);l.prepend(c);weeks.append(l);}box.append(weeks);
-      const apply=e('button','Apply allocation','secondary');apply.type='button';apply.addEventListener('click',()=>{const blocked=sites.filter(s=>r.site_ids.includes(s.id)&&s.day_rule==='fixed'&&!s.service_days?.includes(Number(day.value)));if(blocked.length){alert('Customer-set day conflict: '+blocked.map(s=>s.name).join(', '));return;}const proposed=checks.flatMap((c,i)=>c.checked?[{week:i+1,day:Number(day.value)}]:[]);const error=allocationError(runs,r,proposed);if(error){alert(error);return;}r.planner_slots=proposed;config.all=true;config.span=4;config.start=1;onChange();});box.append(apply);root.append(box);
+      const apply=e('button','Apply allocation','secondary');apply.type='button';apply.addEventListener('click',()=>{const blocked=sites.filter(s=>r.site_ids.includes(s.id)&&s.day_rule==='fixed'&&!s.service_days?.includes(Number(day.value)));if(blocked.length){alert('Customer-set day conflict: '+blocked.map(s=>s.name).join(', '));return;}const proposed=checks.flatMap((c,i)=>c.checked?[{...slots(r).find(s=>s.week===i+1),week:i+1,day:Number(day.value)}]:[]);const error=allocationError(runs,r,proposed);if(error){alert(error);return;}r.planner_slots=proposed;config.all=true;config.span=4;config.start=1;onChange();});box.append(apply);root.append(box);
     }
     showFinance();
   }
