@@ -14,3 +14,16 @@ data.runs[0].planner_slots[0].pickup_kg=0;assert.equal(C.dailySummary(data,1,0).
 data.cost_profile.enabled=false;assert.equal(C.dailySummary(data,1,0).cost,null);
 data.cost_profile.enabled=true;data.cost_profile.contractor_hourly=null;assert.equal(C.dailySummary(data,1,0).rate,null);
 console.log('Daily kg: shared minimum, transfer exclusion, overheads, weighted rates, missing/zero weights and incomplete prices passed.');
+require('../static/blocktexx_weights.js');
+const W=window.BlocktexxWeights,model={sites:[{id:'s1'},{id:'s2'}],weight_history:{pickups:[{site_id:'s1',kg:300},{site_id:'s1',kg:500},{site_id:'s2',kg:100},{site_id:'',kg:999}]}};
+W.sync(model);assert.equal(model.sites[0].sample_pickup_kg,400);
+const sr={site_ids:['s1','s2']};assert.equal(W.pickup(sr,{},model.sites).kg,500);
+assert.equal(W.pickup(sr,{pickup_by_site:{s1:0}},model.sites).kg,100);
+model.sites[0].scenario_pickup_kg=1000;assert.equal(W.pickup(sr,{},model.sites).kg,1100);
+assert.equal(W.pickup(sr,{pickup_kg:50},model.sites).kg,50);
+assert.equal(W.pickup({activity_type:'collect_decomm'}, {pickup_kg:999}, model.sites).kg,0);
+assert.equal(W.pickup({site_ids:['missing']},{},model.sites).missing,1);
+const be=C.breakEven({selling_per_kg:.5},{complete:true,missing:0,cost:1000,kg:1500});assert.equal(be.target,2000);assert.equal(be.result,-250);
+assert.equal(C.breakEven({selling_per_kg:0},{complete:true,missing:0,cost:1000,kg:0}).result,-1000);
+assert.equal(C.breakEven({selling_per_kg:.5},{complete:false,missing:0,cost:1000,kg:1500}).result,null);
+console.log('Historical averages, per-customer and per-occurrence scenarios, zero overrides and break-even arithmetic passed.');

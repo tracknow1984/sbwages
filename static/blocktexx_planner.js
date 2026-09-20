@@ -166,7 +166,7 @@ window.createBlocktexxPlanner = function() {
         spare.addEventListener('click',event=>{event.stopPropagation();choose();});cell.append(spare);
         if(!load.unknown){const meter=e('progress');meter.max=540;meter.value=Math.min(load.minutes,540);meter.setAttribute('aria-label','Allocated day capacity');cell.append(meter);}
         cell.append(e('small',load.unknown?'Spare time cannot be confirmed.':'Estimated finish '+finish(load.minutes),'bx-muted'));
-        const daily=window.BlocktexxCosts.dailySummary(model.states[state],week,d);
+        const daily=window.BlocktexxCosts.dailySummary(model.states[state],week,d,sites);
         cell.append(e('strong',window.BlocktexxCosts.kgText(daily)),e('small',window.BlocktexxCosts.rateText(daily.rate)));
         const entries=assigned.flatMap(r=>slots(r).filter(s=>s.week===week&&s.day===d).map(()=>r));
         entries.forEach(r=>cell.append(card(r,week,d)));
@@ -190,7 +190,7 @@ window.createBlocktexxPlanner = function() {
       const activities=runs.flatMap(r=>slots(r).filter(s=>s.week===week&&s.day===day).map(()=>r));
       panel.append(e('h3','Week '+week+' · '+days[day]+' activities'),
         e('p','All frequencies for this day are shown below, including runs outside the selected category.'));
-      window.BlocktexxCosts.renderDailySummary(panel,model.states[state],week,day,onChange);
+      window.BlocktexxCosts.renderDailySummary(panel,model.states[state],week,day,onChange,sites);
       panel.append(e('p','6:30 am start · '+loadText(dayLoad(runs,week,day)), 'bx-warning'));
       const quick=e('div',null,'bx-planner-controls'),pick=e('select');pick.setAttribute('aria-label','Run to allocate to this day');
       const empty=e('option','Choose a run to allocate / move here');empty.value='';pick.append(empty);
@@ -272,7 +272,8 @@ window.createBlocktexxPlanner = function() {
       close.addEventListener('click',()=>dismissPopup());
       const focusedLabel=popup.contains(document.activeElement)?document.activeElement.getAttribute('aria-label'):null;
       header.append(title,close);dialog.replaceChildren(header,panel);popup.hidden=false;document.body.classList.add('bx-popup-open');
-      if(wasHidden||focusedLabel||document.activeElement===document.body)close.focus({preventScroll:true});
+      const restore=focusedLabel?[...dialog.querySelectorAll('[aria-label]')].find(n=>n.getAttribute('aria-label')===focusedLabel):null;
+      if(restore)restore.focus({preventScroll:true});else if(wasHidden||document.activeElement===document.body)close.focus({preventScroll:true});
     }else if(popup){
       popup.hidden=true;document.body.classList.remove('bx-popup-open');
     }

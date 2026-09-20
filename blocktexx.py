@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from flask import abort, g, render_template, request, Response
 from blocktexx_capacity import KINDS, DEFAULT_SPACES, infer_containers, capacity_plans, load_sequence
 import re
+from blocktexx_weights import validate_history, import_workbook
 
 STATES = ('QLD', 'NSW', 'VIC', 'SA')
 STAGES = ('Collections', 'Deliver to decom', 'Return from decom', 'Consolidation', 'Deliver to Threadtexx')
@@ -74,6 +75,7 @@ def validate_model(value):
             item = {k: text(row.get(k, ''), k) for k in ('id', 'name', 'address', 'frequency', 'equipment', 'source_rows', 'notes')}
             item['state'] = row['state']
             if key == 'sites':
+                item['scenario_pickup_kg'] = number(row.get('scenario_pickup_kg'), 'Scenario kg per pickup', 1000000, True)
                 item['source_frequency'] = text(row.get('source_frequency', item['frequency']), 'Source frequency')
                 item['visits_4w'] = number(row.get('visits_4w', source_visits(item['frequency'])), 'Visits per four weeks', 124, True)
                 source_days = [i for i, day in enumerate(('mon','tue','wed','thu','fri','sat','sun')) if re.search(r'\b'+day+r'(?:day|sday|nesday|rsday|urday)?\b', item['source_frequency'], re.I)]
@@ -99,12 +101,14 @@ def validate_model(value):
                 raise ValueError('Location IDs must be unique and nonempty.')
             seen.add(item['id'])
             model[key].append(item)
+    model['weight_history'] = validate_history(value.get('weight_history', {}), model['sites'], number, text)
     site_states = {s['id']: s['state'] for s in model['sites']}
     for state in STATES:
         data = value['states'][state]
         if not isinstance(data, dict):
             raise ValueError('Invalid state settings.')
         out = model['states'][state]
+        out['selling_per_kg'] = number(data.get('selling_per_kg'), 'Selling rate per kg', 10000, True)
         if 'cost_profile' in data:
             out['cost_profile'] = validate_cost_profile(data['cost_profile'])
         pricing = data.get('resource_pricing', {})
@@ -191,6 +195,11 @@ def validate_model(value):
                     if week < 1 or week != int(week) or day != int(day):
                         raise ValueError('Planner weeks must be 1–4 and days 0–6.')
                     item = {'week': int(week), 'day': int(day)}
+                    overrides = slot.get('pickup_by_site', {})
+                    if not isinstance(overrides, dict) or any(k not in run.get('site_ids', []) for k in overrides):
+                        raise ValueError('Invalid pickup customer overrides.')
+                    if overrides:
+                        item['pickup_by_site'] = {k: number(v, 'Scenario pickup kg', 1000000, True) for k,v in overrides.items()}
                     if 'pickup_kg' in slot:
                         item['pickup_kg'] = number(slot.get('pickup_kg'), 'Net collected kg', 1000000, True)
                     if slot.get('overtime_limit_min') is not None:
@@ -446,6 +455,22 @@ def register_blocktexx(app, db, require):
         model, revision, saved = current()
         return render_template('blocktexx.html', tab='blocktexx', model=model, revision=revision,
                                saved=saved, stages=STAGES, summary=summarize(model))
+
+    @app.post('/admin/blocktexx/weights/import')
+    @require('admin')
+    def import_blocktexx_weights():
+        try:
+            raw = request.form.get('model', '')
+            if len(raw.encode()) > 900000:
+                raise ValueError('Model is too large.')
+            model = validate_model(json.loads(raw))
+            file = request.files.get('file')
+            if not file:
+                raise ValueError('Select the sample workbook.')
+            model['weight_history'] = import_workbook(file.read(5_000_001), file.filename, model['sites'])
+            return {'ok': True, 'model': validate_model(model)}
+        except (ValueError, TypeError, KeyError, AttributeError, OverflowError) as exc:
+            return {'ok': False, 'error': str(exc) if isinstance(exc, ValueError) else 'Unable to read pickup history.'}, 400
 
     @app.post('/admin/blocktexx/capacity')
     @require('admin')

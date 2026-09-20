@@ -121,6 +121,22 @@ class PersistenceTests(unittest.TestCase):
         saved['states']['VIC']['runs'][0]['planner_slots'][0]['day']=7
         self.assertEqual(self.save(saved,1).status_code,400)
 
+    def test_import_sample_workbook_is_a_draft_then_persists(self):
+        import io
+        from openpyxl import Workbook
+        wb=Workbook();sheet=wb.active;sheet.title='KG Collected'
+        sheet.append(['Date','Docket','Company','Site','Facility','Qty'])
+        sheet.append(['7/1/2026','d1','Example','Town','SXVIC - Melbourne',100])
+        sheet.append(['7/1/2026','d1','Example','Town','SXVIC - Melbourne',200])
+        stream=io.BytesIO();wb.save(stream);stream.seek(0)
+        response=self.client.post('/admin/blocktexx/weights/import',data={'csrf':'test','model':json.dumps(example()),'file':(stream,'sample.xlsx')})
+        self.assertEqual(response.status_code,200)
+        draft=response.json['model']
+        self.assertEqual(draft['weight_history']['pickups'][0]['kg'],300)
+        self.assertFalse(self.client.get('/admin/blocktexx/export').json.get('weight_history',{}).get('pickups'))
+        self.assertEqual(self.save(draft).status_code,200)
+        self.assertEqual(self.client.get('/admin/blocktexx/export').json['weight_history'],draft['weight_history'])
+
     def test_daily_pickup_weights_round_trip_and_validate(self):
         m=example()
         slots=[{'week':1,'day':2,'pickup_kg':1250.5},{'week':3,'day':2,'pickup_kg':0}]

@@ -22,7 +22,8 @@
     $('bx-cost-save-status').textContent=message;
     $('bx-interstate-save-status').textContent=message;
   }
-  function changed() { dirty = true; generation++; saveStatus('Unsaved changes — select Save model, Save resources or Save cost model.'); capacityUI?.render(); renderMetrics(); renderOverview(); runView?.render(); renderResources();consolidation?.render();interstateUI?.refresh(); }
+  function renderWeights(){window.BlocktexxWeights.sync(model);window.BlocktexxWeights.render($('bx-weights'),model,state,changed,root.dataset.csrf,m=>{model=m;changed();render();saveStatus('Sample weights imported into draft — select Save model.');});}
+  function changed() { renderWeights();dirty = true; generation++; saveStatus('Unsaved changes — select Save model, Save resources or Save cost model.'); capacityUI?.render(); renderMetrics(); renderOverview(); runView?.render(); renderResources();consolidation?.render();interstateUI?.refresh(); }
   function summary(s) {
     const d = model.states[s]; let km = 0, work = 0, billed = 0, elapsed = 0, pending = 0, estimates = 0, active = 0;
     d.runs.forEach(r => {
@@ -50,7 +51,8 @@
       const comparison=window.BlocktexxCosts.calculate(d);cost=comparison.selected;billed=comparison.billed_hours_month*12/13;
       if(!comparison.schedule_complete)pending++;
     }
-    return {km,work,billed,elapsed,pending,estimates,cost,rate:!pending && d.monthly_kg && cost != null ? cost/d.monthly_kg : null, spare:d.available_weekly_hours*4-work};
+    const scenario=model.weight_history?.pickups?.length?window.BlocktexxCosts.periodSummary(d,null,model.sites):null;
+    return {km,work,billed,elapsed,pending,estimates,cost,rate:scenario?(!pending?scenario.rate:null):!pending && d.monthly_kg && cost != null ? cost/d.monthly_kg : null, spare:d.available_weekly_hours*4-work};
   }
   function renderOverview() {
     $('bx-overview').replaceChildren(...Object.entries(model.states).map(([s,d]) => {
@@ -60,10 +62,10 @@
   }
   function renderMetrics() {
     const v = summary(state);
-    window.BlocktexxCosts?.renderComparison($('bx-cost-comparison'),model.states[state],v.pending);
+    window.BlocktexxCosts?.renderComparison($('bx-cost-comparison'),model.states[state],v.pending,model.weight_history?.pickups?.length?window.BlocktexxCosts.periodSummary(model.states[state],null,model.sites):null);
     const items = [['Known km / 4 weeks',fmt(v.km,0)],['Known working hours / 4 weeks',fmt(v.work)],['Calendar-month working hours',fmt(v.work*13/12)],['Unallocated hours / 4 weeks',fmt(v.spare)],['Elapsed hours / 4 weeks',fmt(v.elapsed)],['Billable hours / 4 weeks',fmt(v.billed)],['Known local transport cost / month',money(v.cost)],['Local transport cost / kg',v.rate == null ? 'Incomplete' : '$'+fmt(v.rate,3)]];
     $('bx-metrics').replaceChildren(...items.map(([a,b]) => { const n=el('div',a); n.append(el('strong',b)); return n; }));
-    $('bx-gaps').textContent = `${v.pending} gaps: missing frequency/measurements, unresolved truck capacity, unassigned customers or customer frequencies that differ from the route plan. ${v.estimates} active rows use estimates. Customer frequency edits update visit demand immediately; revise affected grouped runs to update kilometres, hours and costs. Historic kilograms do not change automatically. All entered local movements share these hours. Interstate transfers have their own calendar and cost centre.`;
+    $('bx-gaps').textContent = `${v.pending} gaps: missing frequency/measurements, unresolved truck capacity, unassigned customers or customer frequencies that differ from the route plan. ${v.estimates} active rows use estimates. Customer frequency edits update visit demand immediately; revise affected grouped runs to update kilometres, hours and costs. Historical source kg remain unchanged; projected calendar kg follow the sample averages and your scenario overrides. All entered local movements share these hours. Interstate transfers have their own calendar and cost centre.`;
   }
   function inputField(key,label,options) {
     const d=model.states[state], wrap=el('label',label); let input;
@@ -128,7 +130,8 @@
     });table.append(body);$('bx-sites').replaceChildren(table);
     const partners=model.partners.filter(s=>s.state===state);$('bx-partners').replaceChildren(...(partners.length?partners.map(p=>{const n=el('div',null,'bx-site');n.append(el('strong',p.name),el('p',p.address+' · '+p.frequency),el('p',p.notes));return n;}):[el('p','No decommissioning partner confirmed in the supplied source for this state.')]));
   }
-  function render() { movementUI?.reset();interstateUI?.render();consolidation?.render();renderResources();renderPane();renderOverview();renderSettings();renderRuns();renderMetrics();renderSites();capacityUI?.render();$('bx-source').textContent=model.source;$('bx-notes').textContent=model.notes;document.querySelectorAll('[data-state]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.state===state))); }
+  function render() {
+    renderWeights(); movementUI?.reset();interstateUI?.render();consolidation?.render();renderResources();renderPane();renderOverview();renderSettings();renderRuns();renderMetrics();renderSites();capacityUI?.render();$('bx-source').textContent=model.source;$('bx-notes').textContent=model.notes;document.querySelectorAll('[data-state]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.state===state))); }
   document.querySelectorAll('[data-state]').forEach(b=>b.addEventListener('click',()=>{state=b.dataset.state;render();}));
   document.querySelectorAll('[data-bx-pane]').forEach(b=>b.addEventListener('click',()=>{activePane=b.dataset.bxPane;if(activePane==='interstate')interstateUI?.render();renderResources();renderPane();}));
   $('bx-add').addEventListener('click',()=>{model.states[state].runs.push({id:crypto.randomUUID(),name:'New collection day',sequence:'',notes:'',evidence:'',status:'unmeasured',site_ids:[],runs_4w:null,km:null,drive_min:null,service_min:0,depot_min:0,prep_min:15,wait_min:0,break_min:30});changed();renderRuns();});

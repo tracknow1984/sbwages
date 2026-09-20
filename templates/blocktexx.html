@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 {% block content %}
-<link rel="stylesheet" href="{{ url_for('static', filename='blocktexx.css', v='daily-kg-1') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='blocktexx.css', v='sample-weights-1') }}">
 <div id="blocktexx" data-revision="{{ revision }}" data-csrf="{{ csrf_token() }}">
   <div class="page-heading"><div><p class="bx-kicker">SB EMPIRE / PROPOSAL MODELLING</p><h1>BlockTexx transport model</h1><p>Collections, local deliveries and interstate transfers — building total cost per kilogram.</p></div>
     <div class="actions no-print"><button type="button" id="bx-save" class="primary">Save model</button><button type="button" id="bx-print" class="secondary">Print analysis</button></div></div>
@@ -25,6 +25,7 @@
     <div id="bx-interstate-content"></div>
   </section>
   <div id="bx-planner-pane">
+  <section id="bx-weights" class="bx-card"></section>
   <section id="bx-movements"></section>
 <details class="bx-card"><summary>Consolidate nearby runs</summary><section id="bx-consolidation"></section></details>
   <section id="bx-run-view" class="bx-card"></section>
@@ -50,13 +51,14 @@
   </div>
 </div>
 <script id="bx-data" type="application/json">{{ model | tojson }}</script>
-<script src="{{ url_for('static', filename='blocktexx_capacity.js', v='daily-kg-1') }}" defer></script>
-<script src="{{ url_for('static', filename='blocktexx_planner.js', v='daily-kg-1') }}" defer></script>
-<script src="{{ url_for('static', filename='blocktexx_run_view.js', v='daily-kg-1') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx_weights.js', v='sample-weights-1') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx_capacity.js', v='sample-weights-1') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx_planner.js', v='sample-weights-1') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx_run_view.js', v='sample-weights-1') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_resources.js', v='cost-model-1') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_consolidation.js', v='day-limit-1') }}" defer></script>
-<script src="{{ url_for('static', filename='blocktexx_costs.js', v='daily-kg-1') }}" defer></script>
-<script src="{{ url_for('static', filename='blocktexx_movements.js', v='daily-kg-1') }}" defer></script>
-<script src="{{ url_for('static', filename='blocktexx_interstate.js', v='daily-kg-1') }}" defer></script>
-<script src="{{ url_for('static', filename='blocktexx.js', v='daily-kg-1') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx_costs.js', v='sample-weights-1') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx_movements.js', v='sample-weights-1') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx_interstate.js', v='sample-weights-1') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx.js', v='sample-weights-1') }}" defer></script>
 {% endblock %}
