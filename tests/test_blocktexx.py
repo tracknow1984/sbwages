@@ -128,7 +128,11 @@ class PersistenceTests(unittest.TestCase):
         sheet.append(['Date','Docket','Company','Site','Facility','Qty'])
         sheet.append(['7/1/2026','d1','Example','Town','SXVIC - Melbourne',100])
         sheet.append(['7/1/2026','d1','Example','Town','SXVIC - Melbourne',200])
-        stream=io.BytesIO();wb.save(stream);stream.seek(0)
+        stream=io.BytesIO();wb.save(stream)
+        from zipfile import ZipFile, ZIP_STORED
+        with ZipFile(stream,'a') as archive:
+            archive.writestr('size-test.txt',b'x'*150000,compress_type=ZIP_STORED)
+        stream.seek(0)
         response=self.client.post('/admin/blocktexx/weights/import',data={'csrf':'test','model':json.dumps(example()),'file':(stream,'sample.xlsx')})
         self.assertEqual(response.status_code,200)
         draft=response.json['model']

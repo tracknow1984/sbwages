@@ -226,7 +226,9 @@ def create_app(test_config=None):
 
     @app.before_request
     def protect():
-        if request.endpoint in ('save_blocktexx', 'validate_blocktexx', 'preview_blocktexx_capacity'):
+        if request.endpoint == 'import_blocktexx_weights':
+            request.max_content_length = 6 * 1024 * 1024
+        elif request.endpoint in ('save_blocktexx', 'validate_blocktexx', 'preview_blocktexx_capacity'):
             request.max_content_length = 4 * 1024 * 1024
         elif request.endpoint == 'employee_prestart':
             request.max_content_length = 32 * 1024 * 1024
