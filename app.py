@@ -592,8 +592,6 @@ def create_app(test_config=None):
             if minutes <= 0:
                 raise ValueError('Finish time must be after start time. Split overnight work across the two dates.')
             units = int((Decimal(minutes) * 100 / 60).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
-            if not activity:
-                raise ValueError('Add activity notes for this day.')
         return start or None, finish or None, units, activity
 
     @app.route('/employee/timesheet', methods=['GET', 'POST'])

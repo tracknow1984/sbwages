@@ -475,7 +475,7 @@ class AppTests(unittest.TestCase):
             self.assertEqual(len(self.query('SELECT * FROM entries')), 0)
         values = self.day_form(end)
         values['activity'] = ''
-        self.assertIn(b'Add activity notes', self.post('/employee/timesheet', values).data)
+        self.assertIn(b'Day committed and locked.', self.post('/employee/timesheet', values).data)
         self.assertEqual(self.client.post('/employee/details', data={}).status_code, 400)
         self.post('/employee/timesheet', self.week_form(end, '8', 'submit'))
         self.post('/logout')
@@ -589,7 +589,7 @@ class AppTests(unittest.TestCase):
         self.post('/logout')
         self.login('alex', 'test-staff-password')
         end = self.last_week()
-        values = self.day_form(end, action='save_day')
+        values = self.day_form(end, finish='17:00', action='save_day') | {'activity': ''}
         with self.client.session_transaction() as sess:
             token = sess['csrf']
         def send(data):
@@ -599,11 +599,11 @@ class AppTests(unittest.TestCase):
         self.assertEqual(saved.status_code, 200)
         self.assertTrue(saved.json['ok'])
         self.assertFalse(saved.json['committed'])
-        self.assertEqual(saved.json['units'], 800)
+        self.assertEqual(saved.json['units'], 900)
         invalid = send(values | {'finish_time': '07:00'})
         self.assertEqual(invalid.status_code, 400)
         self.assertFalse(invalid.json['ok'])
-        self.assertEqual(self.query('SELECT units FROM entries')[0]['units'], 800)
+        self.assertEqual(self.query('SELECT units FROM entries')[0]['units'], 900)
         committed = send(values | {'action': 'commit_day'})
         self.assertTrue(committed.json['committed'])
         denied = send(values | {'finish_time': '18:00'})
@@ -612,11 +612,11 @@ class AppTests(unittest.TestCase):
         other = values | {'work_date': (end-timedelta(days=1)).isoformat(), 'finish_time': '17:00'}
         self.assertTrue(send(other).json['ok'])
         rows = self.query('SELECT * FROM entries ORDER BY work_date')
-        self.assertEqual([r['units'] for r in rows], [900, 800])
+        self.assertEqual([r['units'] for r in rows], [900, 900])
         page = self.client.get('/employee/timesheet?week='+end.isoformat())
         self.assertIn(b'Committed', page.data)
         self.assertIn(b'17:00', page.data)
-        self.assertIn(b'Yard maintenance', page.data)
+        self.assertEqual(self.query('SELECT activity FROM entries')[0]['activity'], '')
         self.assertEqual(self.client.post('/employee/timesheet', data=values,
                          headers={'Accept': 'application/json'}).status_code, 400)
 
