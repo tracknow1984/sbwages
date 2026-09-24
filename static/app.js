@@ -34,18 +34,78 @@ if (summary) {
     }));
     if (times.some(field => field.value)) recalculate();
   }
-  document.querySelectorAll('.day-form,.week-submit').forEach(form => form.addEventListener('submit', event => {
-    const action = event.submitter?.value;
-    if (action === 'submit' && dirty.size) {
-      window.alert('Save or commit your changed days before submitting the week.');
+  const pending = new Set();
+  document.querySelectorAll('.day-form').forEach(form => {
+    const row = form.closest('.day-row');
+    const fields = [...form.elements].filter(field => ['start_time', 'finish_time', 'activity'].includes(field.name));
+    const status = form.querySelector('small');
+    status.setAttribute('role', 'status');
+    status.setAttribute('aria-live', 'polite');
+    const markChanged = () => {
+      dirty.add(form.id);
+      status.textContent = 'Unsaved changes';
+    };
+    fields.forEach(field => {
+      field.addEventListener('input', markChanged);
+      field.addEventListener('change', markChanged);
+    });
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      if (pending.has(form.id)) return;
+      const action = event.submitter?.value || 'save_day';
+      if (action === 'commit_day' && !window.confirm('Commit this day? You cannot change it afterwards. Only an administrator can correct or unlock it.')) return;
+      const body = new FormData(form);
+      body.set('action', action);
+      const controls = [...form.elements].filter(field => !field.disabled);
+      pending.add(form.id);
+      dirty.add(form.id);
+      controls.forEach(field => { field.disabled = true; });
+      status.textContent = action === 'commit_day' ? 'Committing…' : 'Saving…';
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 30000);
+      try {
+        const response = await fetch(form.getAttribute('action') || window.location.href, {method: 'POST', body,
+          headers: {'Accept': 'application/json'}, signal: controller.signal});
+        if (response.redirected || !response.headers.get('content-type')?.includes('application/json')) {
+          throw new Error('Save could not be confirmed. Your session may have expired. Your entries are still here; copy them before signing in again or refreshing.');
+        }
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.message || 'Save could not be confirmed. Please try again.');
+        if (result.work_date !== body.get('work_date')) throw new Error('Save could not be confirmed. Please try again.');
+        row.dataset.units = String(result.units);
+        row.querySelector('.day-hours').textContent = String(result.units / 100);
+        dirty.delete(form.id);
+        if (result.committed) {
+          fields.forEach(field => {
+            const value = document.createElement('span');
+            value.textContent = result[field.name] || '—';
+            if (field.name === 'activity') value.className = 'activity-text';
+            field.replaceWith(value);
+          });
+          const badge = document.createElement('span');
+          badge.className = 'badge submitted';
+          badge.textContent = 'Committed · Locked';
+          form.querySelector('.day-actions').replaceWith(badge);
+        }
+        status.textContent = result.message;
+        update();
+      } catch (error) {
+        status.textContent = error.name === 'AbortError'
+          ? 'Save confirmation timed out. Your entries are still here. Please check your connection and try again.'
+          : (error instanceof TypeError ? 'Connection failed. Your entries are still here. Please try again.' : error.message || 'Save could not be confirmed. Your entries are still here. Please try again.');
+      } finally {
+        clearTimeout(timer);
+        pending.delete(form.id);
+        controls.forEach(field => { field.disabled = false; });
+      }
+    });
+  });
+  document.querySelectorAll('.week-submit').forEach(form => form.addEventListener('submit', event => {
+    if (dirty.size || pending.size) {
+      window.alert('Save or commit your changed days and wait for confirmation before submitting the week.');
       event.preventDefault(); return;
     }
-    if ([...dirty].some(id => id !== form.id) && !window.confirm('Other days have unsaved changes. Continuing will discard those changes. Continue?')) {
-      event.preventDefault(); return;
-    }
-    const prompt = action === 'commit_day' ? 'Commit this day? You cannot change it afterwards. Only an administrator can correct or unlock it.' : action === 'submit' ? 'Submit this week to admin? This locks the weekly record.' : null;
-    if (prompt && !window.confirm(prompt)) { event.preventDefault(); return; }
-    dirty.clear();
+    if (!window.confirm('Submit this week to admin? This locks the weekly record.')) event.preventDefault();
   }));
   window.addEventListener('beforeunload', event => {
     if (dirty.size) { event.preventDefault(); event.returnValue = ''; }

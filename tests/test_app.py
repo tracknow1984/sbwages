@@ -584,6 +584,42 @@ class AppTests(unittest.TestCase):
         self.assertEqual(self.query('SELECT units FROM entries WHERE work_date=?', (end.isoformat(),))[0]['units'], 850)
         self.assertIn(b'Commit each entered day', self.post('/employee/timesheet', {'week':end.isoformat(), 'action':'submit'}).data)
 
+    def test_day_json_save_commit_reload_and_errors(self):
+        self.add()
+        self.post('/logout')
+        self.login('alex', 'test-staff-password')
+        end = self.last_week()
+        values = self.day_form(end, action='save_day')
+        with self.client.session_transaction() as sess:
+            token = sess['csrf']
+        def send(data):
+            return self.client.post('/employee/timesheet', data={'csrf': token, **data},
+                                    headers={'Accept': 'application/json'})
+        saved = send(values)
+        self.assertEqual(saved.status_code, 200)
+        self.assertTrue(saved.json['ok'])
+        self.assertFalse(saved.json['committed'])
+        self.assertEqual(saved.json['units'], 800)
+        invalid = send(values | {'finish_time': '07:00'})
+        self.assertEqual(invalid.status_code, 400)
+        self.assertFalse(invalid.json['ok'])
+        self.assertEqual(self.query('SELECT units FROM entries')[0]['units'], 800)
+        committed = send(values | {'action': 'commit_day'})
+        self.assertTrue(committed.json['committed'])
+        denied = send(values | {'finish_time': '18:00'})
+        self.assertEqual(denied.status_code, 400)
+        self.assertIn('locked', denied.json['message'])
+        other = values | {'work_date': (end-timedelta(days=1)).isoformat(), 'finish_time': '17:00'}
+        self.assertTrue(send(other).json['ok'])
+        rows = self.query('SELECT * FROM entries ORDER BY work_date')
+        self.assertEqual([r['units'] for r in rows], [900, 800])
+        page = self.client.get('/employee/timesheet?week='+end.isoformat())
+        self.assertIn(b'Committed', page.data)
+        self.assertIn(b'17:00', page.data)
+        self.assertIn(b'Yard maintenance', page.data)
+        self.assertEqual(self.client.post('/employee/timesheet', data=values,
+                         headers={'Accept': 'application/json'}).status_code, 400)
+
     def test_partial_week_submission_before_sunday(self):
         # A fixed Wednesday ensures this exercises early submission for the Monday-Sunday schedule.
         fixed_now = datetime(2026, 9, 9, 12, tzinfo=ZoneInfo('Australia/Brisbane'))

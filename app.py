@@ -655,11 +655,19 @@ def create_app(test_config=None):
                         finish_time=excluded.finish_time,committed_at=excluded.committed_at""",
                         (person['id'], day.isoformat(), sid, units, activity, start, finish, committed))
                 db().commit()
+                if request.accept_mimetypes.best == 'application/json' and action != 'submit':
+                    return {'ok': True, 'work_date': day.isoformat(), 'units': units,
+                            'start_time': start or '', 'finish_time': finish or '',
+                            'activity': activity, 'committed': bool(committed),
+                            'message': 'Day committed and locked.' if committed else 'Day saved.'}
                 flash({'save_day': 'Day saved.', 'commit_day': 'Day committed and locked.', 'submit': 'Timesheet submitted to admin.'}[action], 'success')
                 return redirect(url_for('employee_timesheet', week=ending.isoformat()))
             except (ValueError, sqlite3.IntegrityError) as error:
                 db().rollback()
-                flash(str(error) if isinstance(error, ValueError) else 'This date overlaps existing hours. Please contact admin.', 'error')
+                message = str(error) if isinstance(error, ValueError) else 'This date overlaps existing hours. Please contact admin.'
+                if request.accept_mimetypes.best == 'application/json':
+                    return {'ok': False, 'message': message}, 400
+                flash(message, 'error')
         return render_template('timesheet.html', **data, person=person, ending=ending, tab='timesheet', admin_view=False,
                                previous=week_end(ending, 6) - timedelta(days=7), following=week_end(ending, 6) + timedelta(days=7), current_ending=week_end(today(), 6))
 
