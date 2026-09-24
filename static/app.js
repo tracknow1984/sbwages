@@ -53,7 +53,6 @@ if (summary) {
       event.preventDefault();
       if (pending.has(form.id)) return;
       const action = event.submitter?.value || 'save_day';
-      if (action === 'commit_day' && !window.confirm('Commit this day? You cannot change it afterwards. Only an administrator can correct or unlock it.')) return;
       const body = new FormData(form);
       body.set('action', action);
       const controls = [...form.elements].filter(field => !field.disabled);
