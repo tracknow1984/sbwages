@@ -53,12 +53,12 @@ class AppTests(unittest.TestCase):
         today = datetime.now(ZoneInfo('Australia/Brisbane')).date()
         return today - timedelta(days=((today.weekday() - ending) % 7) + 7)
 
-    def day_form(self, end, start='08:00', finish='16:00', action='commit_day', day=None):
+    def day_form(self, end, start='08:00', finish='16:30', action='commit_day', day=None):
         return dict(week=end.isoformat(), work_date=(day or end).isoformat(), action=action,
                     start_time=start, finish_time=finish, activity='Yard maintenance')
 
     def week_form(self, end, hours='8', action='save'):
-        minutes = round(float(hours) * 60)
+        minutes = round(float(hours) * 60) + 30  # requested paid hours plus unpaid lunch
         finish = f'{minutes // 60:02d}:{minutes % 60:02d}'
         for i in range(7 if action == 'submit' else 6):
             self.post('/employee/timesheet', self.day_form(end, '00:00', finish,
@@ -573,15 +573,15 @@ class AppTests(unittest.TestCase):
         values = self.day_form(end, '07:30', '16:00')
         self.assertIn(b'Day committed and locked.', self.post('/employee/timesheet', values).data)
         entry = self.query('SELECT * FROM entries')[0]
-        self.assertEqual(entry['units'], 850)
+        self.assertEqual(entry['units'], 800)
         self.assertTrue(entry['committed_at'])
         for action in ['commit_day', 'save_day']:
             result = self.post('/employee/timesheet', values | {'action': action, 'finish_time': '18:00'})
             self.assertIn(b'Only an administrator', result.data)
-        self.assertEqual(self.query('SELECT units FROM entries')[0]['units'], 850)
+        self.assertEqual(self.query('SELECT units FROM entries')[0]['units'], 800)
         other = self.day_form(end, day=end-timedelta(days=1), action='save_day')
         self.assertIn(b'Day saved.', self.post('/employee/timesheet', other).data)
-        self.assertEqual(self.query('SELECT units FROM entries WHERE work_date=?', (end.isoformat(),))[0]['units'], 850)
+        self.assertEqual(self.query('SELECT units FROM entries WHERE work_date=?', (end.isoformat(),))[0]['units'], 800)
         self.assertIn(b'Commit each entered day', self.post('/employee/timesheet', {'week':end.isoformat(), 'action':'submit'}).data)
 
     def test_day_json_save_commit_reload_and_errors(self):
@@ -599,11 +599,11 @@ class AppTests(unittest.TestCase):
         self.assertEqual(saved.status_code, 200)
         self.assertTrue(saved.json['ok'])
         self.assertFalse(saved.json['committed'])
-        self.assertEqual(saved.json['units'], 900)
+        self.assertEqual(saved.json['units'], 850)
         invalid = send(values | {'finish_time': '07:00'})
         self.assertEqual(invalid.status_code, 400)
         self.assertFalse(invalid.json['ok'])
-        self.assertEqual(self.query('SELECT units FROM entries')[0]['units'], 900)
+        self.assertEqual(self.query('SELECT units FROM entries')[0]['units'], 850)
         committed = send(values | {'action': 'commit_day'})
         self.assertTrue(committed.json['committed'])
         denied = send(values | {'finish_time': '18:00'})
@@ -612,7 +612,7 @@ class AppTests(unittest.TestCase):
         other = values | {'work_date': (end-timedelta(days=1)).isoformat(), 'finish_time': '17:00'}
         self.assertTrue(send(other).json['ok'])
         rows = self.query('SELECT * FROM entries ORDER BY work_date')
-        self.assertEqual([r['units'] for r in rows], [900, 900])
+        self.assertEqual([r['units'] for r in rows], [850, 850])
         page = self.client.get('/employee/timesheet?week='+end.isoformat())
         self.assertIn(b'Committed', page.data)
         self.assertIn(b'17:00', page.data)
@@ -670,8 +670,8 @@ class AppTests(unittest.TestCase):
         correction = dict(action='correct', start_time='08:00', finish_time='17:00',activity='Corrected work',reason='Checked clock times')
         self.assertIn(b'Correction saved.', self.post(route, correction).data)
         updated = self.query('SELECT * FROM sheets')[0]
-        self.assertEqual(updated['total_units'], 5700)
-        self.assertEqual(updated['total_cents'], 202350)
+        self.assertEqual(updated['total_units'], 5650)
+        self.assertEqual(updated['total_cents'], 200575)
         self.assertEqual(updated['rate_cents'], 3550)
         self.assertEqual(updated['status'], 'submitted')
         self.assertIn(b'Enter a reason', self.post(route, {'action':'unlock'}).data)

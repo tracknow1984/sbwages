@@ -23,7 +23,7 @@ if (summary) {
       const minutes = value => { const [h, m] = value.split(':').map(Number); return h * 60 + m; };
       const valid = times.length === 2 && times.every(field => field.value);
       const duration = valid ? minutes(times[1].value) - minutes(times[0].value) : 0;
-      row.dataset.units = String(duration > 0 ? Math.round(duration * 100 / 60) : 0);
+      row.dataset.units = String(duration > 0 ? Math.round(Math.max(0, duration - 30) * 100 / 60) : 0);
       row.querySelector('.day-hours').textContent = duration > 0 ? String(Number(row.dataset.units) / 100) : '0';
       if (times[1]) times[1].setCustomValidity(valid && duration <= 0 ? 'Finish must be after start. Split overnight work across two dates.' : '');
       update();

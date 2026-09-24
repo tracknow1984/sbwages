@@ -32,6 +32,7 @@ const assert = require('node:assert/strict');
     page.on('framenavigated', () => navigations++);
     await row(0).getByRole('button',{name:'Save day',exact:true}).click();
     await waitStatus(0, 'Day saved.');
+    assert.equal(await row(0).locator('.day-hours').innerText(), '7.5');
     assert.equal(await row(1).locator('[name=activity]').inputValue(), 'Tuesday unsaved work');
     await row(0).getByRole('button',{name:'Commit day',exact:true}).click();
     await waitStatus(0, 'Day committed and locked.');

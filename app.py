@@ -18,6 +18,7 @@ from zoneinfo import ZoneInfo
 from flask import Flask, abort, flash, g, redirect, render_template, request, session, url_for, send_file
 from werkzeug.utils import secure_filename
 from werkzeug.security import check_password_hash, generate_password_hash
+from lunch import deduct_lunch, migrate_lunch
 from prestart_config import ASSETS, DECLARATION, checklist
 from prestart_media import signature_png, photo_jpeg
 
@@ -206,6 +207,7 @@ def create_app(test_config=None):
             if name not in columns:
                 db().execute(f'ALTER TABLE entries ADD COLUMN {name} {definition}')
         db().execute("UPDATE entries SET committed_at=COALESCE((SELECT submitted_at FROM sheets WHERE id=entries.sheet_id), 'Previously submitted') WHERE committed_at IS NULL AND sheet_id IN (SELECT id FROM sheets WHERE status='submitted')")
+        migrate_lunch(db())
         db().commit()
         if not db().execute("SELECT id FROM users WHERE role='admin'").fetchone():
             pw = app.config['ADMIN_PASSWORD']
@@ -592,7 +594,8 @@ def create_app(test_config=None):
             if minutes <= 0:
                 raise ValueError('Finish time must be after start time. Split overnight work across the two dates.')
             units = int((Decimal(minutes) * 100 / 60).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
-        return start or None, finish or None, units, activity
+        units, lunch_units = deduct_lunch(units)
+        return start or None, finish or None, units, activity, lunch_units
 
     @app.route('/employee/timesheet', methods=['GET', 'POST'])
     @require('employee')
@@ -622,7 +625,7 @@ def create_app(test_config=None):
                     units = sum(row['units'] for row in rows)
                     if not units:
                         raise ValueError('Enter some worked hours before submitting.')
-                    if any(not row['committed_at'] for row in rows if row['units'] or row['activity']):
+                    if any(not row['committed_at'] for row in rows if row['units'] or row['activity'] or row['start_time']):
                         raise ValueError('Commit each entered day before submitting the week.')
                     rate = db().execute('SELECT rate_cents FROM users WHERE id=?', (person['id'],)).fetchone()['rate_cents']
                     db().execute("UPDATE sheets SET status='submitted',rate_cents=?,total_units=?,total_cents=?,submitted_at=? WHERE id=?",
@@ -639,24 +642,24 @@ def create_app(test_config=None):
                         raise ValueError('This date belongs to another timesheet. Ask admin to check the week ending.')
                     if old and old['committed_at']:
                         raise ValueError('This day is committed and locked. Only an administrator can change it.')
-                    start, finish, units, activity = parse_day()
-                    if old and old['units'] and not old['start_time'] and not start and not finish:
+                    start, finish, units, activity, lunch_units = parse_day()
+                    if old and (old['units'] or old['lunch_units']) and not old['start_time'] and not start and not finish:
                         raise ValueError('This day has previous hours. Enter start and finish times before saving or committing it.')
                     if not current:
                         sid = db().execute('INSERT INTO sheets(user_id,week_end) VALUES(?,?)', (person['id'], ending.isoformat())).lastrowid
                     else:
                         sid = current['id']
                     committed = datetime.now(ZoneInfo('Australia/Brisbane')).isoformat() if action == 'commit_day' else None
-                    db().execute("""INSERT INTO entries(user_id,work_date,sheet_id,units,activity,start_time,finish_time,committed_at)
-                        VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(user_id,work_date) DO UPDATE SET
+                    db().execute("""INSERT INTO entries(user_id,work_date,sheet_id,units,activity,start_time,finish_time,committed_at,lunch_units)
+                        VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id,work_date) DO UPDATE SET
                         units=excluded.units,activity=excluded.activity,start_time=excluded.start_time,
-                        finish_time=excluded.finish_time,committed_at=excluded.committed_at""",
-                        (person['id'], day.isoformat(), sid, units, activity, start, finish, committed))
+                        finish_time=excluded.finish_time,committed_at=excluded.committed_at,lunch_units=excluded.lunch_units""",
+                        (person['id'], day.isoformat(), sid, units, activity, start, finish, committed, lunch_units))
                 db().commit()
                 if request.accept_mimetypes.best == 'application/json' and action != 'submit':
                     return {'ok': True, 'work_date': day.isoformat(), 'units': units,
                             'start_time': start or '', 'finish_time': finish or '',
-                            'activity': activity, 'committed': bool(committed),
+                            'activity': activity, 'lunch_units': lunch_units, 'committed': bool(committed),
                             'message': 'Day committed and locked.' if committed else 'Day saved.'}
                 flash({'save_day': 'Day saved.', 'commit_day': 'Day committed and locked.', 'submit': 'Timesheet submitted to admin.'}[action], 'success')
                 return redirect(url_for('employee_timesheet', week=ending.isoformat()))
@@ -777,9 +780,9 @@ def create_app(test_config=None):
                     db().execute('UPDATE entries SET committed_at=NULL WHERE sheet_id=? AND work_date=?', (sheet_id, work_date))
                     db().execute("UPDATE sheets SET status='draft',rate_cents=NULL,total_units=NULL,total_cents=NULL,submitted_at=NULL WHERE id=?", (sheet_id,))
                 else:
-                    start, finish, units, activity = values
-                    db().execute('UPDATE entries SET start_time=?,finish_time=?,units=?,activity=?,committed_at=? WHERE sheet_id=? AND work_date=?',
-                        (start, finish, units, activity, now, sheet_id, work_date))
+                    start, finish, units, activity, lunch_units = values
+                    db().execute('UPDATE entries SET start_time=?,finish_time=?,units=?,activity=?,committed_at=?,lunch_units=? WHERE sheet_id=? AND work_date=?',
+                        (start, finish, units, activity, now, lunch_units, sheet_id, work_date))
                     if current['status'] == 'submitted':
                         total = db().execute('SELECT COALESCE(SUM(units),0) AS units FROM entries WHERE sheet_id=?', (sheet_id,)).fetchone()['units']
                         db().execute('UPDATE sheets SET total_units=?,total_cents=? WHERE id=?', (total, amount(total, current['rate_cents']), sheet_id))
@@ -842,7 +845,7 @@ def create_app(test_config=None):
         payment=db().execute('SELECT * FROM payments WHERE id=?',(payment_id,)).fetchone()
         if not payment or (g.user['role'] != 'admin' and payment['user_id'] != g.user['id']):
             abort(404)
-        return render_template('payslip.html',payment=payment,admin_view=g.user['role']=='admin',tab='submissions' if g.user['role']=='admin' else 'payslips')
+        return render_template('payslip.html',sheet=db().execute('SELECT * FROM sheets WHERE id=?',(payment['sheet_id'],)).fetchone(),payment=payment,admin_view=g.user['role']=='admin',tab='submissions' if g.user['role']=='admin' else 'payslips')
 
     @app.get('/employee/payslips')
     @require('employee')
