@@ -42,7 +42,7 @@ window.BlocktexxInterstate=(()=>{
  }
  function create(getModel,onChange,getSummaries){
   const root=document.getElementById('bx-interstate-content'),days=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
-  let editing=null,inputs={},message,calendar,summary,form,fuelControl;
+  let editing=null,inputs={},message,calendar,summary,form,fuelControl,costCentre;
   let rateInputs={};
   function edit(b){
    editing=b?.id||null;
@@ -57,10 +57,12 @@ window.BlocktexxInterstate=(()=>{
    inputs.destination.value=places[destination]||'';
   }
   function render(){
-   const model=getModel(),data=ensure(model);root.replaceChildren();rateInputs={};
-   root.append(e('h2','Interstate transfers · national cost centre'),
-     e('p','Dedicated B-double / semi departures, separate from local driver calendars. Enter the consolidated load, origin and delivery destination for each booking. The four-week cycle represents a repeating plan; transit days include the carrier’s planned rest and stops.'));
-   const rates=e('details');rates.open=true;rates.append(e('summary','S & B interstate rates · editable'));
+   const model=getModel(),data=ensure(model),wasOpen=costCentre?.open||false;root.replaceChildren();rateInputs={};
+   calendar=e('section');root.append(calendar);
+   costCentre=e('details');costCentre.className='bx-card';costCentre.open=wasOpen;
+   costCentre.append(e('summary','Interstate transfers · national cost centre'),
+     e('p','Dedicated B-double / semi departures, separate from local driver calendars. The four-week cycle represents a repeating plan; transit days include carrier rest and stops.'));
+   const rates=e('details');rates.append(e('summary','S & B interstate rates · editable'));
    const levyLabel=e('label','Fuel levy % for all quoted routes '),levy=e('input');levy.type='number';levy.min=0;levy.max=1000;levy.step='any';levy.setAttribute('aria-label','Fuel levy for all quoted routes');
    const fuelValues=quotedLanes.map(id=>data.lanes[id].fuel_pct);levy.value=fuelValues.every(v=>v===fuelValues[0])?(fuelValues[0]??''):'';levy.placeholder='Mixed rates';fuelControl=levy;
    levy.onchange=()=>{if(!levy.checkValidity()){levy.reportValidity();return;}quotedLanes.forEach(id=>data.lanes[id].fuel_pct=levy.value===''?null:Number(levy.value));onChange();refresh();};levyLabel.append(levy);rates.append(levyLabel);
@@ -72,7 +74,7 @@ window.BlocktexxInterstate=(()=>{
      input.onchange=()=>{if(!input.checkValidity()){input.reportValidity();return;}data.lanes[id][key]=input.value===''?null:Number(input.value);onChange();refresh();};td.append(input);tr.append(td);
     }table.append(tr);
    }
-   scroll.append(table);rates.append(scroll,e('p','AUD excluding GST. Per-trip cost = base × (1 + fuel levy %) + tolls + other charges. Enter 0 where an item does not apply. Confirm payload with the carrier; no B-double or semi capacity is assumed.'));root.append(rates);
+   scroll.append(table);rates.append(scroll,e('p','AUD excluding GST. Per-trip cost = base × (1 + fuel levy %) + tolls + other charges. Enter 0 where an item does not apply. Confirm payload with the carrier; no B-double or semi capacity is assumed.'));costCentre.append(rates);
    form=e('form');form.className='bx-card';form.append(e('h3','Add / edit interstate departure'));const grid=e('div',null,'bx-settings');inputs={};
    function field(key,label,type,options){
     const wrap=e('label',label),input=e(options?'select':'input');
@@ -101,7 +103,7 @@ window.BlocktexxInterstate=(()=>{
     const index=data.bookings.findIndex(r=>r.id===editing);if(index<0)data.bookings.push(b);else data.bookings[index]=b;
     onChange();edit(null);refresh();
    };
-   root.append(form);calendar=e('section');summary=e('section');root.append(calendar,summary);edit(null);refresh();
+   costCentre.append(form);summary=e('section');costCentre.append(summary);root.append(costCentre);edit(null);refresh();
   }
   function refresh(){
    if(!calendar)return;
@@ -114,13 +116,13 @@ window.BlocktexxInterstate=(()=>{
    for(let week=1;week<=4;week++){
     const row=e('tr');row.append(e('th','Week '+week));
     for(let day=0;day<7;day++){
-     const td=e('td'),add=e('button','Add departure','secondary');add.type='button';add.onclick=()=>{edit(null);inputs.week.value=week;inputs.day.value=day;form.scrollIntoView({block:'start',behavior:'smooth'});};td.append(add);
+     const td=e('td'),add=e('button','Add departure','secondary');add.type='button';add.onclick=()=>{costCentre.open=true;edit(null);inputs.week.value=week;inputs.day.value=day;form.scrollIntoView({block:'start',behavior:'smooth'});};td.append(add);
      data.bookings.filter(b=>b.week===week&&b.day===day).forEach(b=>{
       const n=(b.week-1)*7+b.day+b.transit_days,arrival='Week '+(Math.floor(n/7)%4+1)+' '+days[n%7]+(n>=28?' (next cycle)':'');
       const card=e('button',null,'bx-interstate-booking');card.type='button';
       card.append(e('strong',lanes[b.lane_id][0]),e('small',b.trips+' truck trip(s) · '+fmt(b.kg_trip)+' kg each'),e('small',b.origin+' → '+b.destination),e('small','Arrival: '+arrival),
        e('small',money(cost.lanes[b.lane_id].rate==null?null:cost.lanes[b.lane_id].rate*b.trips)));
-      card.onclick=()=>{edit(b);form.scrollIntoView({block:'start',behavior:'smooth'});};td.append(card);
+      card.onclick=()=>{costCentre.open=true;edit(b);form.scrollIntoView({block:'start',behavior:'smooth'});};td.append(card);
       const remove=e('button','Remove','secondary');remove.type='button';remove.onclick=()=>{if(!confirm('Remove this interstate departure?'))return;data.bookings=data.bookings.filter(r=>r.id!==b.id);onChange();edit(null);refresh();};td.append(remove);
      });row.append(td);
     }table.append(row);
