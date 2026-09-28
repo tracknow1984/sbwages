@@ -6,9 +6,10 @@
   let state = 'QLD', revision = Number(root.dataset.revision), dirty = false, saving = false, generation = 0;
   let capacityUI, runView, consolidation, movementUI, interstateUI;
   let activePane = 'planner';
+  const plannerScope=()=>activePane==='decom'?'decom':'local';
   function renderStorage(){window.BlocktexxStorage?.render($('bx-storage'),model,changed);}
   function renderResources() { window.renderBlocktexxResources?.(model,state,()=>{changed();renderSites();}); }
-  function renderPane() { $('bx-storage').hidden=activePane!=='storage'; $('bx-weights').hidden=activePane!=='weights'; $('bx-interstate-pane').hidden=activePane!=='interstate';document.querySelector('[aria-label="Collection state"]').hidden=['interstate','storage'].includes(activePane);$('bx-planner-pane').hidden=activePane!=='planner';$('bx-resources').hidden=activePane!=='resources';document.querySelectorAll('[data-bx-pane]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.bxPane===activePane))); }
+  function renderPane() { $('bx-storage').hidden=activePane!=='storage'; $('bx-weights').hidden=activePane!=='weights'; $('bx-interstate-pane').hidden=activePane!=='interstate';document.querySelector('[aria-label="Collection state"]').hidden=['interstate','storage'].includes(activePane);$('bx-planner-pane').hidden=!['planner','decom'].includes(activePane);document.querySelectorAll('[data-local-only]').forEach(n=>n.hidden=activePane==='decom');$('bx-add').hidden=activePane==='decom';$('bx-partner-register').hidden=activePane!=='decom';$('bx-runs-label').textContent=activePane==='decom'?'View / edit decom movements':'View / edit local runs and movements';$('bx-runs-title').textContent=activePane==='decom'?'Decom movements':'Local runs and movements';$('bx-resources').hidden=activePane!=='resources';document.querySelectorAll('[data-bx-pane]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.bxPane===activePane))); }
   const $ = id => document.getElementById(id);
   const fmt = (n, places = 1) => n == null ? 'Not set' : Number(n).toLocaleString('en-AU', {maximumFractionDigits: places});
   const money = n => n == null ? 'Not priced' : '$' + fmt(n, 0);
@@ -95,7 +96,7 @@
   function renderRuns() {
     runView?.render();
     $('bx-runs').replaceChildren(); document.querySelectorAll('.bx-editor').forEach(n=>n.remove());
-    model.states[state].runs.forEach(r=>{
+    window.BlocktexxPlannerScope.runs(model.states[state].runs,plannerScope()).forEach(r=>{
       const tr=el('tr'), first=el('td'); first.append(el('strong',r.name),el('small',r.sequence),el('small',r.notes)); tr.append(first);
       ['runs_4w','km','drive_min','service_min','depot_min','prep_min','wait_min','break_min'].forEach(k=>{
         const td=el('td'),input=el('input'); input.type='number';input.min='0';input.step='any';input.value=r[k]??'';input.placeholder='TBC';input.setAttribute('aria-label',r.name+' '+k);
@@ -135,7 +136,7 @@
   function render() {
     renderStorage();renderWeights(); movementUI?.reset();interstateUI?.render();consolidation?.render();renderResources();renderPane();renderOverview();renderSettings();renderRuns();renderMetrics();renderSites();capacityUI?.render();$('bx-source').textContent=model.source;$('bx-notes').textContent=model.notes;document.querySelectorAll('[data-state]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.state===state))); }
   document.querySelectorAll('[data-state]').forEach(b=>b.addEventListener('click',()=>{state=b.dataset.state;render();}));
-  document.querySelectorAll('[data-bx-pane]').forEach(b=>b.addEventListener('click',()=>{activePane=b.dataset.bxPane;if(activePane==='interstate')interstateUI?.render();renderResources();renderPane();}));
+  document.querySelectorAll('[data-bx-pane]').forEach(b=>b.addEventListener('click',()=>{activePane=b.dataset.bxPane;if(activePane==='interstate')interstateUI?.render();renderResources();renderPane();movementUI?.reset();renderRuns();}));
   $('bx-add').addEventListener('click',()=>{model.states[state].runs.push({id:crypto.randomUUID(),name:'New collection day',sequence:'',notes:'',evidence:'',status:'unmeasured',site_ids:[],runs_4w:null,km:null,drive_min:null,service_min:0,depot_min:0,prep_min:15,wait_min:0,break_min:30});changed();renderRuns();});
   async function saveModel() {
     if(saving)return;
@@ -166,10 +167,10 @@
   $('bx-print').addEventListener('click',()=>window.print());
   window.addEventListener('beforeunload',e=>{if(dirty||saving){e.preventDefault();e.returnValue='';}});
   capacityUI=window.createBlocktexxCapacity?.(()=>model,()=>state,()=>{changed();renderRuns();renderSites();},root.dataset.csrf,()=>{renderMetrics();runView?.render();interstateUI?.refresh();});
-  runView=window.createBlocktexxRunView(()=>model,()=>state,()=>capacityUI?.getPlans(),()=>{changed();renderRuns();renderSites();});
+  runView=window.createBlocktexxRunView(()=>model,()=>state,()=>capacityUI?.getPlans(),()=>{changed();renderRuns();renderSites();},plannerScope);
   consolidation=window.createBlocktexxConsolidation?.(()=>model,()=>state,()=>{changed();renderRuns();renderSites();},root.dataset.csrf);
-  movementUI=window.createBlocktexxMovements?.(()=>model,()=>state,()=>{changed();renderRuns();renderSites();});
+  movementUI=window.createBlocktexxMovements?.(()=>model,()=>state,()=>{changed();renderRuns();renderSites();},plannerScope);
   interstateUI=window.BlocktexxInterstate?.create(()=>model,changed,()=>Object.fromEntries(Object.keys(model.states).map(s=>[s,summary(s)])));
-  document.addEventListener('bx-edit-movement',event=>{const r=model.states[state].runs.find(r=>r.id===event.detail);if(r)movementUI?.edit(r);});
+  document.addEventListener('bx-edit-movement',event=>{const r=model.states[state].runs.find(r=>r.id===event.detail);if(r){activePane=window.BlocktexxPlannerScope.isDecom(r)?'decom':'planner';renderPane();renderRuns();movementUI?.edit(r);}});
   render();
 })();

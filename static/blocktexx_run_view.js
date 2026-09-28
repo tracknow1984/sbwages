@@ -1,4 +1,4 @@
-window.createBlocktexxRunView = function(getModel,getState,getPlans,onChange) {
+window.createBlocktexxRunView = function(getModel,getState,getPlans,onChange,getScope=()=> 'local') {
   const host=document.getElementById('bx-run-view'),selection={},planner=window.createBlocktexxPlanner();
   const labels={cage:'cages',bin660:'660L bins',bin240:'240L bins',bin120:'120L bins',pallecon:'pallecons'};
   const e=(tag,text,cls)=>{const n=document.createElement(tag);if(text!=null)n.textContent=text;if(cls)n.className=cls;return n;};
@@ -6,13 +6,13 @@ window.createBlocktexxRunView = function(getModel,getState,getPlans,onChange) {
   const contents=c=>Object.entries(labels).filter(([k])=>c?.[k]).map(([k,l])=>fmt(c[k])+' '+l).join(', ')||'Quantity to confirm';
   function render() {
     if(planner.isDragging())return;
-    const model=getModel(),state=getState(),data=model.states[state],runs=data.runs;
+    const model=getModel(),state=getState(),scope=getScope(),key=state+':'+scope,data=model.states[state],runs=window.BlocktexxPlannerScope.runs(data.runs,scope);
     host.replaceChildren();
-    planner.render(host,model,state,selection[state],id=>{selection[state]=id;render();},onChange,getPlans());
-    const r=runs.find(r=>r.id===selection[state]);
-    if(!r){host.append(e('p','Select a run above to view its collection details.'));return;}
+    planner.render(host,model,state,selection[key],id=>{selection[key]=id;render();},onChange,getPlans(),scope);
+    const r=runs.find(r=>r.id===selection[key]);
+    if(!r){host.append(e('p','Select a run above to view its details.'));return;}
     const root=e('section',null,'bx-selected-run');host.append(root);
-    const close=e('button','Close run details','secondary');close.type='button';close.addEventListener('click',()=>{selection[state]=null;render();});root.append(close);
+    const close=e('button','Close run details','secondary');close.type='button';close.addEventListener('click',()=>{selection[key]=null;render();});root.append(close);
     if(r.activity_type && r.activity_type!=='collection'){
       root.append(e('h3',r.name),e('p',window.BlocktexxActivityLabels?.[r.activity_type]||r.activity_type),
         e('p',r.origin+' → '+r.destination),e('p','Cargo: '+(r.cargo||'To confirm')+' · '+fmt(r.movement_kg)+' kg moved (not additional intake)'),

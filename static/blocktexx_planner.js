@@ -1,3 +1,7 @@
+window.BlocktexxPlannerScope = {
+ isDecom: r => ['deliver_decomm','collect_decomm'].includes(r.activity_type),
+ runs: (runs,scope) => runs.filter(r => scope==='decom' ? window.BlocktexxPlannerScope.isDecom(r) : !window.BlocktexxPlannerScope.isDecom(r))
+};
 window.createBlocktexxPlanner = function() {
   const days=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
   const categories=['Weekly','Fortnightly','Monthly','Ad hoc'];
@@ -41,9 +45,10 @@ window.createBlocktexxPlanner = function() {
     if(!result.size)result.add(r.runs_4w>=4?'Weekly':r.runs_4w>=2?'Fortnightly':'Monthly');
     return [...result];
   }
-  function render(root,model,state,selected,onSelect,onChange,plans) {
-    const config=settings[state]||(settings[state]={category:'Weekly',span:4,start:1,all:true});
-    const runs=model.states[state].runs,sites=model.sites;
+  function render(root,model,state,selected,onSelect,onChange,plans,scope='local') {
+    const key=state+':'+scope;
+    const config=settings[key]||(settings[key]={category:'Weekly',span:4,start:1,all:true});
+    const runs=model.states[state].runs,sites=model.sites,scopedRuns=window.BlocktexxPlannerScope.runs(runs,scope);
     const refresh=()=>onSelect(selected);
     function openAllocation(run, target) {
       config.dayOpen=false;config.allocateId=run.id;config.allocationDraft=null;
@@ -52,10 +57,10 @@ window.createBlocktexxPlanner = function() {
         day:target.day,week:target.week,override:target.override};
       onSelect(run.id);
     }
-    root.append(e('h2','Local transport planner'),e('p','Normal working day: 6:30 am–3:30 pm (9 hours), for company and subcontractor runs. Dragging beyond this asks for overtime approval. Includes driving, collections, depot handling, preparation, waiting and breaks. One daily truck/driver schedule per state.','bx-muted'));
+    root.append(e('h2',state+' · '+(scope==='decom'?'Decom Planner':'Local Planner')),e('p','Normal working day: 6:30 am–3:30 pm (9 hours), for company and subcontractor runs. Dragging beyond this asks for overtime approval. Includes driving, collections, depot handling, preparation, waiting and breaks. Local and decom movements share one daily truck/driver schedule per state. Spare hours and financial analysis include both planners.','bx-muted'));
     window.BlocktexxCosts.renderMode(root,model.states[state],onChange);
     const bar=e('div',null,'bx-planner-controls');
-    const frequencyLabel=e('label','Frequency'),frequency=e('select');frequency.id='bx-frequency-select';frequency.setAttribute('aria-label','Collection frequency');
+    const frequencyLabel=e('label','Frequency'),frequency=e('select');frequency.id='bx-frequency-select';frequency.setAttribute('aria-label','Planner frequency');
     ['All frequencies',...categories].forEach(c=>{const o=e('option',c);o.value=c;frequency.append(o);});
     frequency.value=config.all?'All frequencies':config.category;
     frequency.addEventListener('change',()=>{config.all=frequency.value==='All frequencies';if(!config.all)config.category=frequency.value;onSelect(null);});
@@ -92,7 +97,7 @@ window.createBlocktexxPlanner = function() {
       return {run,proposed,error,overtime,load};
     }
     function clearDragStyles(){root.querySelectorAll('.bx-drop-ok,.bx-drop-blocked').forEach(n=>n.classList.remove('bx-drop-ok','bx-drop-blocked'));}
-    const visible=runs.filter(r=>config.all||groups(r,sites).includes(config.category));
+    const visible=scopedRuns.filter(r=>config.all||groups(r,sites).includes(config.category));
     function card(r,week,day) {
       const b=e('button',null,'bx-planner-run');b.type='button';b.dataset.runId=r.id;b.dataset.frequency=(week==null||config.all)?groups(r,sites)[0]:config.category;b.setAttribute('aria-pressed',String(r.id===selected));
       const name=r.name.replace(/^Week\s+\d+\s+/i,'').replace(/^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Weekly|Fortnightly)\s*—?\s*/i,'');
@@ -114,11 +119,11 @@ window.createBlocktexxPlanner = function() {
       b.addEventListener('dragend',()=>{const refreshNeeded=!!drag;drag=null;ignoreClickUntil=Date.now()+300;b.classList.remove('bx-dragging');clearDragStyles();if(refreshNeeded)refresh();});
       b.title='Drag to move this occurrence, or click to edit the recurring allocation';b.addEventListener('click',event=>{event.stopPropagation();if(Date.now()<ignoreClickUntil)return;if(week!=null)config.selectedDay={week,day};openAllocation(r,week==null?null:{week,day});});return b;
     }
-    const hiddenAllocated=runs.filter(r=>slots(r).length&&!visible.includes(r)).length;
+    const hiddenAllocated=scopedRuns.filter(r=>slots(r).length&&!visible.includes(r)).length;
     if(hiddenAllocated)root.append(e('p',hiddenAllocated+' allocated runs hidden by the frequency filter. Choose All frequencies to see them.','bx-warning'));
     const assigned=visible.filter(r=>slots(r).length),hasWeekend=assigned.some(r=>slots(r).some(s=>s.day>4));
     const wrap=e('div',null,'bx-scroll'),table=e('table',null,'bx-planner-grid'),head=e('tr');
-    head.append(e('th','Week'));days.slice(0,hasWeekend?7:5).forEach(day=>head.append(e('th',day)));head.append(e('th','Financial analysis'));table.append(head);
+    head.append(e('th','Week'));days.slice(0,hasWeekend?7:5).forEach(day=>head.append(e('th',day)));head.append(e('th','Shared state financial analysis'));table.append(head);
     for(let week=config.start;week<config.start+config.span;week++){
       const row=e('tr');row.append(e('th','Week '+week));
       days.slice(0,hasWeekend?7:5).forEach((day,d)=>{
@@ -174,12 +179,12 @@ window.createBlocktexxPlanner = function() {
         entries.forEach(r=>cell.append(card(r,week,d)));
         if(!entries.length)cell.append(e('span','—','bx-muted'));row.append(cell);
       });
-      const financial=e('td'),button=e('button','Weekly financial analysis','secondary');button.type='button';button.dataset.financeWeek=week;
+      const financial=e('td'),button=e('button','Weekly state financial analysis','secondary');button.type='button';button.dataset.financeWeek=week;
       button.addEventListener('click',()=>{config.financePeriod=week;config.dayOpen=false;config.allocateId=null;refresh();});
       financial.append(button);row.append(financial);table.append(row);
     }
     wrap.append(table);root.append(wrap);
-    const month=e('button','Monthly financial analysis','primary');month.type='button';month.dataset.financeWeek='month';
+    const month=e('button','Monthly state financial analysis','primary');month.type='button';month.dataset.financeWeek='month';
     month.addEventListener('click',()=>{config.financePeriod='month';config.dayOpen=false;config.allocateId=null;refresh();});root.append(month);
     const showFinance=()=>{if(config.financePeriod!=null)window.BlocktexxCosts?.showPeriodReport(model.states[state],state,config.financePeriod==='month'?null:config.financePeriod,()=>{
       const period=config.financePeriod;config.financePeriod=null;root.querySelector('[data-finance-week="'+period+'"]')?.focus({preventScroll:true});
@@ -189,14 +194,14 @@ window.createBlocktexxPlanner = function() {
       panel.append(e('p','Click a week and day above to see all activities for that day.'));
     }else{
       const {week,day}=config.selectedDay;
-      const activities=runs.flatMap(r=>slots(r).filter(s=>s.week===week&&s.day===day).map(()=>r));
+      const activities=scopedRuns.flatMap(r=>slots(r).filter(s=>s.week===week&&s.day===day).map(()=>r));
       panel.append(e('h3','Week '+week+' · '+days[day]+' activities'),
-        e('p','All frequencies for this day are shown below, including runs outside the selected category.'));
+        e('p','All frequencies in this planner are shown below. Daily hours and costs include both local and decom movements.'));
       window.BlocktexxCosts.renderDailySummary(panel,model.states[state],week,day,onChange,sites);
       panel.append(e('p','6:30 am start · '+loadText(dayLoad(runs,week,day)), 'bx-warning'));
       const quick=e('div',null,'bx-planner-controls'),pick=e('select');pick.setAttribute('aria-label','Run to allocate to this day');
       const empty=e('option','Choose a run to allocate / move here');empty.value='';pick.append(empty);
-      runs.forEach(r=>{const option=e('option',r.name+(slots(r).length?' (allocated)':' (unallocated)'));option.value=r.id;pick.append(option);});
+      scopedRuns.forEach(r=>{const option=e('option',r.name+(slots(r).length?' (allocated)':' (unallocated)'));option.value=r.id;pick.append(option);});
       pick.addEventListener('change',()=>{const r=runs.find(r=>r.id===pick.value);if(r)openAllocation(r,{week,day});});
       quick.append(pick);panel.append(quick);
       if(!activities.length)panel.append(e('p','No activities allocated to this day.'));
@@ -279,7 +284,7 @@ window.createBlocktexxPlanner = function() {
     }else if(popup){
       popup.hidden=true;document.body.classList.remove('bx-popup-open');
     }
-    const pending=runs.filter(r=>!slots(r).length);
+    const pending=scopedRuns.filter(r=>!slots(r).length);
     const backlog=e('div',null,'bx-planner-backlog');backlog.append(e('h3','Needs allocation'));
     if(!pending.length)backlog.append(e('p','All runs have a calendar allocation.'));
     pending.forEach(r=>{const item=e('div');item.append(card(r));

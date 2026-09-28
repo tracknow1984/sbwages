@@ -2,16 +2,16 @@ window.BlocktexxActivityLabels={
  collection:'Customer collection',deliver_decomm:'Deliver to decomm partner',collect_decomm:'Collect from decomm partner',
  deliver_threadtexx:'Deliver to Threadtexx',deliver_blocktexx:'Deliver to Blocktexx',return_storage:'Return to storage'
 };
-window.createBlocktexxMovements=function(getModel,getState,onChange){
+window.createBlocktexxMovements=function(getModel,getState,onChange,getScope=()=> 'local'){
  const root=document.getElementById('bx-movements');
  let editing=null;
  const e=(t,v)=>{const n=document.createElement(t);if(v!=null)n.textContent=v;return n;};
  function render(){
-  const model=getModel(),state=getState(),data=model.states[state];
+  const model=getModel(),state=getState(),data=model.states[state],decom=getScope()==='decom';
   const existing=editing?data.runs.find(r=>r.id===editing):null;
   root.replaceChildren();
   const details=e('details');details.open=!!existing;details.className='bx-card';
-  details.append(e('summary',existing?'Edit local movement':'Add decomm / Threadtexx / Blocktexx / storage movement'));
+  details.append(e('summary',existing?'Edit movement':decom?'Add decom delivery / collection':'Add Threadtexx / Blocktexx / storage movement'));
   const form=e('form'),grid=e('div');grid.className='bx-settings';const inputs={};
   function field(key,label,value,type='text',options){
    const l=e('label',label),input=e(options?'select':'input');
@@ -19,7 +19,7 @@ window.createBlocktexxMovements=function(getModel,getState,onChange){
    else {input.type=type;if(type==='number'){input.min=0;input.max=key==='movement_kg'?1000000:10080;input.step='any';}}
    input.value=value??'';input.setAttribute('aria-label',label);inputs[key]=input;l.append(input);grid.append(l);return input;
   }
-  field('activity_type','Movement type',existing?.activity_type||'deliver_decomm','text',Object.entries(window.BlocktexxActivityLabels).filter(([k])=>k!=='collection'));
+  field('activity_type','Movement type',existing?.activity_type||(decom?'deliver_decomm':'deliver_threadtexx'),'text',Object.entries(window.BlocktexxActivityLabels).filter(([k])=>k!=='collection' && (decom===['deliver_decomm','collect_decomm'].includes(k))));
   field('partner_id','Decomm partner',existing?.partner_id||'','text',[['','Select partner'],...model.partners.filter(p=>p.state===state).map(p=>[p.id,p.name])]);
   field('name','Movement name',existing?.name||'');
   field('origin','From / origin address',existing?.origin||data.depot).required=true;

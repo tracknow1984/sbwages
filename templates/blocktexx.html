@@ -7,7 +7,7 @@
   <p id="bx-save-status" role="status">{{ 'Saved model loaded.' if saved else 'Import the prepared collection data to begin, or enter your own runs.' }}</p>
   <details class="bx-card"><summary>View national overview</summary><div class="bx-overview" id="bx-overview"></div></details>
   <nav class="bx-state-tabs" aria-label="Collection state">{% for state in model.states %}<button type="button" data-state="{{ state }}" aria-pressed="{{ 'true' if loop.first else 'false' }}">{{ state }}</button>{% endfor %}</nav>
-  <nav class="bx-state-tabs" aria-label="State view"><button type="button" data-bx-pane="planner" aria-pressed="true">Planner</button><button type="button" data-bx-pane="weights" aria-pressed="false">Sample weights &amp; scenarios</button><button type="button" data-bx-pane="resources" aria-pressed="false">Resources</button><button type="button" data-bx-pane="storage" aria-pressed="false">Storage</button><button type="button" data-bx-pane="interstate" aria-pressed="false">Interstate transfers</button></nav>
+  <nav class="bx-state-tabs" aria-label="State view"><button type="button" data-bx-pane="planner" aria-pressed="true">Local Planner</button><button type="button" data-bx-pane="decom" aria-pressed="false">Decom Planner</button><button type="button" data-bx-pane="weights" aria-pressed="false">Sample weights &amp; scenarios</button><button type="button" data-bx-pane="resources" aria-pressed="false">Resources</button><button type="button" data-bx-pane="interstate" aria-pressed="false">Interstate transfers</button><button type="button" data-bx-pane="storage" aria-pressed="false">Storage</button></nav>
   <section id="bx-storage" class="bx-card" hidden></section>
   <section id="bx-resources" class="bx-card" hidden>
     <div class="bx-section-head">
@@ -27,7 +27,7 @@
   <div id="bx-planner-pane">
   <section id="bx-run-view" class="bx-card"></section>
   <section id="bx-movements"></section>
-<details class="bx-card"><summary>Consolidate nearby runs</summary><section id="bx-consolidation"></section></details>
+<details class="bx-card" data-local-only><summary>Consolidate nearby runs</summary><section id="bx-consolidation"></section></details>
   <details class="bx-card" id="bx-state-costs"><summary>View / hide state cost modelling</summary><div class="bx-section-head"><h2 id="bx-state-title">State settings</h2><span id="bx-depot-status"></span></div>
     <div id="bx-settings" class="bx-settings"></div>
     <details><summary>Previous aggregate pricing</summary><div id="bx-legacy-costs" class="bx-settings"></div></details>
@@ -38,27 +38,27 @@
     <p id="bx-state-notes" class="bx-muted"></p>
   </details>
   <details class="bx-card"><summary>View / hide state totals and costs</summary><div id="bx-metrics" class="bx-metrics"></div></details>
-  <details class="bx-card"><summary>View / hide truck settings and all load plans</summary><section id="bx-capacity"></section></details>
-  <details class="bx-card" id="bx-all-runs"><summary>View / edit all local runs and movements</summary><div class="bx-section-head"><div><h2>Local runs and movements</h2><p>Collection rows retain their full route. Add downstream legs separately only when they are not already included. Detailed contractor pricing groups activities on the same day before applying minimum hours.</p></div><button type="button" id="bx-add" class="secondary no-print">Add run</button></div>
+  <details class="bx-card" data-local-only><summary>View / hide truck settings and all load plans</summary><section id="bx-capacity"></section></details>
+  <details class="bx-card" id="bx-all-runs"><summary id="bx-runs-label">View / edit all local runs and movements</summary><div class="bx-section-head"><div><h2 id="bx-runs-title">Local runs and movements</h2><p>Collection rows retain their full route. Add downstream legs separately only when they are not already included. Detailed contractor pricing groups activities on the same day before applying minimum hours.</p></div><button type="button" id="bx-add" class="secondary no-print">Add run</button></div>
     <p class="bx-muted">Four-week cycle × 13 ÷ 12 = average calendar month. Breaks increase elapsed time but are excluded from working and billable hours. Group multiple same-day trips in one row.</p>
     <div class="bx-scroll"><table class="bx-table"><thead><tr><th>Run / stops</th><th>Runs / 4 weeks</th><th>Km / run</th><th>Drive min</th><th>Customer min</th><th>Depot min</th><th>Prep min</th><th>Wait min</th><th>Break min</th><th>Work h / run</th><th>Evidence</th><th class="no-print">Edit</th></tr></thead><tbody id="bx-runs"></tbody></table></div>
     <p id="bx-gaps" class="bx-warning"></p>
   </details>
-  <details class="bx-card"><summary>View / edit customer collection frequencies</summary><p>Change a frequency or enter a custom number of visits per four weeks. Visit totals update immediately. The original spreadsheet frequency remains visible. If demand differs from the grouped route plan, update its run frequency above before using the cost/kg result. Expand a customer for source equipment and rows.</p><div id="bx-sites" class="bx-scroll"></div></details>
-  <details class="bx-card"><summary>Decommissioning partner address register</summary><p>Choose a partner in Add local movement to plan deliveries and collections. Only movements added to the calendar contribute time and transport costs.</p><div id="bx-partners"></div></details>
+  <details class="bx-card" data-local-only><summary>View / edit customer collection frequencies</summary><p>Change a frequency or enter a custom number of visits per four weeks. Visit totals update immediately. The original spreadsheet frequency remains visible. If demand differs from the grouped route plan, update its run frequency above before using the cost/kg result. Expand a customer for source equipment and rows.</p><div id="bx-sites" class="bx-scroll"></div></details>
+  <details class="bx-card" id="bx-partner-register"><summary>Decommissioning partner address register</summary><p>Choose a partner in Add local movement to plan deliveries and collections. Only movements added to the calendar contribute time and transport costs.</p><div id="bx-partners"></div></details>
   <details class="bx-card no-print"><summary>View import, export and source information</summary><p id="bx-source"></p><p id="bx-notes"></p><div class="actions"><button class="secondary" type="button" id="bx-download">Download current draft JSON</button><a class="button secondary" href="{{ url_for('export_blocktexx', format='csv') }}">Export saved runs CSV</a><a class="button secondary" href="{{ url_for('export_blocktexx') }}">Export saved model JSON</a></div><label class="bx-import">Import a model file <input type="file" id="bx-import" accept=".json,application/json"></label><label class="bx-confirm"><input type="checkbox" id="bx-replace"> Replace the model currently shown with the imported file. Saved history is retained.</label><p>Import loads a draft. Review it and select Save model to persist it. Download your draft before closing if saving fails.</p></details>
   </div>
 </div>
 <script id="bx-data" type="application/json">{{ model | tojson }}</script>
 <script src="{{ url_for('static', filename='blocktexx_weights.js', v='storage-weekly-1') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_capacity.js', v='storage-weekly-1') }}" defer></script>
-<script src="{{ url_for('static', filename='blocktexx_planner.js', v='storage-weekly-1') }}" defer></script>
-<script src="{{ url_for('static', filename='blocktexx_run_view.js', v='storage-weekly-1') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx_planner.js', v='decom-planner-1') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx_run_view.js', v='decom-planner-1') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_resources.js', v='cost-model-1') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_consolidation.js', v='day-limit-1') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_costs.js', v='storage-weekly-1') }}" defer></script>
-<script src="{{ url_for('static', filename='blocktexx_movements.js', v='storage-weekly-1') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx_movements.js', v='decom-planner-1') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_interstate.js', v='interstate-rate-card-2') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_storage.js', v='storage-1') }}" defer></script>
-<script src="{{ url_for('static', filename='blocktexx.js', v='storage-weekly-1') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx.js', v='decom-planner-1') }}" defer></script>
 {% endblock %}
