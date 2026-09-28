@@ -1,7 +1,7 @@
 """Private, admin-only collection modelling. No customer data ships in source."""
 from blocktexx_storage import validate_storage
 from blocktexx_costs import validate_cost_profile, cost_comparison
-from blocktexx_interstate import validate_interstate, interstate_summary
+from blocktexx_interstate import validate_interstate, interstate_summary, add_sa_vic_semi_rate
 import csv
 import io
 import json
@@ -570,6 +570,28 @@ def register_blocktexx(app, db, require):
                 db().execute('INSERT INTO blocktexx_applied_updates VALUES(?,?)', (update_id,now))
                 db().commit()
                 app.logger.warning('BlockTexx calendar audit: corrected %s route allocations/statuses at revision %s; road estimates retained.', changed, revision)
+            else:
+                db().rollback()
+
+    # Add the reverse SA → VIC semi lane using the existing editable VIC → SA price.
+    with app.app_context():
+        db().execute('BEGIN IMMEDIATE')
+        update_id = 'sa-vic-semi-reverse-rate-2026-09-28'
+        done = db().execute('SELECT id FROM blocktexx_applied_updates WHERE id=?', (update_id,)).fetchone()
+        row = db().execute('SELECT * FROM blocktexx_model WHERE id=1').fetchone()
+        if done or not row:
+            db().rollback()
+        else:
+            updated = json.loads(row['data'])
+            if add_sa_vic_semi_rate(updated):
+                payload = json.dumps(validate_model(updated), allow_nan=False)
+                revision = row['revision'] + 1
+                now = datetime.now(timezone.utc).isoformat()
+                db().execute('UPDATE blocktexx_model SET revision=?,data=?,updated_at=? WHERE id=1', (revision,payload,now))
+                db().execute('INSERT INTO blocktexx_model_history VALUES(?,?,?,?)', (revision,payload,row['updated_by'],now))
+                db().execute('INSERT INTO blocktexx_applied_updates VALUES(?,?)', (update_id,now))
+                db().commit()
+                app.logger.warning('BlockTexx interstate: added SA to VIC semi from reverse rate at revision %s.', revision)
             else:
                 db().rollback()
 
