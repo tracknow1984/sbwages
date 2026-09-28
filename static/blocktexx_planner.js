@@ -4,6 +4,7 @@ window.BlocktexxPlannerScope = {
 };
 window.createBlocktexxPlanner = function() {
   const days=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+  const dayReference=(state,week,day)=>`BTX-${state}-W${week}-${days[day].slice(0,3).toUpperCase()}`;
   const categories=['Weekly','Fortnightly','Monthly','Ad hoc'];
   const settings={};
   let popup=null, dismissPopup=null, allocationPopup=null, drag=null, ignoreClickUntil=0;
@@ -210,7 +211,7 @@ window.createBlocktexxPlanner = function() {
     }else{
       const {week,day}=config.selectedDay;
       const activities=scopedRuns.flatMap(r=>slots(r).filter(s=>s.week===week&&s.day===day).map(()=>r));
-      panel.append(e('h3','Week '+week+' · '+days[day]+' activities'),
+      panel.append(e('h3','Week '+week+' · '+days[day]+' activities'),e('p','Day reference: '+dayReference(state,week,day)),
         e('p','All frequencies in this planner are shown below. Daily hours and costs include both local and decom movements.'));
       window.BlocktexxCosts.renderDailySummary(panel,model.states[state],week,day,onChange,sites);
       panel.append(e('p','6:30 am start · '+loadText(dayLoad(runs,week,day)), 'bx-warning'));
@@ -262,6 +263,12 @@ window.createBlocktexxPlanner = function() {
           activity.append(e('p',fmt(r.km)+' km · '+fmt(duration)+' hours elapsed · '+r.status),
             e('p','Driving '+fmt(r.drive_min)+' min · Collections '+fmt(r.service_min)+' min · Depot '+fmt(r.depot_min)+' min · Prep '+fmt(r.prep_min)+' min · Waiting '+fmt(r.wait_min)+' min · Breaks '+fmt(r.break_min)+' min'),
             e('p',r.sequence||'Route sequence to confirm'));
+          const depot=model.states[state].depot;
+          const sequence=(r.sequence||'').trim();
+          const depotVisits=(sequence.match(/\bdepot\b/gi)||[]).length;
+          const needsLoop=!depot||!sequence||!/^depot\b/i.test(sequence)||!(/\bdepot$/i.test(sequence))||depotVisits<2;
+          if(needsLoop)activity.append(e('p','Route review: confirm the actual depot address, departure, stop order and return to depot before relying on this distance or time.','bx-warning'));
+          if(r.km>0&&r.drive_min>0&&(r.km/(r.drive_min/60)>100||r.km/(r.drive_min/60)<15))activity.append(e('p','Route review: the recorded distance and driving minutes imply an unusual average speed. Check each road leg and remove handling or waiting from driving time.','bx-warning'));
           if(p?.issues.length)activity.append(e('p',p.issues.join('; '),'bx-warning'));
           if(p?.extra_loads)activity.append(e('p',p.extra_loads+' extra loads need updated distance/time allowances.','bx-warning'));
           const detail=e('button','Open / edit run details','secondary');detail.type='button';detail.addEventListener('click',()=>{config.dayOpen=false;onSelect(r.id);root.querySelector('.bx-selected-run')?.scrollIntoView({block:'start',behavior:'smooth'});});activity.append(detail);
