@@ -53,6 +53,32 @@ window.BlocktexxStorage=(()=>{
     const availability=sections.map(r=>({name:r.name,low:r.target>0?freeLow*r.target+r.needHigh*r.target-r.high:null,high:r.target>0?freeHigh*r.target+r.needLow*r.target-r.low:null}));
     return {complete:true,assigned,remaining:0,sections,needLow,needHigh,freeLow,freeHigh,releaseLow:assigned-needHigh,releaseHigh:assigned-needLow,initialFree:s.total_containers-assigned,availability};
   }
+  function financialSummary(s){
+    const rate=s.monthly_rate;
+    if(rate==null||!Number.isFinite(rate)||rate<0)return null;
+    const a=sectionSummary(s);
+    const sections=names.map(name=>{
+      const r=s.sections?.[name]||{},valid=r.pallets_min>0&&r.pallets_max>=r.pallets_min&&r.target>0;
+      const currentLow=valid?rate/r.pallets_max:null,currentHigh=valid?rate/r.pallets_min:null,after=valid?rate/r.target:null;
+      const capacity=a.complete?a.sections.find(row=>row.name===name):null;
+      return {name,currentLow,currentHigh,after,savingLow:valid?currentLow-after:null,savingHigh:valid?currentHigh-after:null,
+        valueLow:capacity?capacity.releaseLow*rate:null,valueHigh:capacity?capacity.releaseHigh*rate:null,
+        repack:r.filled!=null&&s.repack_cost!=null?r.filled*s.repack_cost:null};
+    });
+    return {sections,valueLow:a.complete?a.releaseLow*rate:null,valueHigh:a.complete?a.releaseHigh*rate:null,
+      repack:s.occupied_containers!=null&&s.repack_cost!=null?s.occupied_containers*s.repack_cost:null};
+  }
+  function renderFinancials(root,s){
+    root.append(e('h3','Storage cost per pallet · monthly, ex GST'));
+    const f=financialSummary(s);
+    if(!f){root.append(e('p','Enter the contract rate to compare pallet costs.','bx-muted'));return;}
+    const cashRange=(low,high)=>low==null?'Complete assumptions':low===high?money(low):money(low)+'–'+money(high);
+    table(root,['Section','Current cost / pallet','After repack / pallet','Saving / pallet'],f.sections.map(r=>[r.name,cashRange(r.currentLow,r.currentHigh),r.after==null?'Complete assumptions':money(r.after),cashRange(r.savingLow,r.savingHigh)]));
+    root.append(e('p','Contract rate ÷ pallets per container. Current costs use the minimum–maximum pallet range; after-repack costs assume the new pallet capacity is fully used. Rates are before the shared free-container allowance. These are unit-cost savings as capacity is used; the retained monthly bill stays the same.','bx-muted'));
+    root.append(e('h3','Dollar value of space freed by repacking'));
+    table(root,['Section','Capacity value / month','Capacity value / year','One-off repack cost'],f.sections.map(r=>[r.name,cashRange(r.valueLow,r.valueHigh),cashRange(r.valueLow==null?null:r.valueLow*12,r.valueHigh==null?null:r.valueHigh*12),money(r.repack)]).concat([['Total',cashRange(f.valueLow,f.valueHigh),cashRange(f.valueLow==null?null:f.valueLow*12,f.valueHigh==null?null:f.valueHigh*12),money(f.repack)]]));
+    root.append(e('p','Capacity value = whole containers released × the contract rate. It values additional space within the existing lease, not a cash saving or a reduction in rent. Annual values assume that space is available for a full year after repacking. Existing empty containers are excluded. Repack costs use one labour day per source container.','bx-muted'));
+  }
   function render(root,model,onChange){
     const s=model.storage||(model.storage={days_per_week:5,recovery:'absorbed'});
     if(s.total_containers!=null)s.minimum_containers=s.total_containers;
@@ -81,6 +107,7 @@ window.BlocktexxStorage=(()=>{
     if(s.total_containers!=null&&s.monthly_rate!=null&&s.free_containers!=null){
       const billed=Math.max(0,s.total_containers-s.free_containers);root.append(e('p','Retained contract: '+num(s.total_containers)+' containers · '+num(billed)+' billed after '+num(s.free_containers)+' free · '+money(cents(billed*s.monthly_rate))+' per month ex GST. Repacking does not reduce the contracted container count.','bx-muted'));
     }
+    renderFinancials(root,s);
     if(!a.complete)return;
     root.append(e('h3','Container breakdown after repacking'));
     table(root,['Section','Current full','Full after repacking','Containers released'],a.sections.map(r=>[r.name,num(r.filled),range(r.needLow,r.needHigh),range(r.releaseLow,r.releaseHigh)]).concat([['Total',num(s.occupied_containers),range(a.needLow,a.needHigh),range(a.releaseLow,a.releaseHigh)]]));
@@ -91,5 +118,5 @@ window.BlocktexxStorage=(()=>{
     root.append(e('p','These are alternative uses of the same empty containers, not amounts to add together. Each includes spare pallet space in that section’s partially filled containers. A future mix can be allocated between sections.','bx-muted'));
     root.append(e('p','Low–high estimates use the current pallet ranges. Containers are rounded up separately for NSW, BANYO and BAGS; stock is not mixed between sections. The lower availability figure is the conservative case. Repacking assumes unchanged stock and suitable staging space.','bx-muted'));
   }
-  return {calculate,capacitySummary,sectionSummary,render};
+  return {calculate,capacitySummary,sectionSummary,financialSummary,render};
 })();
