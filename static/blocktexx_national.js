@@ -42,8 +42,14 @@ window.BlocktexxNational=(()=>{
     if(buy==null)issues.push(state+' · '+label+': one-off purchase price missing');
    }
    if(sites.some(s=>!Object.keys(kinds).some(k=>s.containers?.[k]>0)))issues.push(state+' · some customer container quantities are unknown');
+   let equipment=0;
+   if(state==='NSW'&&d.resource_equipment?.baler){
+    const b=d.resource_equipment.baler;
+    const lease=b.quantity===0?0:valid(b.quantity)&&valid(b.monthly_lease_each)?b.quantity*b.monthly_lease_each:null;
+    add(state,'Baler equipment lease',lease,'Monthly lease; purchase value is reference only');equipment=lease||0;
+   }
    const visits=sum(d.runs.filter(r=>!r.activity_type||r.activity_type==='collection').map(r=>schedule.slots(r).length))*factor;
-   states.push({state,kg,basis,local,rental,purchase,visits,mode:costs.modeLabel(d.cost_mode)});
+   states.push({state,kg,basis,local,rental,equipment,purchase,visits,mode:costs.modeLabel(d.cost_mode)});
   }
   for(const [id,lane] of Object.entries(model.interstate?.lanes||{})){
    const trips=sum((model.interstate.bookings||[]).filter(b=>b.lane_id===id).map(b=>b.trips))*factor;if(!trips)continue;
@@ -57,8 +63,8 @@ window.BlocktexxNational=(()=>{
   add('National','Storage contract',storage,'Contracted containers less free allowance; counted once nationally');
   const repack=valid(s.occupied_containers)&&valid(s.repack_cost)?s.occupied_containers*s.repack_cost:null;
   const kg=sum(states.map(s=>s.kg)),local=sum(states.map(s=>s.local)),rental=sum(states.map(s=>s.rental)),interstate=sum(freight.map(r=>r.total));
-  const transport=local+interstate,total=transport+rental+(storage||0),purchase=sum(states.map(s=>s.purchase));
-  return {states,lines,resources,freight,issues:[...new Set(issues)],kg,local,rental,interstate,storage,repack,purchase,transport,total,rate:kg>0?total/kg:null,transportRate:kg>0?transport/kg:null};
+  const equipment=sum(states.map(s=>s.equipment)),transport=local+interstate,total=transport+rental+equipment+(storage||0),purchase=sum(states.map(s=>s.purchase));
+  return {states,lines,resources,freight,issues:[...new Set(issues)],kg,local,rental,equipment,interstate,storage,repack,purchase,transport,total,rate:kg>0?total/kg:null,transportRate:kg>0?transport/kg:null};
  }
  const e=(t,v,c)=>{const n=document.createElement(t);if(v!=null)n.textContent=v;if(c)n.className=c;return n;};
  const num=n=>n==null?'Not entered':Number(n).toLocaleString('en-AU',{maximumFractionDigits:1});
@@ -69,11 +75,11 @@ window.BlocktexxNational=(()=>{
   const a=calculate(model);root.replaceChildren(e('h2','National Overview · monthly dashboard'),e('p','All states · AUD excluding GST · average calendar month'));
   const metrics=e('div',null,'bx-metrics');
   [[a.issues.length?'Known monthly recurring costs':'Monthly recurring costs',money(a.total)],['Incoming kilograms / month',num(a.kg)+' kg'],['Combined cost per kg'+(a.issues.length?' · provisional':''),rate(a.rate)],['Transport only / kg',rate(a.transportRate)]].forEach(([label,value])=>{const card=e('div',label);card.append(e('strong',value));metrics.append(card);});root.append(metrics);
-  root.append(e('p','Combined rate = (local/decom/production transport + booked interstate freight + container rental scenario + storage contract) ÷ incoming kg. Transfers do not add intake kilograms. Figures are entered model costs and budgets, not verified invoice actuals.','bx-muted'));
+  root.append(e('p','Combined rate = (local/decom/production transport + booked interstate freight + container rental scenario + equipment leases + storage contract) ÷ incoming kg. Transfers do not add intake kilograms. Figures are entered model costs and budgets, not verified invoice actuals.','bx-muted'));
   root.append(e('h3','Monthly cost breakdown'));
-  table(root,['Cost category','Known monthly cost','Per incoming kg','Share of known cost'],[['Local, decom and production transport',a.local],['Interstate freight including fuel levy',a.interstate],['Container rentals · rental scenario',a.rental],['Storage contract',a.storage],['Total recurring costs',a.total]].map(([name,value])=>[name,money(value),value==null?'Not entered':rate(a.kg>0?value/a.kg:null),value==null||!a.total?'—':(value/a.total*100).toFixed(1)+'%']));
+  table(root,['Cost category','Known monthly cost','Per incoming kg','Share of known cost'],[['Local, decom and production transport',a.local],['Interstate freight including fuel levy',a.interstate],['Container rentals · rental scenario',a.rental],['Equipment leases',a.equipment],['Storage contract',a.storage],['Total recurring costs',a.total]].map(([name,value])=>[name,money(value),value==null?'Not entered':rate(a.kg>0?value/a.kg:null),value==null||!a.total?'—':(value/a.total*100).toFixed(1)+'%']));
   root.append(e('h3','State comparison · monthly'));
-  table(root,['State / operator','Incoming kg','Local + decom + production','Container rental','State subtotal','State cost / kg','Kilogram basis'],a.states.map(s=>[s.state+' · '+s.mode,num(s.kg),money(s.local),money(s.rental),money(s.local+s.rental),rate(s.kg>0?(s.local+s.rental)/s.kg:null),s.basis]));
+  table(root,['State / operator','Incoming kg','Local + decom + production','Container rental','Equipment lease','State subtotal','State cost / kg','Kilogram basis'],a.states.map(s=>[s.state+' · '+s.mode,num(s.kg),money(s.local),money(s.rental),money(s.equipment),money(s.local+s.rental+s.equipment),rate(s.kg>0?(s.local+s.rental+s.equipment)/s.kg:null),s.basis]));
   root.append(e('p','State subtotals exclude national interstate and storage costs, which are added once in the combined total. The national rate uses total costs ÷ total kg, not an average of state rates.','bx-muted'));
   root.append(e('h3','Detailed operating costs · monthly'));
   const categories=[...new Set(a.lines.map(r=>r.category))];

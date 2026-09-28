@@ -21,3 +21,12 @@ model.states.SA.runs=[];model.states.SA.monthly_kg=500;a=window.BlocktexxNationa
 class E{constructor(){this.children=[];this.textContent='';}append(...x){this.children.push(...x);}replaceChildren(...x){this.children=x;}get text(){return this.textContent+' '+this.children.map(x=>x.text||'').join(' ');}}
 global.document={createElement:()=>new E()};const root=new E();window.BlocktexxNational.render(root,model);assert.match(root.text,/National Overview/);assert.match(root.text,/provisional/);assert.match(root.text,/Monthly cost breakdown/);
 console.log('National monthly totals, weighted kg rate, mixed operators, zero overrides, partial prices, one-off separation and rendering passed.');
+const beforeBaler=window.BlocktexxNational.calculate(model);
+model.states.NSW.resource_equipment={baler:{quantity:1,purchase_each:25000,monthly_lease_each:900}};
+const withBaler=window.BlocktexxNational.calculate(model);
+close(withBaler.total-beforeBaler.total,900);close(withBaler.equipment,900);
+close(withBaler.transport,beforeBaler.transport);close(withBaler.purchase,beforeBaler.purchase);
+close(withBaler.total,withBaler.lines.reduce((n,r)=>n+(r.value||0),0));
+model.states.NSW.resource_equipment.baler.quantity=0;
+close(window.BlocktexxNational.calculate(model).equipment,0);
+console.log('Equipment lease counted once monthly; purchase value excluded from charged costs.');

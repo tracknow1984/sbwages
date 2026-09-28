@@ -37,6 +37,20 @@ window.renderBlocktexxResources = function(model,state,onChange) {
   const summary=e('div',null,'bx-metrics');
   [['Purchase cost',money(purchaseTotal)],['Rental / week',money(rentalTotal)],['Rental / average month',money(rentalTotal*52/12)],['Rental / year',money(rentalTotal*52)]].forEach(([label,value])=>{const card=e('div',label);card.append(e('strong',value));summary.append(card);});root.append(summary);
   if(purchaseMissing||rentalMissing||unknown.length)root.append(e('p','Scenario incomplete: '+purchaseMissing+' model purchase prices and '+rentalMissing+' model rental rates are missing for required quantities'+(unknown.length?'; some customer quantities are also unknown':'')+'. Summary amounts include priced, known quantities only.','bx-warning'));
+  if(state==='NSW'){
+    const equipment=model.states[state].resource_equipment||(model.states[state].resource_equipment={});
+    const baler=equipment.baler||(equipment.baler={quantity:1,purchase_each:40000,monthly_lease_each:1500});
+    root.append(e('h3','Baler unit · leased equipment'));
+    const fields=e('div',null,'bx-settings');
+    [['quantity','Baler quantity',1,100],['purchase_each','Estimated purchase value / unit (ex GST)',.01,1000000],['monthly_lease_each','Lease / unit / month (ex GST)',.01,1000000]].forEach(([key,title,step,max])=>{
+      const label=e('label',title),input=e('input');input.type='number';input.min=0;input.max=max;input.step=step;input.value=baler[key]??'';input.setAttribute('aria-label',title);
+      input.onchange=()=>{if(!input.checkValidity()||(key==='quantity'&&input.value==='')){input.reportValidity();return;}baler[key]=input.value===''?null:Number(input.value);onChange();};label.append(input);fields.append(label);
+    });root.append(fields);
+    const lease=baler.quantity===0?0:baler.monthly_lease_each==null?null:baler.quantity*baler.monthly_lease_each;
+    const cards=e('div',null,'bx-metrics');
+    [['Baler lease / month',money(lease)],['Baler lease / year',money(lease==null?null:lease*12)]].forEach(([title,value])=>{const card=e('div',title);card.append(e('strong',value));cards.append(card);});root.append(cards);
+    root.append(e('p','Estimated lease cost, excluding GST. Included once in National Overview equipment costs and the combined cost/kg. Purchase value is reference only. Select Save resources to keep changes.','bx-muted'));
+  }
   root.append(e('p','Purchase and rental are separate scenarios. These amounts are not added to the collection cost/kg. Rental projections assume 52 charged weeks per year and exclude delivery, damage and other fees.','bx-muted'));
   root.append(e('p','Includes every customer in this state’s register, including ad hoc and paused customers, so their stock is reserved. These are required stock quantities, not confirmed stock on hand. Extra spares and stock held for longer processing times are not added.','bx-muted'));
   if(unknown.length)root.append(e('p','Incomplete: '+unknown.length+' customers have no confirmed container quantities: '+unknown.map(s=>s.name).join('; ')+'. Totals show known quantities only.','bx-warning'));
