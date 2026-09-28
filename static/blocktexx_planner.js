@@ -50,21 +50,7 @@ window.createBlocktexxPlanner = function() {
     const key=state+':'+scope;
     const config=settings[key]||(settings[key]={category:'Weekly',span:4,start:1,all:true});
     const runs=model.states[state].runs,sites=model.sites,scopedRuns=window.BlocktexxPlannerScope.runs(runs,scope);
-    if(scope==='decom' && !scopedRuns.length){
-      config.dayOpen=false;config.allocateId=null;config.financePeriod=null;
-      if(popup)popup.hidden=true;
-      if(allocationPopup)allocationPopup.hidden=true;
-      document.body.classList.remove('bx-popup-open');
-      root.append(e('h2',state+' · Decom Planner'),e('p','No decom movements added for '+state+'. Add a decom delivery or collection below to start planning.','bx-muted'));
-      const wrap=e('div',null,'bx-scroll'),table=e('table',null,'bx-planner-grid'),head=e('tr');
-      ['Week',...days.slice(0,5)].forEach(label=>head.append(e('th',label)));table.append(head);
-      for(let week=1;week<=4;week++){
-        const row=e('tr');row.append(e('th','Week '+week));
-        for(let day=0;day<5;day++)row.append(e('td','—','bx-muted'));
-        table.append(row);
-      }
-      wrap.append(table);root.append(wrap);return;
-    }
+    if(scope==='decom'&&!scopedRuns.length)root.append(e('p','No decom movements added for '+state+'. Available time below is based on the Local Planner. Add a decom delivery or collection to allocate it.','bx-muted'));
     const refresh=()=>onSelect(selected);
     function openAllocation(run, target) {
       config.dayOpen=false;config.allocateId=run.id;config.allocationDraft=null;
@@ -73,8 +59,8 @@ window.createBlocktexxPlanner = function() {
         day:target.day,week:target.week,override:target.override};
       onSelect(run.id);
     }
-    root.append(e('h2',state+' · '+(scope==='decom'?'Decom Planner':'Local Planner')),e('p','Normal working day: 6:30 am–3:30 pm (9 hours), for company and subcontractor runs. Dragging beyond this asks for overtime approval. Includes driving, collections, depot handling, preparation, waiting and breaks. Local and decom movements share one daily truck/driver schedule per state. Spare hours and financial analysis include both planners.','bx-muted'));
-    window.BlocktexxCosts.renderMode(root,model.states[state],onChange);
+    root.append(e('h2',state+' · '+(scope==='decom'?'Decom Planner':'Local Planner')),e('p',scope==='decom'?'Available time is calculated from the Local Planner and existing decom bookings for each state. The shared 6:30 am–3:30 pm day includes driving, handling, waiting and breaks. Full days are unavailable unless overtime is approved.':'Normal working day: 6:30 am–3:30 pm (9 hours), for company and subcontractor runs. Dragging beyond this asks for overtime approval. Includes driving, collections, depot handling, preparation, waiting and breaks. Local and decom movements share one daily truck/driver schedule per state. Spare hours and financial analysis include both planners.','bx-muted'));
+    if(scope!=='decom')window.BlocktexxCosts.renderMode(root,model.states[state],onChange);
     const bar=e('div',null,'bx-planner-controls');
     const frequencyLabel=e('label','Frequency'),frequency=e('select');frequency.id='bx-frequency-select';frequency.setAttribute('aria-label','Planner frequency');
     ['All frequencies',...categories].forEach(c=>{const o=e('option',c);o.value=c;frequency.append(o);});
@@ -109,7 +95,7 @@ window.createBlocktexxPlanner = function() {
       const load=dayLoad(runs.filter(r=>r.id!==run.id).concat({...run,planner_slots:proposed}),week,day);
       const overtime=!load.unknown&&load.minutes>540;
       if(overtime)proposed[proposed.length-1].overtime_limit_min=load.minutes;
-      const error=fixed.length?'Customer-set day conflict: '+fixed.map(s=>s.name).join(', '):load.unknown?'Week '+week+' '+days[day]+': confirm all time estimates on the destination day before moving this run.':'';
+      const error=fixed.length?'Customer-set day conflict: '+fixed.map(s=>s.name).join(', '):load.unknown?'Week '+week+' '+days[day]+': confirm all time estimates on the destination day before moving this run.':scope==='decom'&&overtime?'Week '+week+' '+days[day]+': not enough spare time for this decom transfer. Choose another day or revise the plan.':'';
       return {run,proposed,error,overtime,load};
     }
     function clearDragStyles(){root.querySelectorAll('.bx-drop-ok,.bx-drop-blocked').forEach(n=>n.classList.remove('bx-drop-ok','bx-drop-blocked'));}
@@ -139,7 +125,7 @@ window.createBlocktexxPlanner = function() {
     if(hiddenAllocated)root.append(e('p',hiddenAllocated+' allocated runs hidden by the frequency filter. Choose All frequencies to see them.','bx-warning'));
     const assigned=visible.filter(r=>slots(r).length),hasWeekend=assigned.some(r=>slots(r).some(s=>s.day>4));
     const wrap=e('div',null,'bx-scroll'),table=e('table',null,'bx-planner-grid'),head=e('tr');
-    head.append(e('th','Week'));days.slice(0,hasWeekend?7:5).forEach(day=>head.append(e('th',day)));head.append(e('th','Shared state financial analysis'));table.append(head);
+    head.append(e('th','Week'));days.slice(0,hasWeekend?7:5).forEach(day=>head.append(e('th',day)));if(scope!=='decom')head.append(e('th','Shared state financial analysis'));table.append(head);
     for(let week=config.start;week<config.start+config.span;week++){
       const row=e('tr');row.append(e('th','Week '+week));
       days.slice(0,hasWeekend?7:5).forEach((day,d)=>{
@@ -173,7 +159,7 @@ window.createBlocktexxPlanner = function() {
           config.dragMessage='Moved '+proposal.run.name+' to Week '+week+' '+day+'. Other occurrences are unchanged. Check the save status for database confirmation.';
           onChange();document.getElementById('bx-save')?.click();
         });
-        const dayButton=e('button','VIEW DAY','bx-view-day');dayButton.type='button';
+        const dayButton=e('button',scope==='decom'?'VIEW AVAILABILITY':'VIEW DAY','bx-view-day');dayButton.type='button';
         dayButton.setAttribute('aria-label','View activities for Week '+week+' '+day);
         dayButton.setAttribute('aria-pressed',String(active));
         dayButton.addEventListener('click',event=>{event.stopPropagation();choose();});cell.append(dayButton);
@@ -182,26 +168,32 @@ window.createBlocktexxPlanner = function() {
         const remaining=540-load.minutes;
         spare.dataset.capacity=load.unknown?'unknown':remaining<0?'over':remaining===0?'full':'spare';
         const hours=Math.floor(Math.max(0,remaining)/60),minutes=Math.floor(Math.max(0,remaining)%60);
-        const label=load.unknown?'Time to confirm':remaining<0?(load.minutes<=load.limit?'Overtime approved · ':'Over by ')+fmt(-remaining)+' min':remaining===0?'Day full':hours+'h '+minutes+'m spare';
+        const label=load.unknown?'Time to confirm':remaining<0?(load.minutes<=load.limit?'Overtime approved · ':'Over by ')+fmt(-remaining)+' min':remaining===0?'Day full':hours+'h '+minutes+'m '+(scope==='decom'?'available for decom':'spare');
         spare.append(e('strong',label),e('small',load.unknown?'Complete timings first':fmt(load.minutes/60)+' / 9h allocated · '+(remaining>0?'Click to allocate':'View day')));
         spare.setAttribute('aria-label','Week '+week+' '+day+': '+label);
         spare.addEventListener('click',event=>{event.stopPropagation();choose();});cell.append(spare);
         if(!load.unknown){const meter=e('progress');meter.max=540;meter.value=Math.min(load.minutes,540);meter.setAttribute('aria-label','Allocated day capacity');cell.append(meter);}
-        cell.append(e('small',load.unknown?'Spare time cannot be confirmed.':'Estimated finish '+finish(load.minutes),'bx-muted'));
-        const daily=window.BlocktexxCosts.dailySummary(model.states[state],week,d,sites);
-        window.BlocktexxCosts.renderOperator(cell,model.states[state],week,d,onChange);
-        cell.append(e('strong',window.BlocktexxCosts.kgText(daily)),e('small',window.BlocktexxCosts.summaryRateText(daily)));
+        cell.append(e('small',load.unknown?'Available time cannot be confirmed.':scope==='decom'?'Local and decom time already booked: '+fmt(load.minutes/60)+'h':'Estimated finish '+finish(load.minutes),'bx-muted'));
+        if(scope!=='decom'){
+          const daily=window.BlocktexxCosts.dailySummary(model.states[state],week,d,sites);
+          window.BlocktexxCosts.renderOperator(cell,model.states[state],week,d,onChange);
+          cell.append(e('strong',window.BlocktexxCosts.kgText(daily)),e('small',window.BlocktexxCosts.summaryRateText(daily)));
+        }
         const entries=assigned.flatMap(r=>slots(r).filter(s=>s.week===week&&s.day===d).map(()=>r));
         entries.forEach(r=>cell.append(card(r,week,d)));
-        if(!entries.length)cell.append(e('span','—','bx-muted'));row.append(cell);
+        if(!entries.length&&scope!=='decom')cell.append(e('span','—','bx-muted'));row.append(cell);
       });
-      const financial=e('td'),button=e('button','Weekly state financial analysis','secondary');button.type='button';button.dataset.financeWeek=week;
-      button.addEventListener('click',()=>{config.financePeriod=week;config.dayOpen=false;config.allocateId=null;refresh();});
-      financial.append(button);row.append(financial);table.append(row);
+      if(scope!=='decom'){
+        const financial=e('td'),button=e('button','Weekly state financial analysis','secondary');button.type='button';button.dataset.financeWeek=week;
+        button.addEventListener('click',()=>{config.financePeriod=week;config.dayOpen=false;config.allocateId=null;refresh();});
+        financial.append(button);row.append(financial);
+      }table.append(row);
     }
     wrap.append(table);root.append(wrap);
-    const month=e('button','Monthly state financial analysis','primary');month.type='button';month.dataset.financeWeek='month';
-    month.addEventListener('click',()=>{config.financePeriod='month';config.dayOpen=false;config.allocateId=null;refresh();});root.append(month);
+    if(scope!=='decom'){
+      const month=e('button','Monthly state financial analysis','primary');month.type='button';month.dataset.financeWeek='month';
+      month.addEventListener('click',()=>{config.financePeriod='month';config.dayOpen=false;config.allocateId=null;refresh();});root.append(month);
+    }
     const showFinance=()=>{if(config.financePeriod!=null)window.BlocktexxCosts?.showPeriodReport(model.states[state],state,config.financePeriod==='month'?null:config.financePeriod,()=>{
       const period=config.financePeriod;config.financePeriod=null;root.querySelector('[data-finance-week="'+period+'"]')?.focus({preventScroll:true});
     },plans,sites);};
@@ -213,7 +205,8 @@ window.createBlocktexxPlanner = function() {
       const activities=scopedRuns.flatMap(r=>slots(r).filter(s=>s.week===week&&s.day===day).map(()=>r));
       panel.append(e('h3','Week '+week+' · '+days[day]+' activities'),e('p','Day reference: '+dayReference(state,week,day)),
         e('p','All frequencies in this planner are shown below. Daily hours and costs include both local and decom movements.'));
-      window.BlocktexxCosts.renderDailySummary(panel,model.states[state],week,day,onChange,sites);
+      if(scope!=='decom')window.BlocktexxCosts.renderDailySummary(panel,model.states[state],week,day,onChange,sites);
+      else panel.append(e('p','Local Planner time is reserved. Only remaining daily capacity is available for decom transfers.'));
       panel.append(e('p','6:30 am start · '+loadText(dayLoad(runs,week,day)), 'bx-warning'));
       const quick=e('div',null,'bx-planner-controls'),pick=e('select');pick.setAttribute('aria-label','Run to allocate to this day');
       const empty=e('option','Choose a run to allocate / move here');empty.value='';pick.append(empty);
