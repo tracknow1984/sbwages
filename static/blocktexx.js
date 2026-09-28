@@ -137,6 +137,7 @@
     renderStorage();renderWeights(); movementUI?.reset();interstateUI?.render();consolidation?.render();renderResources();renderPane();renderOverview();renderSettings();renderRuns();renderMetrics();renderSites();capacityUI?.render();$('bx-source').textContent=model.source;$('bx-notes').textContent=model.notes;document.querySelectorAll('[data-state]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.state===state))); }
   document.querySelectorAll('[data-state]').forEach(b=>b.addEventListener('click',()=>{state=b.dataset.state;render();}));
   document.querySelectorAll('[data-bx-pane]').forEach(b=>b.addEventListener('click',()=>{activePane=b.dataset.bxPane;if(activePane==='interstate')interstateUI?.render();renderResources();renderPane();movementUI?.reset();renderRuns();}));
+  $('bx-open-weights').addEventListener('click',()=>{activePane='weights';renderPane();$('bx-weights').scrollIntoView({block:'start'});});
   $('bx-add').addEventListener('click',()=>{model.states[state].runs.push({id:crypto.randomUUID(),name:'New collection day',sequence:'',notes:'',evidence:'',status:'unmeasured',site_ids:[],runs_4w:null,km:null,drive_min:null,service_min:0,depot_min:0,prep_min:15,wait_min:0,break_min:30});changed();renderRuns();});
   async function saveModel() {
     if(saving)return;
@@ -164,7 +165,6 @@
     const file=e.target.files[0];if(!file)return;
     try{if(!$('bx-replace').checked)throw new Error('Tick the replacement acknowledgement before importing.');if(file.size>900000)throw new Error('File exceeds 900 KB.');const response=await fetch('/admin/blocktexx/validate',{method:'POST',body:new URLSearchParams({csrf:root.dataset.csrf,model:await file.text()})});if(!response.headers.get('content-type')?.includes('application/json'))throw new Error('Session expired or validation unavailable. Existing draft retained.');const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.error||'Invalid model file.');model=result.model;render();changed();saveStatus('Imported draft — review the four states, then Save model.');}catch(err){saveStatus(err.message);}finally{e.target.value='';$('bx-replace').checked=false;}
   });
-  $('bx-print').addEventListener('click',()=>window.print());
   window.addEventListener('beforeunload',e=>{if(dirty||saving){e.preventDefault();e.returnValue='';}});
   capacityUI=window.createBlocktexxCapacity?.(()=>model,()=>state,()=>{changed();renderRuns();renderSites();},root.dataset.csrf,()=>{renderMetrics();runView?.render();interstateUI?.refresh();});
   runView=window.createBlocktexxRunView(()=>model,()=>state,()=>capacityUI?.getPlans(),()=>{changed();renderRuns();renderSites();},plannerScope);
