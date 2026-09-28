@@ -57,3 +57,24 @@ for(const state of Object.keys(states)){
  assert.equal(empty.states[state].runs.length,2);
 }
 console.log('Empty decom calendars show no local data, hours or finances in every state.');
+const shared=[make('local hours','collection',240,[{week:1,day:0}]),make('decomm hours','deliver_decomm',120,[{week:1,day:0}]),make('production hours','deliver_threadtexx',60,[{week:1,day:0}])];
+let combined=planner.dayLoad(shared,1,0);
+assert.equal(combined.minutes,420);
+assert.equal(combined.byPlanner.local.minutes,240);
+assert.equal(combined.byPlanner.decom.minutes,120);
+assert.equal(combined.byPlanner.production.minutes,60);
+shared[2].planner_slots=[{week:1,day:5}];
+assert.equal(planner.dayLoad(shared,1,0).minutes,360);
+assert.equal(planner.dayLoad(shared,1,5).minutes,60);
+for(const scope of ['local','decom','production']){
+ const root=new Element('section');planner.render(root,{states:{NSW:{runs:shared}},sites:[]},'NSW',null,()=>{},()=>{},null,scope);
+ assert.match(root.text,/Saturday/);
+ assert.match(root.text,/Local: 4h/);
+ assert.match(root.text,/Decomm: 2h/);
+ assert.match(root.text,/Production: 1h/);
+}
+shared[1].wait_min=null;
+combined=planner.dayLoad(shared,1,0);
+assert.equal(combined.unknown,true);assert.equal(combined.byPlanner.decom.unknown,true);
+assert.match(planner.allocationError(shared,shared[2],[{week:1,day:0}]),/incomplete/);
+console.log('All planner hours, reallocation, cross-planner weekends and incomplete-time protection passed.');

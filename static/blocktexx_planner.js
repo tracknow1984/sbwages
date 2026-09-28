@@ -25,7 +25,20 @@ window.createBlocktexxPlanner = function() {
   const finish=n=>{const t=390+Math.ceil(n);return Math.floor(t/60)+':'+String(t%60).padStart(2,'0');};
   function dayLoad(runs,week,day) {
     const entries=runs.flatMap(r=>slots(r).filter(s=>s.week===week&&s.day===day).map(()=>r));
-    return {minutes:entries.reduce((n,r)=>n+(duration(r)??0),0),unknown:entries.some(r=>duration(r)==null),limit:Math.max(540,...runs.flatMap(r=>slots(r).filter(s=>s.week===week&&s.day===day).map(s=>s.overtime_limit_min||540)))};
+    const byPlanner=Object.fromEntries(['local','decom','production'].map(scope=>{
+      const booked=window.BlocktexxPlannerScope.runs(entries,scope);
+      return [scope,{minutes:booked.reduce((n,r)=>n+(duration(r)??0),0),unknown:booked.some(r=>duration(r)==null),count:booked.length}];
+    }));
+    return {byPlanner,minutes:entries.reduce((n,r)=>n+(duration(r)??0),0),unknown:entries.some(r=>duration(r)==null),limit:Math.max(540,...runs.flatMap(r=>slots(r).filter(s=>s.week===week&&s.day===day).map(s=>s.overtime_limit_min||540)))};
+  }
+  function sharedHours(root,load){
+    const block=e('div',null,'bx-shared-planner-hours');
+    block.setAttribute('aria-label','Hours booked across all planners');
+    [['local','Local'],['decom','Decomm'],['production','Production']].forEach(([key,label])=>{
+      const part=load.byPlanner[key],line=e('small',label+': '+fmt(part.minutes/60)+'h'+(part.unknown?' + unconfirmed':''));
+      line.style.display='block';block.append(line);
+    });
+    root.append(block);
   }
   function loadText(load) {
     if(load.unknown)return 'Time incomplete — confirm all run times before allocating.';
@@ -125,7 +138,7 @@ window.createBlocktexxPlanner = function() {
     }
     const hiddenAllocated=scopedRuns.filter(r=>slots(r).length&&!visible.includes(r)).length;
     if(hiddenAllocated)root.append(e('p',hiddenAllocated+' allocated runs hidden by the frequency filter. Choose All frequencies to see them.','bx-warning'));
-    const assigned=visible.filter(r=>slots(r).length),hasWeekend=assigned.some(r=>slots(r).some(s=>s.day>4));
+    const assigned=visible.filter(r=>slots(r).length),hasWeekend=runs.some(r=>slots(r).some(s=>s.day>4));
     const wrap=e('div',null,'bx-scroll'),table=e('table',null,'bx-planner-grid'),head=e('tr');
     head.append(e('th','Week'));days.slice(0,hasWeekend?7:5).forEach(day=>head.append(e('th',day)));if(!downstream)head.append(e('th','Shared state financial analysis'));table.append(head);
     for(let week=config.start;week<config.start+config.span;week++){
@@ -166,6 +179,7 @@ window.createBlocktexxPlanner = function() {
         dayButton.setAttribute('aria-pressed',String(active));
         dayButton.addEventListener('click',event=>{event.stopPropagation();choose();});cell.append(dayButton);
         const load=dayLoad(runs,week,d);
+        sharedHours(cell,load);
         const spare=e('button',null,'bx-day-spare');spare.type='button';
         const remaining=540-load.minutes;
         spare.dataset.capacity=load.unknown?'unknown':remaining<0?'over':remaining===0?'full':'spare';
@@ -209,7 +223,15 @@ window.createBlocktexxPlanner = function() {
         e('p','All frequencies in this planner are shown below. Daily hours and costs include local, decom and production movements.'));
       if(!downstream)window.BlocktexxCosts.renderDailySummary(panel,model.states[state],week,day,onChange,sites);
       else panel.append(e('p','Time booked across all planners is reserved. Only remaining daily capacity is available for these movements.'));
+      panel.append(e('h4','Shared daily availability'));
+      sharedHours(panel,dayLoad(runs,week,day));
       panel.append(e('p','6:30 am start · '+loadText(dayLoad(runs,week,day)), 'bx-warning'));
+      const otherBookings=runs.filter(r=>!scopedRuns.includes(r)).flatMap(r=>slots(r).filter(s=>s.week===week&&s.day===day).map(()=>r));
+      if(otherBookings.length){
+        const reserved=e('details');reserved.append(e('summary','Booked in the other planners · '+otherBookings.length+' movements'));
+        otherBookings.forEach(r=>reserved.append(e('p',(window.BlocktexxPlannerScope.isDecom(r)?'Decomm':window.BlocktexxPlannerScope.isProduction(r)?'Production':'Local')+' · '+r.name+' · '+(duration(r)==null?'Time to confirm':fmt(duration(r)/60)+'h'))));
+        panel.append(reserved);
+      }
       const quick=e('div',null,'bx-planner-controls'),pick=e('select');pick.setAttribute('aria-label','Run to allocate to this day');
       const empty=e('option','Choose a run to allocate / move here');empty.value='';pick.append(empty);
       scopedRuns.forEach(r=>{const option=e('option',r.name+(slots(r).length?' (allocated)':' (unallocated)'));option.value=r.id;pick.append(option);});
