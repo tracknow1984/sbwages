@@ -2,7 +2,7 @@ import copy
 import unittest
 from blocktexx import empty_model, validate_model, summarize
 from blocktexx_capacity import capacity_plans
-from blocktexx_interstate import interstate_summary
+from blocktexx_interstate import interstate_summary, add_sa_vic_semi_rate
 
 
 def transport_model():
@@ -20,7 +20,7 @@ def transport_model():
 class InterstateTests(unittest.TestCase):
     def test_round_trip_and_costs_do_not_add_intake(self):
         m=validate_model(transport_model())
-        self.assertEqual(len(m['interstate']['lanes']),9)
+        self.assertEqual(len(m['interstate']['lanes']),10)
         s=interstate_summary(m['interstate'])
         lane=s['lanes']['sydney_brisbane_bdouble']
         self.assertEqual(lane['rate'],4475)
@@ -33,6 +33,20 @@ class InterstateTests(unittest.TestCase):
         self.assertNotIn('delivery',capacity_plans(m)['NSW'])
         self.assertEqual(summarize(m)['NSW']['work_4w'],1)
         self.assertEqual(validate_model(m),m)
+
+    def test_sa_vic_semi_copies_reverse_price_and_remains_editable(self):
+        m=transport_model()
+        m['interstate']['lanes']['melbourne_adelaide_semi'] = dict(
+            base_trip=2400, fuel_pct=25, tolls_trip=15, other_trip=0, payload_kg=18000)
+        self.assertTrue(add_sa_vic_semi_rate(m))
+        self.assertFalse(add_sa_vic_semi_rate(m))
+        saved=validate_model(m)
+        reverse=saved['interstate']['lanes']['melbourne_adelaide_semi']
+        outbound=saved['interstate']['lanes']['adelaide_melbourne_semi']
+        self.assertEqual(outbound,reverse)
+        outbound['base_trip']=2500
+        self.assertEqual(reverse['base_trip'],2400)
+        self.assertEqual(interstate_summary(saved['interstate'])['lanes']['adelaide_melbourne_semi']['rate'],3140)
 
     def test_reject_bad_lane_day_payload_and_negative_rates(self):
         source=transport_model()
