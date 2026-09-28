@@ -375,6 +375,41 @@ def apply_qld_resource_rates(model):
     return changed
 
 
+def apply_route_calendar_audit(model):
+    """Restore source visit days without changing unverified road measurements."""
+    changed = 0
+    weekdays = {'Monday': 0, 'Tuesday': 1, 'Wednesday': 2,
+                'Thursday': 3, 'Friday': 4}
+    for run in model['states']['NSW']['runs']:
+        match = re.match(r'^Week ([1-4]) (Monday|Tuesday|Wednesday|Thursday|Friday) — ', run['name'])
+        if match and run.get('runs_4w') == 1 and not run.get('planner_slots'):
+            run['planner_slots'] = [{'week': int(match.group(1)), 'day': weekdays[match.group(2)]}]
+            changed += 1
+        if run.get('km') is None and run.get('drive_min') is None and run.get('status') == 'estimated':
+            run['status'] = 'unmeasured'
+            changed += 1
+
+    sa_days = {'SA-01': 0, 'SA-02': 2, 'SA-03': 4}
+    for run in model['states']['SA']['runs']:
+        day = sa_days.get(run['id'])
+        if day is None or run.get('runs_4w') != 4:
+            continue
+        slots = run.get('planner_slots') or []
+        # The imported Wednesday/Friday rows were mistakenly all on Monday.
+        if not slots or (len(slots) == 4 and {s['day'] for s in slots} == {0}):
+            corrected = [{'week': week, 'day': day} for week in range(1, 5)]
+            if slots != corrected:
+                run['planner_slots'] = corrected
+                changed += 1
+
+    airport = next((r for r in model['states']['VIC']['runs'] if r['id'] == 'VIC-04'), None)
+    if airport and airport.get('runs_4w') == 1 and airport.get('planner_slots') == [{'week': 1, 'day': 3}]:
+        # The other airport visit is in week 1; space this fortnightly visit by two weeks.
+        airport['planner_slots'] = [{'week': 3, 'day': 1}]
+        changed += 1
+    return changed
+
+
 def register_blocktexx(app, db, require):
     with app.app_context():
         db().executescript('''
@@ -512,6 +547,29 @@ def register_blocktexx(app, db, require):
                 db().execute('INSERT INTO blocktexx_applied_updates VALUES(?,?)', (update_id,now))
                 db().commit()
                 app.logger.warning('BlockTexx resources: copied %s QLD unit price fields to NSW, VIC and SA at revision %s; quantities retained.', changed,revision)
+            else:
+                db().rollback()
+
+    # Repair calendar imports while preserving all source quantities and road estimates.
+    with app.app_context():
+        db().execute('BEGIN IMMEDIATE')
+        update_id = 'nsw-vic-sa-route-calendar-audit-2026-09-28'
+        done = db().execute('SELECT id FROM blocktexx_applied_updates WHERE id=?', (update_id,)).fetchone()
+        row = db().execute('SELECT * FROM blocktexx_model WHERE id=1').fetchone()
+        if done or not row:
+            db().rollback()
+        else:
+            updated = json.loads(row['data'])
+            changed = apply_route_calendar_audit(updated)
+            if changed:
+                payload = json.dumps(validate_model(updated), allow_nan=False)
+                revision = row['revision'] + 1
+                now = datetime.now(timezone.utc).isoformat()
+                db().execute('UPDATE blocktexx_model SET revision=?,data=?,updated_at=? WHERE id=1', (revision,payload,now))
+                db().execute('INSERT INTO blocktexx_model_history VALUES(?,?,?,?)', (revision,payload,row['updated_by'],now))
+                db().execute('INSERT INTO blocktexx_applied_updates VALUES(?,?)', (update_id,now))
+                db().commit()
+                app.logger.warning('BlockTexx calendar audit: corrected %s route allocations/statuses at revision %s; road estimates retained.', changed, revision)
             else:
                 db().rollback()
 
