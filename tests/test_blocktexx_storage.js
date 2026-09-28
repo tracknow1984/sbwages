@@ -18,10 +18,10 @@ console.log('Storage capacity, whole-container rounding, timeline, billing preci
 const sectionModel={total_containers:70,occupied_containers:60,sections:{NSW:{filled:10,pallets_min:20,pallets_max:30,target:50},BANYO:{filled:20,pallets_min:10,pallets_max:15,target:30},BAGS:{filled:30,pallets_min:20,pallets_max:25,target:50}}};
 const sections=window.BlocktexxStorage.sectionSummary(sectionModel);
 assert.equal(sections.complete,true);assert.equal(sections.assigned,60);
-assert.equal(sections.needLow,4+7+12);assert.equal(sections.needHigh,4+7+12);
-assert.equal(sections.freeLow,47);assert.equal(sections.freeHigh,47);assert.equal(sections.initialFree,10);
-assert.equal(sections.releaseLow,37);assert.equal(sections.releaseHigh,37);
-assert.equal(sections.availability[0].low,2350);assert.equal(sections.availability[0].high,2350);
+assert.equal(sections.needLow,4+7+12);assert.equal(sections.needHigh,6+10+15);
+assert.equal(sections.freeLow,39);assert.equal(sections.freeHigh,47);assert.equal(sections.initialFree,10);
+assert.equal(sections.releaseLow,29);assert.equal(sections.releaseHigh,37);
+assert.equal(sections.availability[0].low,1950);assert.equal(sections.availability[0].high,2350);
 assert.equal(window.BlocktexxStorage.sectionSummary({...sectionModel,occupied_containers:61}).complete,false);
 assert.equal(window.BlocktexxStorage.sectionSummary({...sectionModel,sections:{...sectionModel.sections,NSW:{...sectionModel.sections.NSW,filled:null}}}).complete,false);
 console.log('Section ranges, separate rounding, reconciliation and alternative availability passed.');
