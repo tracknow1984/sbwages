@@ -154,6 +154,22 @@
   }
   function render() {
     renderStorage();renderWeights(); movementUI?.reset();interstateUI?.render();consolidation?.render();renderResources();renderPane();renderOverview();renderSettings();renderRuns();renderMetrics();renderSites();capacityUI?.render();$('bx-source').textContent=model.source;$('bx-notes').textContent=model.notes;document.querySelectorAll('[data-state]').forEach(b=>b.setAttribute('aria-pressed',String(activePane!=='national'&&b.dataset.state===state))); }
+  document.addEventListener('bx-navigate',event=>{
+    const route=event.detail||{};
+    if(!['planner','decom','production','resources','interstate','storage','weights'].includes(route.pane))return;
+    if(route.state&&model.states[route.state])state=route.state;
+    activePane=route.pane;render();
+    let target=$(route.id);
+    if(!target)return;
+    if(route.backlog)target=target.querySelector('.bx-planner-backlog')||target;
+    if(route.kind)target=target.querySelector('[data-kind="'+route.kind+'"]')||target;
+    for(let node=target;node;node=node.parentElement)if(node.tagName==='DETAILS')node.open=true;
+    if(route.expand)target.querySelectorAll('details').forEach(node=>node.open=true);
+    target.scrollIntoView({block:'center',behavior:'smooth'});
+    const fields=[...target.querySelectorAll('input,select,textarea')].filter(node=>!node.disabled&&node.type!=='hidden');
+    const focus=fields.find(node=>node.value==='')||fields[0];
+    if(focus)focus.focus({preventScroll:true});else{target.tabIndex=-1;target.focus({preventScroll:true});}
+  });
   $('bx-national-tab').addEventListener('click',()=>{activePane='national';renderPane();});
   document.querySelectorAll('[data-state]').forEach(b=>b.addEventListener('click',()=>{state=b.dataset.state;if(['national','interstate','storage'].includes(activePane))activePane='planner';render();}));
   document.querySelectorAll('[data-bx-pane]').forEach(b=>b.addEventListener('click',()=>{activePane=b.dataset.bxPane;if(activePane==='interstate')interstateUI?.render();renderResources();renderPane();movementUI?.reset();renderRuns();}));

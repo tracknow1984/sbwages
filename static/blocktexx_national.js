@@ -71,6 +71,30 @@ window.BlocktexxNational=(()=>{
  const money=n=>n==null?'Not entered':'$'+Number(n).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
  const rate=n=>n==null?'No intake kg':'$'+Number(n).toFixed(3)+' / kg';
  function table(root,headers,rows){const wrap=e('div',null,'bx-scroll'),t=e('table',null,'bx-resource-table'),h=e('tr');headers.forEach(v=>h.append(e('th',v)));t.append(h);rows.forEach(values=>{const r=e('tr');values.forEach((v,i)=>r.append(e(i===0?'th':'td',v)));t.append(r);});wrap.append(t);root.append(wrap);}
+ function issueTargets(message,model){
+  const state=['QLD','NSW','VIC','SA'].find(s=>message.startsWith(s+' · '));
+  const target=(pane,id,label,extra={})=>({state,pane,id,label,...extra});
+  const planner=(scope='local')=>target(scope==='local'?'planner':scope,'bx-run-view',(state||'')+' '+(scope==='local'?'Local':scope==='decom'?'Decomm':'Production')+' Planner');
+  if(message.includes('Storage contract'))return [target('storage','bx-storage','Storage assumptions',{expand:true})];
+  if(message.includes('Freight '))return [target('interstate','bx-interstate-content','Interstate rates',{expand:true})];
+  if(/purchase price|Container rental|Baler equipment|container quantities/.test(message)){
+   const kind=Object.entries(kinds).find(([,label])=>message.includes(label))?.[0];
+   return [target('resources','bx-resource-content',(state||'')+' Resources',{kind,expand:message.includes('container quantities')})];
+  }
+  if(/kilograms|pickup weights|calendar weights/.test(message))return [target('weights','bx-weights',(state||'')+' sample weights',{expand:true}),planner()];
+  if(message.includes('unallocated')){
+   const runs=model.states[state]?.runs||[],schedule=window.createBlocktexxPlanner();
+   return ['local','decom','production'].filter(scope=>window.BlocktexxPlannerScope.runs(runs,scope).some(r=>r.runs_4w!==0&&!schedule.slots(r).length)).map(scope=>({...planner(scope),backlog:true}));
+  }
+  if(message.includes('contractor hours missing')){
+   const run=model.states[state]?.runs.find(r=>message.includes(' · '+r.name+':'));
+   const scope=run&&window.BlocktexxPlannerScope.isDecom(run)?'decom':run&&window.BlocktexxPlannerScope.isProduction(run)?'production':'local';
+   return [{...planner(scope),id:'bx-all-runs',expand:true}];
+  }
+  const cost=target('planner',message.includes('aggregate')?'bx-legacy-costs':'bx-cost-inputs',(state||'')+' cost settings',{expand:true});
+  if(message.includes('calendar, timings or costs'))return [cost,...['local','decom','production'].map(scope=>({...planner(scope),id:'bx-all-runs',expand:true}))];
+  return [cost];
+ }
  function render(root,model){
   const a=calculate(model);root.replaceChildren(e('h2','National Overview · monthly dashboard'),e('p','All states · AUD excluding GST · average calendar month'));
   const metrics=e('div',null,'bx-metrics');
@@ -95,8 +119,14 @@ window.BlocktexxNational=(()=>{
   root.append(e('h3','One-off costs · separate from monthly rate'));
   table(root,['Item','Known amount'],[['Container purchase scenario',money(a.purchase)],['Repacking cost',money(a.repack)],['Total known one-off amounts',money(a.purchase+(a.repack||0))]]);
   root.append(e('p','Purchase and rental are alternative resource scenarios. Monthly totals use rental amounts; purchases and repacking are not also charged monthly. No depreciation or repayment term is assumed. Check that storage and rentals have not also been entered under other operating costs. Processing/shredding and unentered charges are excluded.','bx-muted'));
-  if(a.issues.length){const gaps=e('details');gaps.open=true;gaps.append(e('summary',a.issues.length+' items affecting completeness'));const list=e('ul');a.issues.forEach(v=>list.append(e('li',v)));gaps.append(e('p','Missing amounts are excluded from known subtotals, not treated as confirmed zero. The cost/kg above remains available using known costs and known intake.'),list);root.append(gaps);}
+  if(a.issues.length){const gaps=e('details');gaps.open=true;gaps.append(e('summary',a.issues.length+' items affecting completeness'));const list=e('ul');a.issues.forEach(v=>{
+    const item=e('li');const targets=issueTargets(v,model);
+    targets.forEach((target,index)=>{
+      const link=e('a',index?' · '+target.label:v+' → '+target.label);link.href='#'+target.id;
+      link.onclick=event=>{event.preventDefault();document.dispatchEvent(new CustomEvent('bx-navigate',{detail:target}));};item.append(link);
+    });if(!targets.length)item.append(e('span',v));list.append(item);
+   });gaps.append(e('p','Missing amounts are excluded from known subtotals, not treated as confirmed zero. The cost/kg above remains available using known costs and known intake.'),list);root.append(gaps);}
   root.append(e('p','Monthly conversion: four-week calendar × 13 ÷ 12; weekly rental × 52 ÷ 12. Existing monthly budgets stay monthly. Change inputs in the state planners, Resources, Interstate transfers or Storage; this dashboard recalculates from those entries.','bx-muted'));
  }
- return {calculate,render};
+ return {calculate,render,issueTargets};
 })();
