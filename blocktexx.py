@@ -27,7 +27,7 @@ def source_visits(frequency):
 def empty_model():
     return {'version': 1, 'name': 'BlockTexx collection analysis', 'source': '',
             'notes': 'Stage 1 only. Shredding and downstream transport are not costed.',
-            'states': {s: {'depot': '', 'depot_status': 'unconfirmed', 'monthly_kg': None,
+            'states': {s: {'state_code': s, 'depot': '', 'depot_status': 'unconfirmed', 'monthly_kg': None,
                            'cost_mode': 'unpriced', 'hourly_rate': None, 'minimum_hours': 0,
                            'fixed_monthly': None, 'available_weekly_hours': 40,
                            'notes': '', 'runs': []} for s in STATES},
@@ -331,7 +331,7 @@ def summarize(model):
                 cost = billed * factor * data['hourly_rate']
             elif data['cost_mode'] == 'owned' and data['fixed_monthly'] is not None:
                 cost = data['fixed_monthly']
-        comparison = cost_comparison(data, calendar_slots) if data.get('cost_profile', {}).get('enabled') else None
+        comparison = cost_comparison({**data, 'state_code': state}, calendar_slots) if data.get('cost_profile', {}).get('enabled') else None
         if comparison:
             cost = comparison['selected']
             if not comparison['schedule_complete']:

@@ -35,6 +35,19 @@ class CostTests(unittest.TestCase):
         self.assertAlmostEqual(c['daily'],6620)
         self.assertTrue(c['schedule_complete'])
 
+    def test_building_costs_only_nsw_and_vic(self):
+        for state in ('QLD', 'SA', 'NSW', 'VIC'):
+            d=copy.deepcopy(priced_model()['states']['VIC'])
+            d['state_code']=state
+            c=cost_comparison(d,calendar_slots)
+            self.assertEqual(c['shared'], 0 if state in ('QLD','SA') else 2200)
+            d['cost_profile']['building_insurance_month']=None
+            c=cost_comparison(d,calendar_slots)
+            if state in ('QLD','SA'):
+                self.assertIsNotNone(c['selected'])
+            else:
+                self.assertIsNone(c['selected'])
+
     def test_missing_and_zero_prices_are_distinct(self):
         d=priced_model()['states']['VIC']
         d['cost_profile']['fuel_month']=None

@@ -17,6 +17,7 @@ window.BlocktexxCosts = (() => {
   const money=n=>n==null?'Incomplete':'$'+Number(n).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
   const fmt=n=>Number(n).toLocaleString('en-AU',{maximumFractionDigits:2});
   const e=(t,v,c)=>{const n=document.createElement(t);if(v!=null)n.textContent=v;if(c)n.className=c;return n;};
+  const includesBuilding=data=>!['QLD','SA'].includes(data.state_code);
   function profile(data){
     if(!data.cost_profile)data.cost_profile={enabled:false,contractor_basis:'hourly',contractor_hourly:data.hourly_rate??null,minimum_hours:data.minimum_hours??0,free_wait_minutes:30};
     return data.cost_profile;
@@ -49,7 +50,7 @@ window.BlocktexxCosts = (() => {
     const product=(...values)=>values.includes(0)?0:values.some(v=>v==null)?null:values.reduce((a,v)=>a*v,1);
     const wages=product(p.staff_qty,p.staff_hourly,p.paid_hours_week,52/12);
     const workers_comp=product(wages,p.workers_comp_pct,.01),super_cost=product(wages,p.super_pct,.01);
-    const shared=total([p.building_insurance_month,p.building_lease_month]);
+    const shared=includesBuilding(data)?total([p.building_insurance_month,p.building_lease_month]):0;
     const owned=total([wages,workers_comp,super_cost,shared,p.truck_insurance_month,p.truck_lease_month,p.fuel_month,p.owned_other_month]);
     const known=time_complete&&p.free_wait_minutes!=null;
     const demurrage=known?product(charged*factor,p.demurrage_hourly):null;
@@ -70,6 +71,7 @@ window.BlocktexxCosts = (() => {
     root.append(e('p','Blank means unpriced; enter 0 where a cost does not apply. Existing aggregate pricing stays active until you enable this profile. All figures are AUD excluding GST.','bx-muted'));
     if(data.fixed_monthly!=null)root.append(e('p','Previous company aggregate: '+money(data.fixed_monthly)+' / month (reference only when detailed pricing is enabled).','bx-muted'));
     groups.forEach(([title,fields])=>{
+      if(!includesBuilding(data)&&fields.some(([key])=>key.startsWith('building_')))return;
       const section=e('details');section.open=title==='Full-time staff';section.append(e('summary',title));
       const grid=e('div',null,'bx-settings');
       fields.forEach(([key,title,max,step])=>{
@@ -96,7 +98,7 @@ window.BlocktexxCosts = (() => {
     const rows=[
       ['Wages',c.wages,0,0],['Workers compensation',c.workers_comp,0,0],['Super / pension',c.super_cost,0,0],
       ['Truck insurance',p.truck_insurance_month,0,0],['Truck lease',p.truck_lease_month,0,0],['Fuel',p.fuel_month,0,0],
-      ['Building lease + insurance',c.shared,c.shared,c.shared],['Contractor base charge',0,c.hourly_base,c.daily_base],
+      ...(includesBuilding(data)?[['Building lease + insurance',c.shared,c.shared,c.shared]]:[]),['Contractor base charge',0,c.hourly_base,c.daily_base],
       ['Demurrage',0,c.demurrage,c.demurrage],['Other costs',p.owned_other_month,p.contractor_other_month,p.contractor_other_month],
       ['Total / month',c.owned,c.hourly,c.daily]];
     rows.forEach(([label,...values])=>{const row=e('tr');if(label==='Total / month')row.className='bx-resource-total';row.append(e('th',label));values.forEach(v=>row.append(e('td',money(v))));table.append(row);});
@@ -123,8 +125,10 @@ window.BlocktexxCosts = (() => {
       ['Truck insurance',scale(p.truck_insurance_month,fixed),0,0],
       ['Truck lease',scale(p.truck_lease_month,fixed),0,0],
       ['Fuel budget',scale(p.fuel_month,fixed),0,0],
-      ['Building insurance',...Array(3).fill(scale(p.building_insurance_month,fixed))],
-      ['Building lease',...Array(3).fill(scale(p.building_lease_month,fixed))],
+      ...(includesBuilding(data)?[
+        ['Building insurance',...Array(3).fill(scale(p.building_insurance_month,fixed))],
+        ['Building lease',...Array(3).fill(scale(p.building_lease_month,fixed))]
+      ]:[]),
       ['Contractor base charge',0,scale(c.hourly_base,variable),scale(c.daily_base,variable)],
       ['Demurrage',0,scale(c.demurrage,variable),scale(c.demurrage,variable)],
       ['Other costs',scale(p.owned_other_month,fixed),scale(p.contractor_other_month,fixed),scale(p.contractor_other_month,fixed)]

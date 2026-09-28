@@ -85,7 +85,8 @@ def cost_comparison(data, slots_for_run):
     wages = product(p.get('staff_qty'), p.get('staff_hourly'), p.get('paid_hours_week'), 52 / 12)
     wc = product(wages, p.get('workers_comp_pct'), .01)
     super_cost = product(wages, p.get('super_pct'), .01)
-    shared = total([p.get('building_insurance_month'), p.get('building_lease_month')])
+    shared = (0 if data.get('state_code') in ('QLD', 'SA') else
+              total([p.get('building_insurance_month'), p.get('building_lease_month')]))
     owned = total([wages, wc, super_cost, shared, p.get('truck_insurance_month'),
                    p.get('truck_lease_month'), p.get('fuel_month'), p.get('owned_other_month')])
     known_times = time_complete and p.get('free_wait_minutes') is not None

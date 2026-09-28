@@ -36,3 +36,14 @@ assert.equal(C.breakEven({selling_per_kg:0},{complete:true,missing:0,cost:1000,k
 assert.equal(C.breakEven({selling_per_kg:.5},{complete:false,missing:0,cost:1000,kg:1500}).result,null);
 console.log('Historical averages, per-customer and per-occurrence scenarios, zero overrides and break-even arithmetic passed.');
 
+// Building overheads apply only to NSW and VIC, including on quiet days.
+for(const state_code of ['QLD','SA','NSW','VIC']) {
+  const d={state_code,cost_mode:'owned',runs:[],cost_profile:{...p,enabled:true,staff_qty:0,truck_insurance_month:0,truck_lease_month:0,fuel_month:0,owned_other_month:0,building_insurance_month:null,building_lease_month:3640/12}};
+  const excluded=['QLD','SA'].includes(state_code);
+  assert.equal(C.calculate(d).shared,excluded?0:null);
+  const day=C.dailySummary(d,1,0);
+  assert.equal(day.cost,excluded?0:10);
+  assert.deepEqual(day.missingCosts,excluded?[]:['Building insurance']);
+  assert.equal(C.periodCosts(d,1).rows.some(row=>row[0].startsWith('Building')), !excluded);
+}
+console.log('State building exclusions passed for QLD/SA and retained for NSW/VIC.');
