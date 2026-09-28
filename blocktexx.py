@@ -358,6 +358,23 @@ def summarize(model):
     return result
 
 
+def apply_qld_resource_rates(model):
+    """Copy entered QLD unit prices while retaining each state's stock quantities."""
+    source = model['states']['QLD'].get('resource_pricing', {})
+    changed = 0
+    for state in ('NSW', 'VIC', 'SA'):
+        target = model['states'][state].setdefault('resource_pricing', {})
+        for kind in KINDS:
+            prices = source.get(kind, {})
+            profile = target.setdefault(kind, {})
+            for key in ('purchase_each', 'weekly_rent_each'):
+                value = prices.get(key)
+                if value is not None and profile.get(key) != value:
+                    profile[key] = value
+                    changed += 1
+    return changed
+
+
 def register_blocktexx(app, db, require):
     with app.app_context():
         db().executescript('''
@@ -472,6 +489,31 @@ def register_blocktexx(app, db, require):
                 db().execute('INSERT INTO blocktexx_applied_updates VALUES(?,?)', (update_id,now))
                 db().commit()
                 app.logger.warning('BlockTexx depot update: %s applied to %s; saved revision %s with history retained.', update_id,state,revision)
+
+    # Copy the QLD unit price assumptions once; state rental quantities remain distinct.
+    with app.app_context():
+        db().execute('CREATE TABLE IF NOT EXISTS blocktexx_applied_updates (id TEXT PRIMARY KEY, applied_at TEXT NOT NULL)')
+        db().commit()
+        db().execute('BEGIN IMMEDIATE')
+        update_id = 'qld-resource-unit-rates-to-states-2026-09-28'
+        done = db().execute('SELECT id FROM blocktexx_applied_updates WHERE id=?', (update_id,)).fetchone()
+        row = db().execute('SELECT * FROM blocktexx_model WHERE id=1').fetchone()
+        if done or not row:
+            db().rollback()
+        else:
+            updated = json.loads(row['data'])
+            changed = apply_qld_resource_rates(updated)
+            if changed:
+                payload = json.dumps(validate_model(updated), allow_nan=False)
+                revision = row['revision'] + 1
+                now = datetime.now(timezone.utc).isoformat()
+                db().execute('UPDATE blocktexx_model SET revision=?,data=?,updated_at=? WHERE id=1', (revision,payload,now))
+                db().execute('INSERT INTO blocktexx_model_history VALUES(?,?,?,?)', (revision,payload,row['updated_by'],now))
+                db().execute('INSERT INTO blocktexx_applied_updates VALUES(?,?)', (update_id,now))
+                db().commit()
+                app.logger.warning('BlockTexx resources: copied %s QLD unit price fields to NSW, VIC and SA at revision %s; quantities retained.', changed,revision)
+            else:
+                db().rollback()
 
     def current():
         row = db().execute('SELECT * FROM blocktexx_model WHERE id=1').fetchone()
