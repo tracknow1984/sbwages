@@ -14,3 +14,14 @@ class FlowLayoutTests(unittest.TestCase):
             model['process_flow_layout'] = layout
             with self.assertRaises(ValueError):
                 validate_model(model)
+
+    def test_hidden_stage_notes_round_trip(self):
+        model = empty_model()
+        notes = {'dispatch': 'Depot note', 'net_nsw_decomm': 'Partner note'}
+        model['process_flow_notes'] = notes
+        self.assertEqual(validate_model(model)['process_flow_notes'], notes)
+        self.assertEqual(validate_model(empty_model())['process_flow_notes'], {})
+        for invalid in ({'unknown': 'note'}, {'dispatch': 'x' * 4001}, {'dispatch': 12}):
+            model['process_flow_notes'] = invalid
+            with self.assertRaises(ValueError):
+                validate_model(model)

@@ -414,7 +414,7 @@ window.BlocktexxFlow=(()=>{
     return {d:`M ${a.x} ${a.y} C ${a.x+u.x} ${a.y+u.y}, ${b.x+v.x} ${b.y+v.y}, ${b.x} ${b.y}`,x:(a.x+b.x)/2+(horizontal?0:65),y:horizontal&&Math.abs(b.x-a.x)<150?Math.min(layout[from].y,layout[to].y)-14:(a.y+b.y)/2-(horizontal?12:0)};
   }
   function render(root,model,onChange){
-    root._dispose?.();root.replaceChildren();let timer=null,index=-1,drag=null;
+    root._dispose?.();root.replaceChildren();let timer=null,index=-1,drag=null,suppressClickUntil=0,noteDialog=null;
     const view=root._flowView||'network',network=view==='network',H=network?1220:780,W=network?1480:1180;
     const shownStages=network?networkStages:stages,shownEdges=network?networkEdges:edges,shownCaptions=network?networkCaptions:captions;
     let layout=positions(model.process_flow_layout,view);
@@ -424,7 +424,7 @@ window.BlocktexxFlow=(()=>{
     const button=(text,fn)=>{const b=html('button',text,'secondary');b.type='button';b.onclick=fn;controls.append(b);return b;};
     [['network','National network'],['detail','Detailed process']].forEach(([key,label])=>{const tab=button(label,()=>{root._flowView=key;render(root,model,onChange);});tab.setAttribute('aria-pressed',String(view===key));});
     const play=button('Play walkthrough',()=>{if(timer){stop();return;}index=-1;advance();timer=setInterval(advance,5000);play.textContent='Pause walkthrough';});
-    button('Reset layout',()=>{stop();index=-1;nodeElements.forEach(({g})=>g.classList.remove('is-active'));edgeElements.forEach(({path})=>path.classList.remove('is-active'));caption.textContent='Drag any stage to arrange the flow. Arrows stay connected.';layout=positions({},view);draw();persist();status.textContent='Default layout restored. Select Save layout to keep it.';});
+    button('Reset layout',()=>{stop();index=-1;nodeElements.forEach(({g})=>g.classList.remove('is-active'));edgeElements.forEach(({path})=>path.classList.remove('is-active'));caption.textContent='Click a box to edit its notes. Drag to rearrange; arrows stay connected.';layout=positions({},view);draw();persist();status.textContent='Default layout restored. Select Save layout to keep it.';});
     button('Save layout',()=>{persist();document.getElementById('bx-save')?.click();});
     const full=button('Presentation view',async()=>{try{if(document.fullscreenElement===root)await document.exitFullscreen();else await root.requestFullscreen();}catch{status.textContent='Use your browser’s full-screen control to present this page.';}});
     header.append(intro,controls);root.append(header);
@@ -434,20 +434,42 @@ window.BlocktexxFlow=(()=>{
     canvas.append(svg('title',{},'Collection to production — draggable process stages'),svg('desc',{},network?'Each state sends stock to a decomm partner, then returns it to its depot for baling. VIC, SA and WA consolidate bales to a threshold before sending through Sydney and north to Threadtexx. NSW and QLD use SB Empire depots and company trucks. Drag stages or use arrow keys to move.':'Follow stages 1 to 9, then either go directly to production or hold stock in North Maclean before production. Drag a stage to reposition it, or focus it and use arrow keys.'));
     const defs=svg('defs'),marker=svg('marker',{id:'bx-flow-arrow',viewBox:'0 0 10 10',refX:9,refY:5,markerWidth:7,markerHeight:7,orient:'auto-start-reverse'});marker.append(svg('path',{d:'M 0 0 L 10 5 L 0 10 z',fill:'#8195ac'}));defs.append(marker);canvas.append(defs);
     const lines=svg('g',{'aria-hidden':'true'}),nodes=svg('g');canvas.append(lines,nodes);frame.append(canvas);root.append(frame);
-    const caption=html('p','Drag any stage to arrange the flow. Arrows stay connected.','bx-flow-caption');caption.setAttribute('aria-live','polite');root.append(caption);
+    const caption=html('p','Click a box to edit its notes. Drag to rearrange; arrows stay connected.','bx-flow-caption');caption.setAttribute('aria-live','polite');root.append(caption);
     const status=html('p','Layout changes only the presentation; planner bookings and costs stay as entered.','bx-flow-status');status.setAttribute('role','status');root.append(status);
     const edgeElements=shownEdges.map(edge=>{const path=svg('path',{class:'bx-flow-edge','marker-end':'url(#bx-flow-arrow)'}),text=svg('text',{class:'bx-flow-edge-label','text-anchor':'middle'},edge[4]);lines.append(path,text);return {edge,path,text};});
     const nodeElements=shownStages.map(([id,number,title,body,category])=>{
-      const g=svg('g',{class:'bx-flow-node '+category,tabindex:0,role:'button','aria-label':number+'. '+title+'. '+body.replace('\n',' ')+' Drag or use arrow keys to move.'});
+      const g=svg('g',{class:'bx-flow-node '+category,tabindex:0,role:'button','aria-label':number+'. '+title+'. '+body.replace('\n',' ')+' Click or press Enter to edit notes. Drag or use arrow keys to move.'});
       g.append(svg('rect',{width:BW,height:BH,rx:12,class:'bx-flow-node-bg'}),svg('rect',{x:0,y:15,width:4,height:82,rx:2,class:'bx-flow-accent'}),svg('text',{x:18,y:25,class:'bx-flow-number'},number),svg('text',{x:number.length>2?62:48,y:25,class:'bx-flow-category'},category==='decomm'?'DECOMMISSIONING':category==='owned'?'SB EMPIRE':category==='partner'?'PARTNER NETWORK':category==='collection'?'LOCAL NETWORK':category==='transfer'?'CONSOLIDATION':category==='decision'?'DESTINATION':category.toUpperCase()),svg('text',{x:18,y:53,class:'bx-flow-title',style:title.length>20?'font-size:14px':''},title));
       const copy=svg('text',{x:18,y:77,class:'bx-flow-copy'});body.split('\n').forEach((line,i)=>copy.append(svg('tspan',{x:18,dy:i?18:0},line)));g.append(copy);nodes.append(g);
-      g.addEventListener('pointerdown',event=>{if(event.button!==0)return;stop();const p=point(event);if(!p)return;drag={id,dx:p.x-layout[id].x,dy:p.y-layout[id].y,moved:false};g.setPointerCapture(event.pointerId);g.classList.add('is-dragging');event.preventDefault();});
-      g.addEventListener('pointermove',event=>{if(drag?.id!==id)return;const p=point(event);if(!p)return;layout[id]={x:clamp(p.x-drag.dx,W-BW),y:clamp(p.y-drag.dy,H-BH)};drag.moved=true;draw();});
-      const end=()=>{if(drag?.id!==id)return;const moved=drag.moved;drag=null;g.classList.remove('is-dragging');if(moved){persist();status.textContent='Layout changed — select Save layout to keep it.';}};
+      g.addEventListener('pointerdown',event=>{if(event.button!==0)return;stop();const p=point(event);if(!p)return;drag={id,dx:p.x-layout[id].x,dy:p.y-layout[id].y,startX:event.clientX,startY:event.clientY,moved:false};g.setPointerCapture(event.pointerId);g.classList.add('is-dragging');event.preventDefault();});
+      g.addEventListener('pointermove',event=>{if(drag?.id!==id)return;if(!drag.moved&&Math.hypot(event.clientX-drag.startX,event.clientY-drag.startY)<5)return;const p=point(event);if(!p)return;layout[id]={x:clamp(p.x-drag.dx,W-BW),y:clamp(p.y-drag.dy,H-BH)};drag.moved=true;draw();});
+      const end=()=>{if(drag?.id!==id)return;const moved=drag.moved;drag=null;g.classList.remove('is-dragging');if(moved){suppressClickUntil=Date.now()+350;persist();status.textContent='Layout changed — select Save layout to keep it.';}};
       g.addEventListener('pointerup',end);g.addEventListener('pointercancel',end);g.addEventListener('lostpointercapture',end);
-      g.addEventListener('keydown',event=>{const delta={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[event.key];if(!delta)return;event.preventDefault();stop();const step=event.shiftKey?20:5;layout[id]={x:clamp(layout[id].x+delta[0]*step,W-BW),y:clamp(layout[id].y+delta[1]*step,H-BH)};draw();persist();status.textContent='Layout changed — select Save layout to keep it.';});
+      g.addEventListener('click',()=>{if(Date.now()>=suppressClickUntil)openNotes(id,title,g);});
+      g.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();openNotes(id,title,g);return;}const delta={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[event.key];if(!delta)return;event.preventDefault();stop();const step=event.shiftKey?20:5;layout[id]={x:clamp(layout[id].x+delta[0]*step,W-BW),y:clamp(layout[id].y+delta[1]*step,H-BH)};draw();persist();status.textContent='Layout changed — select Save layout to keep it.';});
       return {id,g};
     });
+    function openNotes(id,title,trigger){
+      stop();noteDialog?.remove();
+      const dialog=html('dialog',null,'bx-flow-notes');noteDialog=dialog;dialog.setAttribute('aria-labelledby','bx-flow-notes-title');
+      const heading=html('h3',title+' · Notes');heading.id='bx-flow-notes-title';
+      const label=html('label','Notes for this stage'),input=html('textarea');input.rows=9;input.maxLength=4000;input.value=model.process_flow_notes?.[id]||'';input.setAttribute('aria-label',title+' notes');input.placeholder='Add information, questions, requirements or decisions for this stage…';label.append(input);
+      const help=html('p','Notes are saved with the model and only shown when this editor is opened.','bx-flow-status');
+      const actions=html('div',null,'bx-flow-controls'),save=html('button','Save notes','primary'),close=html('button','Close','secondary');save.type=close.type='button';
+      const feedback=html('p','','bx-flow-status');feedback.setAttribute('role','status');
+      save.onclick=()=>{
+        const modelSave=document.getElementById('bx-save');
+        if(modelSave?.disabled){feedback.textContent='A save is already in progress. Try again when it finishes.';return;}
+        model.process_flow_notes=model.process_flow_notes||{};
+        if(input.value.trim())model.process_flow_notes[id]=input.value;else delete model.process_flow_notes[id];
+        onChange();modelSave?.click();feedback.textContent=modelSave?'Saving notes with the model…':'Notes updated in the draft — save the model to keep them.';
+      };
+      close.onclick=()=>dialog.close();
+      const source=document.getElementById('bx-save-status'),watch=source?new MutationObserver(()=>{feedback.textContent=source.textContent;}):null;
+      watch?.observe(source,{childList:true,characterData:true,subtree:true});
+      dialog.addEventListener('close',()=>{watch?.disconnect();dialog.remove();if(noteDialog===dialog)noteDialog=null;trigger.focus({preventScroll:true});});
+      dialog._cleanup=()=>watch?.disconnect();actions.append(save,close);dialog.append(heading,label,help,actions,feedback);root.append(dialog);dialog.showModal();input.focus();
+    }
     function point(event){const matrix=canvas.getScreenCTM();if(!matrix)return null;return new DOMPoint(event.clientX,event.clientY).matrixTransform(matrix.inverse());}
     function draw(){nodeElements.forEach(({id,g})=>g.setAttribute('transform',`translate(${layout[id].x} ${layout[id].y})`));edgeElements.forEach(({edge,path,text})=>{const p=geometry(edge,layout,H);path.setAttribute('d',p.d);text.setAttribute('x',p.x);text.setAttribute('y',p.y);});}
     function persist(){model.process_flow_layout={...(model.process_flow_layout||{}),...Object.fromEntries(Object.entries(layout).map(([id,p])=>[id,{x:Math.round(p.x),y:Math.round(p.y)}]))};onChange();}
@@ -457,7 +479,7 @@ window.BlocktexxFlow=(()=>{
     const saveStatus=document.getElementById('bx-save-status');
     const observer=saveStatus?new MutationObserver(()=>{status.textContent=saveStatus.textContent;}):null;
     observer?.observe(saveStatus,{childList:true,characterData:true,subtree:true});
-    root._dispose=()=>{stop();observer?.disconnect();document.removeEventListener('fullscreenchange',fullscreen);};
+    root._dispose=()=>{stop();noteDialog?._cleanup?.();noteDialog?.remove();observer?.disconnect();document.removeEventListener('fullscreenchange',fullscreen);};
     root._pause=stop;draw();
   }
   return {render,positions,geometry,stages,edges,networkStages,networkEdges};

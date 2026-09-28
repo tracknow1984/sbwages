@@ -68,6 +68,12 @@ def validate_model(value):
     stage_ids = {'dispatch', 'collect', 'weigh', 'decomm', 'bale', 'interstate', 'linehaul', 'shred', 'decision', 'storage', 'production', 'net_vic', 'net_sa', 'net_wa', 'net_threshold', 'net_nsw', 'net_qld', 'net_sydney', 'net_north', 'net_thread', 'net_hold', 'net_make', 'net_vic_decomm', 'net_vic_bale', 'net_sa_decomm', 'net_sa_bale', 'net_wa_decomm', 'net_wa_bale', 'net_nsw_decomm', 'net_nsw_bale', 'net_qld_decomm', 'net_qld_bale'}
     if not isinstance(layout, dict) or set(layout) - stage_ids:
         raise ValueError('Invalid process flow layout.')
+    stage_notes = value.get('process_flow_notes', {})
+    if not isinstance(stage_notes, dict) or set(stage_notes) - stage_ids:
+        raise ValueError('Invalid process flow notes.')
+    model['process_flow_notes'] = {
+        stage: text(note, 'Process stage notes', 4000)
+        for stage, note in stage_notes.items()}
     model['process_flow_layout'] = {}
     for stage, position in layout.items():
         if not isinstance(position, dict):
