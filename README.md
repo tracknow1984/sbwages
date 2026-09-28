@@ -173,3 +173,30 @@ or verified vehicle-fit calculations. Unknown payloads remain explicitly
 space-only. Additional loads block complete collection rates until revised
 distance and handling allowances are entered. Startup performs one audited
 capacity migration of existing runs, preserving the previous revision.
+
+## Daily company / contractor analysis
+
+Each state's local planner offers company vehicles, contractors, or mixed operation.
+Mixed operation uses the detailed cost profile and stores `day_operators` by
+four-week calendar key (`1:0` is Week 1 Monday). Every scheduled day needs an
+operator; missing assignments are flagged and their unknown variable costs are
+excluded from provisional known-cost rates. Assignments remain attached to the
+day when runs move, and Save model persists them with the existing revision check.
+
+Daily and weekly/monthly analysis separates company costs, contractor costs,
+shared building costs, operator days and pickup kilograms. Combined cost/kg is
+summed costs divided by summed pickup kg, including zero-pickup-day overheads.
+Local transfer kilograms are not counted as new pickups. Full-company and
+full-contractor comparison columns are alternatives, not additional costs.
+
+Mixed planning retains committed company wages, super, workers compensation,
+truck lease/insurance and other company budgets for the full period. The entered
+full-company monthly fuel budget is allocated evenly over all scheduled working
+days in the four-week cycle and charged only to company days. Contractor minimums,
+base charges and demurrage apply only to contractor days, grouped once per day;
+contractor monthly overheads are included once if any contractor day exists in
+the cycle. Building lease and insurance apply once, only in NSW and VIC.
+Reduce committed budgets manually only when those costs can actually be avoided.
+
+The Planner tab opens with the local calendar first. Historical workbook imports,
+weight mappings and sample scenarios are in the Sample weights & scenarios tab.

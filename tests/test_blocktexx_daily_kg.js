@@ -47,3 +47,21 @@ for(const state_code of ['QLD','SA','NSW','VIC']) {
   assert.equal(C.periodCosts(d,1).rows.some(row=>row[0].startsWith('Building')), !excluded);
 }
 console.log('State building exclusions passed for QLD/SA and retained for NSW/VIC.');
+// Mixed operations: committed company costs remain; contractor days are billed once.
+const mixedProfile={...p,enabled:true,staff_qty:1,staff_hourly:10,paid_hours_week:7,workers_comp_pct:0,super_pct:0,truck_insurance_month:0,truck_lease_month:0,fuel_month:260,owned_other_month:0,building_insurance_month:0,building_lease_month:0,contractor_hourly:100,contractor_daily:700,minimum_hours:4,free_wait_minutes:0,demurrage_hourly:100,contractor_other_month:0};
+const mixed={state_code:'QLD',cost_mode:'mixed',cost_profile:mixedProfile,day_operators:{'1:0':'owned','1:1':'contractor'},runs:[run('own',100,0),run('sub-a',200,1),run('sub-b',200,1)]};
+let mix=C.periodSummary(mixed,1);
+assert.equal(mix.kg,500);assert.equal(mix.cost,590);assert.equal(mix.rate,1.18);
+assert.equal(mix.components.owned,190);assert.equal(mix.components.contractor,400);assert.equal(mix.operators.owned.kg,100);assert.equal(mix.operators.contractor.kg,400);
+assert.equal(C.dailySummary(mixed,1,0).cost,130);assert.equal(C.dailySummary(mixed,1,1).cost,410);assert.equal(C.dailySummary(mixed,1,2).cost,10);
+assert.ok(Math.abs(C.calculate(mixed).selected-C.periodSummary(mixed).cost*13/12)<1e-8);
+mixed.cost_profile.contractor_basis='daily';assert.equal(C.periodSummary(mixed,1).components.contractor,700);
+mixed.runs[1].wait_min=60;assert.equal(C.periodSummary(mixed,1).components.contractor,800);
+mixed.cost_profile.contractor_basis='hourly';mixed.runs[1].wait_min=0;
+delete mixed.day_operators['1:1'];mix=C.periodSummary(mixed,1);assert.equal(mix.operators.unassigned.days,1);assert.equal(mix.provisional,true);assert.equal(C.calculate(mixed).selected,null);
+mixed.day_operators['1:1']='contractor';mixed.cost_profile.contractor_hourly=null;mix=C.periodSummary(mixed,1);assert.equal(mix.cost,190);assert.equal(mix.provisional,true);assert.ok(mix.missingCosts.includes('Contractor base charge'));
+mixed.cost_profile.contractor_hourly=100;mixed.state_code='NSW';mixed.cost_profile.building_lease_month=3640/12;mix=C.periodSummary(mixed,1);assert.equal(mix.components.shared,70);assert.equal(mix.cost,660);
+// Assignments persist when modes change, and pure modes ignore them.
+mixed.cost_mode='contractor';assert.equal(C.periodSummary(mixed,1).operators.contractor.kg,500);assert.equal(C.periodSummary(mixed,1).components.owned,0);
+mixed.cost_mode='owned';assert.equal(C.periodSummary(mixed,1).operators.owned.kg,500);assert.equal(C.periodSummary(mixed,1).components.contractor,0);
+console.log('Mixed day allocations, weighted cost/kg, fixed overheads, shared minimums, daily pricing and missing costs passed.');

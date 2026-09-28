@@ -142,9 +142,19 @@ def validate_model(value):
         if data.get('depot_status') not in ('unconfirmed', 'assumed', 'confirmed'):
             raise ValueError('Invalid depot status.')
         out['depot_status'] = data['depot_status']
-        if data.get('cost_mode') not in ('unpriced', 'contractor', 'owned'):
+        if data.get('cost_mode') not in ('unpriced', 'contractor', 'owned', 'mixed'):
             raise ValueError('Invalid cost mode.')
         out['cost_mode'] = data['cost_mode']
+        assignments = data.get('day_operators', {})
+        if not isinstance(assignments, dict) or len(assignments) > 28:
+            raise ValueError('Daily operators must cover the four-week calendar.')
+        out['day_operators'] = {}
+        for key, operator in assignments.items():
+            if not isinstance(key, str) or not re.fullmatch(r'[1-4]:[0-6]', key) or operator not in ('owned', 'contractor'):
+                raise ValueError('Choose company or contractor for a valid calendar day.')
+            out['day_operators'][key] = operator
+        if out['cost_mode'] == 'mixed' and not out.get('cost_profile', {}).get('enabled'):
+            raise ValueError('Mixed operation requires the detailed cost profile.')
         for key, limit, optional in [('monthly_kg', 10000000, True), ('hourly_rate', 10000, True),
                                      ('minimum_hours', 24, False), ('fixed_monthly', 10000000, True),
                                      ('available_weekly_hours', 168, False)]:

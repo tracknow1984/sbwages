@@ -37,7 +37,7 @@ def validate_cost_profile(raw):
     return result
 
 
-def cost_comparison(data, slots_for_run):
+def _cost_comparison(data, slots_for_run):
     p = data.get('cost_profile') or {}
     factor = 13 / 12
     buckets = {}
@@ -102,3 +102,36 @@ def cost_comparison(data, slots_for_run):
                 schedule_complete=schedule_complete and time_complete,
                 selected=owned if data['cost_mode']=='owned' else
                 (daily if p.get('contractor_basis')=='daily' else hourly) if data['cost_mode']=='contractor' else None)
+
+
+def cost_comparison(data, slots_for_run):
+    result = _cost_comparison(data, slots_for_run)
+    if data.get('cost_mode') != 'mixed':
+        return result
+    p = data.get('cost_profile') or {}
+    assignments = data.get('day_operators', {})
+    active = {(s['week'], s['day']) for r in data['runs'] for s in slots_for_run(r)}
+    own_days = {k for k in active if assignments.get(f'{k[0]}:{k[1]}') == 'owned'}
+    contractor_days = {k for k in active if assignments.get(f'{k[0]}:{k[1]}') == 'contractor'}
+    filtered = []
+    for run in data['runs']:
+        slots = [s for s in slots_for_run(run) if (s['week'], s['day']) in contractor_days]
+        if slots:
+            filtered.append({**run, 'planner_slots': slots, 'runs_4w': len(slots)})
+    contractor = _cost_comparison({**data, 'runs': filtered}, slots_for_run)
+    fuel = (0 if not own_days else None if p.get('fuel_month') is None else
+            p['fuel_month'] * len(own_days) / len(active))
+    values = [result[k] for k in ('wages','workers_comp','super_cost','shared')]
+    values += [p.get(k) for k in ('truck_insurance_month','truck_lease_month','owned_other_month')]
+    values.append(fuel)
+    if contractor_days:
+        values += [contractor['daily_base' if p.get('contractor_basis') == 'daily' else 'hourly_base'],
+                   contractor['demurrage'], p.get('contractor_other_month')]
+    unassigned = len(active - own_days - contractor_days)
+    result['mixed'] = None if unassigned or any(v is None for v in values) else sum(values)
+    result['selected'] = result['mixed']
+    result['company_days_4w'] = len(own_days)
+    result['contractor_days_4w'] = len(contractor_days)
+    result['unassigned_days_4w'] = unassigned
+    result['schedule_complete'] = result['schedule_complete'] and not unassigned
+    return result

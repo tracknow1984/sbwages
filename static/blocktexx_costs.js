@@ -22,7 +22,7 @@ window.BlocktexxCosts = (() => {
     if(!data.cost_profile)data.cost_profile={enabled:false,contractor_basis:'hourly',contractor_hourly:data.hourly_rate??null,minimum_hours:data.minimum_hours??0,free_wait_minutes:30};
     return data.cost_profile;
   }
-  function calculate(data){
+  function baseCalculate(data){
     const p=profile(data),factor=13/12,buckets=new Map(),schedule=window.createBlocktexxPlanner();
     let schedule_complete=true,time_complete=true;
     for(const r of data.runs){
@@ -63,16 +63,70 @@ window.BlocktexxCosts = (() => {
       schedule_complete:schedule_complete&&time_complete,
       selected:data.cost_mode==='owned'?owned:data.cost_mode==='contractor'?(p.contractor_basis==='daily'?daily:hourly):null};
   }
+  const modeLabel=mode=>({owned:'Company vehicles',contractor:'Contractors',mixed:'Mixed — daily allocation',unpriced:'Not priced yet'})[mode]||'Choose operator';
+  const operatorFor=(data,week,day)=>data.cost_mode==='mixed'?data.day_operators?.[week+':'+day]||null:['owned','contractor'].includes(data.cost_mode)?data.cost_mode:null;
+  function activeDays(data){
+    const schedule=window.createBlocktexxPlanner();
+    return new Set(data.runs.flatMap(r=>schedule.slots(r).map(s=>s.week+':'+s.day)));
+  }
+  function selectedDailyRows(data,week,day){
+    const p=profile(data),c=periodCosts(data,week,day),operator=operatorFor(data,week,day);
+    const index=data.cost_mode==='owned'?1:data.cost_mode==='contractor'?(p.contractor_basis==='daily'?3:2):null;
+    const component=label=>label.startsWith('Building')?'shared':data.cost_mode==='contractor'?'contractor':'owned';
+    if(data.cost_mode!=='mixed')return index==null?[]:c.rows.map(row=>({label:row[0],value:row[index],component:component(row[0])}));
+    const rows=[],active=activeDays(data),today=active.has(week+':'+day),scale=n=>n==null?null:n*12/364;
+    const add=(label,value,component)=>rows.push({label,value,component});
+    c.rows.filter(row=>['Staff wages','Workers compensation','Super / pension','Truck insurance','Truck lease'].includes(row[0])).forEach(row=>add(row[0],row[1],'owned'));
+    add('Other company costs',scale(p.owned_other_month),'owned');
+    // Full-month company fuel budget assumes every scheduled workday is operated in-house.
+    add('Company fuel budget',today&&operator==='owned'?(p.fuel_month==null?null:p.fuel_month*12/13/active.size):0,'owned');
+    c.rows.filter(row=>row[0].startsWith('Building')).forEach(row=>add(row[0],row[1],'shared'));
+    const contracted=[...active].some(key=>data.day_operators?.[key]==='contractor');
+    add('Other contractor costs',contracted?scale(p.contractor_other_month):0,'contractor');
+    c.rows.filter(row=>['Contractor base charge','Demurrage'].includes(row[0])).forEach(row=>add(row[0],today&&operator==='contractor'?row[p.contractor_basis==='daily'?3:2]:0,'contractor'));
+    if(today&&!operator)add('Operator for Week '+week+' '+['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][day],null,'unassigned');
+    return rows;
+  }
+  function calculate(data){
+    const result=baseCalculate(data);
+    if(data.cost_mode!=='mixed')return result;
+    const rows=[1,2,3,4].flatMap(w=>Array.from({length:7},(_,d)=>selectedDailyRows(data,w,d)).flat());
+    result.mixed=rows.some(r=>r.value==null)?null:rows.reduce((n,r)=>n+r.value,0)*13/12;
+    result.selected=result.mixed;
+    result.schedule_complete=result.schedule_complete&&[...activeDays(data)].every(k=>data.day_operators?.[k]);
+    return result;
+  }
+  function renderMode(root,data,onChange){
+    const label=e('label','Operating plan '),select=e('select');select.setAttribute('aria-label','Operating plan');
+    ['unpriced','owned','contractor','mixed'].forEach(mode=>{const o=e('option',modeLabel(mode));o.value=mode;select.append(o);});select.value=data.cost_mode;
+    select.onchange=()=>{data.cost_mode=select.value;profile(data).enabled=true;onChange();};label.append(select);root.append(label);
+    if(['contractor','mixed'].includes(data.cost_mode)){
+      const label=e('label','Contractor charges '),basis=e('select');basis.setAttribute('aria-label','Contractor charge basis');
+      [['hourly','Hourly + minimum'],['daily','Daily rate']].forEach(([value,title])=>{const o=e('option',title);o.value=value;basis.append(o);});basis.value=profile(data).contractor_basis;
+      basis.onchange=()=>{profile(data).contractor_basis=basis.value;onChange();};label.append(basis);root.append(label);
+    }
+    const settings=e('button','Edit operating costs','secondary');settings.type='button';settings.onclick=()=>{const section=document.getElementById('bx-state-costs');section.open=true;section.scrollIntoView({block:'start',behavior:'smooth'});};root.append(settings);
+    if(data.cost_mode==='mixed')root.append(e('p','Choose company or contractor for every scheduled day. Assignments stay with the calendar day when a run is moved. Save model to keep your choices.','bx-muted'));
+  }
+  function renderOperator(root,data,week,day,onChange){
+    const active=activeDays(data).has(week+':'+day);
+    if(data.cost_mode!=='mixed'){root.append(e('small',active?modeLabel(data.cost_mode):'No scheduled runs','bx-muted'));return;}
+    const label=e('label','Operator '),select=e('select');select.setAttribute('aria-label','Operator Week '+week+' '+['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'][day]);
+    [['','Choose operator'],['owned','Company vehicles'],['contractor','Contractor']].forEach(([value,title])=>{const o=e('option',title);o.value=value;select.append(o);});select.value=operatorFor(data,week,day)||'';
+    select.onclick=event=>event.stopPropagation();select.onkeydown=event=>event.stopPropagation();
+    select.onchange=event=>{event.stopPropagation();data.day_operators=data.day_operators||{};if(select.value)data.day_operators[week+':'+day]=select.value;else delete data.day_operators[week+':'+day];onChange();};
+    label.append(select);label.onclick=event=>event.stopPropagation();root.append(label);
+  }
   function renderInputs(root,data,onChange){
-    const p=profile(data);root.replaceChildren();
-    const label=e('label'),enabled=e('input');enabled.type='checkbox';enabled.checked=p.enabled;
+    const p=profile(data),open=[...root.querySelectorAll('details[open]')].map(n=>n.querySelector('summary')?.textContent);root.replaceChildren();
+    const label=e('label'),enabled=e('input');enabled.type='checkbox';enabled.checked=p.enabled;enabled.disabled=data.cost_mode==='mixed';
     enabled.addEventListener('change',()=>{p.enabled=enabled.checked;onChange();});
     label.append(enabled,document.createTextNode(' Use this detailed cost profile for the proposal totals'));root.append(label);
     root.append(e('p','Blank means unpriced; enter 0 where a cost does not apply. Existing aggregate pricing stays active until you enable this profile. All figures are AUD excluding GST.','bx-muted'));
     if(data.fixed_monthly!=null)root.append(e('p','Previous company aggregate: '+money(data.fixed_monthly)+' / month (reference only when detailed pricing is enabled).','bx-muted'));
     groups.forEach(([title,fields])=>{
       if(!includesBuilding(data)&&fields.some(([key])=>key.startsWith('building_')))return;
-      const section=e('details');section.open=title==='Full-time staff';section.append(e('summary',title));
+      const section=e('details');section.open=open.includes(title)||(!open.length&&title==='Full-time staff');section.append(e('summary',title));
       const grid=e('div',null,'bx-settings');
       fields.forEach(([key,title,max,step])=>{
         const label=e('label',title),input=e('input');input.type='number';input.min=0;input.max=max;input.step=step||'any';input.value=p[key]??'';input.placeholder='Not priced';input.setAttribute('aria-label',title);
@@ -89,6 +143,7 @@ window.BlocktexxCosts = (() => {
   }
   function renderComparison(root,data,pending,scenario=null){
     const c=calculate(data),p=profile(data);root.replaceChildren(e('h3','Monthly cost comparison'));
+    root.append(e('p','Selected operating plan: '+modeLabel(data.cost_mode)+' · '+money(c.selected)+' / average calendar month.'));
     root.append(e('p',fmt(c.days_month)+' collection days / month · '+fmt(c.billed_hours_month)+' contractor base hours · '+fmt(c.demurrage_hours_month)+' demurrage hours. Four-week schedule × 13 ÷ 12.','bx-muted'));
     if(!p.enabled)root.append(e('p','Comparison preview only. Enable the detailed profile above to use it in proposal totals.','bx-warning'));
     const ready=!pending&&c.schedule_complete;
@@ -114,7 +169,7 @@ window.BlocktexxCosts = (() => {
       const chosen=schedule.slots(r).filter(s=>(week==null||s.week===week)&&(day==null||s.day===day));
       return chosen.length?[{...r,planner_slots:chosen,runs_4w:chosen.length}]:[];
     })};
-    const c=calculate(filtered),p=profile(data);
+    const c=baseCalculate(filtered),p=profile(data);
     const fixed=day!=null?12/364:week==null?12/13:12/52,variable=12/13;
     const scale=(n,f)=>n==null?null:n*f;
     const add=values=>values.some(v=>v==null)?null:values.reduce((a,v)=>a+v,0);
@@ -145,20 +200,21 @@ window.BlocktexxCosts = (() => {
     const pickups=entries.filter(x=>!x.run.activity_type||x.run.activity_type==='collection');
     const weights=pickups.map(x=>window.BlocktexxWeights?window.BlocktexxWeights.pickup(x.run,x.slot,sites):{kg:x.slot.pickup_kg??0,missing:x.slot.pickup_kg==null?1:0});
     const missing=weights.reduce((n,x)=>n+x.missing,0),kg=weights.reduce((n,x)=>n+x.kg,0);
-    const selected=data.cost_mode==='owned'?0:data.cost_mode==='contractor'?(p.contractor_basis==='daily'?2:1):null;
-    // A priced result must use the enabled profile. Legacy budgets are visibly excluded.
-    const values=selected==null?[]:c.rows.map(row=>row[selected+1]);
-    const missingCosts=selected==null?[]:c.rows.filter(row=>row[selected+1]==null).map(row=>row[0]);
-    const cost=p.enabled&&selected!=null?values.reduce((sum,value)=>sum+(value??0),0):null;
+    const rows=selectedDailyRows(data,week,day),enabled=p.enabled&&data.cost_mode!=='unpriced';
+    const missingCosts=rows.filter(row=>row.value==null).map(row=>row.label);
+    const cost=enabled?rows.reduce((sum,row)=>sum+(row.value??0),0):null;
+    const components=Object.fromEntries(['owned','contractor','shared'].map(k=>[k,enabled?rows.filter(r=>r.component===k).reduce((n,r)=>n+(r.value??0),0):null]));
     const complete=c.complete&&missingCosts.length===0;
-    return {week,day,kg,missing,missingCosts,cost,rate:kg>0&&cost!=null?cost/kg:null,complete,provisional:!complete||missing>0,occurrences:entries.length};
+    return {week,day,kg,missing,missingCosts,cost,components,rows,operator:operatorFor(data,week,day),rate:kg>0&&cost!=null?cost/kg:null,complete,provisional:!complete||missing>0,occurrences:entries.length};
   }
   function periodSummary(data,week=null,sites=[]) {
     const days=(week==null?[1,2,3,4]:[week]).flatMap(w=>Array.from({length:7},(_,d)=>dailySummary(data,w,d,sites)));
     const kg=days.reduce((n,d)=>n+d.kg,0),missing=days.reduce((n,d)=>n+d.missing,0);
     const cost=days.some(d=>d.cost==null)?null:days.reduce((n,d)=>n+d.cost,0);
     const complete=days.every(d=>d.complete)&&!periodCosts(data,week).unallocated;
-    return {days,kg,missing,cost,complete,missingCosts:[...new Set(days.flatMap(d=>d.missingCosts))],provisional:!complete||missing>0,rate:kg>0&&cost!=null?cost/kg:null};
+    const components=Object.fromEntries(['owned','contractor','shared'].map(k=>[k,days.some(d=>d.components[k]==null)?null:days.reduce((n,d)=>n+d.components[k],0)]));
+    const operators=Object.fromEntries(['owned','contractor','unassigned'].map(k=>[k,{kg:days.filter(d=>(d.operator||'unassigned')===k).reduce((n,d)=>n+d.kg,0),days:days.filter(d=>d.occurrences&&(d.operator||'unassigned')===k).length}]));
+    return {days,kg,missing,cost,complete,components,operators,missingCosts:[...new Set(days.flatMap(d=>d.missingCosts))],provisional:!complete||missing>0,rate:kg>0&&cost!=null?cost/kg:null};
   }
   const kgText=d=>fmt(d.kg)+' kg'+(d.missing?' + '+d.missing+' missing weights':'');
   const rateText=n=>n==null?'Unavailable':'$'+Number(n).toLocaleString('en-AU',{minimumFractionDigits:3,maximumFractionDigits:3})+' / kg';
@@ -171,8 +227,10 @@ window.BlocktexxCosts = (() => {
     if(notes.length)root.append(e('p','Provisional cost/kg uses known costs ÷ known planned pickup kg. '+notes.join(' '),'bx-warning'));
   }
   function renderDailySummary(root,data,week,day,onChange,sites=[]) {
+    renderOperator(root,data,week,day,onChange);
     const d=dailySummary(data,week,day,sites),cards=e('div',null,'bx-metrics');
     [['Planned pickup kg',kgText(d)],[d.provisional?'Known daily costs':'Total daily cost',money(d.cost)],['Daily cost / kg',summaryRateText(d)]].forEach(([label,value])=>{const card=e('div',label);card.append(e('strong',value));cards.append(card);});root.append(cards);renderCostWarning(root,d);
+    const breakdown=e('p','Company costs '+money(d.components.owned)+' · Contractor costs '+money(d.components.contractor)+(includesBuilding(data)?' · Shared building costs '+money(d.components.shared):''),'bx-muted');root.append(breakdown);
     root.append(e('p','Calendar weights use historical averages unless overridden. Enter net material kg for each pickup below, excluding container weight. Costs include every local movement and 1/7 of weekly overheads; transferred material is not counted again.','bx-muted'));
     const schedule=window.createBlocktexxPlanner();
     data.runs.filter(r=>!r.activity_type||r.activity_type==='collection').forEach(r=>{
@@ -192,6 +250,17 @@ window.BlocktexxCosts = (() => {
     return {target:summary.complete&&summary.cost!=null&&rate>0?summary.cost/rate:null,
       revenue:!summary.missing&&rate!=null?summary.kg*rate:null,
       result:ready&&rate!=null?summary.kg*rate-summary.cost:null};
+  }
+  function renderOperatorBreakdown(root,data,summary){
+    root.append(e('h3','Selected operating plan · '+modeLabel(data.cost_mode)));
+    const wrap=e('div',null,'bx-scroll'),table=e('table',null,'bx-resource-table'),head=e('tr');
+    ['Operation','Scheduled days','Pickup kg','Known cost','Cost / kg before shared costs'].forEach(t=>head.append(e('th',t)));table.append(head);
+    ['owned','contractor'].forEach(k=>{const op=summary.operators[k],cost=summary.components[k],row=e('tr');[modeLabel(k),op.days,fmt(op.kg),money(cost),op.kg>0&&cost!=null?rateText(cost/op.kg)+(summary.provisional?' (provisional)':''):'No pickup kg'].forEach(v=>row.append(e('td',v)));table.append(row);});
+    if(summary.operators.unassigned.days){const r=e('tr');['Operator not assigned',summary.operators.unassigned.days,fmt(summary.operators.unassigned.kg),'Variable costs excluded','Assign in calendar'].forEach(v=>r.append(e('td',v)));table.append(r);}
+    if(includesBuilding(data)){const shared=e('tr');['Shared building costs','—','Counted once',money(summary.components.shared),'Included in combined rate'].forEach(v=>shared.append(e('td',v)));table.append(shared);}
+    const total=e('tr',null,'bx-resource-total');['Combined plan',summary.days.filter(d=>d.occurrences).length,fmt(summary.kg),money(summary.cost),summaryRateText(summary)].forEach(v=>total.append(e('td',v)));table.append(total);wrap.append(table);root.append(wrap);
+    if(data.cost_mode==='mixed')root.append(e('p','Mixed plan retains full company wages, super, workers compensation, truck lease/insurance and other company budgets across all 28 days. Company fuel is the full-company monthly budget divided equally across scheduled workdays, charged only on company days. Contractor minimums and demurrage apply only on contractor days; other contractor overheads apply once if contractors are used anywhere in the cycle. Building costs are shared once for NSW/VIC. Adjust committed budgets if they can actually be reduced.','bx-muted'));
+    root.append(e('p','Combined cost/kg = (company costs + contractor costs + shared costs) ÷ total pickup kg. This is a weighted rate, not an average of daily rates. Zero-pickup-day costs are included.','bx-muted'));
   }
   function showPeriodReport(data,state,week,onClose,plans,sites) {
     let backdrop=document.getElementById('bx-finance-popup');
@@ -215,16 +284,17 @@ window.BlocktexxCosts = (() => {
     if(unresolved.length||demandGaps.length)content.append(e('p',unresolved.length+' runs need truck capacity/time review; '+demandGaps.length+' customer frequencies differ from the route plan. These are planning estimates.','bx-warning'));
     const summary=periodSummary(data,week,sites),metrics=e('div',null,'bx-metrics');
     [['Planned pickup kg',kgText(summary)],[summary.provisional?'Known period costs':'Total period cost',money(summary.cost)],['Cost per planned pickup kg',summaryRateText(summary)]].forEach(([label,value])=>{const card=e('div',label);card.append(e('strong',value));metrics.append(card);});content.append(metrics);renderCostWarning(content,summary);
+    renderOperatorBreakdown(content,data,summary);
     const dailyWrap=e('div',null,'bx-scroll'),dailyTable=e('table',null,'bx-resource-table'),dailyHead=e('tr');
-    ['Day','Net kg picked up','Known daily costs','Cost / kg'].forEach(t=>dailyHead.append(e('th',t)));dailyTable.append(dailyHead);
-    summary.days.forEach(d=>{const row=e('tr');['Week '+d.week+' '+['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][d.day],kgText(d),money(d.cost),summaryRateText(d)].forEach(t=>row.append(e('td',t)));dailyTable.append(row);});dailyWrap.append(dailyTable);content.append(dailyWrap);
+    ['Day','Operator','Net kg picked up','Company costs','Contractor costs','Shared costs','Known daily costs','Cost / kg'].forEach(t=>dailyHead.append(e('th',t)));dailyTable.append(dailyHead);
+    summary.days.forEach(d=>{const row=e('tr');['Week '+d.week+' '+['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][d.day],d.occurrences?modeLabel(d.operator):'No runs — overheads only',kgText(d),money(d.components.owned),money(d.components.contractor),money(d.components.shared),money(d.cost),summaryRateText(d)].forEach(t=>row.append(e('td',t)));dailyTable.append(row);});dailyWrap.append(dailyTable);content.append(dailyWrap);
     content.append(e('p','Period cost/kg = known daily costs ÷ known planned pickup kg, including costs on zero-pickup days. Missing costs or weights make the rate provisional. Daily weights are entered in View day. Blank weights are incomplete; zero means no material collected. Rates are planning figures based on entered costs and weights. Local deliveries and decomm returns add costs but no new intake. Interstate costs remain separate.','bx-muted'));
-    const selected=data.cost_mode==='owned'?0:data.cost_mode==='contractor'?(p.contractor_basis==='daily'?2:1):null;
-    content.append(e('p','Proposal option: '+(selected==null?'not selected':['Company operation','Contractor hourly','Contractor daily'][selected])+(selected==null?'':' · '+money(c.totals[selected]))));
+    content.append(e('h3','Compare full-company and full-contractor scenarios'),e('p','Each column below assumes that operator handles every scheduled day. The selected daily allocation is shown above.','bx-muted'));
     const wrap=e('div',null,'bx-scroll'),table=e('table',null,'bx-resource-table'),head=e('tr');
     ['Cost item','Company operation','Contractor hourly','Contractor daily'].forEach(t=>head.append(e('th',t)));table.append(head);
     const append=(label,values,total=false)=>{const row=e('tr',null,total?'bx-resource-total':null);row.append(e('th',label));values.forEach(v=>row.append(e('td',money(v))));table.append(row);};
     c.rows.forEach(([label,...values])=>append(label,values));append(week==null?'Total · four-week month':'Total · week',c.totals,true);
+    const rates=e('tr');rates.append(e('th','Cost / total planned pickup kg'));c.totals.forEach(v=>rates.append(e('td',v!=null&&summary.kg>0?rateText(v/summary.kg)+(summary.provisional?' (provisional)':''):'Incomplete')));table.append(rates);
     if(week==null)append('Average calendar month · four weeks × 13 ÷ 12',c.totals.map(v=>v==null?null:v*13/12));
     wrap.append(table);content.append(wrap);
     content.append(e('p','AUD excluding GST. Monthly staff and overhead budgets are allocated at monthly × 12 ÷ 52 per week, including quiet weeks. Fuel is a budget allocation, not measured fuel usage. Contractor charges use only this period’s scheduled days and hours, with daily minimums and demurrage applied once per day.','bx-muted'),
@@ -237,6 +307,5 @@ window.BlocktexxCosts = (() => {
     };
     if(fresh||!dialog.contains(document.activeElement))close.focus({preventScroll:true});
   }
-  return {calculate,renderInputs,renderComparison,periodCosts,dailySummary,periodSummary,breakEven,renderDailySummary,kgText,rateText,summaryRateText,showPeriodReport};
+  return {calculate,renderInputs,renderComparison,periodCosts,dailySummary,periodSummary,breakEven,renderDailySummary,kgText,rateText,summaryRateText,showPeriodReport,renderMode,renderOperator,modeLabel,renderOperatorBreakdown};
 })();
-

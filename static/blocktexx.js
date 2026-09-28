@@ -7,7 +7,7 @@
   let capacityUI, runView, consolidation, movementUI, interstateUI;
   let activePane = 'planner';
   function renderResources() { window.renderBlocktexxResources?.(model,state,()=>{changed();renderSites();}); }
-  function renderPane() { $('bx-interstate-pane').hidden=activePane!=='interstate';document.querySelector('[aria-label="Collection state"]').hidden=activePane==='interstate';$('bx-planner-pane').hidden=activePane!=='planner';$('bx-resources').hidden=activePane!=='resources';document.querySelectorAll('[data-bx-pane]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.bxPane===activePane))); }
+  function renderPane() { $('bx-weights').hidden=activePane!=='weights'; $('bx-interstate-pane').hidden=activePane!=='interstate';document.querySelector('[aria-label="Collection state"]').hidden=activePane==='interstate';$('bx-planner-pane').hidden=activePane!=='planner';$('bx-resources').hidden=activePane!=='resources';document.querySelectorAll('[data-bx-pane]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.bxPane===activePane))); }
   const $ = id => document.getElementById(id);
   const fmt = (n, places = 1) => n == null ? 'Not set' : Number(n).toLocaleString('en-AU', {maximumFractionDigits: places});
   const money = n => n == null ? 'Not priced' : '$' + fmt(n, 0);
@@ -23,7 +23,7 @@
     $('bx-interstate-save-status').textContent=message;
   }
   function renderWeights(){window.BlocktexxWeights.sync(model);window.BlocktexxWeights.render($('bx-weights'),model,state,changed,root.dataset.csrf,m=>{model=m;changed();render();saveStatus('Sample weights imported into draft — select Save model.');});}
-  function changed() { renderWeights();dirty = true; generation++; saveStatus('Unsaved changes — select Save model, Save resources or Save cost model.'); capacityUI?.render(); renderMetrics(); renderOverview(); runView?.render(); renderResources();consolidation?.render();interstateUI?.refresh(); }
+  function changed() { renderSettings();renderWeights();dirty = true; generation++; saveStatus('Unsaved changes — select Save model, Save resources or Save cost model.'); capacityUI?.render(); renderMetrics(); renderOverview(); runView?.render(); renderResources();consolidation?.render();interstateUI?.refresh(); }
   function summary(s) {
     const d = model.states[s]; let km = 0, work = 0, billed = 0, elapsed = 0, pending = 0, estimates = 0, active = 0;
     d.runs.forEach(r => {
@@ -75,6 +75,7 @@
     input.addEventListener('change',()=>{
       if (!input.checkValidity()) { input.reportValidity(); return; }
       d[key]=options || key==='depot' ? input.value : input.value===''?null:Number(input.value);
+      if(key==='cost_mode'&&d.cost_mode==='mixed'){d.cost_profile=d.cost_profile||{};d.cost_profile.enabled=true;d.cost_profile.contractor_basis=d.cost_profile.contractor_basis||'hourly';}
       if (key==='depot') { d.depot_status='assumed'; d.runs.forEach(r=>{r.status='unmeasured';r.km=null;r.drive_min=null;r.evidence='Depot changed — remeasure route.';}); render(); }
       changed();
     }); wrap.append(input); return wrap;
@@ -84,7 +85,7 @@
     $('bx-settings').replaceChildren(
       inputField('depot','Depot / starting location'),inputField('depot_status','Depot status',[['unconfirmed','Unconfirmed'],['assumed','Assumed'],['confirmed','Confirmed']]),
       inputField('monthly_kg','Average incoming kg / calendar month'),inputField('available_weekly_hours','Driver working hours / week'),
-      inputField('cost_mode','Collection cost method',[['unpriced','Not priced yet'],['owned','Own truck + employee'],['contractor','Contractor']]));
+      inputField('cost_mode','Collection cost method',[['unpriced','Not priced yet'],['owned','Own truck + employee'],['contractor','Contractor'],['mixed','Mixed — choose operator per day']]));
     $('bx-legacy-costs').replaceChildren(
       inputField('hourly_rate','Legacy contractor $ / hour (profile disabled)'),inputField('minimum_hours','Legacy minimum hours (profile disabled)'),inputField('fixed_monthly','Legacy company $ / month (profile disabled)'));
     window.BlocktexxCosts?.renderInputs($('bx-cost-inputs'),d,changed);

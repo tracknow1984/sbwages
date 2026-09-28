@@ -48,6 +48,25 @@ class CostTests(unittest.TestCase):
             else:
                 self.assertIsNone(c['selected'])
 
+    def test_mixed_assignment_round_trip_and_costs(self):
+        m=priced_model();d=m['states']['VIC'];d['cost_mode']='mixed'
+        d['day_operators']={'1:0':'owned','2:0':'contractor','3:0':'owned','4:0':'contractor'}
+        saved=validate_model(m);d=saved['states']['VIC']
+        self.assertEqual(d['day_operators'],m['states']['VIC']['day_operators'])
+        c=cost_comparison(d,calendar_slots)
+        # Company fixed cost + half fuel + half contractor variable + shared building once.
+        self.assertAlmostEqual(c['selected'], 9431.6-250+(2437.5+520)/2)
+        self.assertEqual(c['company_days_4w'],2)
+        self.assertEqual(c['contractor_days_4w'],2)
+        del d['day_operators']['4:0']
+        self.assertIsNone(cost_comparison(d,calendar_slots)['selected'])
+        self.assertFalse(cost_comparison(d,calendar_slots)['schedule_complete'])
+        for assignments in ({'5:0':'owned'}, {'1:7':'contractor'}, {'1:0':'other'}, []):
+            bad=copy.deepcopy(m);bad['states']['VIC']['day_operators']=assignments
+            with self.assertRaises(ValueError):validate_model(bad)
+        bad=copy.deepcopy(m);bad['states']['VIC']['cost_profile']['enabled']=False
+        with self.assertRaises(ValueError):validate_model(bad)
+
     def test_missing_and_zero_prices_are_distinct(self):
         d=priced_model()['states']['VIC']
         d['cost_profile']['fuel_month']=None

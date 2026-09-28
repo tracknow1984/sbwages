@@ -53,6 +53,7 @@ window.createBlocktexxPlanner = function() {
       onSelect(run.id);
     }
     root.append(e('h2','Local transport planner'),e('p','Normal working day: 6:30 am–3:30 pm (9 hours), for company and subcontractor runs. Dragging beyond this asks for overtime approval. Includes driving, collections, depot handling, preparation, waiting and breaks. One daily truck/driver schedule per state.','bx-muted'));
+    window.BlocktexxCosts.renderMode(root,model.states[state],onChange);
     const bar=e('div',null,'bx-planner-controls');
     const frequencyLabel=e('label','Frequency'),frequency=e('select');frequency.id='bx-frequency-select';frequency.setAttribute('aria-label','Collection frequency');
     ['All frequencies',...categories].forEach(c=>{const o=e('option',c);o.value=c;frequency.append(o);});
@@ -167,7 +168,8 @@ window.createBlocktexxPlanner = function() {
         if(!load.unknown){const meter=e('progress');meter.max=540;meter.value=Math.min(load.minutes,540);meter.setAttribute('aria-label','Allocated day capacity');cell.append(meter);}
         cell.append(e('small',load.unknown?'Spare time cannot be confirmed.':'Estimated finish '+finish(load.minutes),'bx-muted'));
         const daily=window.BlocktexxCosts.dailySummary(model.states[state],week,d,sites);
-        cell.append(e('strong',window.BlocktexxCosts.kgText(daily)),e('small',window.BlocktexxCosts.rateText(daily.rate)));
+        window.BlocktexxCosts.renderOperator(cell,model.states[state],week,d,onChange);
+        cell.append(e('strong',window.BlocktexxCosts.kgText(daily)),e('small',window.BlocktexxCosts.summaryRateText(daily)));
         const entries=assigned.flatMap(r=>slots(r).filter(s=>s.week===week&&s.day===d).map(()=>r));
         entries.forEach(r=>cell.append(card(r,week,d)));
         if(!entries.length)cell.append(e('span','—','bx-muted'));row.append(cell);

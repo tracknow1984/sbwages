@@ -112,6 +112,21 @@ class PersistenceTests(unittest.TestCase):
         self.assertEqual(self.client.get('/admin/blocktexx/export').json['states']['VIC']['runs'][0]['km'],50)
         self.assertIn(b"'=1+1",self.client.get('/admin/blocktexx/export?format=csv').data)
 
+    def test_mixed_day_operators_persist_in_database(self):
+        from blocktexx_costs import FIELDS
+        m=example();d=m['states']['VIC']
+        d['cost_mode']='mixed'
+        d['cost_profile']={**{k:0 for k in FIELDS},'enabled':True,'contractor_basis':'hourly'}
+        d['day_operators']={'1:0':'owned','2:0':'contractor'}
+        self.assertEqual(self.save(m).status_code,200)
+        exported=self.client.get('/admin/blocktexx/export').json
+        self.assertEqual(exported['states']['VIC']['day_operators'],d['day_operators'])
+        self.assertEqual(exported['states']['VIC']['cost_mode'],'mixed')
+        html=self.client.get('/admin/blocktexx').data.decode()
+        self.assertNotIn('View proposal stages and scope',html)
+        self.assertIn('data-bx-pane="weights"',html)
+        self.assertIn('id="bx-weights" class="bx-card" hidden',html)
+
     def test_planner_allocations_persist_and_reject_invalid_days(self):
         m=example()
         m['states']['VIC']['runs'][0]['planner_slots']=[{'week':1,'day':2},{'week':3,'day':2}]
