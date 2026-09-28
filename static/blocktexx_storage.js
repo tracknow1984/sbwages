@@ -87,6 +87,15 @@ window.BlocktexxStorage=(()=>{
     const a=sectionSummary(s),wasOpen=root.querySelector('details[data-settings]')?.open;
     root.replaceChildren(e('h2','Storage · retained contract and available space'),e('p','All containers stay in the storage contract. Repacking consolidates existing stock and releases space for more stock.','bx-muted'));
     metrics(root,[['Containers retained under contract',num(s.total_containers)],['Currently full',num(s.occupied_containers)],['Currently empty',s.total_containers!=null&&s.occupied_containers!=null?num(s.total_containers-s.occupied_containers):'Not set'],['Section allocation',num(a.assigned)+' / '+num(s.occupied_containers)]]);
+    const rentCard=root.querySelector('.bx-metrics > div');
+    if(s.total_containers!=null&&s.monthly_rate!=null){
+      rentCard.append(e('p',money(cents(s.total_containers*s.monthly_rate))+' / month ex GST before allowance','bx-muted'));
+      if(s.free_containers!=null){
+        rentCard.append(e('p',money(cents(Math.max(0,s.total_containers-s.free_containers)*s.monthly_rate))+' / month ex GST payable after '+num(s.free_containers)+' free containers','bx-muted'));
+      }
+    }else{
+      rentCard.append(e('p','Set container count and contract rate for monthly cost.','bx-muted'));
+    }
     const settings=e('details');settings.dataset.settings='true';settings.open=wasOpen??!a.complete;settings.append(e('summary','Edit storage assumptions'));
     const inputs=e('div',null,'bx-settings');
     const field=(root,obj,key,title,min,max,step=1)=>{const label=e('label',title),input=e('input');input.type='number';input.min=min;input.max=max;input.step=step;input.value=obj[key]??'';input.setAttribute('aria-label',title);input.onchange=()=>{if(!input.checkValidity()){input.reportValidity();return;}obj[key]=input.value===''?null:Number(input.value);onChange();};label.append(input);root.append(label);};
