@@ -43,10 +43,10 @@ window.BlocktexxNational=(()=>{
    }
    if(sites.some(s=>!Object.keys(kinds).some(k=>s.containers?.[k]>0)))issues.push(state+' · some customer container quantities are unknown');
    let equipment=0;
-   if(state==='NSW'&&d.resource_equipment?.baler){
-    const b=d.resource_equipment.baler;
+   if(state==='NSW')for(const [kind,label] of [['baler','Baler'],['forklift','Forklift']]){
+    const b=d.resource_equipment?.[kind];if(!b)continue;
     const lease=b.quantity===0?0:valid(b.quantity)&&valid(b.monthly_lease_each)?b.quantity*b.monthly_lease_each:null;
-    add(state,'Baler equipment lease',lease,'Monthly lease; purchase value is reference only');equipment=lease||0;
+    add(state,label+' equipment lease',lease,'Monthly lease; purchase value is reference only');equipment+=lease||0;
    }
    const visits=sum(d.runs.filter(r=>!r.activity_type||r.activity_type==='collection').map(r=>schedule.slots(r).length))*factor;
    states.push({state,kg,basis,local,rental,equipment,purchase,visits,mode:costs.modeLabel(d.cost_mode)});
@@ -76,7 +76,7 @@ window.BlocktexxNational=(()=>{
   const planner=(scope='local')=>target(scope==='local'?'planner':scope,'bx-run-view',(state||'')+' '+(scope==='local'?'Local':scope==='decom'?'Decomm':'Production')+' Planner');
   if(message.includes('Storage contract'))return [target('storage','bx-storage','Storage assumptions',{expand:true})];
   if(message.includes('Freight '))return [target('interstate','bx-interstate-content','Interstate rates',{expand:true})];
-  if(/purchase price|Container rental|Baler equipment|container quantities/.test(message)){
+  if(/purchase price|Container rental|Baler equipment|Forklift equipment|container quantities/.test(message)){
    const kind=Object.entries(kinds).find(([,label])=>message.includes(label))?.[0];
    return [target('resources','bx-resource-content',(state||'')+' Resources',{kind,expand:message.includes('container quantities')})];
   }

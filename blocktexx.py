@@ -150,16 +150,19 @@ def validate_model(value):
             raise ValueError('Resource equipment must contain equipment profiles.')
         out['resource_equipment'] = {}
         if state == 'NSW':
-            baler = equipment.get('baler', {'quantity': 1, 'purchase_each': 40000, 'monthly_lease_each': 1500})
-            if not isinstance(baler, dict):
-                raise ValueError('Invalid baler profile.')
-            quantity = number(baler.get('quantity', 1), 'Baler quantity', 100)
-            if quantity != int(quantity):
-                raise ValueError('Baler quantity must be a whole number.')
-            out['resource_equipment']['baler'] = {
-                'quantity': int(quantity),
-                'purchase_each': number(baler.get('purchase_each'), 'Baler estimated purchase value', 1000000, True),
-                'monthly_lease_each': number(baler.get('monthly_lease_each'), 'Baler monthly lease', 1000000, True)}
+            for kind, label, default in (
+                ('baler', 'Baler', {'quantity': 1, 'purchase_each': 40000, 'monthly_lease_each': 1500}),
+                ('forklift', 'Forklift', {'quantity': 1, 'purchase_each': None, 'monthly_lease_each': 700})):
+                profile = equipment.get(kind, default)
+                if not isinstance(profile, dict):
+                    raise ValueError('Invalid ' + label + ' profile.')
+                quantity = number(profile.get('quantity', 1), label + ' quantity', 100)
+                if quantity != int(quantity):
+                    raise ValueError(label + ' quantity must be a whole number.')
+                out['resource_equipment'][kind] = {
+                    'quantity': int(quantity),
+                    'purchase_each': number(profile.get('purchase_each'), label + ' estimated purchase value', 1000000, True),
+                    'monthly_lease_each': number(profile.get('monthly_lease_each'), label + ' monthly lease', 1000000, True)}
         out['selling_per_kg'] = number(data.get('selling_per_kg'), 'Selling rate per kg', 10000, True)
         if 'cost_profile' in data:
             out['cost_profile'] = validate_cost_profile(data['cost_profile'])

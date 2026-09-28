@@ -49,6 +49,16 @@ window.renderBlocktexxResources = function(model,state,onChange) {
     const lease=baler.quantity===0?0:baler.monthly_lease_each==null?null:baler.quantity*baler.monthly_lease_each;
     const cards=e('div',null,'bx-metrics');
     [['Baler lease / month',money(lease)],['Baler lease / year',money(lease==null?null:lease*12)]].forEach(([title,value])=>{const card=e('div',title);card.append(e('strong',value));cards.append(card);});root.append(cards);
+    const forklift=equipment.forklift||(equipment.forklift={quantity:1,purchase_each:null,monthly_lease_each:700});
+    root.append(e('h3','Forklift unit · leased equipment'));
+    const forkliftFields=e('div',null,'bx-settings');
+    [['quantity','Forklift quantity',1,100],['monthly_lease_each','Forklift lease / unit / month (ex GST)',.01,1000000]].forEach(([key,title,step,max])=>{
+      const label=e('label',title),input=e('input');input.type='number';input.min=0;input.max=max;input.step=step;input.value=forklift[key]??'';input.setAttribute('aria-label',title);
+      input.onchange=()=>{if(!input.checkValidity()||(key==='quantity'&&input.value==='')){input.reportValidity();return;}forklift[key]=input.value===''?null:Number(input.value);onChange();};label.append(input);forkliftFields.append(label);
+    });root.append(forkliftFields);
+    const forkliftLease=forklift.quantity===0?0:forklift.monthly_lease_each==null?null:forklift.quantity*forklift.monthly_lease_each;
+    const forkliftCards=e('div',null,'bx-metrics');
+    [['Forklift lease / month',money(forkliftLease)],['Forklift lease / year',money(forkliftLease==null?null:forkliftLease*12)]].forEach(([title,value])=>{const card=e('div',title);card.append(e('strong',value));forkliftCards.append(card);});root.append(forkliftCards);
     root.append(e('p','Estimated lease cost, excluding GST. Included once in National Overview equipment costs and the combined cost/kg. Purchase value is reference only. Select Save resources to keep changes.','bx-muted'));
   }
   root.append(e('p','Purchase and rental are separate scenarios. These amounts are not added to the collection cost/kg. Rental projections assume 52 charged weeks per year and exclude delivery, damage and other fees.','bx-muted'));
