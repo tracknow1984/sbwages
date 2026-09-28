@@ -27,6 +27,8 @@ for(const state of Object.keys(states)){
  assert.ok(root.text.includes('Partner return'));
  assert.ok(!root.text.includes('Local customer collection'));
  assert.ok(!root.text.includes('Storage return'));
+ assert.ok(root.text.includes('2h 20m available for decom'));
+ assert.ok(root.text.includes('8h 40m available for decom'));
  root=new Element('section');planner.render(root,model,state,null,()=>{},()=>{},null,'local');
  assert.ok(root.text.includes('Local customer collection'));
  assert.ok(root.text.includes('Storage return'));
@@ -44,7 +46,9 @@ for(const state of Object.keys(states)){
  const root=new Element('section');planner.render(root,empty,state,null,()=>{},()=>{},null,'decom');
  assert.ok(root.text.includes('No decom movements added for '+state));
  assert.ok(root.text.includes('Week 4'));
- for(const forbidden of ['Local customer collection','Storage return','financial analysis','spare','allocated','kg'])assert.ok(!root.text.includes(forbidden),forbidden);
+ for(const forbidden of ['Local customer collection','Storage return','financial analysis','kg'])assert.ok(!root.text.includes(forbidden),forbidden);
+ assert.ok(root.text.includes('available for decom'));
+ assert.ok(root.text.includes('Local and decom time already booked'));
  assert.equal(empty.states[state].runs.length,2);
 }
 console.log('Empty decom calendars show no local data, hours or finances in every state.');
