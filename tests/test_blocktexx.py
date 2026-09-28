@@ -7,7 +7,7 @@ import gzip
 import base64
 from unittest.mock import patch
 from app import create_app
-from blocktexx import empty_model, validate_model, summarize
+from blocktexx import empty_model, validate_model, summarize, apply_qld_resource_rates
 
 
 def example():
@@ -22,6 +22,19 @@ def example():
 
 
 class CalculationTests(unittest.TestCase):
+    def test_qld_resource_prices_copy_without_changing_state_quantities(self):
+        m = validate_model(example())
+        m['states']['QLD']['resource_pricing']['bin660'].update(
+            purchase_each=230, weekly_rent_each=7.5, rental_qty=50)
+        m['states']['NSW']['resource_pricing']['bin660'].update(
+            purchase_each=100, weekly_rent_each=4, rental_qty=12)
+        self.assertEqual(apply_qld_resource_rates(m), 6)
+        for state in ('NSW', 'VIC', 'SA'):
+            self.assertEqual(m['states'][state]['resource_pricing']['bin660']['purchase_each'], 230)
+            self.assertEqual(m['states'][state]['resource_pricing']['bin660']['weekly_rent_each'], 7.5)
+        self.assertEqual(m['states']['NSW']['resource_pricing']['bin660']['rental_qty'], 12)
+        self.assertIsNone(m['states']['VIC']['resource_pricing']['bin120']['purchase_each'])
+
     def test_customer_day_rules_are_preserved_and_source_days_protected(self):
         m=example()
         m['sites']=[dict(id='fixed',state='QLD',name='Customer',address='Street, Eagle Farm, QLD',frequency='Tue Fri - Weekly',equipment='1 × 660L Bin',source_rows='',notes='')]
