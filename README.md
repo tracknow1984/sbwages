@@ -226,6 +226,6 @@ expandable daily tables, with a weighted full-month total.
 
 ## Interstate rate card
 
-Blocktexx → Interstate transfers includes five quoted B-double lanes and three Single lanes, with the legacy Sydney–Brisbane semi retained separately. Base rates, per-lane fuel levy, tolls, other charges, payload and Mainfreight comparison total are editable. A shared fuel-levy input updates all eight quoted routes. Save interstate persists edits using the existing revision and audit-history protections. Supplier totals compare one trip on each quoted route; the departure calendar alone determines scheduled monthly costs.
+Blocktexx → Interstate transfers includes five quoted B-double lanes and three Single lanes, with the legacy Sydney–Brisbane semi retained separately. Base rates, per-lane fuel levy, tolls, other charges and payload are editable. A shared fuel-levy input updates all eight quoted routes. Save interstate persists edits using the existing revision and audit-history protections. The departure calendar determines scheduled monthly costs. The supplier comparison panel is not displayed.
 
 The private `BLOCKTEXX_INTERSTATE_DEFAULTS_JSON` deployment setting contains `base_rates` keyed by the eight `QUOTED_LANES`, `fuel_pct` and `mainfreight_base_total`. Initialisation applies the configured base and fuel rates once, preserves bookings/payload/existing extras and saves an audited revision. Saved `rates_version: 1` edits survive restarts without being reset. Commercial amounts must remain out of the public repository.

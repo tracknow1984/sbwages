@@ -42,7 +42,7 @@ window.BlocktexxInterstate=(()=>{
  }
  function create(getModel,onChange,getSummaries){
   const root=document.getElementById('bx-interstate-content'),days=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
-  let editing=null,inputs={},message,calendar,summary,form,comparisonView,fuelControl;
+  let editing=null,inputs={},message,calendar,summary,form,fuelControl;
   let rateInputs={};
   function edit(b){
    editing=b?.id||null;
@@ -73,9 +73,6 @@ window.BlocktexxInterstate=(()=>{
     }table.append(tr);
    }
    scroll.append(table);rates.append(scroll,e('p','AUD excluding GST. Per-trip cost = base × (1 + fuel levy %) + tolls + other charges. Enter 0 where an item does not apply. Confirm payload with the carrier; no B-double or semi capacity is assumed.'));root.append(rates);
-   const comparisonSettings=e('details');comparisonSettings.open=true;comparisonSettings.append(e('summary','Supplier base-rate comparison'));
-   const mainfreightLabel=e('label','Mainfreight total base rates $ '),mainfreight=e('input');mainfreight.type='number';mainfreight.min=0;mainfreight.max=10000000;mainfreight.step='any';mainfreight.value=data.mainfreight_base_total??'';mainfreight.setAttribute('aria-label','Mainfreight total base rates');
-   mainfreight.onchange=()=>{if(!mainfreight.checkValidity()){mainfreight.reportValidity();return;}data.mainfreight_base_total=mainfreight.value===''?null:Number(mainfreight.value);onChange();refresh();};mainfreightLabel.append(mainfreight);comparisonView=e('div');comparisonSettings.append(mainfreightLabel,comparisonView);root.append(comparisonSettings);
    form=e('form');form.className='bx-card';form.append(e('h3','Add / edit interstate departure'));const grid=e('div',null,'bx-settings');inputs={};
    function field(key,label,type,options){
     const wrap=e('label',label),input=e(options?'select':'input');
@@ -111,7 +108,6 @@ window.BlocktexxInterstate=(()=>{
    const model=getModel(),data=ensure(model),cost=calculate(data);
    for(const [field,input] of Object.entries(rateInputs)){const [id,key]=field.split(':');if(document.activeElement!==input)input.value=data.lanes[id][key]??'';}
    const fuelValues=quotedLanes.map(id=>data.lanes[id].fuel_pct);if(document.activeElement!==fuelControl)fuelControl.value=fuelValues.every(v=>v===fuelValues[0])?(fuelValues[0]??''):'';
-   const c=comparison(data);comparisonView.replaceChildren(e('p','Mainfreight base total: '+money(c.competitor)+' · S & B base total: '+money(c.base)+' · '+(c.saving!=null&&c.saving<0?'Additional S & B cost: ':'Saving with SB Empire: ')+money(c.saving==null?null:Math.abs(c.saving))),e('p','S & B fuel levy: '+money(c.fuel)+' · Base plus fuel: '+money(c.total)+' ex GST'),e('p','Comparison totals use one trip on each of the eight quoted routes. They are not a monthly transport cost. Additional Sydney → Brisbane semi bookings remain separate.','bx-muted'));
    calendar.replaceChildren(e('h3','Interstate departure calendar · four weeks'));
    const scroll=e('div',null,'bx-scroll'),table=e('table',null,'bx-planner-grid'),head=e('tr');
    ['Week',...days].forEach(day=>head.append(e('th',day)));table.append(head);
