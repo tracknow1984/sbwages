@@ -7,7 +7,7 @@ import gzip
 import base64
 from unittest.mock import patch
 from app import create_app
-from blocktexx import empty_model, validate_model, summarize, apply_qld_resource_rates
+from blocktexx import empty_model, validate_model, summarize, apply_qld_resource_rates, apply_route_calendar_audit
 
 
 def example():
@@ -22,6 +22,28 @@ def example():
 
 
 class CalculationTests(unittest.TestCase):
+    def test_route_calendar_audit_restores_visits_without_replacing_measurements(self):
+        m = validate_model(example())
+        template = copy.deepcopy(m['states']['VIC']['runs'][0])
+        def run(id, name, visits, slots=None):
+            r = copy.deepcopy(template)
+            r.update(id=id, name=name, runs_4w=visits)
+            if slots is not None: r['planner_slots'] = slots
+            else: r.pop('planner_slots', None)
+            return r
+        m['states']['NSW']['runs'] = [run('NSW-01', 'Week 1 Monday — Ingleburn', 1),
+                                      run('NSW-02', 'Week 1 Tuesday — Alexandria', 1)]
+        m['states']['SA']['runs'] = [run('SA-01', 'Monday — Alsco', 4),
+                                     run('SA-02', 'Wednesday — Alsco', 4, [{'week': w, 'day': 0} for w in range(1, 5)]),
+                                     run('SA-03', 'Friday — Alsco', 4, [{'week': w, 'day': 0} for w in range(1, 5)])]
+        m['states']['VIC']['runs'] = [run('VIC-04', 'Airport second visit', 1, [{'week': 1, 'day': 3}])]
+        self.assertEqual(apply_route_calendar_audit(m), 6)
+        self.assertEqual(m['states']['NSW']['runs'][1]['planner_slots'], [{'week': 1, 'day': 1}])
+        self.assertEqual(m['states']['SA']['runs'][2]['planner_slots'][0], {'week': 1, 'day': 4})
+        self.assertEqual(m['states']['VIC']['runs'][0]['planner_slots'], [{'week': 3, 'day': 1}])
+        self.assertEqual(m['states']['NSW']['runs'][0]['drive_min'], template['drive_min'])
+        self.assertEqual(apply_route_calendar_audit(m), 0)
+
     def test_qld_resource_prices_copy_without_changing_state_quantities(self):
         m = validate_model(example())
         m['states']['QLD']['resource_pricing']['bin660'].update(
