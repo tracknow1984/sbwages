@@ -99,3 +99,26 @@ body.bx-popup-open {overflow:hidden}
 .bx-interstate-booking {display:block;width:100%;text-align:left;padding:12px;margin:8px 0;border:1px solid #8badd6;background:#eaf2ff;color:#173b72;border-radius:7px}
 .bx-interstate-booking strong,.bx-interstate-booking small {display:block;margin:5px 0}
 #bx-movements button,#bx-interstate-content form button {margin:8px}
+
+/* Financial reports fit the viewport; detail cards replace wide daily tables. */
+#bx-finance-popup .bx-day-dialog{width:min(1480px,calc(100vw - 24px));max-width:calc(100vw - 24px)}
+#bx-finance-popup *{box-sizing:border-box;min-width:0}
+#bx-finance-popup .bx-scroll{overflow:visible;width:100%}
+#bx-finance-popup .bx-resource-table{width:100%;min-width:0;table-layout:fixed}
+#bx-finance-popup .bx-resource-table th,#bx-finance-popup .bx-resource-table td{padding:10px 8px;white-space:normal;overflow-wrap:anywhere;font-size:.9rem}
+#bx-finance-popup .bx-metrics{grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr))}
+#bx-finance-popup .bx-metrics strong,#bx-finance-popup summary,#bx-finance-popup h2{overflow-wrap:anywhere}
+#bx-finance-popup details{margin:12px 0;padding:12px;border:1px solid #dbe4ef;border-radius:10px;background:white}
+#bx-finance-popup summary{cursor:pointer;font-weight:700;line-height:1.5}
+.bx-finance-days{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:12px;margin-top:12px}
+.bx-finance-day{padding:14px;border:1px solid #dbe4ef;border-radius:10px;background:#f7faff}
+.bx-finance-day h4{margin:0;font-size:1.05rem}.bx-finance-day p{margin:6px 0 12px}
+.bx-finance-day dl{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;margin:0;font-size:.9rem}
+.bx-finance-day dt,.bx-finance-day dd{margin:0;overflow-wrap:anywhere}.bx-finance-day dd{text-align:right;font-weight:700}
+@media(max-width:600px){
+ #bx-finance-popup .bx-resource-table,#bx-finance-popup .bx-resource-table tbody{display:block}
+ #bx-finance-popup .bx-resource-table tr:first-child{display:none}
+ #bx-finance-popup .bx-resource-table tr{display:block;border:1px solid #dbe4ef;border-radius:8px;margin-bottom:10px;background:white}
+ #bx-finance-popup .bx-resource-table tr>td,#bx-finance-popup .bx-resource-table tr>th{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;text-align:right;width:100%}
+ #bx-finance-popup .bx-resource-table tr>td::before,#bx-finance-popup .bx-resource-table tr>th::before{content:attr(data-label);text-align:left;font-weight:600;color:#64748b}
+}

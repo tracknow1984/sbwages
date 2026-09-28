@@ -286,17 +286,17 @@ window.BlocktexxCosts = (() => {
     [['Planned pickup kg',kgText(summary)],[summary.provisional?'Known period costs':'Total period cost',money(summary.cost)],['Cost per planned pickup kg',summaryRateText(summary)]].forEach(([label,value])=>{const card=e('div',label);card.append(e('strong',value));metrics.append(card);});content.append(metrics);renderCostWarning(content,summary);
     renderOperatorBreakdown(content,data,summary);
     const renderDays=(host,days)=>{
-      const wrap=e('div',null,'bx-scroll'),table=e('table',null,'bx-resource-table'),head=e('tr');
-      ['Day','Operator','Net kg picked up','Company costs','Contractor costs','Shared costs','Known daily costs','Cost / kg'].forEach(t=>head.append(e('th',t)));table.append(head);
-      days.forEach(d=>{const row=e('tr');[['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'][d.day],d.occurrences?modeLabel(d.operator):'No runs — overheads only',kgText(d),money(d.components.owned),money(d.components.contractor),money(d.components.shared),money(d.cost),summaryRateText(d)].forEach(t=>row.append(e('td',t)));table.append(row);});wrap.append(table);host.append(wrap);
+      const grid=e('div',null,'bx-finance-days');
+      days.forEach(d=>{const card=e('article',null,'bx-finance-day');card.append(e('h4',['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'][d.day]),e('p',d.occurrences?modeLabel(d.operator):'No runs — overheads only','bx-muted'));
+        const values=e('dl');[['Pickup kg',kgText(d)],['Company costs',money(d.components.owned)],['Contractor costs',money(d.components.contractor)],...(includesBuilding(data)?[['Shared costs',money(d.components.shared)]]:[]),['Total costs',money(d.cost)],['Cost / kg',summaryRateText(d)]].forEach(([label,value])=>{values.append(e('dt',label),e('dd',value));});card.append(values);grid.append(card);});host.append(grid);
     };
     if(week==null){
       content.append(e('h3','Weekly breakdown'));
       const weeks=[1,2,3,4].map(w=>periodSummary(data,w,sites)),wrap=e('div',null,'bx-scroll'),table=e('table',null,'bx-resource-table'),head=e('tr');
-      ['Week','Company days','Contractor days','Unassigned days','Pickup kg','Company costs','Contractor costs','Shared costs','Total known costs','Cost / kg'].forEach(t=>head.append(e('th',t)));table.append(head);
-      weeks.forEach((s,i)=>{const row=e('tr');['Week '+(i+1),s.operators.owned.days,s.operators.contractor.days,s.operators.unassigned.days,kgText(s),money(s.components.owned),money(s.components.contractor),money(s.components.shared),money(s.cost),summaryRateText(s)].forEach(t=>row.append(e('td',t)));table.append(row);});
-      const total=e('tr',null,'bx-resource-total');['Full month',summary.operators.owned.days,summary.operators.contractor.days,summary.operators.unassigned.days,kgText(summary),money(summary.components.owned),money(summary.components.contractor),money(summary.components.shared),money(summary.cost),summaryRateText(summary)].forEach(t=>total.append(e('td',t)));table.append(total);wrap.append(table);content.append(wrap);
-      weeks.forEach((s,i)=>{const details=e('details');details.append(e('summary','Week '+(i+1)+' · '+kgText(s)+' · '+money(s.cost)+' · '+summaryRateText(s)));renderDays(details,s.days);content.append(details);});
+      ['Week','Pickup kg','Total costs','Cost / kg'].forEach(t=>head.append(e('th',t)));table.append(head);
+      weeks.forEach((s,i)=>{const row=e('tr');['Week '+(i+1),kgText(s),money(s.cost),summaryRateText(s)].forEach(t=>row.append(e('td',t)));table.append(row);});
+      const total=e('tr',null,'bx-resource-total');['Full month',kgText(summary),money(summary.cost),summaryRateText(summary)].forEach(t=>total.append(e('td',t)));table.append(total);wrap.append(table);content.append(wrap);
+      weeks.forEach((s,i)=>{const details=e('details');details.append(e('summary','Week '+(i+1)+' · '+kgText(s)+' · '+money(s.cost)+' · '+summaryRateText(s)));details.append(e('p','Company: '+s.operators.owned.days+' days · '+money(s.components.owned)+' | Contractors: '+s.operators.contractor.days+' days · '+money(s.components.contractor)+(s.operators.unassigned.days?' | Unassigned: '+s.operators.unassigned.days+' days':'')+(includesBuilding(data)?' | Shared: '+money(s.components.shared):''),'bx-muted'));renderDays(details,s.days);content.append(details);});
     }else renderDays(content,summary.days);
     content.append(e('p','Period cost/kg = known daily costs ÷ known planned pickup kg, including costs on zero-pickup days. Missing costs or weights make the rate provisional. Daily weights are entered in View day. Blank weights are incomplete; zero means no material collected. Rates are planning figures based on entered costs and weights. Local deliveries and decomm returns add costs but no new intake. Interstate costs remain separate.','bx-muted'));
     content.append(e('h3','Compare full-company and full-contractor scenarios'),e('p','Each column below assumes that operator handles every scheduled day. The selected daily allocation is shown above.','bx-muted'));
@@ -309,6 +309,7 @@ window.BlocktexxCosts = (() => {
     wrap.append(table);content.append(wrap);
     content.append(e('p','AUD excluding GST. Monthly staff and overhead budgets are allocated at monthly × 12 ÷ 52 per week, including quiet weeks. Fuel is a budget allocation, not measured fuel usage. Contractor charges use only this period’s scheduled days and hours, with daily minimums and demurrage applied once per day.','bx-muted'),
       e('p','Blank prices remain incomplete. Uses current on-screen figures, including unsaved edits. Entered local transport movements are included. Container purchases/rental and processing/shredding fees are excluded unless included in Other costs. Interstate freight is shown in its separate cost centre.','bx-muted'));
+    content.querySelectorAll('table').forEach(table=>{const labels=[...table.rows[0].cells].map(cell=>cell.textContent);[...table.rows].slice(1).forEach(row=>[...row.cells].forEach((cell,i)=>cell.dataset.label=labels[i]||''));});
     dialog.append(content);backdrop.replaceChildren(dialog);document.body.classList.add('bx-popup-open');
     backdrop.onpointerdown=event=>{if(event.target===backdrop)dismiss();};
     backdrop.onkeydown=event=>{
