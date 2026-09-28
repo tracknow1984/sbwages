@@ -7,7 +7,7 @@ const model={states:{},sites:[],interstate:{lanes:{sydney_brisbane_bdouble:{base
 for(const state of ['QLD','NSW','VIC','SA']){model.states[state]={state_code:state,cost_mode:'owned',cost_profile:{...p},runs:[run(state),run(state+'decom','deliver_decomm',99999)],monthly_kg:99999,resource_pricing:{bin120:{purchase_each:100,weekly_rent_each:2}}};model.sites.push({state,id:state,containers:{bin120:1}});}
 let a=window.BlocktexxNational.calculate(model);
 close(a.kg,400*13/12);close(a.storage,800);close(a.interstate,2420*13/12);close(a.rental,4*2*2*52/12);close(a.purchase,800);close(a.repack,1000);
-close(a.local,4*(100*52/12*1.2+600)+200);close(a.total,a.local+a.interstate+a.rental+800);close(a.rate,a.total/a.kg);close(a.total,a.lines.reduce((n,r)=>n+(r.value||0),0));
+close(a.local,4*(100*52/12*1.2+600)+200);close(a.total,a.local+a.interstate+a.rental);close(a.rate,a.total/a.kg);close(a.total,a.lines.reduce((n,r)=>n+(r.value||0),0));
 assert.equal(a.issues.length,0);
 model.states.NSW.cost_mode='mixed';model.states.NSW.day_operators={'1:0':'contractor'};
 a=window.BlocktexxNational.calculate(model);close(a.states.find(s=>s.state==='NSW').local,window.BlocktexxCosts.periodSummary(model.states.NSW,null,model.sites).cost*13/12);
@@ -30,3 +30,15 @@ close(withBaler.total,withBaler.lines.reduce((n,r)=>n+(r.value||0),0));
 model.states.NSW.resource_equipment.baler.quantity=0;
 close(window.BlocktexxNational.calculate(model).equipment,0);
 console.log('Equipment lease counted once monthly; purchase value excluded from charged costs.');
+
+const operating=window.BlocktexxNational.calculate(model);
+model.storage.monthly_rate=9999;
+model.storage.repack_cost=7777;
+const changedStorage=window.BlocktexxNational.calculate(model);
+close(changedStorage.total,operating.total);close(changedStorage.rate,operating.rate);
+assert.notEqual(changedStorage.storage,operating.storage);
+assert.equal(changedStorage.lines.some(r=>r.category==='Storage contract'),false);
+model.storage={};
+const missingStorage=window.BlocktexxNational.calculate(model);
+close(missingStorage.total,operating.total);assert.deepEqual(missingStorage.issues,operating.issues);
+console.log('Storage prices and missing storage inputs do not affect operating totals or cost/kg.');
