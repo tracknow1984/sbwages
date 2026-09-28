@@ -5,11 +5,11 @@
   let model = JSON.parse(document.getElementById('bx-data').textContent);
   let state = 'QLD', revision = Number(root.dataset.revision), dirty = false, saving = false, generation = 0;
   let capacityUI, runView, consolidation, movementUI, interstateUI;
-  let activePane = 'planner';
+  let activePane = 'national';
   const plannerScope=()=>activePane==='decom'?'decom':'local';
   function renderStorage(){window.BlocktexxStorage?.render($('bx-storage'),model,changed);}
   function renderResources() { window.renderBlocktexxResources?.(model,state,()=>{changed();renderSites();}); }
-  function renderPane() { $('bx-storage').hidden=activePane!=='storage'; $('bx-weights').hidden=activePane!=='weights'; $('bx-interstate-pane').hidden=activePane!=='interstate';document.querySelector('[aria-label="Collection state"]').hidden=['interstate','storage'].includes(activePane);$('bx-planner-pane').hidden=!['planner','decom'].includes(activePane);document.querySelectorAll('[data-local-only]').forEach(n=>n.hidden=activePane==='decom');$('bx-add').hidden=activePane==='decom';$('bx-partner-register').hidden=activePane!=='decom';$('bx-runs-label').textContent=activePane==='decom'?'View / edit decom movements':'View / edit local runs and movements';$('bx-runs-title').textContent=activePane==='decom'?'Decom movements':'Local runs and movements';$('bx-resources').hidden=activePane!=='resources';document.querySelectorAll('[data-bx-pane]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.bxPane===activePane))); }
+  function renderPane() { const national=activePane==='national';$('bx-national').hidden=!national;$('bx-national-tab').setAttribute('aria-pressed',String(national));$('bx-old-overview').hidden=national;document.querySelector('[aria-label="State view"]').hidden=national;document.querySelectorAll('[data-state]').forEach(b=>b.setAttribute('aria-pressed',String(!national&&b.dataset.state===state)));if(national)window.BlocktexxNational.render($('bx-national'),model); $('bx-storage').hidden=activePane!=='storage'; $('bx-weights').hidden=activePane!=='weights'; $('bx-interstate-pane').hidden=activePane!=='interstate';document.querySelector('[aria-label="Collection state"]').hidden=false;$('bx-planner-pane').hidden=!['planner','decom'].includes(activePane);document.querySelectorAll('[data-local-only]').forEach(n=>n.hidden=activePane==='decom');$('bx-add').hidden=activePane==='decom';$('bx-partner-register').hidden=activePane!=='decom';$('bx-runs-label').textContent=activePane==='decom'?'View / edit decom movements':'View / edit local runs and movements';$('bx-runs-title').textContent=activePane==='decom'?'Decom movements':'Local runs and movements';$('bx-resources').hidden=activePane!=='resources';document.querySelectorAll('[data-bx-pane]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.bxPane===activePane))); }
   const $ = id => document.getElementById(id);
   const fmt = (n, places = 1) => n == null ? 'Not set' : Number(n).toLocaleString('en-AU', {maximumFractionDigits: places});
   const money = n => n == null ? 'Not priced' : '$' + fmt(n, 0);
@@ -57,6 +57,7 @@
     return {km,work,billed,elapsed,pending,estimates,cost,rate:scenario?(!pending?scenario.rate:null):!pending && d.monthly_kg && cost != null ? cost/d.monthly_kg : null, spare:d.available_weekly_hours*4-work};
   }
   function renderOverview() {
+    if(activePane==='national')window.BlocktexxNational.render($('bx-national'),model);
     $('bx-overview').replaceChildren(...Object.entries(model.states).map(([s,d]) => {
       const customers=model.sites.filter(site=>site.state===s),total=customers.reduce((a,site)=>a+(visits(site)||0),0),unknown=customers.filter(site=>visits(site)==null).length;
       const card=el('div'); card.append(el('span',s),el('strong',fmt(d.monthly_kg,0)+' kg'),el('small','Historical average / month'),el('p',d.depot || 'Depot not set'),el('small',`${customers.length} customers · ${fmt(total,1)} planned visits / 4 weeks · ${fmt(total*13/12,1)} / month${unknown?' · '+unknown+' unconfirmed':''}`)); return card;
@@ -134,8 +135,9 @@
     const partners=model.partners.filter(s=>s.state===state);$('bx-partners').replaceChildren(...(partners.length?partners.map(p=>{const n=el('div',null,'bx-site');n.append(el('strong',p.name),el('p',p.address+' · '+p.frequency),el('p',p.notes));return n;}):[el('p','No decommissioning partner confirmed in the supplied source for this state.')]));
   }
   function render() {
-    renderStorage();renderWeights(); movementUI?.reset();interstateUI?.render();consolidation?.render();renderResources();renderPane();renderOverview();renderSettings();renderRuns();renderMetrics();renderSites();capacityUI?.render();$('bx-source').textContent=model.source;$('bx-notes').textContent=model.notes;document.querySelectorAll('[data-state]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.state===state))); }
-  document.querySelectorAll('[data-state]').forEach(b=>b.addEventListener('click',()=>{state=b.dataset.state;render();}));
+    renderStorage();renderWeights(); movementUI?.reset();interstateUI?.render();consolidation?.render();renderResources();renderPane();renderOverview();renderSettings();renderRuns();renderMetrics();renderSites();capacityUI?.render();$('bx-source').textContent=model.source;$('bx-notes').textContent=model.notes;document.querySelectorAll('[data-state]').forEach(b=>b.setAttribute('aria-pressed',String(activePane!=='national'&&b.dataset.state===state))); }
+  $('bx-national-tab').addEventListener('click',()=>{activePane='national';renderPane();});
+  document.querySelectorAll('[data-state]').forEach(b=>b.addEventListener('click',()=>{state=b.dataset.state;if(['national','interstate','storage'].includes(activePane))activePane='planner';render();}));
   document.querySelectorAll('[data-bx-pane]').forEach(b=>b.addEventListener('click',()=>{activePane=b.dataset.bxPane;if(activePane==='interstate')interstateUI?.render();renderResources();renderPane();movementUI?.reset();renderRuns();}));
   $('bx-open-weights').addEventListener('click',()=>{activePane='weights';renderPane();$('bx-weights').scrollIntoView({block:'start'});});
   $('bx-add').addEventListener('click',()=>{model.states[state].runs.push({id:crypto.randomUUID(),name:'New collection day',sequence:'',notes:'',evidence:'',status:'unmeasured',site_ids:[],runs_4w:null,km:null,drive_min:null,service_min:0,depot_min:0,prep_min:15,wait_min:0,break_min:30});changed();renderRuns();});
