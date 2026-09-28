@@ -81,6 +81,18 @@ def validate_model(value):
         model['process_flow_layout'][stage] = {
             'x': number(position.get('x'), 'Stage horizontal position', 1250),
             'y': number(position.get('y'), 'Stage vertical position', 1108)}
+    answers = value.get('clarification_answers', {})
+    if not isinstance(answers, dict) or len(answers) > 200:
+        raise ValueError('Use at most 200 clarification answers.')
+    model['clarification_answers'] = {}
+    for question_id, answer in answers.items():
+        if not isinstance(question_id, str) or not re.fullmatch(r'(q[0-9]{3}|state-(qld|nsw|vic|sa|wa)-[1-9])', question_id) or not isinstance(answer, dict):
+            raise ValueError('Invalid clarification answer.')
+        status = answer.get('status', 'open')
+        if status not in ('open', 'awaiting', 'answered', 'not_applicable'):
+            raise ValueError('Invalid clarification status.')
+        model['clarification_answers'][question_id] = {
+            'answer': text(answer.get('answer', ''), 'Clarification answer', 3000), 'status': status}
     model['storage'] = validate_storage(value.get('storage', {}))
     model['interstate'] = validate_interstate(value.get('interstate', {}), number, text)
     seen = set()
