@@ -5,3 +5,5 @@
 .bx-flow-key.owned:before,.owned .bx-flow-accent{background:#286fb0;fill:#286fb0}.bx-flow-key.partner:before,.partner .bx-flow-accent{background:#8854a2;fill:#8854a2}.partner .bx-flow-node-bg{fill:#fcf9ff;stroke:#d5c5e0}.owned .bx-flow-node-bg{fill:#f0f6fd;stroke:#aac5e2}.bx-flow-controls button[aria-pressed="true"]{background:#163d63;color:white;border-color:#163d63}.bx-flow-controls button[aria-pressed="false"]{background:white;color:#1a385a;border-color:#bccbdc}
 
 .partner .bx-flow-accent{fill:#8854a2}.owned .bx-flow-accent{fill:#286fb0}
+
+.decomm .bx-flow-accent{fill:#ba7f2d}.decomm .bx-flow-node-bg{fill:#fffaf2;stroke:#dfcdaa}.bx-flow-key.decomm:before{background:#ba7f2d}#bx-process-flow:fullscreen .bx-flow-frame{overflow:auto}#bx-process-flow:fullscreen .bx-flow-canvas{height:auto}

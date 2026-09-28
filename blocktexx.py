@@ -65,7 +65,7 @@ def validate_model(value):
     for key in ('name', 'source', 'notes'):
         model[key] = text(value.get(key, ''), key)
     layout = value.get('process_flow_layout', {})
-    stage_ids = {'dispatch', 'collect', 'weigh', 'decomm', 'bale', 'interstate', 'linehaul', 'shred', 'decision', 'storage', 'production', 'net_vic', 'net_sa', 'net_wa', 'net_threshold', 'net_nsw', 'net_qld', 'net_sydney', 'net_north', 'net_thread', 'net_hold', 'net_make'}
+    stage_ids = {'dispatch', 'collect', 'weigh', 'decomm', 'bale', 'interstate', 'linehaul', 'shred', 'decision', 'storage', 'production', 'net_vic', 'net_sa', 'net_wa', 'net_threshold', 'net_nsw', 'net_qld', 'net_sydney', 'net_north', 'net_thread', 'net_hold', 'net_make', 'net_vic_decomm', 'net_vic_bale', 'net_sa_decomm', 'net_sa_bale', 'net_wa_decomm', 'net_wa_bale', 'net_nsw_decomm', 'net_nsw_bale', 'net_qld_decomm', 'net_qld_bale'}
     if not isinstance(layout, dict) or set(layout) - stage_ids:
         raise ValueError('Invalid process flow layout.')
     model['process_flow_layout'] = {}
@@ -73,8 +73,8 @@ def validate_model(value):
         if not isinstance(position, dict):
             raise ValueError('Invalid process stage position.')
         model['process_flow_layout'][stage] = {
-            'x': number(position.get('x'), 'Stage horizontal position', 950),
-            'y': number(position.get('y'), 'Stage vertical position', 788)}
+            'x': number(position.get('x'), 'Stage horizontal position', 1250),
+            'y': number(position.get('y'), 'Stage vertical position', 1108)}
     model['storage'] = validate_storage(value.get('storage', {}))
     model['interstate'] = validate_interstate(value.get('interstate', {}), number, text)
     seen = set()

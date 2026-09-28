@@ -11,8 +11,10 @@ assert.equal(flow.positions({dispatch:{x:100,y:200}}).dispatch.x,100);
 for(const edge of flow.edges){const path=flow.geometry(edge,layout);assert.ok(!path.d.includes('NaN'));assert.ok(layout[edge[0]]&&layout[edge[1]]);}
 console.log('Flow branches, retained positions, drag boundaries and attached connectors passed.');
 const network=flow.positions({},'network');
-assert.equal(Object.keys(network).length,11);
-for(const id of ['net_vic','net_sa','net_wa'])assert.ok(flow.networkEdges.some(edge=>edge[0]===id&&edge[1]==='net_threshold'));
-for(const [from,to] of [['net_threshold','net_sydney'],['net_sydney','net_north'],['net_north','net_thread'],['net_qld','net_thread'],['net_hold','net_make']])assert.ok(flow.networkEdges.some(edge=>edge[0]===from&&edge[1]===to));
-assert.equal(flow.positions({net_hold:{x:475,y:740}},'network').net_hold.y,740);
+assert.equal(Object.keys(network).length,21);
+for(const id of ['net_vic','net_sa','net_wa'])assert.ok(flow.networkEdges.some(edge=>edge[0]===id+'_bale'&&edge[1]==='net_threshold'));
+for(const [from,to] of [['net_threshold','net_sydney'],['net_sydney','net_north'],['net_north','net_thread'],['net_qld_bale','net_thread'],['net_hold','net_make']])assert.ok(flow.networkEdges.some(edge=>edge[0]===from&&edge[1]===to));
+assert.equal(flow.positions({net_vic_decomm:{x:30,y:240},net_hold:{x:620,y:1040}},'network').net_hold.y,1040);
 console.log('Partner-state consolidation via Sydney and direct QLD route passed.');
+
+for(const state of ['vic','sa','wa','nsw','qld']){assert.ok(flow.networkEdges.some(e=>e[0]==='net_'+state&&e[1]==='net_'+state+'_decomm'));assert.ok(flow.networkEdges.some(e=>e[0]==='net_'+state+'_decomm'&&e[1]==='net_'+state+'_bale'));}
