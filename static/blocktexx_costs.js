@@ -288,7 +288,7 @@ window.BlocktexxCosts = (() => {
     const renderDays=(host,days)=>{
       const wrap=e('div',null,'bx-scroll'),table=e('table',null,'bx-resource-table'),head=e('tr');
       ['Day','Operator','Net kg picked up','Company costs','Contractor costs','Shared costs','Known daily costs','Cost / kg'].forEach(t=>head.append(e('th',t)));table.append(head);
-      days.forEach(d=>{const row=e('tr');['Week '+d.week+' '+['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][d.day],d.occurrences?modeLabel(d.operator):'No runs — overheads only',kgText(d),money(d.components.owned),money(d.components.contractor),money(d.components.shared),money(d.cost),summaryRateText(d)].forEach(t=>row.append(e('td',t)));table.append(row);});wrap.append(table);host.append(wrap);
+      days.forEach(d=>{const row=e('tr');[['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'][d.day],d.occurrences?modeLabel(d.operator):'No runs — overheads only',kgText(d),money(d.components.owned),money(d.components.contractor),money(d.components.shared),money(d.cost),summaryRateText(d)].forEach(t=>row.append(e('td',t)));table.append(row);});wrap.append(table);host.append(wrap);
     };
     if(week==null){
       content.append(e('h3','Weekly breakdown'));
