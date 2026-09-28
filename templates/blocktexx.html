@@ -2,7 +2,7 @@
 {% block content %}
 <link rel="stylesheet" href="{{ url_for('static', filename='blocktexx.css', v='storage-weekly-1') }}">
 <div id="blocktexx" data-revision="{{ revision }}" data-csrf="{{ csrf_token() }}">
-  <div class="page-heading"><div><p class="bx-kicker">SB EMPIRE / PROPOSAL MODELLING</p><h1>BlockTexx transport model</h1><p>Collections, local deliveries and interstate transfers — building total cost per kilogram.</p></div>
+  <div class="page-heading"><div><p class="bx-kicker">SB EMPIRE / PROPOSAL MODELLING</p><h1>Blocktexx Storage &amp; Transport Evaluation</h1><p>Collections, local deliveries and interstate transfers — building total cost per kilogram.</p></div>
     <div class="actions no-print"><button type="button" id="bx-save" class="primary">Save model</button><button type="button" id="bx-print" class="secondary">Print analysis</button></div></div>
   <p id="bx-save-status" role="status">{{ 'Saved model loaded.' if saved else 'Import the prepared collection data to begin, or enter your own runs.' }}</p>
   <details class="bx-card"><summary>View national overview</summary><div class="bx-overview" id="bx-overview"></div></details>
