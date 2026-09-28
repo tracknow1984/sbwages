@@ -124,7 +124,7 @@ class PersistenceTests(unittest.TestCase):
         self.assertEqual(exported['states']['VIC']['cost_mode'],'mixed')
         html=self.client.get('/admin/blocktexx').data.decode()
         self.assertNotIn('View proposal stages and scope',html)
-        self.assertIn('data-bx-pane="weights"',html)
+        self.assertIn('id="bx-open-weights"',html)
         self.assertIn('id="bx-weights" class="bx-card" hidden',html)
 
     def test_storage_settings_save_privately_with_model(self):
