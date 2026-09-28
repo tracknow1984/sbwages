@@ -69,12 +69,9 @@ window.BlocktexxStorage=(()=>{
       repack:s.occupied_containers!=null&&s.repack_cost!=null?s.occupied_containers*s.repack_cost:null};
   }
   function renderFinancials(root,s){
-    root.append(e('h3','Storage cost per pallet · monthly, ex GST'));
     const f=financialSummary(s);
-    if(!f){root.append(e('p','Enter the contract rate to compare pallet costs.','bx-muted'));return;}
+    if(!f){root.append(e('p','Enter the contract rate to calculate the value of freed storage space.','bx-muted'));return;}
     const cashRange=(low,high)=>low==null?'Complete assumptions':low===high?money(low):money(low)+'–'+money(high);
-    table(root,['Section','Current cost / pallet','After repack / pallet','Saving / pallet'],f.sections.map(r=>[r.name,cashRange(r.currentLow,r.currentHigh),r.after==null?'Complete assumptions':money(r.after),cashRange(r.savingLow,r.savingHigh)]));
-    root.append(e('p','Contract rate ÷ pallets per container. Current costs use the minimum–maximum pallet range; after-repack costs assume the new pallet capacity is fully used. Rates are before the shared free-container allowance. These are unit-cost savings as capacity is used; the retained monthly bill stays the same.','bx-muted'));
   }
   function allocatedCapacity(s){
     const rows=names.map(name=>{
