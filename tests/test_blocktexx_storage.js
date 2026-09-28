@@ -1,0 +1,17 @@
+const assert=require('node:assert/strict');global.window={};require('../static/blocktexx_storage.js');
+const input={total_containers:100,occupied_containers:80,monthly_rate:123.4567,free_containers:5,current_pallets:20,new_pallets:50,repack_cost:200,containers_per_day:1,minimum_containers:80,lease_months:36,days_per_week:5,start_date:'2026-09-28',recovery:'monthly'};
+const C=window.BlocktexxStorage.calculate,a=C(input);
+assert.equal(a.pallets,1600);assert.equal(a.needed,32);assert.equal(a.released,48);assert.equal(a.free,68);assert.equal(a.lease.spare,2400);assert.equal(a.cost,16000);assert.equal(a.workdays,80);assert.equal(a.current.rent,9259.25);
+assert.equal(a.timeline.length,80);assert.equal(a.timeline.at(-1).processed,80);assert.equal(a.timeline.at(-1).occupied,32);
+assert.ok(a.timeline.every(r=>![0,6].includes(new Date(r.date+'T00:00:00Z').getUTCDay())));
+assert.ok(Math.abs(a.recovery*35+a.lastRecovery-a.cost)<1e-6);assert.ok(Math.abs(a.retainedAfterRepack-a.lease.term)<1e-6);
+assert.equal(C({...input,recovery:'absorbed'}).retainedAfterRepack,a.lease.term-a.cost);
+assert.equal(C({...input,recovery:'upfront'}).upfront,a.cost);
+assert.equal(C({...input,occupied_containers:81}).needed,33);
+assert.equal(C({...input,containers_per_day:2}).workdays,40);
+assert.equal(C({...input,days_per_week:7}).timeline[6].date,'2026-10-04');
+assert.equal(C({...input,minimum_containers:10}).commitment,32);
+assert.equal(C({...input,monthly_rate:null}),null);
+assert.equal(C({...input,occupied_containers:101}),null);
+assert.equal(a.totalCapacity,5000);assert.equal(a.additionalCapacity,3000);
+console.log('Storage capacity, whole-container rounding, timeline, billing precision and recovery checks passed.');

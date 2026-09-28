@@ -127,6 +127,17 @@ class PersistenceTests(unittest.TestCase):
         self.assertIn('data-bx-pane="weights"',html)
         self.assertIn('id="bx-weights" class="bx-card" hidden',html)
 
+    def test_storage_settings_save_privately_with_model(self):
+        m=example();m['storage']={'total_containers':100,'occupied_containers':80,'monthly_rate':123.4567,
+           'free_containers':5,'current_pallets':20,'new_pallets':50,'repack_cost':200,
+           'containers_per_day':1,'minimum_containers':80,'lease_months':36,
+           'days_per_week':5,'start_date':'2026-09-28','recovery':'monthly'}
+        self.assertEqual(self.save(m).status_code,200)
+        self.assertEqual(self.client.get('/admin/blocktexx/export').json['storage'],m['storage'])
+        m['storage']['occupied_containers']=101
+        self.assertEqual(self.save(m,1).status_code,400)
+        self.assertEqual(self.client.get('/admin/blocktexx/export').json['storage']['occupied_containers'],80)
+
     def test_planner_allocations_persist_and_reject_invalid_days(self):
         m=example()
         m['states']['VIC']['runs'][0]['planner_slots']=[{'week':1,'day':2},{'week':3,'day':2}]

@@ -200,3 +200,25 @@ Reduce committed budgets manually only when those costs can actually be avoided.
 
 The Planner tab opens with the local calendar first. Historical workbook imports,
 weight mappings and sample scenarios are in the Sample weights & scenarios tab.
+
+## Storage cost centre
+
+Storage is a separate, state-independent tab whose assumptions are saved inside
+the private model JSON with the normal administrator access and revision checks.
+Commercial figures are not seeded in the public source. It compares current
+loading, the minimum repacked physical footprint and an editable retained lease
+commitment. Stock is assumed to occupy current containers at the stated pallet
+count; repacked containers are rounded up. Unused capacity inside reserved
+containers remains available to the storage customer.
+
+The repacking programme processes source containers at the entered daily rate,
+using a five-, six- or seven-day workweek. Dates exclude no public holidays or
+interruptions. Progress assumes unchanged inventory and progressive consolidation
+with suitable staging space. Proposed lease commencement follows completion.
+Recovery choices are provider-funded, customer upfront or amortized over the lease;
+monthly charges round to cents and the last recovery payment reconciles the total.
+Receipts after repacking exclude other operating/finance costs and are not profit.
+Storage figures never flow into collection/interstate cost/kg.
+
+Monthly transport financial analysis now contains four weekly summaries and
+expandable daily tables, with a weighted full-month total.

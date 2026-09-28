@@ -285,9 +285,19 @@ window.BlocktexxCosts = (() => {
     const summary=periodSummary(data,week,sites),metrics=e('div',null,'bx-metrics');
     [['Planned pickup kg',kgText(summary)],[summary.provisional?'Known period costs':'Total period cost',money(summary.cost)],['Cost per planned pickup kg',summaryRateText(summary)]].forEach(([label,value])=>{const card=e('div',label);card.append(e('strong',value));metrics.append(card);});content.append(metrics);renderCostWarning(content,summary);
     renderOperatorBreakdown(content,data,summary);
-    const dailyWrap=e('div',null,'bx-scroll'),dailyTable=e('table',null,'bx-resource-table'),dailyHead=e('tr');
-    ['Day','Operator','Net kg picked up','Company costs','Contractor costs','Shared costs','Known daily costs','Cost / kg'].forEach(t=>dailyHead.append(e('th',t)));dailyTable.append(dailyHead);
-    summary.days.forEach(d=>{const row=e('tr');['Week '+d.week+' '+['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][d.day],d.occurrences?modeLabel(d.operator):'No runs — overheads only',kgText(d),money(d.components.owned),money(d.components.contractor),money(d.components.shared),money(d.cost),summaryRateText(d)].forEach(t=>row.append(e('td',t)));dailyTable.append(row);});dailyWrap.append(dailyTable);content.append(dailyWrap);
+    const renderDays=(host,days)=>{
+      const wrap=e('div',null,'bx-scroll'),table=e('table',null,'bx-resource-table'),head=e('tr');
+      ['Day','Operator','Net kg picked up','Company costs','Contractor costs','Shared costs','Known daily costs','Cost / kg'].forEach(t=>head.append(e('th',t)));table.append(head);
+      days.forEach(d=>{const row=e('tr');['Week '+d.week+' '+['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][d.day],d.occurrences?modeLabel(d.operator):'No runs — overheads only',kgText(d),money(d.components.owned),money(d.components.contractor),money(d.components.shared),money(d.cost),summaryRateText(d)].forEach(t=>row.append(e('td',t)));table.append(row);});wrap.append(table);host.append(wrap);
+    };
+    if(week==null){
+      content.append(e('h3','Weekly breakdown'));
+      const weeks=[1,2,3,4].map(w=>periodSummary(data,w,sites)),wrap=e('div',null,'bx-scroll'),table=e('table',null,'bx-resource-table'),head=e('tr');
+      ['Week','Company days','Contractor days','Unassigned days','Pickup kg','Company costs','Contractor costs','Shared costs','Total known costs','Cost / kg'].forEach(t=>head.append(e('th',t)));table.append(head);
+      weeks.forEach((s,i)=>{const row=e('tr');['Week '+(i+1),s.operators.owned.days,s.operators.contractor.days,s.operators.unassigned.days,kgText(s),money(s.components.owned),money(s.components.contractor),money(s.components.shared),money(s.cost),summaryRateText(s)].forEach(t=>row.append(e('td',t)));table.append(row);});
+      const total=e('tr',null,'bx-resource-total');['Full month',summary.operators.owned.days,summary.operators.contractor.days,summary.operators.unassigned.days,kgText(summary),money(summary.components.owned),money(summary.components.contractor),money(summary.components.shared),money(summary.cost),summaryRateText(summary)].forEach(t=>total.append(e('td',t)));table.append(total);wrap.append(table);content.append(wrap);
+      weeks.forEach((s,i)=>{const details=e('details');details.append(e('summary','Week '+(i+1)+' · '+kgText(s)+' · '+money(s.cost)+' · '+summaryRateText(s)));renderDays(details,s.days);content.append(details);});
+    }else renderDays(content,summary.days);
     content.append(e('p','Period cost/kg = known daily costs ÷ known planned pickup kg, including costs on zero-pickup days. Missing costs or weights make the rate provisional. Daily weights are entered in View day. Blank weights are incomplete; zero means no material collected. Rates are planning figures based on entered costs and weights. Local deliveries and decomm returns add costs but no new intake. Interstate costs remain separate.','bx-muted'));
     content.append(e('h3','Compare full-company and full-contractor scenarios'),e('p','Each column below assumes that operator handles every scheduled day. The selected daily allocation is shown above.','bx-muted'));
     const wrap=e('div',null,'bx-scroll'),table=e('table',null,'bx-resource-table'),head=e('tr');

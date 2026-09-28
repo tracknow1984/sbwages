@@ -1,4 +1,5 @@
 """Private, admin-only collection modelling. No customer data ships in source."""
+from blocktexx_storage import validate_storage
 from blocktexx_costs import validate_cost_profile, cost_comparison
 from blocktexx_interstate import validate_interstate, interstate_summary
 import csv
@@ -63,6 +64,7 @@ def validate_model(value):
     model['capacity_version'] = int(number(value.get('capacity_version', 0), 'Capacity model version', 1))
     for key in ('name', 'source', 'notes'):
         model[key] = text(value.get(key, ''), key)
+    model['storage'] = validate_storage(value.get('storage', {}))
     model['interstate'] = validate_interstate(value.get('interstate', {}), number, text)
     seen = set()
     for key in ('sites', 'partners'):

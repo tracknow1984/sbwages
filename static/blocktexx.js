@@ -6,8 +6,9 @@
   let state = 'QLD', revision = Number(root.dataset.revision), dirty = false, saving = false, generation = 0;
   let capacityUI, runView, consolidation, movementUI, interstateUI;
   let activePane = 'planner';
+  function renderStorage(){window.BlocktexxStorage?.render($('bx-storage'),model,changed);}
   function renderResources() { window.renderBlocktexxResources?.(model,state,()=>{changed();renderSites();}); }
-  function renderPane() { $('bx-weights').hidden=activePane!=='weights'; $('bx-interstate-pane').hidden=activePane!=='interstate';document.querySelector('[aria-label="Collection state"]').hidden=activePane==='interstate';$('bx-planner-pane').hidden=activePane!=='planner';$('bx-resources').hidden=activePane!=='resources';document.querySelectorAll('[data-bx-pane]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.bxPane===activePane))); }
+  function renderPane() { $('bx-storage').hidden=activePane!=='storage'; $('bx-weights').hidden=activePane!=='weights'; $('bx-interstate-pane').hidden=activePane!=='interstate';document.querySelector('[aria-label="Collection state"]').hidden=['interstate','storage'].includes(activePane);$('bx-planner-pane').hidden=activePane!=='planner';$('bx-resources').hidden=activePane!=='resources';document.querySelectorAll('[data-bx-pane]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.bxPane===activePane))); }
   const $ = id => document.getElementById(id);
   const fmt = (n, places = 1) => n == null ? 'Not set' : Number(n).toLocaleString('en-AU', {maximumFractionDigits: places});
   const money = n => n == null ? 'Not priced' : '$' + fmt(n, 0);
@@ -23,7 +24,7 @@
     $('bx-interstate-save-status').textContent=message;
   }
   function renderWeights(){window.BlocktexxWeights.sync(model);window.BlocktexxWeights.render($('bx-weights'),model,state,changed,root.dataset.csrf,m=>{model=m;changed();render();saveStatus('Sample weights imported into draft — select Save model.');});}
-  function changed() { renderSettings();renderWeights();dirty = true; generation++; saveStatus('Unsaved changes — select Save model, Save resources or Save cost model.'); capacityUI?.render(); renderMetrics(); renderOverview(); runView?.render(); renderResources();consolidation?.render();interstateUI?.refresh(); }
+  function changed() { renderStorage();renderSettings();renderWeights();dirty = true; generation++; saveStatus('Unsaved changes — select Save model, Save resources or Save cost model.'); capacityUI?.render(); renderMetrics(); renderOverview(); runView?.render(); renderResources();consolidation?.render();interstateUI?.refresh(); }
   function summary(s) {
     const d = model.states[s]; let km = 0, work = 0, billed = 0, elapsed = 0, pending = 0, estimates = 0, active = 0;
     d.runs.forEach(r => {
@@ -132,14 +133,14 @@
     const partners=model.partners.filter(s=>s.state===state);$('bx-partners').replaceChildren(...(partners.length?partners.map(p=>{const n=el('div',null,'bx-site');n.append(el('strong',p.name),el('p',p.address+' · '+p.frequency),el('p',p.notes));return n;}):[el('p','No decommissioning partner confirmed in the supplied source for this state.')]));
   }
   function render() {
-    renderWeights(); movementUI?.reset();interstateUI?.render();consolidation?.render();renderResources();renderPane();renderOverview();renderSettings();renderRuns();renderMetrics();renderSites();capacityUI?.render();$('bx-source').textContent=model.source;$('bx-notes').textContent=model.notes;document.querySelectorAll('[data-state]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.state===state))); }
+    renderStorage();renderWeights(); movementUI?.reset();interstateUI?.render();consolidation?.render();renderResources();renderPane();renderOverview();renderSettings();renderRuns();renderMetrics();renderSites();capacityUI?.render();$('bx-source').textContent=model.source;$('bx-notes').textContent=model.notes;document.querySelectorAll('[data-state]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.state===state))); }
   document.querySelectorAll('[data-state]').forEach(b=>b.addEventListener('click',()=>{state=b.dataset.state;render();}));
   document.querySelectorAll('[data-bx-pane]').forEach(b=>b.addEventListener('click',()=>{activePane=b.dataset.bxPane;if(activePane==='interstate')interstateUI?.render();renderResources();renderPane();}));
   $('bx-add').addEventListener('click',()=>{model.states[state].runs.push({id:crypto.randomUUID(),name:'New collection day',sequence:'',notes:'',evidence:'',status:'unmeasured',site_ids:[],runs_4w:null,km:null,drive_min:null,service_min:0,depot_min:0,prep_min:15,wait_min:0,break_min:30});changed();renderRuns();});
   async function saveModel() {
     if(saving)return;
-    const invalid=$('bx-resource-content').querySelector('input:invalid')||$('bx-cost-inputs').querySelector('input:invalid')||$('bx-interstate-content').querySelector('details input:invalid');
-    if(invalid){activePane=invalid.closest('#bx-resources')?'resources':invalid.closest('#bx-interstate-pane')?'interstate':'planner';renderPane();let parent=invalid.parentElement;while(parent){if(parent.tagName==='DETAILS')parent.open=true;parent=parent.parentElement;}invalid.reportValidity();saveStatus('Not saved: correct the highlighted value.');return;}
+    const invalid=$('bx-storage').querySelector('input:invalid')||$('bx-resource-content').querySelector('input:invalid')||$('bx-cost-inputs').querySelector('input:invalid')||$('bx-interstate-content').querySelector('details input:invalid');
+    if(invalid){activePane=invalid.closest('#bx-storage')?'storage':invalid.closest('#bx-resources')?'resources':invalid.closest('#bx-interstate-pane')?'interstate':'planner';renderPane();let parent=invalid.parentElement;while(parent){if(parent.tagName==='DETAILS')parent.open=true;parent=parent.parentElement;}invalid.reportValidity();saveStatus('Not saved: correct the highlighted value.');return;}
     saving=true;
     [$('bx-save'),$('bx-save-resources'),$('bx-save-costs'),$('bx-save-interstate')].forEach(b=>b.disabled=true);
     const sentGeneration=generation;saveStatus('Saving to database…');
