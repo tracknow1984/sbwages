@@ -7,7 +7,8 @@ window.BlocktexxInterstate=(()=>{
   melbourne_brisbane_bdouble:['Laverton VIC → Brisbane · B-double','VIC'],
   sydney_melbourne_semi:['Wetherill Park NSW → Laverton VIC · Single','NSW'],
   melbourne_brisbane_semi:['Laverton VIC → Brisbane · Single','VIC'],
-  melbourne_adelaide_semi:['Laverton VIC → Wingfield SA · Single','VIC'],
+  melbourne_adelaide_semi:['Laverton VIC → Wingfield SA · Semi','VIC'],
+  adelaide_melbourne_semi:['Wingfield SA → Laverton VIC · Semi','SA'],
   sydney_brisbane_semi:['Sydney → Brisbane · Semi (additional lane)','NSW']
  };
  const quotedLanes=Object.keys(lanes).filter(id=>id!=='sydney_brisbane_semi');
@@ -25,6 +26,7 @@ window.BlocktexxInterstate=(()=>{
  const money=n=>n==null?'Incomplete':'$'+Number(n).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
  function ensure(model){
   const data=model.interstate||(model.interstate={lanes:{},bookings:[]});
+  if(!data.lanes.adelaide_melbourne_semi)data.lanes.adelaide_melbourne_semi={...data.lanes.melbourne_adelaide_semi};
   Object.keys(lanes).forEach(id=>data.lanes[id]??={base_trip:null,fuel_pct:null,tolls_trip:null,other_trip:null,payload_kg:null});
   return data;
  }
