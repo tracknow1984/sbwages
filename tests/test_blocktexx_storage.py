@@ -14,3 +14,16 @@ class StorageTests(unittest.TestCase):
                           ('monthly_rate',float('nan')),('minimum_containers',1.5),
                           ('days_per_week',True),('start_date','2026-02-30'),('recovery','other')]:
             with self.assertRaises(ValueError):validate_storage({**raw,key:value})
+
+    def test_section_counts_and_ranges(self):
+        raw={'total_containers':70,'occupied_containers':60,'sections':{
+            'NSW':{'filled':10,'pallets_min':20,'pallets_max':30,'target':50},
+            'BANYO':{'filled':20,'pallets_min':10,'pallets_max':15,'target':30},
+            'BAGS':{'filled':30,'pallets_min':20,'pallets_max':25,'target':50}}}
+        self.assertEqual(validate_storage(raw)['sections'],raw['sections'])
+        import copy
+        for key,value in [('filled',11),('filled',9),('filled',True),('pallets_min',31),('target',0)]:
+            bad=copy.deepcopy(raw);bad['sections']['NSW'][key]=value
+            with self.assertRaises(ValueError):validate_storage(bad)
+        partial=copy.deepcopy(raw);partial['sections']['NSW']['filled']=None
+        self.assertIsNone(validate_storage(partial)['sections']['NSW']['filled'])

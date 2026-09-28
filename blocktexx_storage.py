@@ -57,4 +57,31 @@ def validate_storage(raw):
                 raise ValueError('Storage quantities cannot exceed total available containers.')
     if result['occupied_containers'] and result['containers_per_day'] and math.ceil(result['occupied_containers']/result['containers_per_day'])>3660:
         raise ValueError('Repacking timeline exceeds 3,660 working days; increase daily throughput.')
+    if 'sections' in raw:
+        sections=raw['sections']
+        if not isinstance(sections,dict) or set(sections)-{'NSW','BANYO','BAGS'}:
+            raise ValueError('Storage sections must be NSW, BANYO and BAGS.')
+        result['sections']={}
+        for name in ('NSW','BANYO','BAGS'):
+            row=sections.get(name,{})
+            if not isinstance(row,dict):raise ValueError('Invalid storage section.')
+            clean={}
+            for key in ('filled','pallets_min','pallets_max','target'):
+                value=row.get(key)
+                if value is None or value=='':clean[key]=None;continue
+                if isinstance(value,bool):raise ValueError('Invalid storage section quantity.')
+                try:value=float(value)
+                except (ValueError,TypeError):raise ValueError('Invalid storage section quantity.')
+                if not math.isfinite(value) or value!=int(value) or not 0<=value<=10000 or (key!='filled' and value==0):
+                    raise ValueError('Storage section quantities must be valid whole numbers.')
+                clean[key]=int(value)
+            if clean['pallets_min'] is not None and clean['pallets_max'] is not None and clean['pallets_min']>clean['pallets_max']:
+                raise ValueError('Current minimum pallets cannot exceed maximum pallets.')
+            result['sections'][name]=clean
+        filled=[r['filled'] for r in result['sections'].values()]
+        known=sum(v for v in filled if v is not None)
+        if result['occupied_containers'] is not None and known>result['occupied_containers']:
+            raise ValueError('Section containers exceed the total full containers.')
+        if all(v is not None for v in filled) and result['occupied_containers'] is not None and known!=result['occupied_containers']:
+            raise ValueError('NSW, BANYO and BAGS must add up to the full container count.')
     return result
