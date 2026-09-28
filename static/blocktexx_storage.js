@@ -46,9 +46,9 @@ window.BlocktexxStorage=(()=>{
   function sectionSummary(s){
     const rows=names.map(name=>({name,...s.sections?.[name]}));
     const assigned=rows.reduce((n,r)=>n+(r.filled??0),0),balanced=s.occupied_containers!=null&&rows.every(r=>r.filled!=null)&&assigned===s.occupied_containers;
-    const complete=balanced&&s.total_containers!=null&&s.total_containers>=assigned&&rows.every(r=>r.filled===0||(r.pallets_min>0&&r.pallets_max>=r.pallets_min&&r.target>0));
+    const complete=balanced&&s.total_containers!=null&&s.total_containers>=assigned&&rows.every(r=>r.filled===0||(r.pallets_min>0&&r.target>0));
     if(!complete)return {complete:false,assigned,remaining:s.occupied_containers==null?null:s.occupied_containers-assigned,rows};
-    const sections=rows.map(r=>{const low=r.filled*(r.pallets_min||0),high=r.filled*(r.pallets_max||0),needLow=r.filled?Math.ceil(low/r.target):0,needHigh=r.filled?Math.ceil(high/r.target):0;return {...r,low,high,needLow,needHigh,releaseLow:r.filled-needHigh,releaseHigh:r.filled-needLow};});
+    const sections=rows.map(r=>{const low=r.filled*(r.pallets_min||0),high=low,needLow=r.filled?Math.ceil(low/r.target):0,needHigh=r.filled?Math.ceil(high/r.target):0;return {...r,low,high,needLow,needHigh,releaseLow:r.filled-needHigh,releaseHigh:r.filled-needLow};});
     const needLow=sections.reduce((n,r)=>n+r.needLow,0),needHigh=sections.reduce((n,r)=>n+r.needHigh,0),freeLow=s.total_containers-needHigh,freeHigh=s.total_containers-needLow;
     const availability=sections.map(r=>({name:r.name,low:r.target>0?freeLow*r.target+r.needHigh*r.target-r.high:null,high:r.target>0?freeHigh*r.target+r.needLow*r.target-r.low:null}));
     return {complete:true,assigned,remaining:0,sections,needLow,needHigh,freeLow,freeHigh,releaseLow:assigned-needHigh,releaseHigh:assigned-needLow,initialFree:s.total_containers-assigned,availability};
@@ -57,7 +57,7 @@ window.BlocktexxStorage=(()=>{
     const s=model.storage||(model.storage={days_per_week:5,recovery:'absorbed'});
     if(s.total_containers!=null)s.minimum_containers=s.total_containers;
     s.containers_per_day=1;
-    s.sections=s.sections||{};names.forEach(name=>s.sections[name]=s.sections[name]||{});
+    s.sections=s.sections||{};names.forEach(name=>{s.sections[name]=s.sections[name]||{};s.sections[name].pallets_max=s.sections[name].pallets_min??null;});
     const a=sectionSummary(s),wasOpen=root.querySelector('details[data-settings]')?.open;
     root.replaceChildren(e('h2','Storage · retained contract and available space'),e('p','All containers stay in the storage contract. Repacking consolidates existing stock and releases space for more stock.','bx-muted'));
     metrics(root,[['Containers retained under contract',num(s.total_containers)],['Currently full',num(s.occupied_containers)],['Currently empty',s.total_containers!=null&&s.occupied_containers!=null?num(s.total_containers-s.occupied_containers):'Not set'],['Section allocation',num(a.assigned)+' / '+num(s.occupied_containers)]]);
@@ -70,10 +70,11 @@ window.BlocktexxStorage=(()=>{
     field(inputs,s,'monthly_rate','Contract rate per container per month (ex GST)',0,100000,.0001);
     field(inputs,s,'free_containers','Monthly free-container allowance',0,10000);
     settings.append(inputs,e('p','One working day to repack one source container. The monthly allowance reduces billing only; all contracted containers remain available.','bx-muted'));
-    names.forEach(name=>{const group=e('section',null,'bx-storage-section');group.append(e('h3',name));const grid=e('div',null,'bx-settings');field(grid,s.sections[name],'filled',name+' full containers',0,10000);field(grid,s.sections[name],'pallets_min',name+' current pallets minimum',1,10000);field(grid,s.sections[name],'pallets_max',name+' current pallets maximum',1,10000);field(grid,s.sections[name],'target',name+' pallets after repack',1,10000);group.append(grid);settings.append(group);});root.append(settings);
+    const allocation=e('div',null,'bx-settings');settings.append(e('h3','Full container allocation'));names.forEach(name=>field(allocation,s.sections[name],'filled',name+' full containers',0,10000));settings.append(allocation);
+    names.forEach(name=>{const group=e('section',null,'bx-storage-section');group.append(e('h3',name));const grid=e('div',null,'bx-settings');field(grid,s.sections[name],'pallets_min',name+' current pallets minimum',1,10000);field(grid,s.sections[name],'target',name+' pallets after repack',1,10000);group.append(grid);settings.append(group);});root.append(settings);
     const save=e('button','Save storage assumptions','primary');save.type='button';save.disabled=!a.complete;save.onclick=()=>document.getElementById('bx-save')?.click();root.append(save);
-    if(!a.complete)root.append(e('p',a.remaining==null?'Enter the overall container numbers and section breakdown.':a.remaining<0?'Section counts exceed the full-container total by '+num(-a.remaining)+'.':a.remaining>0?num(a.remaining)+' full containers still need a section. Enter NSW, BANYO and BAGS counts; they must match the total.':'Complete each section’s pallet range and repacked capacity.','bx-warning'));
-    table(root,['Section','Full containers','Current pallets / container','After repacking'],names.map(name=>{const r=s.sections[name];return [name,num(r.filled),r.pallets_min!=null&&r.pallets_max!=null?range(r.pallets_min,r.pallets_max):'Not set',num(r.target)];}));
+    if(!a.complete)root.append(e('p',a.remaining==null?'Enter the overall container numbers and section breakdown.':a.remaining<0?'Section counts exceed the full-container total by '+num(-a.remaining)+'.':a.remaining>0?num(a.remaining)+' full containers still need a section. Enter NSW, BANYO and BAGS counts; they must match the total.':'Complete each section’s current pallets and pallets after repack.','bx-warning'));
+    table(root,['Section','Current pallets / container','After repacking','Extra spaces / container'],names.map(name=>{const r=s.sections[name];return [name,num(r.pallets_min),num(r.target),r.pallets_min!=null&&r.target!=null?num(r.target-r.pallets_min):'Not set'];}));
     if(s.occupied_containers!=null){
       root.append(e('h3','Repacking cost and duration'));
       metrics(root,[['Source containers to repack',num(s.occupied_containers)],['Labour days · one per container',num(s.occupied_containers)],['Total repacking cost',s.repack_cost!=null?money(s.occupied_containers*s.repack_cost):'Set daily cost'],['At 5–6 containers per week',range(Math.ceil(s.occupied_containers/6),Math.ceil(s.occupied_containers/5))+' weeks']]);
@@ -85,11 +86,11 @@ window.BlocktexxStorage=(()=>{
     root.append(e('h3','Container breakdown after repacking'));
     table(root,['Section','Current full','Full after repacking','Containers released'],a.sections.map(r=>[r.name,num(r.filled),range(r.needLow,r.needHigh),range(r.releaseLow,r.releaseHigh)]).concat([['Total',num(s.occupied_containers),range(a.needLow,a.needHigh),range(a.releaseLow,a.releaseHigh)]]));
     metrics(root,[['Containers still contracted',num(s.total_containers)],['Existing stock after repacking',range(a.needLow,a.needHigh)+' containers'],['Empty containers available afterwards',range(a.freeLow,a.freeHigh)],['Extra empty containers created',range(a.releaseLow,a.releaseHigh)]]);
-    if(a.freeLow<0)root.append(e('p','At the high end of current stock, there is insufficient contracted capacity. Review the section pallet assumptions.','bx-warning'));
+    if(a.freeLow<0)root.append(e('p','There is insufficient contracted capacity for the entered current stock. Review the section pallet assumptions.','bx-warning'));
     root.append(e('h3','How much additional stock can fit?'));
     table(root,['If empty containers are used for…','Additional pallet spaces available'],a.availability.map(r=>[r.name,r.low==null?'Set repacked capacity':range(r.low,r.high)]));
     root.append(e('p','These are alternative uses of the same empty containers, not amounts to add together. Each includes spare pallet space in that section’s partially filled containers. A future mix can be allocated between sections.','bx-muted'));
-    root.append(e('p','Low–high estimates use the current pallet ranges. Containers are rounded up separately for NSW, BANYO and BAGS; stock is not mixed between sections. The lower availability figure is the conservative case. Repacking assumes unchanged stock and suitable staging space.','bx-muted'));
+    root.append(e('p','Availability uses the entered current pallets and pallets after repack. Containers are rounded up separately for NSW, BANYO and BAGS; stock is not mixed between sections. Repacking assumes unchanged stock and suitable staging space.','bx-muted'));
   }
   return {calculate,capacitySummary,sectionSummary,render};
 })();
