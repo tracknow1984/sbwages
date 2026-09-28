@@ -119,7 +119,25 @@
     apply.addEventListener('click',()=>{if(status.value==='verified'&&(!fields.evidence.value.trim()||r.km==null||r.drive_min==null)){alert('Enter distance, driving time and a measurement source/date before marking verified.');return;}if(fields.sequence.value!==r.sequence){r.km=null;r.drive_min=null;r.status='unmeasured';r.evidence='Sequence changed — remeasure route.';}else{r.status=status.value;r.evidence=fields.evidence.value;}['name','sequence','notes'].forEach(k=>r[k]=fields[k].value);r.site_ids=Array.from(sites.selectedOptions,o=>o.value);changed();renderRuns();renderSites();});
     cancel.addEventListener('click',()=>box.remove());remove.addEventListener('click',()=>{if(confirm('Remove this run from the draft?')){model.states[state].runs=model.states[state].runs.filter(x=>x.id!==r.id);changed();renderRuns();renderSites();}});actions.append(apply,cancel,remove);box.append(actions);tr.closest('.bx-scroll').after(box);box.scrollIntoView({block:'nearest'});
   }
+  function renderDecommQuestions(){
+    const panel=$('bx-decomm-questions'),answers=model.states[state].decomm_questions||(model.states[state].decomm_questions={});
+    panel.replaceChildren(el('h3',state+' · Questions for decomm partners'));
+    const questions=[
+      ['capacity','What capacity can the partner take on?','Record kg per delivery, kg per week and maximum material held on site.'],
+      ['turnaround','What is the turnaround to decommission the material?','Record kg processed per day/week and days from delivery until ready for collection.'],
+      ['frequency','What delivery and collection frequency should we plan for this state?','Record deliveries and collections per week, preferred days, minimum loads and booking notice.']
+    ];
+    questions.forEach(([key,title,hint])=>{
+      const label=el('label',title),input=el('textarea');label.style.display='block';label.style.marginBottom='16px';
+      input.rows=3;input.maxLength=2000;input.style.width='100%';input.style.boxSizing='border-box';input.placeholder=hint;input.value=answers[key]||'';input.setAttribute('aria-label',state+' · '+title);
+      const help=el('p',hint,'bx-muted');label.append(help,input);
+      input.addEventListener('input',()=>{answers[key]=input.value;dirty=true;generation++;saveStatus('Unsaved decomm answers — select Save answers.');});
+      panel.append(label);
+    });
+    const save=el('button','Save answers','primary');save.type='button';save.onclick=()=>$('bx-save').click();panel.append(save,el('p','Answers are saved separately for each state. Include the partner name if answers differ between partners.','bx-muted'));
+  }
   function renderSites() {
+    renderDecommQuestions();
     const assigned=new Set(model.states[state].runs.filter(r=>r.runs_4w!==0).flatMap(r=>r.site_ids));
     const table=el('table',null,'bx-customers'),thead=el('thead'),head=el('tr');
     ['Customer / address','Spreadsheet frequency','Model frequency','Visits / 4 weeks','Visits / month','Route plan / 4 weeks'].forEach(t=>head.append(el('th',t)));thead.append(head);table.append(thead);const body=el('tbody');

@@ -110,6 +110,12 @@ def validate_model(value):
         if not isinstance(data, dict):
             raise ValueError('Invalid state settings.')
         out = model['states'][state]
+        questions = data.get('decomm_questions', {})
+        if not isinstance(questions, dict):
+            raise ValueError('Decomm partner answers must be text fields.')
+        out['decomm_questions'] = {
+            key: text(questions.get(key, ''), 'Decomm ' + key, 2000)
+            for key in ('capacity', 'turnaround', 'frequency')}
         equipment = data.get('resource_equipment', {})
         if not isinstance(equipment, dict):
             raise ValueError('Resource equipment must contain equipment profiles.')
