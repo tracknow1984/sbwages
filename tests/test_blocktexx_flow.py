@@ -4,7 +4,7 @@ from blocktexx import empty_model, validate_model
 class FlowLayoutTests(unittest.TestCase):
     def test_positions_round_trip(self):
         model = empty_model()
-        model['process_flow_layout'] = {'dispatch': {'x': 50, 'y': 110}}
+        model['process_flow_layout'] = {'dispatch': {'x': 50, 'y': 110}, 'net_hold': {'x': 475, 'y': 740}}
         self.assertEqual(validate_model(model)['process_flow_layout'], model['process_flow_layout'])
         self.assertEqual(validate_model(empty_model())['process_flow_layout'], {})
 

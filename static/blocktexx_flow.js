@@ -33,16 +33,50 @@ window.BlocktexxFlow=(()=>{
     'If production is not yet required, North Maclean holds the stock and releases it when needed.',
     'Material goes to Blocktexx Loganholme either directly from Threadtexx or from North Maclean storage.'
   ];
+  const networkStages=[
+    ['net_vic','VIC','Victoria','Partner depot + contractor trucks\nLocal pickups & consolidation.','partner',30,50],
+    ['net_sa','SA','South Australia','Partner depot + contractor trucks\nLocal pickups & consolidation.','partner',475,50],
+    ['net_wa','WA','Western Australia','Partner depot + contractor trucks\nLocal pickups & consolidation.','partner',920,50],
+    ['net_threshold','01','Partner consolidation','Hold stock at each partner depot.\nDispatch when threshold is met.','partner',475,255],
+    ['net_nsw','NSW','New South Wales','SB Empire depot + company trucks\nLocal pickups & depot processing.','owned',30,255],
+    ['net_qld','QLD','Queensland','SB Empire depot + company trucks\nLocal pickups & depot processing.','owned',920,255],
+    ['net_sydney','02','Sydney consolidation','Receive partner-state stock.\nCombine with NSW stock.','transfer',30,490],
+    ['net_north','03','North to Brisbane','Hold for a full B-double load.\nLinehaul Sydney to Queensland.','transfer',475,490],
+    ['net_thread','04','Threadtexx · QLD','Receive stock ready for shredding.\nShred for production.','transfer',920,490],
+    ['net_hold','05','North Maclean','Hold shredded stock until\nproduction is required.','storage',475,740],
+    ['net_make','06','Blocktexx Loganholme','Receive shredded stock\nfor production.','production',920,740]
+  ];
+  const networkEdges=[
+    ['net_vic','net_threshold','b','t',''],['net_sa','net_threshold','b','t',''],['net_wa','net_threshold','b','t',''],
+    ['net_threshold','net_sydney','b','t','Threshold met → Sydney'],['net_nsw','net_sydney','b','t','NSW stock'],
+    ['net_sydney','net_north','r','l','Consolidated stock'],['net_north','net_thread','r','l','Full B-double'],
+    ['net_qld','net_thread','b','t','QLD local stock'],
+    ['net_thread','net_hold','b','t','Hold for later'],['net_thread','net_make','b','t','Ready for production'],
+    ['net_hold','net_make','r','l','Release when required']
+  ];
+  const networkCaptions=[
+    'Victoria uses a depot partner and contractor trucks for customer pickups. Stock is consolidated locally.',
+    'South Australia uses a depot partner and contractor trucks for customer pickups. Stock is consolidated locally.',
+    'Western Australia uses a depot partner and contractor trucks for customer pickups. Stock is consolidated locally.',
+    'Each partner depot holds stock until its dispatch threshold is reached. The threshold quantity and measure are still to be agreed.',
+    'NSW has SB Empire trucks and an SB Empire depot for the local collection and processing flow.',
+    'QLD has SB Empire trucks and an SB Empire depot. Local stock ready for shredding goes to Threadtexx without the interstate Sydney leg.',
+    'Partner-state stock travels to Sydney, where it is consolidated with NSW stock for the northbound movement.',
+    'Sydney holds the consolidated stock until a full B-double load is ready, then sends it north to Queensland.',
+    'Threadtexx receives the ready stock and shreds it. Collection, weighing, decommissioning and baling are explained in the Detailed process view.',
+    'Shredded material can be held at North Maclean and released when production is required.',
+    'Blocktexx Loganholme receives shredded stock directly from Threadtexx, or later from North Maclean storage.'
+  ];
   const svgNS='http://www.w3.org/2000/svg';
   const svg=(tag,attrs={},text)=>{const n=document.createElementNS(svgNS,tag);Object.entries(attrs).forEach(([k,v])=>n.setAttribute(k,v));if(text!=null)n.textContent=text;return n;};
   const html=(tag,text,cls)=>{const n=document.createElement(tag);if(text!=null)n.textContent=text;if(cls)n.className=cls;return n;};
   const clamp=(v,max)=>Math.max(8,Math.min(max-8,v));
-  function positions(saved={}){return Object.fromEntries(stages.map(([id,,,,,x,y])=>[id,{x:Number.isFinite(saved[id]?.x)?clamp(saved[id].x,W-BW):x,y:Number.isFinite(saved[id]?.y)?clamp(saved[id].y,H-BH):y}]));}
+  function positions(saved={},view='detail'){const source=view==='network'?networkStages:stages,height=view==='network'?900:H;return Object.fromEntries(source.map(([id,,,,,x,y])=>[id,{x:Number.isFinite(saved[id]?.x)?clamp(saved[id].x,W-BW):x,y:Number.isFinite(saved[id]?.y)?clamp(saved[id].y,height-BH):y}]));}
   function anchor(p,side){return {x:p.x+(side==='l'?0:side==='r'?BW:BW/2),y:p.y+(side==='t'?0:side==='b'?BH:BH/2)};}
-  function geometry(edge,layout){
+  function geometry(edge,layout,height=H){
     const [from,to,out,into]=edge,a=anchor(layout[from],out),b=anchor(layout[to],into);
     if(edge[5]==='bottom'){
-      const y=Math.min(H-22,Math.max(a.y,b.y)+65);
+      const y=Math.min(height-22,Math.max(a.y,b.y)+65);
       return {d:`M ${a.x} ${a.y} C ${a.x} ${y}, ${a.x} ${y}, ${a.x+30} ${y} L ${b.x-30} ${y} C ${b.x} ${y}, ${b.x} ${y}, ${b.x} ${b.y}`,x:(a.x+b.x)/2,y:y-10};
     }
     const horizontal=['l','r'].includes(out),gap=horizontal?Math.max(35,Math.abs(b.x-a.x)*.45):Math.max(35,Math.abs(b.y-a.y)*.45);
@@ -52,27 +86,30 @@ window.BlocktexxFlow=(()=>{
   }
   function render(root,model,onChange){
     root._dispose?.();root.replaceChildren();let timer=null,index=-1,drag=null;
-    let layout=positions(model.process_flow_layout);
+    const view=root._flowView||'network',network=view==='network',H=network?900:780;
+    const shownStages=network?networkStages:stages,shownEdges=network?networkEdges:edges,shownCaptions=network?networkCaptions:captions;
+    let layout=positions(model.process_flow_layout,view);
     const header=html('div',null,'bx-flow-header'),intro=html('div');
-    intro.append(html('p','SB EMPIRE × BLOCKTEXX','bx-flow-eyebrow'),html('h2','From collection to production'),html('p','One connected journey. Two pathways after shredding.','bx-flow-subtitle'));
+    intro.append(html('p','SB EMPIRE × BLOCKTEXX','bx-flow-eyebrow'),html('h2',network?'National collection & depot network':'From collection to production'),html('p',network?'Company operations in QLD & NSW. Partner operations in VIC, SA & WA.':'Collection, weighing, decommissioning, baling and production.','bx-flow-subtitle'));
     const controls=html('div',null,'bx-flow-controls');
     const button=(text,fn)=>{const b=html('button',text,'secondary');b.type='button';b.onclick=fn;controls.append(b);return b;};
+    [['network','National network'],['detail','Detailed process']].forEach(([key,label])=>{const tab=button(label,()=>{root._flowView=key;render(root,model,onChange);});tab.setAttribute('aria-pressed',String(view===key));});
     const play=button('Play walkthrough',()=>{if(timer){stop();return;}index=-1;advance();timer=setInterval(advance,5000);play.textContent='Pause walkthrough';});
-    button('Reset layout',()=>{stop();index=-1;nodeElements.forEach(({g})=>g.classList.remove('is-active'));edgeElements.forEach(({path})=>path.classList.remove('is-active'));caption.textContent='Drag any stage to arrange the flow. Arrows stay connected.';layout=positions();draw();persist();status.textContent='Default layout restored. Select Save layout to keep it.';});
+    button('Reset layout',()=>{stop();index=-1;nodeElements.forEach(({g})=>g.classList.remove('is-active'));edgeElements.forEach(({path})=>path.classList.remove('is-active'));caption.textContent='Drag any stage to arrange the flow. Arrows stay connected.';layout=positions({},view);draw();persist();status.textContent='Default layout restored. Select Save layout to keep it.';});
     button('Save layout',()=>{persist();document.getElementById('bx-save')?.click();});
     const full=button('Presentation view',async()=>{try{if(document.fullscreenElement===root)await document.exitFullscreen();else await root.requestFullscreen();}catch{status.textContent='Use your browser’s full-screen control to present this page.';}});
     header.append(intro,controls);root.append(header);
-    const legend=html('div',null,'bx-flow-legend');[['collection','Collection & decommissioning'],['transfer','Baling, linehaul & shredding'],['storage','Storage'],['production','Production']].forEach(([c,t])=>legend.append(html('span',t,'bx-flow-key '+c)));root.append(legend);
+    const legend=html('div',null,'bx-flow-legend');(network?[['owned','SB Empire depots & trucks'],['partner','Partner depots & contractor trucks'],['transfer','Consolidation & linehaul'],['storage','Storage'],['production','Production']]:[['collection','Collection & decommissioning'],['transfer','Baling, linehaul & shredding'],['storage','Storage'],['production','Production']]).forEach(([c,t])=>legend.append(html('span',t,'bx-flow-key '+c)));root.append(legend);
     const frame=html('div',null,'bx-flow-frame'),canvas=svg('svg',{viewBox:`0 0 ${W} ${H}`,class:'bx-flow-canvas','aria-label':'Blocktexx transport, decommissioning, storage and production process'});
-    canvas.append(svg('title',{},'Collection to production — draggable process stages'),svg('desc',{},'Follow stages 1 to 9, then either go directly to production or hold stock in North Maclean before production. Drag a stage to reposition it, or focus it and use arrow keys.'));
+    canvas.append(svg('title',{},'Collection to production — draggable process stages'),svg('desc',{},network?'VIC, SA and WA partner depots consolidate stock to a threshold, then send it through Sydney and north to Threadtexx. NSW and QLD use SB Empire depots and company trucks. Drag stages or use arrow keys to move.':'Follow stages 1 to 9, then either go directly to production or hold stock in North Maclean before production. Drag a stage to reposition it, or focus it and use arrow keys.'));
     const defs=svg('defs'),marker=svg('marker',{id:'bx-flow-arrow',viewBox:'0 0 10 10',refX:9,refY:5,markerWidth:7,markerHeight:7,orient:'auto-start-reverse'});marker.append(svg('path',{d:'M 0 0 L 10 5 L 0 10 z',fill:'#8195ac'}));defs.append(marker);canvas.append(defs);
     const lines=svg('g',{'aria-hidden':'true'}),nodes=svg('g');canvas.append(lines,nodes);frame.append(canvas);root.append(frame);
     const caption=html('p','Drag any stage to arrange the flow. Arrows stay connected.','bx-flow-caption');caption.setAttribute('aria-live','polite');root.append(caption);
     const status=html('p','Layout changes only the presentation; planner bookings and costs stay as entered.','bx-flow-status');status.setAttribute('role','status');root.append(status);
-    const edgeElements=edges.map(edge=>{const path=svg('path',{class:'bx-flow-edge','marker-end':'url(#bx-flow-arrow)'}),text=svg('text',{class:'bx-flow-edge-label','text-anchor':'middle'},edge[4]);lines.append(path,text);return {edge,path,text};});
-    const nodeElements=stages.map(([id,number,title,body,category])=>{
+    const edgeElements=shownEdges.map(edge=>{const path=svg('path',{class:'bx-flow-edge','marker-end':'url(#bx-flow-arrow)'}),text=svg('text',{class:'bx-flow-edge-label','text-anchor':'middle'},edge[4]);lines.append(path,text);return {edge,path,text};});
+    const nodeElements=shownStages.map(([id,number,title,body,category])=>{
       const g=svg('g',{class:'bx-flow-node '+category,tabindex:0,role:'button','aria-label':number+'. '+title+'. '+body.replace('\n',' ')+' Drag or use arrow keys to move.'});
-      g.append(svg('rect',{width:BW,height:BH,rx:12,class:'bx-flow-node-bg'}),svg('rect',{x:0,y:15,width:4,height:82,rx:2,class:'bx-flow-accent'}),svg('text',{x:18,y:25,class:'bx-flow-number'},number),svg('text',{x:48,y:25,class:'bx-flow-category'},category==='collection'?'LOCAL NETWORK':category==='transfer'?'CONSOLIDATION':category==='decision'?'DESTINATION':category.toUpperCase()),svg('text',{x:18,y:53,class:'bx-flow-title'},title));
+      g.append(svg('rect',{width:BW,height:BH,rx:12,class:'bx-flow-node-bg'}),svg('rect',{x:0,y:15,width:4,height:82,rx:2,class:'bx-flow-accent'}),svg('text',{x:18,y:25,class:'bx-flow-number'},number),svg('text',{x:number.length>2?62:48,y:25,class:'bx-flow-category'},category==='owned'?'SB EMPIRE':category==='partner'?'PARTNER NETWORK':category==='collection'?'LOCAL NETWORK':category==='transfer'?'CONSOLIDATION':category==='decision'?'DESTINATION':category.toUpperCase()),svg('text',{x:18,y:53,class:'bx-flow-title'},title));
       const copy=svg('text',{x:18,y:77,class:'bx-flow-copy'});body.split('\n').forEach((line,i)=>copy.append(svg('tspan',{x:18,dy:i?18:0},line)));g.append(copy);nodes.append(g);
       g.addEventListener('pointerdown',event=>{if(event.button!==0)return;stop();const p=point(event);if(!p)return;drag={id,dx:p.x-layout[id].x,dy:p.y-layout[id].y,moved:false};g.setPointerCapture(event.pointerId);g.classList.add('is-dragging');event.preventDefault();});
       g.addEventListener('pointermove',event=>{if(drag?.id!==id)return;const p=point(event);if(!p)return;layout[id]={x:clamp(p.x-drag.dx,W-BW),y:clamp(p.y-drag.dy,H-BH)};drag.moved=true;draw();});
@@ -82,10 +119,10 @@ window.BlocktexxFlow=(()=>{
       return {id,g};
     });
     function point(event){const matrix=canvas.getScreenCTM();if(!matrix)return null;return new DOMPoint(event.clientX,event.clientY).matrixTransform(matrix.inverse());}
-    function draw(){nodeElements.forEach(({id,g})=>g.setAttribute('transform',`translate(${layout[id].x} ${layout[id].y})`));edgeElements.forEach(({edge,path,text})=>{const p=geometry(edge,layout);path.setAttribute('d',p.d);text.setAttribute('x',p.x);text.setAttribute('y',p.y);});}
-    function persist(){model.process_flow_layout=Object.fromEntries(Object.entries(layout).map(([id,p])=>[id,{x:Math.round(p.x),y:Math.round(p.y)}]));onChange();}
+    function draw(){nodeElements.forEach(({id,g})=>g.setAttribute('transform',`translate(${layout[id].x} ${layout[id].y})`));edgeElements.forEach(({edge,path,text})=>{const p=geometry(edge,layout,H);path.setAttribute('d',p.d);text.setAttribute('x',p.x);text.setAttribute('y',p.y);});}
+    function persist(){model.process_flow_layout={...(model.process_flow_layout||{}),...Object.fromEntries(Object.entries(layout).map(([id,p])=>[id,{x:Math.round(p.x),y:Math.round(p.y)}]))};onChange();}
     function stop(){clearInterval(timer);timer=null;play.textContent='Play walkthrough';}
-    function advance(){index++;if(index>=stages.length){stop();index=-1;caption.textContent='Journey complete. Replay the walkthrough or rearrange the stages.';}else caption.textContent=captions[index];nodeElements.forEach(({g},i)=>g.classList.toggle('is-active',i===index));edgeElements.forEach(({edge,path})=>path.classList.toggle('is-active',index>=0&&edge[1]===stages[index][0]));}
+    function advance(){index++;if(index>=shownStages.length){stop();index=-1;caption.textContent='Journey complete. Replay the walkthrough or rearrange the stages.';}else caption.textContent=shownCaptions[index];nodeElements.forEach(({g},i)=>g.classList.toggle('is-active',i===index));edgeElements.forEach(({edge,path})=>path.classList.toggle('is-active',index>=0&&edge[1]===shownStages[index][0]));}
     const fullscreen=()=>{full.textContent=document.fullscreenElement===root?'Exit presentation':'Presentation view';};document.addEventListener('fullscreenchange',fullscreen);
     const saveStatus=document.getElementById('bx-save-status');
     const observer=saveStatus?new MutationObserver(()=>{status.textContent=saveStatus.textContent;}):null;
@@ -93,5 +130,5 @@ window.BlocktexxFlow=(()=>{
     root._dispose=()=>{stop();observer?.disconnect();document.removeEventListener('fullscreenchange',fullscreen);};
     root._pause=stop;draw();
   }
-  return {render,positions,geometry,stages,edges};
+  return {render,positions,geometry,stages,edges,networkStages,networkEdges};
 })();
