@@ -341,9 +341,6 @@ def create_app(test_config=None):
                 db().execute('DELETE FROM login_attempts WHERE key IN (?,?)', (key, ipkey))
                 db().commit()
                 return redirect(url_for('index'))
-            if audience == 'admin':
-                app.logger.warning('Admin sign-in diagnostic: account_present=%s active=%s password_match=%s',
-                                   bool(user), bool(user and user['status'] == 'active'), bool(user and matched))
             flash('Username or password is incorrect, or your account is inactive.', 'error')
         return render_template('login.html', audience=audience)
 
