@@ -7,7 +7,7 @@
   <p id="bx-save-status" role="status">{{ 'Saved model loaded.' if saved else 'Import the prepared collection data to begin, or enter your own runs.' }}</p>
   <details class="bx-card" id="bx-old-overview"><summary>View state intake summary</summary><div class="bx-overview" id="bx-overview"></div><button type="button" id="bx-open-weights" class="secondary">Sample weights and break-even scenarios · initial setup</button></details>
   <nav class="bx-state-tabs" aria-label="Collection state"><button type="button" id="bx-national-tab" aria-pressed="true">National Overview</button>{% for state in model.states %}<button type="button" data-state="{{ state }}" aria-pressed="false">{{ state }}</button>{% endfor %}</nav>
-  <nav class="bx-state-tabs" aria-label="State view"><button type="button" data-bx-pane="planner" aria-pressed="true">Local Planner</button><button type="button" data-bx-pane="decom" aria-pressed="false">Decom Planner</button><button type="button" data-bx-pane="resources" aria-pressed="false">Resources</button><button type="button" data-bx-pane="interstate" aria-pressed="false">Interstate transfers</button><button type="button" data-bx-pane="storage" aria-pressed="false">Storage</button></nav>
+  <nav class="bx-state-tabs" aria-label="State view"><button type="button" data-bx-pane="planner" aria-pressed="true">Local Planner</button><button type="button" data-bx-pane="decom" aria-pressed="false">Decom Planner</button><button type="button" data-bx-pane="production" aria-pressed="false">Production Planner</button><button type="button" data-bx-pane="resources" aria-pressed="false">Resources</button><button type="button" data-bx-pane="interstate" aria-pressed="false">Interstate transfers</button><button type="button" data-bx-pane="storage" aria-pressed="false">Storage</button></nav>
   <section id="bx-national" class="bx-card"></section>
   <section id="bx-storage" class="bx-card" hidden></section>
   <section id="bx-resources" class="bx-card" hidden>
@@ -53,14 +53,14 @@
 <script id="bx-data" type="application/json">{{ model | tojson }}</script>
 <script src="{{ url_for('static', filename='blocktexx_weights.js', v='storage-weekly-1') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_capacity.js', v='storage-weekly-1') }}" defer></script>
-<script src="{{ url_for('static', filename='blocktexx_planner.js', v='decom-planner-2') }}" defer></script>
-<script src="{{ url_for('static', filename='blocktexx_run_view.js', v='decom-planner-2') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx_planner.js', v='production-planner-1') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx_run_view.js', v='production-planner-1') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_resources.js', v='cost-model-1') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_consolidation.js', v='day-limit-1') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_costs.js', v='storage-weekly-1') }}" defer></script>
-<script src="{{ url_for('static', filename='blocktexx_movements.js', v='decom-planner-2') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx_movements.js', v='production-planner-1') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_interstate.js', v='interstate-rate-card-2') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_storage.js', v='storage-1') }}" defer></script>
-<script src="{{ url_for('static', filename='blocktexx_national.js', v='national-1') }}" defer></script>
-<script src="{{ url_for('static', filename='blocktexx.js', v='national-1') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx_national.js', v='production-planner-1') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx.js', v='production-planner-1') }}" defer></script>
 {% endblock %}

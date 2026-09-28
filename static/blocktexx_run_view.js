@@ -9,7 +9,7 @@ window.createBlocktexxRunView = function(getModel,getState,getPlans,onChange,get
     const model=getModel(),state=getState(),scope=getScope(),key=state+':'+scope,data=model.states[state],runs=window.BlocktexxPlannerScope.runs(data.runs,scope);
     host.replaceChildren();
     planner.render(host,model,state,selection[key],id=>{selection[key]=id;render();},onChange,getPlans(),scope);
-    if(scope==='decom' && !runs.length)return;
+    if(scope!=='local' && !runs.length)return;
     const r=runs.find(r=>r.id===selection[key]);
     if(!r){host.append(e('p','Select a run above to view its details.'));return;}
     const root=e('section',null,'bx-selected-run');host.append(root);
@@ -18,7 +18,7 @@ window.createBlocktexxRunView = function(getModel,getState,getPlans,onChange,get
       root.append(e('h3',r.name),e('p',window.BlocktexxActivityLabels?.[r.activity_type]||r.activity_type),
         e('p',r.origin+' → '+r.destination),e('p','Cargo: '+(r.cargo||'To confirm')+' · '+fmt(r.movement_kg)+' kg moved (not additional intake)'),
         e('p',fmt(r.km)+' km · '+fmt(['drive_min','service_min','depot_min','prep_min','wait_min','break_min'].some(k=>r[k]==null)?null:['drive_min','service_min','depot_min','prep_min','wait_min','break_min'].reduce((n,k)=>n+r[k],0)/60)+' hours'),
-        e('p','Included in local day hours and state costs. Verify this cargo fits the vehicle; collection switch-out planning does not apply.','bx-warning'));
+        e('p','Included in shared day hours and state costs. Verify this cargo fits the vehicle; collection switch-out planning does not apply.','bx-warning'));
       const edit=e('button','Edit movement','secondary');edit.type='button';edit.onclick=()=>document.dispatchEvent(new CustomEvent('bx-edit-movement',{detail:r.id}));root.append(edit);return;
     }
     const sites=r.site_ids.map(id=>model.sites.find(s=>s.id===id)).filter(Boolean);

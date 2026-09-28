@@ -11,7 +11,7 @@ window.createBlocktexxMovements=function(getModel,getState,onChange,getScope=()=
   const existing=editing?data.runs.find(r=>r.id===editing):null;
   root.replaceChildren();
   const details=e('details');details.open=!!existing;details.className='bx-card';
-  details.append(e('summary',existing?'Edit movement':decom?'Add decom delivery / collection':'Add Threadtexx / Blocktexx / storage movement'));
+  details.append(e('summary',existing?'Edit movement':decom?'Add decom delivery / collection':'Add production movement · storage / Threadtexx / Blocktexx'));
   const form=e('form'),grid=e('div');grid.className='bx-settings';const inputs={};
   function field(key,label,value,type='text',options){
    const l=e('label',label),input=e(options?'select':'input');
@@ -41,7 +41,8 @@ window.createBlocktexxMovements=function(getModel,getState,onChange,getScope=()=
   }
   inputs.activity_type.onchange=defaults;inputs.partner_id.onchange=defaults;
   if(!existing)defaults();else {inputs.partner_id.disabled=!['deliver_decomm','collect_decomm'].includes(existing.activity_type);inputs.partner_id.required=!inputs.partner_id.disabled;}
-  form.append(grid,e('p','Enter the actual origin, destination and cargo. Include each leg only once: collection runs may already include a depot return. Downstream cargo requires a separate load-capacity check; customer switch-out counts are not reused.'));
+  if(!decom)inputs.partner_id.parentElement.hidden=true;
+  form.append(grid,e('p','Enter the actual origin, destination and cargo. Plan storage → Threadtexx, then a separate return to storage or onward delivery to Blocktexx. Include each leg only once: collection runs may already include a depot return. Downstream cargo requires a separate load-capacity check; customer switch-out counts are not reused.'));
   const error=e('p');error.className='bx-warning';error.setAttribute('role','status');
   const save=e('button',existing?'Update movement draft':'Add movement to Needs allocation');save.type='submit';save.className='primary';
   form.onsubmit=event=>{
