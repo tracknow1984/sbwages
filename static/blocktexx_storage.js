@@ -75,9 +75,6 @@ window.BlocktexxStorage=(()=>{
     const cashRange=(low,high)=>low==null?'Complete assumptions':low===high?money(low):money(low)+'–'+money(high);
     table(root,['Section','Current cost / pallet','After repack / pallet','Saving / pallet'],f.sections.map(r=>[r.name,cashRange(r.currentLow,r.currentHigh),r.after==null?'Complete assumptions':money(r.after),cashRange(r.savingLow,r.savingHigh)]));
     root.append(e('p','Contract rate ÷ pallets per container. Current costs use the minimum–maximum pallet range; after-repack costs assume the new pallet capacity is fully used. Rates are before the shared free-container allowance. These are unit-cost savings as capacity is used; the retained monthly bill stays the same.','bx-muted'));
-    root.append(e('h3','Dollar value of space freed by repacking'));
-    table(root,['Section','Capacity value / month','Capacity value / year','One-off repack cost'],f.sections.map(r=>[r.name,cashRange(r.valueLow,r.valueHigh),cashRange(r.valueLow==null?null:r.valueLow*12,r.valueHigh==null?null:r.valueHigh*12),money(r.repack)]).concat([['Total',cashRange(f.valueLow,f.valueHigh),cashRange(f.valueLow==null?null:f.valueLow*12,f.valueHigh==null?null:f.valueHigh*12),money(f.repack)]]));
-    root.append(e('p','Capacity value = whole containers released × the contract rate. It values additional space within the existing lease, not a cash saving or a reduction in rent. Annual values assume that space is available for a full year after repacking. Existing empty containers are excluded. Repack costs use one labour day per source container.','bx-muted'));
   }
   function allocatedCapacity(s){
     const rows=names.map(name=>{
