@@ -38,3 +38,13 @@ const visible=window.BlocktexxPlannerScope.runs(states.QLD.runs,'decom');visible
 assert.equal(model.states.QLD.runs[1].planner_slots[0].day,2);
 assert.equal(model.states.QLD.runs.length,4);
 console.log('Decom/Local planner rendering passed across all four states; shared hours and single movement records preserved.');
+
+for(const state of Object.keys(states)){
+ const empty={states:{[state]:{runs:[local,stored]}},sites:[]};
+ const root=new Element('section');planner.render(root,empty,state,null,()=>{},()=>{},null,'decom');
+ assert.ok(root.text.includes('No decom movements added for '+state));
+ assert.ok(root.text.includes('Week 4'));
+ for(const forbidden of ['Local customer collection','Storage return','financial analysis','spare','allocated','kg'])assert.ok(!root.text.includes(forbidden),forbidden);
+ assert.equal(empty.states[state].runs.length,2);
+}
+console.log('Empty decom calendars show no local data, hours or finances in every state.');

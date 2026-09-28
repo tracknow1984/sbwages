@@ -49,6 +49,21 @@ window.createBlocktexxPlanner = function() {
     const key=state+':'+scope;
     const config=settings[key]||(settings[key]={category:'Weekly',span:4,start:1,all:true});
     const runs=model.states[state].runs,sites=model.sites,scopedRuns=window.BlocktexxPlannerScope.runs(runs,scope);
+    if(scope==='decom' && !scopedRuns.length){
+      config.dayOpen=false;config.allocateId=null;config.financePeriod=null;
+      if(popup)popup.hidden=true;
+      if(allocationPopup)allocationPopup.hidden=true;
+      document.body.classList.remove('bx-popup-open');
+      root.append(e('h2',state+' · Decom Planner'),e('p','No decom movements added for '+state+'. Add a decom delivery or collection below to start planning.','bx-muted'));
+      const wrap=e('div',null,'bx-scroll'),table=e('table',null,'bx-planner-grid'),head=e('tr');
+      ['Week',...days.slice(0,5)].forEach(label=>head.append(e('th',label)));table.append(head);
+      for(let week=1;week<=4;week++){
+        const row=e('tr');row.append(e('th','Week '+week));
+        for(let day=0;day<5;day++)row.append(e('td','—','bx-muted'));
+        table.append(row);
+      }
+      wrap.append(table);root.append(wrap);return;
+    }
     const refresh=()=>onSelect(selected);
     function openAllocation(run, target) {
       config.dayOpen=false;config.allocateId=run.id;config.allocationDraft=null;

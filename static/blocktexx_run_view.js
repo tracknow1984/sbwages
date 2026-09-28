@@ -9,6 +9,7 @@ window.createBlocktexxRunView = function(getModel,getState,getPlans,onChange,get
     const model=getModel(),state=getState(),scope=getScope(),key=state+':'+scope,data=model.states[state],runs=window.BlocktexxPlannerScope.runs(data.runs,scope);
     host.replaceChildren();
     planner.render(host,model,state,selection[key],id=>{selection[key]=id;render();},onChange,getPlans(),scope);
+    if(scope==='decom' && !runs.length)return;
     const r=runs.find(r=>r.id===selection[key]);
     if(!r){host.append(e('p','Select a run above to view its details.'));return;}
     const root=e('section',null,'bx-selected-run');host.append(root);

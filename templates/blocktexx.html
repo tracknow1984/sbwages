@@ -28,7 +28,7 @@
   <section id="bx-run-view" class="bx-card"></section>
   <section id="bx-movements"></section>
 <details class="bx-card" data-local-only><summary>Consolidate nearby runs</summary><section id="bx-consolidation"></section></details>
-  <details class="bx-card" id="bx-state-costs"><summary>View / hide state cost modelling</summary><div class="bx-section-head"><h2 id="bx-state-title">State settings</h2><span id="bx-depot-status"></span></div>
+  <details class="bx-card" id="bx-state-costs" data-local-only><summary>View / hide state cost modelling</summary><div class="bx-section-head"><h2 id="bx-state-title">State settings</h2><span id="bx-depot-status"></span></div>
     <div id="bx-settings" class="bx-settings"></div>
     <details><summary>Previous aggregate pricing</summary><div id="bx-legacy-costs" class="bx-settings"></div></details>
     <div id="bx-cost-inputs"></div>
@@ -37,7 +37,7 @@
     <p id="bx-cost-save-status" role="status"></p>
     <p id="bx-state-notes" class="bx-muted"></p>
   </details>
-  <details class="bx-card"><summary>View / hide state totals and costs</summary><div id="bx-metrics" class="bx-metrics"></div></details>
+  <details class="bx-card" data-local-only><summary>View / hide state totals and costs</summary><div id="bx-metrics" class="bx-metrics"></div></details>
   <details class="bx-card" data-local-only><summary>View / hide truck settings and all load plans</summary><section id="bx-capacity"></section></details>
   <details class="bx-card" id="bx-all-runs"><summary id="bx-runs-label">View / edit all local runs and movements</summary><div class="bx-section-head"><div><h2 id="bx-runs-title">Local runs and movements</h2><p>Collection rows retain their full route. Add downstream legs separately only when they are not already included. Detailed contractor pricing groups activities on the same day before applying minimum hours.</p></div><button type="button" id="bx-add" class="secondary no-print">Add run</button></div>
     <p class="bx-muted">Four-week cycle × 13 ÷ 12 = average calendar month. Breaks increase elapsed time but are excluded from working and billable hours. Group multiple same-day trips in one row.</p>
@@ -52,13 +52,13 @@
 <script id="bx-data" type="application/json">{{ model | tojson }}</script>
 <script src="{{ url_for('static', filename='blocktexx_weights.js', v='storage-weekly-1') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_capacity.js', v='storage-weekly-1') }}" defer></script>
-<script src="{{ url_for('static', filename='blocktexx_planner.js', v='decom-planner-1') }}" defer></script>
-<script src="{{ url_for('static', filename='blocktexx_run_view.js', v='decom-planner-1') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx_planner.js', v='decom-planner-2') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx_run_view.js', v='decom-planner-2') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_resources.js', v='cost-model-1') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_consolidation.js', v='day-limit-1') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_costs.js', v='storage-weekly-1') }}" defer></script>
-<script src="{{ url_for('static', filename='blocktexx_movements.js', v='decom-planner-1') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx_movements.js', v='decom-planner-2') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_interstate.js', v='interstate-rate-card-2') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_storage.js', v='storage-1') }}" defer></script>
-<script src="{{ url_for('static', filename='blocktexx.js', v='decom-planner-1') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx.js', v='decom-planner-2') }}" defer></script>
 {% endblock %}
