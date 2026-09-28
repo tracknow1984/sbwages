@@ -20,7 +20,7 @@ def transport_model():
 class InterstateTests(unittest.TestCase):
     def test_round_trip_and_costs_do_not_add_intake(self):
         m=validate_model(transport_model())
-        self.assertEqual(len(m['interstate']['lanes']),4)
+        self.assertEqual(len(m['interstate']['lanes']),9)
         s=interstate_summary(m['interstate'])
         lane=s['lanes']['sydney_brisbane_bdouble']
         self.assertEqual(lane['rate'],4475)

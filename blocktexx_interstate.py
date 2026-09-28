@@ -1,18 +1,41 @@
 """Independent interstate freight cost centre; no stock added to intake kilograms."""
-import math
+import copy
+import json
+import os
 
 LANES = {
-    'sydney_brisbane_bdouble': ('Sydney → Brisbane · B-double', 'NSW'),
-    'melbourne_brisbane_bdouble': ('Melbourne → Brisbane · B-double', 'VIC'),
-    'sydney_brisbane_semi': ('Sydney → Brisbane · Semi', 'NSW'),
-    'melbourne_brisbane_semi': ('Melbourne → Brisbane · Semi', 'VIC'),
+    'sydney_brisbane_bdouble': ('Wetherill Park NSW → Brisbane · B-double', 'NSW'),
+    'sydney_adelaide_bdouble': ('Wetherill Park NSW → Wingfield SA · B-double', 'NSW'),
+    'melbourne_sydney_bdouble': ('Laverton VIC → Wetherill Park NSW · B-double', 'VIC'),
+    'melbourne_adelaide_bdouble': ('Laverton VIC → Wingfield SA · B-double', 'VIC'),
+    'melbourne_brisbane_bdouble': ('Laverton VIC → Brisbane · B-double', 'VIC'),
+    'sydney_melbourne_semi': ('Wetherill Park NSW → Laverton VIC · Single', 'NSW'),
+    'melbourne_brisbane_semi': ('Laverton VIC → Brisbane · Single', 'VIC'),
+    'melbourne_adelaide_semi': ('Laverton VIC → Wingfield SA · Single', 'VIC'),
+    'sydney_brisbane_semi': ('Sydney → Brisbane · Semi (additional lane)', 'NSW'),
 }
+QUOTED_LANES = tuple(key for key in LANES if key != 'sydney_brisbane_semi')
 RATE_FIELDS = ('base_trip', 'fuel_pct', 'tolls_trip', 'other_trip', 'payload_kg')
 
 
 def validate_interstate(raw, number, text):
     if not isinstance(raw, dict) or not isinstance(raw.get('lanes', {}), dict):
         raise ValueError('Invalid interstate cost centre.')
+    raw = copy.deepcopy(raw)
+    version = number(raw.get('rates_version', 0), 'Interstate rates version', 1)
+    # Commercial defaults are private deployment configuration, not public source.
+    configured = os.environ.get('BLOCKTEXX_INTERSTATE_DEFAULTS_JSON')
+    if configured and version == 0:
+        defaults = json.loads(configured)
+        for key in QUOTED_LANES:
+            lane = raw.setdefault('lanes', {}).setdefault(key, {})
+            lane.update(base_trip=defaults['base_rates'][key], fuel_pct=defaults['fuel_pct'])
+            for field in ('tolls_trip', 'other_trip'):
+                if lane.get(field) is None:
+                    lane[field] = 0
+        raw['mainfreight_base_total'] = defaults['mainfreight_base_total']
+        version = 1
+    comparison = number(raw.get('mainfreight_base_total'), 'Mainfreight total base rates', 10000000, True)
     lanes = {}
     for key in LANES:
         source = raw.get('lanes', {}).get(key, {})
@@ -42,7 +65,7 @@ def validate_interstate(raw, number, text):
         if capacity is not None and item['kg_trip'] is not None and item['kg_trip'] > capacity:
             raise ValueError('Interstate load exceeds the configured payload for ' + LANES[item['lane_id']][0])
         bookings.append(item)
-    return {'lanes': lanes, 'bookings': bookings}
+    return {'lanes': lanes, 'bookings': bookings, 'rates_version': version, 'mainfreight_base_total': comparison}
 
 
 def interstate_summary(data):

@@ -1,0 +1,17 @@
+const assert=require('node:assert/strict');
+global.window={};require('../static/blocktexx_interstate.js');
+const api=window.BlocktexxInterstate,model={};
+const data=api.ensure(model);
+const ids=Object.keys(api.lanes).filter(id=>id!=='sydney_brisbane_semi');
+ids.forEach(id=>Object.assign(data.lanes[id],{base_trip:100,fuel_pct:20,tolls_trip:0,other_trip:0}));
+data.mainfreight_base_total=1000;
+assert.deepEqual(api.comparison(data),{base:800,fuel:160,total:960,competitor:1000,saving:200});
+data.bookings=[{lane_id:ids[0],trips:2,kg_trip:1000}];
+assert.equal(api.calculate(data).cost_4w,240);
+data.lanes[ids[0]].base_trip=200;
+assert.equal(api.calculate(data).cost_4w,480);
+assert.equal(api.comparison(data).saving,100);
+data.lanes[ids[0]].base_trip=null;
+assert.equal(api.comparison(data).total,null);
+assert.equal(api.calculate(data).cost_4w,null);
+console.log('Interstate route calculation and comparison checks passed');

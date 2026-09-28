@@ -421,6 +421,22 @@ def register_blocktexx(app, db, require):
         else:
             db().rollback()
 
+    # Persist the first configured rate card once, retaining an auditable prior revision.
+    if os.environ.get('BLOCKTEXX_INTERSTATE_DEFAULTS_JSON'):
+        with app.app_context():
+            db().execute('BEGIN IMMEDIATE')
+            row = db().execute('SELECT * FROM blocktexx_model WHERE id=1').fetchone()
+            if row and json.loads(row['data']).get('interstate', {}).get('rates_version', 0) == 0:
+                payload = json.dumps(validate_model(json.loads(row['data'])), allow_nan=False)
+                revision = row['revision'] + 1
+                now = datetime.now(timezone.utc).isoformat()
+                db().execute('UPDATE blocktexx_model SET revision=?,data=?,updated_at=? WHERE id=1', (revision, payload, now))
+                db().execute('INSERT INTO blocktexx_model_history VALUES(?,?,?,?)', (revision, payload, row['updated_by'], now))
+                db().commit()
+                app.logger.info('Blocktexx interstate rate card initialized at revision %s.', revision)
+            else:
+                db().rollback()
+
     # Apply an explicitly configured, one-time depot correction to the saved model.
     # Operational addresses remain in private deployment configuration, not source.
     depot_update = os.environ.get('BLOCKTEXX_DEPOT_UPDATE_JSON')
@@ -459,7 +475,7 @@ def register_blocktexx(app, db, require):
 
     def current():
         row = db().execute('SELECT * FROM blocktexx_model WHERE id=1').fetchone()
-        return (validate_model(json.loads(row['data'])), row['revision'], row['updated_at']) if row else (empty_model(), 0, None)
+        return (validate_model(json.loads(row['data'])), row['revision'], row['updated_at']) if row else (validate_model(empty_model()), 0, None)
 
     @app.get('/admin/blocktexx')
     @require('admin')
