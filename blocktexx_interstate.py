@@ -11,17 +11,34 @@ LANES = {
     'melbourne_brisbane_bdouble': ('Laverton VIC → Brisbane · B-double', 'VIC'),
     'sydney_melbourne_semi': ('Wetherill Park NSW → Laverton VIC · Single', 'NSW'),
     'melbourne_brisbane_semi': ('Laverton VIC → Brisbane · Single', 'VIC'),
-    'melbourne_adelaide_semi': ('Laverton VIC → Wingfield SA · Single', 'VIC'),
+    'melbourne_adelaide_semi': ('Laverton VIC → Wingfield SA · Semi', 'VIC'),
+    'adelaide_melbourne_semi': ('Wingfield SA → Laverton VIC · Semi', 'SA'),
     'sydney_brisbane_semi': ('Sydney → Brisbane · Semi (additional lane)', 'NSW'),
 }
 QUOTED_LANES = tuple(key for key in LANES if key != 'sydney_brisbane_semi')
+REVERSE_SEMI = 'melbourne_adelaide_semi'
+SA_VIC_SEMI = 'adelaide_melbourne_semi'
 RATE_FIELDS = ('base_trip', 'fuel_pct', 'tolls_trip', 'other_trip', 'payload_kg')
+
+
+def add_sa_vic_semi_rate(model):
+    """Seed the new editable direction once from the existing reverse lane."""
+    lanes = model.setdefault('interstate', {}).setdefault('lanes', {})
+    if SA_VIC_SEMI in lanes:
+        return False
+    reverse = lanes.get(REVERSE_SEMI, {})
+    lanes[SA_VIC_SEMI] = {field: reverse.get(field) for field in RATE_FIELDS}
+    return True
 
 
 def validate_interstate(raw, number, text):
     if not isinstance(raw, dict) or not isinstance(raw.get('lanes', {}), dict):
         raise ValueError('Invalid interstate cost centre.')
     raw = copy.deepcopy(raw)
+    lane_data = raw.setdefault('lanes', {})
+    if SA_VIC_SEMI not in lane_data:
+        reverse = lane_data.get(REVERSE_SEMI, {})
+        lane_data[SA_VIC_SEMI] = {field: reverse.get(field) for field in RATE_FIELDS}
     version = number(raw.get('rates_version', 0), 'Interstate rates version', 1)
     # Commercial defaults are private deployment configuration, not public source.
     configured = os.environ.get('BLOCKTEXX_INTERSTATE_DEFAULTS_JSON')
@@ -29,7 +46,7 @@ def validate_interstate(raw, number, text):
         defaults = json.loads(configured)
         for key in QUOTED_LANES:
             lane = raw.setdefault('lanes', {}).setdefault(key, {})
-            lane.update(base_trip=defaults['base_rates'][key], fuel_pct=defaults['fuel_pct'])
+            lane.update(base_trip=defaults['base_rates'].get(key, defaults['base_rates'][REVERSE_SEMI]), fuel_pct=defaults['fuel_pct'])
             for field in ('tolls_trip', 'other_trip'):
                 if lane.get(field) is None:
                     lane[field] = 0
