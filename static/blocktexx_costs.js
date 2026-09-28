@@ -168,7 +168,7 @@ window.BlocktexxCosts = (() => {
   }
   function renderDailySummary(root,data,week,day,onChange,sites=[]) {
     const d=dailySummary(data,week,day,sites),cards=e('div',null,'bx-metrics');
-    [['Planned pickup kg',kgText(d)],[d.provisional?'Known daily costs':'Total daily cost',money(d.cost)],['Daily cost / kg',summaryRateText(d)]].forEach(([label,value])=>{const card=e('div',label);card.append(e('strong',value));cards.append(card);});root.append(cards);renderCostWarning(root,d);renderBreakEven(root,data,d);
+    [['Planned pickup kg',kgText(d)],[d.provisional?'Known daily costs':'Total daily cost',money(d.cost)],['Daily cost / kg',summaryRateText(d)]].forEach(([label,value])=>{const card=e('div',label);card.append(e('strong',value));cards.append(card);});root.append(cards);renderCostWarning(root,d);
     root.append(e('p','Calendar weights use historical averages unless overridden. Enter net material kg for each pickup below, excluding container weight. Costs include every local movement and 1/7 of weekly overheads; transferred material is not counted again.','bx-muted'));
     const schedule=window.createBlocktexxPlanner();
     data.runs.filter(r=>!r.activity_type||r.activity_type==='collection').forEach(r=>{
@@ -188,10 +188,6 @@ window.BlocktexxCosts = (() => {
     return {target:summary.complete&&summary.cost!=null&&rate>0?summary.cost/rate:null,
       revenue:!summary.missing&&rate!=null?summary.kg*rate:null,
       result:ready&&rate!=null?summary.kg*rate-summary.cost:null};
-  }
-  function renderBreakEven(root,data,summary){
-    const b=breakEven(data,summary),cards=e('div',null,'bx-metrics');
-    [['Selling rate / kg',data.selling_per_kg==null?'Enter in sample scenarios':rateText(data.selling_per_kg)],['Break-even kg',b.target==null?'Set costs and selling rate':fmt(b.target)+' kg'],['Revenue',money(b.revenue)],['Surplus / shortfall',money(b.result)],['Additional kg to break even',b.target==null||summary.missing?'Incomplete':fmt(Math.max(0,b.target-summary.kg))+' kg']].forEach(([label,value])=>{const card=e('div',label);card.append(e('strong',value));cards.append(card);});root.append(cards);
   }
   function showPeriodReport(data,state,week,onClose,plans,sites) {
     let backdrop=document.getElementById('bx-finance-popup');
@@ -214,7 +210,7 @@ window.BlocktexxCosts = (() => {
     const demandGaps=(sites||[]).filter(s=>s.state===state&&s.visits_4w!=null&&Math.abs(s.visits_4w-data.runs.filter(r=>r.site_ids.includes(s.id)).reduce((n,r)=>n+(r.runs_4w||0),0))>.001);
     if(unresolved.length||demandGaps.length)content.append(e('p',unresolved.length+' runs need truck capacity/time review; '+demandGaps.length+' customer frequencies differ from the route plan. These are planning estimates.','bx-warning'));
     const summary=periodSummary(data,week,sites),metrics=e('div',null,'bx-metrics');
-    [['Planned pickup kg',kgText(summary)],[summary.provisional?'Known period costs':'Total period cost',money(summary.cost)],['Cost per planned pickup kg',summaryRateText(summary)]].forEach(([label,value])=>{const card=e('div',label);card.append(e('strong',value));metrics.append(card);});content.append(metrics);renderCostWarning(content,summary);renderBreakEven(content,data,summary);
+    [['Planned pickup kg',kgText(summary)],[summary.provisional?'Known period costs':'Total period cost',money(summary.cost)],['Cost per planned pickup kg',summaryRateText(summary)]].forEach(([label,value])=>{const card=e('div',label);card.append(e('strong',value));metrics.append(card);});content.append(metrics);renderCostWarning(content,summary);
     const dailyWrap=e('div',null,'bx-scroll'),dailyTable=e('table',null,'bx-resource-table'),dailyHead=e('tr');
     ['Day','Net kg picked up','Known daily costs','Cost / kg'].forEach(t=>dailyHead.append(e('th',t)));dailyTable.append(dailyHead);
     summary.days.forEach(d=>{const row=e('tr');['Week '+d.week+' '+['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][d.day],kgText(d),money(d.cost),summaryRateText(d)].forEach(t=>row.append(e('td',t)));dailyTable.append(row);});dailyWrap.append(dailyTable);content.append(dailyWrap);
@@ -228,8 +224,7 @@ window.BlocktexxCosts = (() => {
     if(week==null)append('Average calendar month · four weeks × 13 ÷ 12',c.totals.map(v=>v==null?null:v*13/12));
     wrap.append(table);content.append(wrap);
     content.append(e('p','AUD excluding GST. Monthly staff and overhead budgets are allocated at monthly × 12 ÷ 52 per week, including quiet weeks. Fuel is a budget allocation, not measured fuel usage. Contractor charges use only this period’s scheduled days and hours, with daily minimums and demurrage applied once per day.','bx-muted'),
-      e('p','Blank prices remain incomplete. Uses current on-screen figures, including unsaved edits. Entered local transport movements are included. Container purchases/rental and processing/shredding fees are excluded unless included in Other costs. Interstate freight is shown in its separate cost centre.','bx-muted'),
-      e('p','Surplus / shortfall is scenario revenue less the selected local costs. It is not whole-contract profit. Higher loads may require additional truck time and cost.','bx-muted'));
+      e('p','Blank prices remain incomplete. Uses current on-screen figures, including unsaved edits. Entered local transport movements are included. Container purchases/rental and processing/shredding fees are excluded unless included in Other costs. Interstate freight is shown in its separate cost centre.','bx-muted'));
     dialog.append(content);backdrop.replaceChildren(dialog);document.body.classList.add('bx-popup-open');
     backdrop.onpointerdown=event=>{if(event.target===backdrop)dismiss();};
     backdrop.onkeydown=event=>{
