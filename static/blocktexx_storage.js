@@ -79,6 +79,28 @@ window.BlocktexxStorage=(()=>{
     table(root,['Section','Capacity value / month','Capacity value / year','One-off repack cost'],f.sections.map(r=>[r.name,cashRange(r.valueLow,r.valueHigh),cashRange(r.valueLow==null?null:r.valueLow*12,r.valueHigh==null?null:r.valueHigh*12),money(r.repack)]).concat([['Total',cashRange(f.valueLow,f.valueHigh),cashRange(f.valueLow==null?null:f.valueLow*12,f.valueHigh==null?null:f.valueHigh*12),money(f.repack)]]));
     root.append(e('p','Capacity value = whole containers released × the contract rate. It values additional space within the existing lease, not a cash saving or a reduction in rent. Annual values assume that space is available for a full year after repacking. Existing empty containers are excluded. Repack costs use one labour day per source container.','bx-muted'));
   }
+  function allocatedCapacity(s){
+    const rows=names.map(name=>{
+      const r=s.sections?.[name]||{},capacity=r.filled!=null&&r.target>0?r.filled*r.target:null;
+      const valid=capacity!=null&&r.pallets_min>0&&r.pallets_max>=r.pallets_min;
+      return {name,filled:r.filled,target:r.target,capacity,
+        availableLow:valid?capacity-r.filled*r.pallets_max:null,
+        availableHigh:valid?capacity-r.filled*r.pallets_min:null};
+    });
+    const complete=sectionSummary(s).complete&&rows.every(r=>r.capacity!=null&&r.availableLow!=null);
+    return {rows,complete,capacity:complete?rows.reduce((n,r)=>n+r.capacity,0):null,
+      availableLow:complete?rows.reduce((n,r)=>n+r.availableLow,0):null,
+      availableHigh:complete?rows.reduce((n,r)=>n+r.availableHigh,0):null};
+  }
+  function renderAllocatedCapacity(root,s){
+    const c=allocatedCapacity(s);
+    root.append(e('h3','Storage capacity by section after repacking'));
+    const available=(low,high)=>low==null?'Complete assumptions':range(low,high)+' pallet spaces';
+    const rows=c.rows.map(r=>[r.name,r.capacity==null?'Set count and capacity':num(r.filled)+' × '+num(r.target),r.capacity==null?'Not set':num(r.capacity)+' pallets',available(r.availableLow,r.availableHigh)]);
+    rows.push(['Total',c.complete?num(s.occupied_containers)+' allocated containers':'Complete section allocation',c.capacity==null?'Not set':num(c.capacity)+' pallets',available(c.availableLow,c.availableHigh)]);
+    table(root,['Section','Containers × pallets after repack','Total pallet capacity','Available after current stock'],rows);
+    root.append(e('p','Each section keeps its entered container allocation. Available space = repacked capacity less the current stock range. Existing empty containers outside these section counts are additional and are excluded from this total. This is another view of the same storage space; do not add it to the availability figures below.','bx-muted'));
+  }
   function render(root,model,onChange){
     const s=model.storage||(model.storage={days_per_week:5,recovery:'absorbed'});
     if(s.total_containers!=null)s.minimum_containers=s.total_containers;
@@ -116,6 +138,7 @@ window.BlocktexxStorage=(()=>{
     if(s.total_containers!=null&&s.monthly_rate!=null&&s.free_containers!=null){
       const billed=Math.max(0,s.total_containers-s.free_containers);root.append(e('p','Retained contract: '+num(s.total_containers)+' containers · '+num(billed)+' billed after '+num(s.free_containers)+' free · '+money(cents(billed*s.monthly_rate))+' per month ex GST. Repacking does not reduce the contracted container count.','bx-muted'));
     }
+    renderAllocatedCapacity(root,s);
     renderFinancials(root,s);
     if(!a.complete)return;
     root.append(e('h3','Container breakdown after repacking'));
@@ -127,5 +150,5 @@ window.BlocktexxStorage=(()=>{
     root.append(e('p','These are alternative uses of the same empty containers, not amounts to add together. Each includes spare pallet space in that section’s partially filled containers. A future mix can be allocated between sections.','bx-muted'));
     root.append(e('p','Low–high estimates use the current pallet ranges. Containers are rounded up separately for NSW, BANYO and BAGS; stock is not mixed between sections. The lower availability figure is the conservative case. Repacking assumes unchanged stock and suitable staging space.','bx-muted'));
   }
-  return {calculate,capacitySummary,sectionSummary,financialSummary,render};
+  return {calculate,capacitySummary,sectionSummary,financialSummary,allocatedCapacity,render};
 })();
