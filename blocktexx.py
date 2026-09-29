@@ -1,5 +1,6 @@
 """Private, admin-only collection modelling. No customer data ships in source."""
 from blocktexx_rfi import validate_rfi, rfi_reference
+from blocktexx_pricing import register_pricing
 from blocktexx_storage import validate_storage
 from blocktexx_costs import validate_cost_profile, cost_comparison
 from blocktexx_interstate import validate_interstate, interstate_summary, add_sa_vic_semi_rate
@@ -466,6 +467,7 @@ def apply_route_calendar_audit(model):
 
 
 def register_blocktexx(app, db, require):
+    private_pricing = register_pricing(app, db, require)
     with app.app_context():
         db().executescript('''
             CREATE TABLE IF NOT EXISTS blocktexx_model (
@@ -659,7 +661,7 @@ def register_blocktexx(app, db, require):
     def admin_blocktexx():
         model, revision, saved = current()
         return render_template('blocktexx.html', tab='blocktexx', model=model, revision=revision,
-                               saved=saved, stages=STAGES, summary=summarize(model), rfi_reference=rfi_reference())
+                               saved=saved, stages=STAGES, summary=summarize(model), rfi_reference=rfi_reference(), private_pricing=private_pricing())
 
     @app.post('/admin/blocktexx/weights/import')
     @require('admin')

@@ -155,6 +155,7 @@
   function render() {
     window.BlocktexxFlow.render($('bx-process-flow'),model,changed);
     renderStorage();renderWeights(); movementUI?.reset();interstateUI?.render();consolidation?.render();renderResources();renderPane();renderOverview();renderSettings();renderRuns();renderMetrics();renderSites();capacityUI?.render();$('bx-source').textContent=model.source;$('bx-notes').textContent=model.notes;document.querySelectorAll('[data-state]').forEach(b=>b.setAttribute('aria-pressed',String(!['national','questions','rfi'].includes(activePane)&&b.dataset.state===state))); }
+  document.addEventListener('bx-pricing-changed',()=>{renderPane();saveStatus('Private pricing saved. Provisional prices updated.');});
   document.addEventListener('bx-navigate',event=>{
     const route=event.detail||{};
     if(!['planner','decom','production','resources','interstate','storage','weights'].includes(route.pane))return;

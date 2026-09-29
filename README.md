@@ -258,3 +258,31 @@ on the response page without breaking the staff application.
 
 Checks: `node tests/test_blocktexx_rfi.js` and
 `python -m unittest discover -s tests -p test_blocktexx_rfi.py`.
+
+### Private provisional pricing
+
+National Overview presents provisional selling prices with GST shown separately.
+The pricing policy is stored independently of operational model imports/exports,
+with a revision check and audit history. The admin-only private settings section
+is collapsed by default and excluded from printing. All authenticated admins can
+open it; this is presentation privacy, not a separate user permission tier.
+
+Initial policy comes from private runtime variable
+`BLOCKTEXX_PRIVATE_PRICING_JSON` containing `administration_pct`, `profit_pct`,
+`minimum_pct` and `gst_pct`. No business policy values are stored in source.
+Saved settings take precedence over the bootstrap configuration. The combined
+minimum and GST cannot be changed by the form; the server validates both markup
+inputs and rejects stale writes. Apply the configured policy before issuing a
+proposal. A missing policy leaves proposed prices unavailable.
+
+Calculation: operating selling price = known recurring operating costs ×
+(1 + administration_pct/100 + profit_pct/100). Storage/repacking stay separate.
+National freight is allocated by intake kg for state comparisons and counted
+once. RFI rate schedules use the same pricing layer. Growth scenarios use at
+least the current provisional unit rate; capacity and future costs still need
+validation. Private percentages are not included in model JSON/CSV or RFI copy /
+print output. Unit resource and lane schedules form the same operating proposal,
+not additional charges on top of it.
+
+Checks: `node tests/test_blocktexx_pricing.js` and
+`python -m unittest discover -s tests -p test_blocktexx_pricing.py`.

@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 {% block content %}
-<link rel="stylesheet" href="{{ url_for('static', filename='blocktexx.css', v='storage-weekly-1') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='blocktexx.css', v='pricing-1') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='blocktexx_flow.css', v='flow-1') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='blocktexx_questions.css', v='questions-1') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='blocktexx_rfi.css', v='rfi-1') }}">
@@ -57,6 +57,7 @@
   </div>
 </div>
 <script id="bx-rfi-reference" type="application/json">{{ rfi_reference | tojson }}</script>
+<script id="bx-private-pricing" type="application/json">{{ private_pricing | tojson }}</script>
 <script id="bx-data" type="application/json">{{ model | tojson }}</script>
 <script src="{{ url_for('static', filename='blocktexx_weights.js', v='storage-weekly-1') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_capacity.js', v='storage-weekly-1') }}" defer></script>
@@ -68,9 +69,10 @@
 <script src="{{ url_for('static', filename='blocktexx_movements.js', v='production-planner-1') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_interstate.js', v='interstate-rate-card-2') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_storage.js', v='storage-1') }}" defer></script>
-<script src="{{ url_for('static', filename='blocktexx_national.js', v='production-planner-1') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx_pricing.js', v='pricing-1') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx_national.js', v='pricing-1') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_flow.js', v='flow-1') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_questions.js', v='questions-1') }}" defer></script>
-<script src="{{ url_for('static', filename='blocktexx_rfi.js', v='rfi-1') }}" defer></script>
-<script src="{{ url_for('static', filename='blocktexx.js', v='rfi-1') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx_rfi.js', v='pricing-1') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx.js', v='pricing-1') }}" defer></script>
 {% endblock %}

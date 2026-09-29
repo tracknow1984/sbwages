@@ -94,7 +94,7 @@ window.BlocktexxNational=(()=>{
   if(message.includes('calendar, timings or costs'))return [cost,...['local','decom','production'].map(scope=>({...planner(scope),id:'bx-all-runs',expand:true}))];
   return [cost];
  }
- function render(root,model){
+ function renderCosts(root,model){
   const a=calculate(model);root.replaceChildren(e('h2','National Overview · monthly dashboard'),e('p','All states · AUD excluding GST · average calendar month'));
   const metrics=e('div',null,'bx-metrics');
   [[a.issues.length?'Known monthly recurring costs':'Monthly recurring costs',money(a.total)],['Incoming kilograms / month',num(a.kg)+' kg'],['Combined cost per kg'+(a.issues.length?' · provisional':''),rate(a.rate)],['Transport only / kg',rate(a.transportRate)]].forEach(([label,value])=>{const card=e('div',label);card.append(e('strong',value));metrics.append(card);});root.append(metrics);
@@ -131,5 +131,31 @@ window.BlocktexxNational=(()=>{
    });gaps.append(e('p','Missing amounts are excluded from known subtotals, not treated as confirmed zero. The cost/kg above remains available using known costs and known intake.'),list);root.append(gaps);}
   root.append(e('p','Monthly conversion: four-week calendar × 13 ÷ 12; weekly rental × 52 ÷ 12. Existing monthly budgets stay monthly. Change inputs in the state planners, Resources, Interstate transfers or Storage; this dashboard recalculates from those entries.','bx-muted'));
  }
- return {calculate,render,issueTargets};
+ function render(root,model){
+  if(!window.BlocktexxPricing){renderCosts(root,model);return;}
+  const a=calculate(model),p=window.BlocktexxPricing.calculate(a);
+  const privateWasOpen=!!root.querySelector?.('.bx-private-costings[open]');
+  root.replaceChildren(e('p','NATIONAL PROVISIONAL PRICING','bx-kicker'),e('h2','National Overview · provisional costings'),e('p','Monthly proposal · AUD · based on the current operating plan'));
+  const metrics=e('div',null,'bx-metrics bx-provisional-metrics');
+  [['Provisional monthly price · ex GST',money(p?.total??null)],['Provisional rate · ex GST',rate(p?.rate??null)],['Incoming kg / month',num(a.kg)+' kg'],['Provisional monthly price · incl GST',money(p?.includingGST??null)]].forEach(([label,value])=>{const card=e('div',label);card.append(e('strong',value));metrics.append(card);});root.append(metrics);
+  root.append(e('p','Provisional prices cover the modelled operating scope and booked movements. Storage and one-off repacking are separate. Missing costs and unallocated work remain excluded; these figures require scope and capacity confirmation before issue.','bx-warning'));
+  if(!p)root.append(e('p','Complete private pricing settings before using the proposed figures.','bx-warning'));
+  root.append(e('h3','Provisional monthly pricing breakdown'));
+  table(root,['Included service','Monthly · ex GST','Per incoming kg · ex GST'],[['Local, decomm and production transport',p?.local],['Booked interstate freight',p?.interstate],['Container rental scenario',p?.rental],['Equipment provision',p?.equipment],['Total operating proposal',p?.total]].map(([name,value])=>[name,money(value??null),rate(a.kg>0&&valid(value)?value/a.kg:null)]));
+  root.append(e('p','These categories form the total proposal above and are not additional charges. Kilograms are counted at intake once; later transfers do not create extra incoming kg.','bx-muted'));
+  root.append(e('h3','Provisional state pricing · monthly'));
+  table(root,['State / operator','Incoming kg','Provisional price · ex GST','Provisional rate / kg','Kilogram basis'],(p?.states||a.states).map(s=>[s.state+' · '+s.mode,num(s.kg),money(s.total??null),rate(s.rate??null),s.basis]));
+  root.append(e('p','State comparisons allocate booked national interstate pricing in proportion to incoming kg. This is a comparison allowance, not a lane-specific freight quote. The national rate is the total proposed price divided by total intake.','bx-muted'));
+  if(p?.unallocatedFreight)root.append(e('p','Unallocated interstate pricing: '+money(p.unallocatedFreight)+' / month. Enter intake kg to allocate it across states.','bx-warning'));
+  root.append(e('h3','GST summary'));
+  table(root,['Item','Monthly amount'],[['Operating proposal · ex GST',money(p?.total??null)],['GST',money(p?.gst??null)],['Operating proposal · incl GST',money(p?.includingGST??null)]]);
+  root.append(e('h3','Storage · separate cost centre'));
+  table(root,['Storage item','Amount · ex GST'],[['Storage contract / month',money(a.storage)],['Repacking · one-off',money(a.repack)]]);
+  root.append(e('p','Storage and repacking are excluded from the operating proposal and operating rate per kilogram.','bx-muted'));
+  const review=e('details',null,'bx-provisional-review');review.append(e('summary',a.issues.length+' operating model items to confirm'));const list=e('ul');a.issues.forEach(message=>{const li=e('li');const targets=issueTargets(message,model);if(targets.length){const link=e('a',message);link.href='#'+targets[0].id;link.onclick=event=>{event.preventDefault();document.dispatchEvent(new CustomEvent('bx-navigate',{detail:targets[0]}));};li.append(link);}else li.append(e('span',message));list.append(li);});review.append(list);root.append(review);
+  const privatePanel=e('details',null,'bx-private-costings no-print');privatePanel.open=privateWasOpen;privatePanel.append(e('summary','Private provisional costing settings and cost review'));
+  const settings=e('div',null,'bx-private-settings');window.BlocktexxPricing.renderSettings(settings,a);privatePanel.append(settings);
+  const actuals=e('details');actuals.append(e('summary','View underlying operating costs'));const content=e('div');renderCosts(content,model);actuals.append(content);privatePanel.append(actuals);root.append(privatePanel);
+ }
+ return {calculate,render,renderCosts,issueTargets};
 })();
