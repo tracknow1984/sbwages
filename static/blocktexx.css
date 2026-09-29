@@ -126,3 +126,12 @@ body.bx-popup-open {overflow:hidden}
 /* Keep each section's four storage inputs together on desktop. */
 .bx-storage-section .bx-settings label:first-child{grid-column:auto}
 @media(min-width:800px){.bx-storage-section .bx-settings{grid-template-columns:minmax(100px,.65fr) repeat(3,minmax(0,1fr));gap:12px}}
+
+/* National provisional prices; private policy and actual cost review stay closed. */
+.bx-provisional-metrics > div:first-child,.bx-provisional-metrics > div:nth-child(2){background:#e8f1ff;border:1px solid #c1d6f4}
+.bx-private-costings{margin-top:1.5rem;border:1px dashed #aab8ca;border-radius:8px;padding:1rem}
+.bx-private-costings>summary{cursor:pointer;font-weight:650;color:#455871}
+.bx-private-settings{padding:.5rem 0 1rem}.bx-private-form{display:flex;flex-wrap:wrap;gap:1rem;align-items:end}
+.bx-private-form label{display:block;flex:1 1 200px}.bx-private-form input{display:block;width:100%;margin-top:.4rem}
+.bx-private-form p{flex:1 1 100%}.bx-provisional-review{margin:1rem 0}.bx-provisional-review li{margin:.4rem 0}
+@media print{.bx-private-costings{display:none!important}}
