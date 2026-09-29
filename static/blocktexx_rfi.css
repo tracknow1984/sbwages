@@ -1,0 +1,35 @@
+#bx-rfi { --rfi-blue:#133d67; }
+#bx-rfi .bx-rfi-subtitle { font-weight:650; color:var(--rfi-blue); }
+.bx-rfi-controls { display:flex; flex-wrap:wrap; gap:.6rem; margin:1.2rem 0; }
+.bx-rfi-alert { padding:1rem; background:#fff7e7; border-left:4px solid #c69222; border-radius:6px; }
+.bx-rfi-section { margin:1rem 0; border:1px solid #cfdae7; border-radius:10px; overflow:hidden; }
+.bx-rfi-section > summary { padding:1.1rem; color:var(--rfi-blue); font-size:1.13rem; font-weight:750; background:#edf3fa; cursor:pointer; }
+.bx-rfi-item { padding:1.2rem; border-top:1px solid #e1e7ef; }
+.bx-rfi-item h3 { margin:0 0 .7rem; }.bx-rfi-item h4 { margin:1.1rem 0 .5rem; }
+.bx-rfi-tag { display:inline-block; background:#e7eff9; color:#234f80; padding:.2rem .6rem; border-radius:20px; font-size:.8rem; font-weight:650; }
+.bx-rfi-item p { line-height:1.6; white-space:pre-wrap; }
+.bx-rfi-answer,.bx-rfi-supplement:not(:empty) { padding:.85rem 1rem; background:#edf7f4; border-left:3px solid #327c65; margin:1rem 0; }
+.bx-rfi-pending { margin:.8rem 0; padding:.7rem; background:#fff9ef; border-radius:6px; }
+.bx-rfi-pending > summary { color:#79591b; cursor:pointer; }
+.bx-rfi-editor { margin:.8rem 0; padding:.8rem; border:1px dashed #bdcbdc; border-radius:6px; }
+.bx-rfi-editor > summary { cursor:pointer; color:#285887; }.bx-rfi-editor label { display:block; margin:.7rem 0; }
+.bx-rfi-editor textarea { width:100%; min-height:90px; }.bx-rfi-editor select { display:block; margin-top:.4rem; }
+.bx-rfi-inputs { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:.75rem; }
+.bx-rfi-inputs input { display:block; width:100%; margin-top:.4rem; }
+.bx-rfi-scenario { padding:1rem; border:1px solid #d8e2ee; border-radius:8px; margin:1rem 0; }
+#bx-rfi .bx-resource-table { font-size:.9rem; } #bx-rfi .bx-resource-table td,#bx-rfi .bx-resource-table th { white-space:normal; min-width:100px; }
+.bx-rfi-evidence { margin:1rem 0; }.bx-rfi-evidence li { margin:.4rem 0; }
+@media(max-width:600px){.bx-rfi-item{padding:.8rem}.bx-rfi-section>summary{font-size:1rem}#bx-rfi .bx-metrics{grid-template-columns:1fr 1fr}.bx-rfi-controls button{flex:1 1 45%}}
+@media print {
+ body.bx-print-rfi > header,body.bx-print-rfi > nav,body.bx-print-rfi > footer {display:none!important}
+ body.bx-print-rfi main > :not(#blocktexx),body.bx-print-rfi #blocktexx > :not(#bx-rfi) {display:none!important}
+ body.bx-print-rfi .no-print {display:none!important}
+ body.bx-print-rfi #bx-rfi {display:block!important;border:0;padding:0}
+ body.bx-print-rfi .bx-rfi-section {overflow:visible;break-inside:auto}
+ body.bx-print-rfi .bx-rfi-section > summary {font-size:14pt}
+ body.bx-print-rfi .bx-scroll {overflow:visible}
+ body.bx-print-rfi .bx-resource-table {width:100%;table-layout:fixed;font-size:8pt}
+ body.bx-print-rfi .bx-resource-table td,body.bx-print-rfi .bx-resource-table th {min-width:0;overflow-wrap:anywhere;padding:4px}
+ body.bx-print-rfi h3,body.bx-print-rfi h4 {break-after:avoid}
+ body.bx-print-rfi .bx-rfi-item {padding:.5rem;break-inside:auto}
+}

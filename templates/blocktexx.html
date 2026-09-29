@@ -3,15 +3,17 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='blocktexx.css', v='storage-weekly-1') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='blocktexx_flow.css', v='flow-1') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='blocktexx_questions.css', v='questions-1') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='blocktexx_rfi.css', v='rfi-1') }}">
 <div id="blocktexx" data-revision="{{ revision }}" data-csrf="{{ csrf_token() }}">
   <div class="page-heading"><div><p class="bx-kicker">SB EMPIRE / PROPOSAL MODELLING</p><h1>Blocktexx Storage &amp; Transport Evaluation</h1><p>Collections, local deliveries and interstate transfers — building total cost per kilogram.</p></div>
     <div class="actions no-print"><button type="button" id="bx-save" class="primary">Save model</button></div></div>
   <p id="bx-save-status" role="status">{{ 'Saved model loaded.' if saved else 'Import the prepared collection data to begin, or enter your own runs.' }}</p>
   <details class="bx-card" id="bx-old-overview"><summary>View state intake summary</summary><div class="bx-overview" id="bx-overview"></div><button type="button" id="bx-open-weights" class="secondary">Sample weights and break-even scenarios · initial setup</button></details>
-  <nav class="bx-state-tabs" aria-label="Collection state"><button type="button" id="bx-national-tab" aria-pressed="true">National Overview</button>{% for state in model.states %}<button type="button" data-state="{{ state }}" aria-pressed="false">{{ state }}</button>{% endfor %}<button type="button" id="bx-questions-tab" aria-pressed="false">Questions for Blocktexx</button></nav>
+  <nav class="bx-state-tabs" aria-label="Collection state"><button type="button" id="bx-national-tab" aria-pressed="true">National Overview</button>{% for state in model.states %}<button type="button" data-state="{{ state }}" aria-pressed="false">{{ state }}</button>{% endfor %}<button type="button" id="bx-questions-tab" aria-pressed="false">Questions for Blocktexx</button><button type="button" id="bx-rfi-tab" aria-pressed="false">RFI Response · 11.1–11.8</button></nav>
   <nav class="bx-state-tabs" aria-label="State view"><button type="button" data-bx-pane="planner" aria-pressed="true">Local Planner</button><button type="button" data-bx-pane="decom" aria-pressed="false">Decom Planner</button><button type="button" data-bx-pane="production" aria-pressed="false">Production Planner</button><button type="button" data-bx-pane="resources" aria-pressed="false">Resources</button><button type="button" data-bx-pane="interstate" aria-pressed="false">Interstate transfers</button><button type="button" data-bx-pane="storage" aria-pressed="false">Storage</button></nav>
   <section id="bx-process-flow" aria-label="Collection to production presentation"></section>
   <section id="bx-questions" class="bx-card" hidden></section>
+  <section id="bx-rfi" class="bx-card" hidden></section>
   <section id="bx-national" class="bx-card"></section>
   <section id="bx-storage" class="bx-card" hidden></section>
   <section id="bx-resources" class="bx-card" hidden>
@@ -54,6 +56,7 @@
   <details class="bx-card no-print"><summary>View import, export and source information</summary><p id="bx-source"></p><p id="bx-notes"></p><div class="actions"><button class="secondary" type="button" id="bx-download">Download current draft JSON</button><a class="button secondary" href="{{ url_for('export_blocktexx', format='csv') }}">Export saved runs CSV</a><a class="button secondary" href="{{ url_for('export_blocktexx') }}">Export saved model JSON</a></div><label class="bx-import">Import a model file <input type="file" id="bx-import" accept=".json,application/json"></label><label class="bx-confirm"><input type="checkbox" id="bx-replace"> Replace the model currently shown with the imported file. Saved history is retained.</label><p>Import loads a draft. Review it and select Save model to persist it. Download your draft before closing if saving fails.</p></details>
   </div>
 </div>
+<script id="bx-rfi-reference" type="application/json">{{ rfi_reference | tojson }}</script>
 <script id="bx-data" type="application/json">{{ model | tojson }}</script>
 <script src="{{ url_for('static', filename='blocktexx_weights.js', v='storage-weekly-1') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_capacity.js', v='storage-weekly-1') }}" defer></script>
@@ -68,5 +71,6 @@
 <script src="{{ url_for('static', filename='blocktexx_national.js', v='production-planner-1') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_flow.js', v='flow-1') }}" defer></script>
 <script src="{{ url_for('static', filename='blocktexx_questions.js', v='questions-1') }}" defer></script>
-<script src="{{ url_for('static', filename='blocktexx.js', v='production-planner-1') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx_rfi.js', v='rfi-1') }}" defer></script>
+<script src="{{ url_for('static', filename='blocktexx.js', v='rfi-1') }}" defer></script>
 {% endblock %}
