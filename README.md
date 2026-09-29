@@ -234,3 +234,27 @@ The private `BLOCKTEXX_INTERSTATE_DEFAULTS_JSON` deployment setting contains `ba
 ## National monthly dashboard
 
 The National Overview tab precedes QLD and is the default Blocktexx view. It aggregates the selected company/contractor/mixed daily cost rows across all states, converts four-week figures to average calendar months, adds booked interstate base/fuel/toll/other charges, resource rental scenarios and the national storage contract once. The breakdown identifies all components and shows state subtotals. Intake uses known calendar collection weights where established, otherwise the state's historical monthly intake, with the basis and missing inputs displayed. Transfers never add intake. The combined rate is total known recurring costs divided by total known intake; incomplete inputs remain explicitly provisional. Purchase and repacking amounts are shown separately as one-off scenarios, not added again to monthly rental costs. These are modelled budgets/entered costs, not an invoice ledger.
+
+### BlockTexx RFI response workspace
+
+The admin BlockTexx page includes an **RFI Response · 11.1–11.8** tab. It derives
+58 response items from current state selling rates, Resources, Storage, Local /
+Decomm / Production planners, interstate lanes, process notes and saved
+clarification answers. Each item accepts a separate response note and status;
+notes supplement live figures. Forecast ranges and 150t / 250t / 400t+ scenarios
+are saved with the model under `rfi` using the existing revision/conflict checks.
+Growth equipment and collection estimates are proportional planning assumptions,
+not verified capacity. Proposed national scenario rates are entered explicitly.
+Internal operating totals are excluded from response copy/print. Resource and
+carrier input tables remain labelled as model inputs, not approved selling prices.
+
+Confidential RFI reference figures are supplied using the private Render variable
+`BLOCKTEXX_RFI_REFERENCE_JSON`; do not commit source documents or real source
+figures to this public repository. Its JSON schema is `source`, `monthly_kg`,
+`locations`, `equipment`, and `states`, with each state containing `kg`,
+`locations`, and `equipment`. It is rendered only inside the admin page and is
+not part of the public static files. Missing/malformed configuration is reported
+on the response page without breaking the staff application.
+
+Checks: `node tests/test_blocktexx_rfi.js` and
+`python -m unittest discover -s tests -p test_blocktexx_rfi.py`.

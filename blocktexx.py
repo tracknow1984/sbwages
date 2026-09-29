@@ -1,4 +1,5 @@
 """Private, admin-only collection modelling. No customer data ships in source."""
+from blocktexx_rfi import validate_rfi, rfi_reference
 from blocktexx_storage import validate_storage
 from blocktexx_costs import validate_cost_profile, cost_comparison
 from blocktexx_interstate import validate_interstate, interstate_summary, add_sa_vic_semi_rate
@@ -93,6 +94,7 @@ def validate_model(value):
             raise ValueError('Invalid clarification status.')
         model['clarification_answers'][question_id] = {
             'answer': text(answer.get('answer', ''), 'Clarification answer', 3000), 'status': status}
+    model['rfi'] = validate_rfi(value.get('rfi', {}), number, text)
     model['storage'] = validate_storage(value.get('storage', {}))
     model['interstate'] = validate_interstate(value.get('interstate', {}), number, text)
     seen = set()
@@ -657,7 +659,7 @@ def register_blocktexx(app, db, require):
     def admin_blocktexx():
         model, revision, saved = current()
         return render_template('blocktexx.html', tab='blocktexx', model=model, revision=revision,
-                               saved=saved, stages=STAGES, summary=summarize(model))
+                               saved=saved, stages=STAGES, summary=summarize(model), rfi_reference=rfi_reference())
 
     @app.post('/admin/blocktexx/weights/import')
     @require('admin')
