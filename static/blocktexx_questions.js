@@ -990,7 +990,7 @@ window.BlocktexxQuestions=(()=>{
 ];
  const e=(tag,text,cls)=>{const n=document.createElement(tag);if(text!=null)n.textContent=text;if(cls)n.className=cls;return n;};
  const answered=a=>a?.status==='not_applicable'||(a?.status==='answered'&&!!a.answer?.trim());
- function render(root,model,onChange){
+ function render(root,model,onChange,options={}){
   const answers=model.clarification_answers||(model.clarification_answers={}),filters=root._questionFilters||(root._questionFilters={scope:'All',status:'All',search:''});
   root.replaceChildren(e('h2','Questions for Blocktexx'),e('p','Clarifications to confirm scope, resources, service requirements and the cost per kilogram. Record national answers once, then complete the state checklists.'));
   const progress=e('p',null,'bx-question-progress');progress.setAttribute('role','status');root.append(progress);
@@ -1016,9 +1016,9 @@ window.BlocktexxQuestions=(()=>{
     questions.forEach(q=>{
      const row=e('article',null,'bx-question-row'),label=e('label',q.question),input=e('textarea'),status=e('select');
      if(q.priority)row.append(e('span','Essential','bx-question-essential'));
-     input.rows=2;input.maxLength=3000;input.value=answers[q.id]?.answer||'';input.placeholder='Record Blocktexx’s answer, the agreed assumption or a follow-up question…';input.setAttribute('aria-label',q.question+' — answer');label.append(input);
+     input.rows=2;input.maxLength=3000;input.value=answers[q.id]?.answer||'';input.placeholder=options.public?'Enter your answer or clarification…':'Record Blocktexx’s answer, the agreed assumption or a follow-up question…';input.setAttribute('aria-label',q.question+' — answer');label.append(input);
      [['open','Open'],['awaiting','Awaiting Blocktexx'],['answered','Answered'],['not_applicable','Not applicable']].forEach(([value,text])=>{const o=e('option',text);o.value=value;status.append(o);});status.value=answers[q.id]?.status||'open';status.setAttribute('aria-label',q.question+' — status');
-     const change=()=>{answers[q.id]={answer:input.value,status:status.value};onChange();count();};input.oninput=change;status.onchange=change;
+     const change=()=>{if(options.public&&input.value.trim()&&['open','awaiting'].includes(status.value))status.value='answered';answers[q.id]={answer:input.value,status:status.value};onChange();count();};input.oninput=change;status.onchange=change;
      row.append(label,status);details.append(row);
     });list.append(details);
    });

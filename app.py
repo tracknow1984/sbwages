@@ -232,6 +232,8 @@ def create_app(test_config=None):
             request.max_content_length = 6 * 1024 * 1024
         elif request.endpoint in ('save_blocktexx', 'validate_blocktexx', 'preview_blocktexx_capacity'):
             request.max_content_length = 4 * 1024 * 1024
+        elif request.endpoint == 'save_public_blocktexx_questions':
+            request.max_content_length = 512 * 1024
         elif request.endpoint == 'employee_prestart':
             request.max_content_length = 32 * 1024 * 1024
         elif request.endpoint == 'upload_licence_photos':
@@ -1434,6 +1436,8 @@ def create_app(test_config=None):
 
     from blocktexx import register_blocktexx
     register_blocktexx(app, db, require)
+    from blocktexx_public_questions import register_public_questions
+    register_public_questions(app, db, require)
     return app
 
 
