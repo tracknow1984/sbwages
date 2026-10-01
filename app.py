@@ -1438,6 +1438,8 @@ def create_app(test_config=None):
     register_blocktexx(app, db, require)
     from blocktexx_public_questions import register_public_questions
     register_public_questions(app, db, require)
+    from site_tour import register_site_tour
+    register_site_tour(app, require)
     return app
 
 
