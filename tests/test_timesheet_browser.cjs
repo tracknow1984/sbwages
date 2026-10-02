@@ -51,10 +51,24 @@ const assert = require('node:assert/strict');
     assert.match(await row(0).innerText(), /Committed · Locked/);
     assert.equal(await row(1).locator('[name=activity]').inputValue(), 'Tuesday saved work');
     await fill(2, 'Keep after network failure');
+    await page.getByRole('button', {name:'Submit to admin', exact:true}).click();
+    assert.match(await page.locator('.week-submit [role=status]').innerText(), /unsaved changes/);
+    assert.deepEqual(dialogs, [], 'Submission blockers must be visible without a popup');
     await page.route('**/employee/timesheet?week=*', route => route.request().method() === 'POST' ? route.abort() : route.continue());
     await row(2).getByRole('button',{name:'Save day',exact:true}).click();
     await waitStatus(2, 'Connection failed');
     assert.equal(await row(2).locator('[name=activity]').inputValue(), 'Keep after network failure');
+    for (const n of [1,2]) {
+      await row(n).getByRole('button',{name:'Commit day',exact:true}).click();
+      await waitStatus(n, 'Day committed and locked.');
+    }
+    // Simulate a browser that suppresses dialogs. Submission must still reach the server.
+    await page.evaluate(() => { window.confirm = () => false; window.alert = () => {}; });
+    await page.getByRole('button', {name:'Submit to admin', exact:true}).click();
+    await page.getByText('Timesheet submitted to admin.', {exact:true}).waitFor();
+    assert.equal(await page.locator('.week-submit').count(), 0);
+    assert.match(await page.locator('.page-heading').innerText(), /Submitted to admin/);
+    assert.deepEqual(dialogs, [], 'Weekly submission must not depend on native dialogs');
     assert.equal(await row(2).getByRole('button',{name:'Save day',exact:true}).isEnabled(), true);
     await page.unroute('**/employee/timesheet?week=*');
     await row(2).getByRole('button',{name:'Save day',exact:true}).click();
