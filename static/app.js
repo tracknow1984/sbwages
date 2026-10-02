@@ -99,13 +99,36 @@ if (summary) {
       }
     });
   });
-  document.querySelectorAll('.week-submit').forEach(form => form.addEventListener('submit', event => {
-    if (dirty.size || pending.size) {
-      window.alert('Save or commit your changed days and wait for confirmation before submitting the week.');
-      event.preventDefault(); return;
-    }
-    if (!window.confirm('Submit this week to admin? This locks the weekly record.')) event.preventDefault();
-  }));
+  document.querySelectorAll('.week-submit').forEach(form => {
+    const status = document.createElement('p');
+    status.className = 'submission-note';
+    status.setAttribute('role', 'status');
+    status.setAttribute('aria-live', 'polite');
+    form.appendChild(status);
+    form.addEventListener('submit', event => {
+      if (form.dataset.submitting === 'true') { event.preventDefault(); return; }
+      if (dirty.size || pending.size) {
+        event.preventDefault();
+        status.textContent = pending.size
+          ? 'A day is still saving. Wait for confirmation, then submit again.'
+          : 'You have unsaved changes. Save or commit each changed day, then submit again.';
+        status.scrollIntoView({block: 'center'});
+        return;
+      }
+      // Submit directly: browser dialogs may be suppressed on mobile or embedded browsers.
+      // Keep the clicked button enabled so its action=submit value reaches the server.
+      form.dataset.submitting = 'true';
+      status.textContent = 'Submitting your week to admin…';
+      const button = event.submitter || form.querySelector('button');
+      if (button) { button.textContent = 'Submitting…'; button.setAttribute('aria-disabled', 'true'); }
+    });
+    window.addEventListener('pageshow', () => {
+      delete form.dataset.submitting;
+      status.textContent = '';
+      const button = form.querySelector('button');
+      if (button) { button.textContent = 'Submit to admin'; button.removeAttribute('aria-disabled'); }
+    });
+  });
   window.addEventListener('beforeunload', event => {
     if (dirty.size) { event.preventDefault(); event.returnValue = ''; }
   });
