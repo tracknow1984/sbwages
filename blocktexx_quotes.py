@@ -12,7 +12,7 @@ FIELDS = ('name', 'address', 'frequency', 'equipment', 'notes')
 
 def projection(model):
     history = model.get('weight_history', {}).get('pickups', [])
-    result = {'source': model.get('source', ''), 'states': {}}
+    result = {'states': {}}
     for state in STATES:
         data = model.get('states', {}).get(state, {})
         sites = []
@@ -31,6 +31,10 @@ def projection(model):
         partners = [{k:p.get(k,'') for k in FIELDS} for p in model.get('partners',[]) if p.get('state')==state]
         result['states'][state] = {'depot': data.get('depot','Unconfirmed'), 'monthly_kg':data.get('monthly_kg'),
                                    'sites':sites,'runs':runs,'partners':partners}
+    for data in result['states'].values():
+        for entry in data['sites'] + data['partners']:
+            entry['equipment'] = re.sub(r'\s*\(row \d+\)', '', entry.get('equipment', ''), flags=re.I)
+            entry['notes'] = re.sub(r'Downstream tab row \d+:\s*', '', entry.get('notes', ''), flags=re.I)
     return result
 
 def number(value):
@@ -124,9 +128,11 @@ def register_quotes(app, db, require):
     @app.get('/blocktexx/run-sheets/received')
     @app.get('/transport/run-sheets/received')
     def run_sheet_received():
-        row=db().execute('SELECT id FROM blocktexx_quotes WHERE id=? AND owner=?',(session.get('last_quote',''),session.get('quote_owner',''))).fetchone()
+        row=db().execute('SELECT * FROM blocktexx_quotes WHERE id=? AND owner=?',(session.get('last_quote',''),session.get('quote_owner',''))).fetchone()
         if not row: return redirect(url_for('public_run_sheets'))
-        return render_template('blocktexx_run_sheets.html',received=row['id'])
+        summary=calculate(json.loads(row['snapshot']),json.loads(row['prices']))
+        total=round(sum(item['total'] or 0 for item in summary),2)
+        return render_template('blocktexx_run_sheets.html',received=row['id'],quote=dict(row),summary=summary,total=total)
     @app.get('/admin/blocktexx/quotes')
     @require('admin')
     def review_run_sheet_quotes():
