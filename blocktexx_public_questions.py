@@ -25,7 +25,7 @@ def register_public_questions(app, db, require):
     def public_blocktexx_questions():
         response_id = session.setdefault('blocktexx_reply', secrets.token_urlsafe(32))
         row = db().execute('SELECT * FROM blocktexx_public_replies WHERE id=?', (response_id,)).fetchone()
-        data = {'respondent': '', 'email': '', 'organisation': 'BlockTexx', 'answers': {}, 'revision': 0, 'status': 'draft'}
+        data = {'respondent': '', 'email': '', 'organisation': '', 'answers': {}, 'revision': 0, 'status': 'draft'}
         if row:
             data.update({key: row[key] for key in ('respondent', 'email', 'organisation', 'revision', 'status')})
             data['answers'] = json.loads(row['answers'])

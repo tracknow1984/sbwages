@@ -75,6 +75,7 @@ def register_quotes(app, db, require):
         model=json.loads(row['data']) if row else json.loads((Path(__file__).parent/'quote_seed.json').read_text())
         return projection(model)
     @app.get('/blocktexx/run-sheets')
+    @app.get('/transport/run-sheets')
     def public_run_sheets():
         session.setdefault('quote_owner',secrets.token_urlsafe(32))
         snapshot=source()
@@ -86,6 +87,7 @@ def register_quotes(app, db, require):
         db().commit()
         return render_template('blocktexx_run_sheets.html',snapshot=snapshot)
     @app.post('/blocktexx/run-sheets')
+    @app.post('/transport/run-sheets')
     def submit_run_sheet_quote():
         row=db().execute('SELECT data FROM blocktexx_quote_snapshots WHERE id=?',(session.get('quote_snapshot',''),)).fetchone()
         if not row: return 'Refresh the run sheet before submitting.',400
@@ -120,6 +122,7 @@ def register_quotes(app, db, require):
         session['last_quote']=qid
         return redirect(url_for('run_sheet_received'))
     @app.get('/blocktexx/run-sheets/received')
+    @app.get('/transport/run-sheets/received')
     def run_sheet_received():
         row=db().execute('SELECT id FROM blocktexx_quotes WHERE id=? AND owner=?',(session.get('last_quote',''),session.get('quote_owner',''))).fetchone()
         if not row: return redirect(url_for('public_run_sheets'))

@@ -6,7 +6,7 @@
   <meta name="description" content="SB EMPIRE staff, timesheets and operations.">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <script src="{{ url_for('static', filename='app.js') }}" defer></script>
-</head>
+<script src="{{ url_for('static',filename='client-wording.js') }}" defer></script></head>
 <body class="{{ 'employee-app' if current_user and current_user.role == 'employee' else 'admin-app' }}">
 <header class="topbar"><a class="brand" href="{{ url_for('index') }}"><img class="brand-logo" src="{{ url_for('static', filename='sb-empire-header.webp') }}" alt="SB Empire — Building Opportunities and Delivering Solutions" width="320" height="56"></a>
 {% if current_user %}<div class="user-menu"><span>{{ current_user.first_name }}<small>{{ 'Administrator' if current_user.role == 'admin' else 'Employee' }}</small></span><form action="{{ url_for('logout') }}" method="post"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="ghost" type="submit">Sign out</button></form></div>{% endif %}</header>
@@ -15,7 +15,7 @@
 <a class="{{ 'selected' if tab == 'dashboard' }}" href="{{ url_for('admin_dashboard') }}">DASHBOARD</a>
 <a class="{{ 'selected' if tab == 'rent-calculator' }}" href="{{ url_for('admin_rent_calculator') }}">RENT CALCULATOR</a>
 <a class="{{ 'selected' if tab == 'site-tour' }}" href="{{ url_for('admin_site_tour') }}">SITE TOUR</a>
-<a class="{{ 'selected' if tab == 'blocktexx' }}" href="{{ url_for('admin_blocktexx') }}">BLOCKTEXX MODEL</a>
+<a class="{{ 'selected' if tab == 'blocktexx' }}" href="{{ url_for('admin_blocktexx') }}">TRANSPORT MODEL</a>
 <a class="{{ 'selected' if tab == 'hit-me' }}" href="{{ url_for('admin_hit_me') }}">EMPIRE WIRE</a>
 <a class="{{ 'selected' if tab == 'staff' }}" href="{{ url_for('admin_staff') }}">STAFF DETAILS</a>
 <a class="{{ 'selected' if tab == 'submissions' }}" href="{{ url_for('admin_timesheets') }}">TIMESHEETS</a>
