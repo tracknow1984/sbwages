@@ -19,6 +19,7 @@ from flask import Flask, abort, flash, g, redirect, render_template, request, se
 from werkzeug.utils import secure_filename
 from werkzeug.security import check_password_hash, generate_password_hash
 from lunch import deduct_lunch, migrate_lunch
+from work_weeks import WORK_WEEKS, profile_end, profile_start, saved_period
 from prestart_config import ASSETS, DECLARATION, checklist
 from prestart_media import signature_png, photo_jpeg
 
@@ -177,7 +178,17 @@ def create_app(test_config=None):
             db().execute('INSERT INTO rent_years_new SELECT admin_id,year,area,rate_cents FROM rent_years')
             db().execute('DROP TABLE rent_years')
             db().execute('ALTER TABLE rent_years_new RENAME TO rent_years')
+        # Retain the obsolete week_ending field for compatibility. Profiles use work_week.
         db().execute('UPDATE users SET week_ending=6 WHERE week_ending<>6')
+        if 'work_week' not in {row['name'] for row in db().execute('PRAGMA table_info(users)')}:
+            db().execute("ALTER TABLE users ADD COLUMN work_week TEXT NOT NULL DEFAULT 'mon_sun' CHECK(work_week IN ('mon_sun','mon_fri','fri_next_sat'))")
+        sheet_columns = {row['name'] for row in db().execute('PRAGMA table_info(sheets)')}
+        if 'work_week' not in sheet_columns:
+            db().execute("ALTER TABLE sheets ADD COLUMN work_week TEXT CHECK(work_week IN ('mon_sun','mon_fri','fri_next_sat'))")
+        if 'week_start' not in sheet_columns:
+            db().execute('ALTER TABLE sheets ADD COLUMN week_start TEXT')
+        # Snapshot old date ranges once; profile changes never reshape existing sheets.
+        db().execute("UPDATE sheets SET week_start=date(week_end,'-6 days') WHERE week_start IS NULL")
         # Rebuild the old payment constraint atomically; historical deductions default to zero.
         if 'deduction_cents' not in {row['name'] for row in db().execute('PRAGMA table_info(payments)')}:
             definition = SCHEMA.split('CREATE TABLE IF NOT EXISTS payments (',1)[1].split(');',1)[0]
@@ -295,7 +306,7 @@ def create_app(test_config=None):
         return int((Decimal(units) * cents / 100).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
 
     app.jinja_env.filters.update(money=money, hours=hours, display_date=display_date, display_datetime=display_datetime)
-    app.context_processor(lambda: dict(csrf_token=csrf_token, current_user=g.user, today=today(), mail_ready=mail_ready()))
+    app.context_processor(lambda: dict(csrf_token=csrf_token, current_user=g.user, today=today(), mail_ready=mail_ready(), work_weeks=WORK_WEEKS))
 
     def mail_ready():
         return bool(app.config['SMTP_HOST'] and app.config['SMTP_FROM'] and app.config['APP_URL'].startswith('https://'))
@@ -313,7 +324,7 @@ def create_app(test_config=None):
     @app.get('/health')
     def health():
         db().execute('SELECT 1')
-        return {'status': 'ok'}
+        return {'status': 'ok', 'revision': os.environ.get('RENDER_GIT_COMMIT', '')}
 
     @app.get('/')
     def index():
@@ -390,6 +401,10 @@ def create_app(test_config=None):
             if values['status'] not in ('active', 'terminated'):
                 raise ValueError('Choose active or terminated.')
             values['week_ending'] = 6
+            if 'work_week' in request.form:
+                values['work_week'] = request.form['work_week']
+                if values['work_week'] not in WORK_WEEKS:
+                    raise ValueError('Choose a valid timesheet work week.')
         return values
 
     @app.get('/admin/staff')
@@ -565,16 +580,22 @@ def create_app(test_config=None):
         sheet = db().execute('SELECT * FROM sheets WHERE user_id=? AND week_end=?', (person['id'], ending.isoformat())).fetchone()
         rows = db().execute('SELECT * FROM entries WHERE sheet_id=? ORDER BY work_date', (sheet['id'],)).fetchall() if sheet else []
         by_day = {row['work_date']: row for row in rows}
-        days = [ending - timedelta(days=i) for i in range(6, -1, -1)]
+        if sheet:
+            start, _, period_label = saved_period(sheet)
+        else:
+            start = profile_start(ending, person['work_week'])
+            period_label = WORK_WEEKS[person['work_week']]['label']
+        days = [start + timedelta(days=i) for i in range((ending - start).days + 1)]
         units = sum(r['units'] for r in rows)
         rate = sheet['rate_cents'] if sheet and sheet['status'] == 'submitted' else person['rate_cents']
         total = sheet['total_cents'] if sheet and sheet['status'] == 'submitted' else amount(units, rate)
-        # Existing Friday records retain their original totals. Their dates cannot
-        # be entered again in a new Monday-Sunday sheet.
+        # One staff/date entry across all profiles and overlapping periods.
         booked = db().execute('SELECT e.work_date,s.week_end FROM entries e JOIN sheets s ON s.id=e.sheet_id WHERE e.user_id=? AND e.work_date BETWEEN ? AND ? AND s.week_end<>?',
             (person['id'], days[0].isoformat(), ending.isoformat(), ending.isoformat())).fetchall()
         return dict(sheet=sheet, days=days, entries=by_day, total_units=units, rate=rate, total_cents=total,
-                    booked_days={row['work_date']: row['week_end'] for row in booked}, legacy_week=ending.weekday() != 6,
+                    booked_days={row['work_date']: row['week_end'] for row in booked},
+                    period_label=period_label, saved_profile=bool(sheet and sheet['work_week'] != person['work_week']),
+                    overlap_week=(ending - start).days == 8,
                     payment=db().execute('SELECT * FROM payments WHERE sheet_id=?',(sheet['id'],)).fetchone() if sheet else None)
 
     def parse_day():
@@ -603,14 +624,19 @@ def create_app(test_config=None):
     @require('employee')
     def employee_timesheet():
         person = g.user
+        profile = person['work_week']
+        current_ending = profile_end(today(), profile)
         try:
-            ending = date.fromisoformat(request.values.get('week', week_end(today(), 6).isoformat()))
+            ending = date.fromisoformat(request.values.get('week', current_ending.isoformat()))
         except ValueError:
             abort(400, 'Invalid week date.')
         existing = db().execute('SELECT * FROM sheets WHERE user_id=? AND week_end=?', (person['id'], ending.isoformat())).fetchone()
-        if not existing and ending.weekday() != 6:
-            abort(400, 'Timesheets run Monday to Sunday. Choose a Sunday week ending.')
-        if ending > week_end(today(), 6):
+        if not existing and ending.weekday() != WORK_WEEKS[profile]['ending']:
+            abort(400, 'Choose a week ending that matches your saved work-week profile.')
+        allowed_ending = profile_end(today(), existing['work_week']) if existing and existing['work_week'] else current_ending
+        if existing and not existing['work_week']:
+            allowed_ending = week_end(today(), ending.weekday())
+        if ending > allowed_ending:
             abort(400, 'Future timesheets are not available yet.')
         data = sheet_data(person, ending)
         if request.method == 'POST':
@@ -620,6 +646,9 @@ def create_app(test_config=None):
                     raise ValueError('Choose Save day, Commit day or Submit to admin.')
                 db().execute('BEGIN IMMEDIATE')
                 current = db().execute('SELECT * FROM sheets WHERE user_id=? AND week_end=?', (person['id'], ending.isoformat())).fetchone()
+                latest_profile = db().execute('SELECT work_week FROM users WHERE id=?', (person['id'],)).fetchone()['work_week']
+                if not current and latest_profile != profile:
+                    raise ValueError('Your work-week profile changed. Refresh your timesheet before saving.')
                 if current and current['status'] == 'submitted':
                     raise ValueError('This timesheet has been submitted and is locked.')
                 if action == 'submit':
@@ -648,7 +677,7 @@ def create_app(test_config=None):
                     if old and (old['units'] or old['lunch_units']) and not old['start_time'] and not start and not finish:
                         raise ValueError('This day has previous hours. Enter start and finish times before saving or committing it.')
                     if not current:
-                        sid = db().execute('INSERT INTO sheets(user_id,week_end) VALUES(?,?)', (person['id'], ending.isoformat())).lastrowid
+                        sid = db().execute('INSERT INTO sheets(user_id,week_end,week_start,work_week) VALUES(?,?,?,?)', (person['id'], ending.isoformat(), data['days'][0].isoformat(), profile)).lastrowid
                     else:
                         sid = current['id']
                     committed = datetime.now(ZoneInfo('Australia/Brisbane')).isoformat() if action == 'commit_day' else None
@@ -672,7 +701,8 @@ def create_app(test_config=None):
                     return {'ok': False, 'message': message}, 400
                 flash(message, 'error')
         return render_template('timesheet.html', **data, person=person, ending=ending, tab='timesheet', admin_view=False,
-                               previous=week_end(ending, 6) - timedelta(days=7), following=week_end(ending, 6) + timedelta(days=7), current_ending=week_end(today(), 6))
+                               previous=ending - timedelta(days=(ending.weekday() - WORK_WEEKS[profile]['ending']) % 7 or 7),
+                               following=ending + timedelta(days=(WORK_WEEKS[profile]['ending'] - ending.weekday()) % 7 or 7), current_ending=current_ending)
 
     @app.get('/employee/history')
     @require('employee')
@@ -690,7 +720,7 @@ def create_app(test_config=None):
     @require('admin')
     def admin_timesheets():
         archived = request.args.get('archived') == '1'
-        sheets = db().execute("""SELECT s.id,s.user_id,s.week_end,s.status,s.submitted_at,s.archived_at,u.first_name,u.last_name,
+        sheets = db().execute("""SELECT s.id,s.user_id,s.week_end,s.week_start,s.work_week,s.status,s.submitted_at,s.archived_at,u.first_name,u.last_name,
             CASE WHEN s.status='submitted' THEN s.total_units ELSE COALESCE((SELECT SUM(e.units) FROM entries e WHERE e.sheet_id=s.id),0) END total_units,
             CASE WHEN s.status='submitted' THEN s.rate_cents ELSE u.rate_cents END rate_cents,
             s.total_cents,p.id AS payment_id FROM sheets s JOIN users u ON u.id=s.user_id LEFT JOIN payments p ON p.sheet_id=s.id WHERE (s.archived_at IS NOT NULL)=? ORDER BY s.week_end DESC,u.first_name""", (int(archived),)).fetchall()
@@ -830,7 +860,7 @@ def create_app(test_config=None):
                 payment_id=db().execute("""INSERT INTO payments(sheet_id,user_id,admin_id,employee_name,employee_username,processed_by,
                     week_start,week_end,total_units,rate_cents,total_cents,cash_cents,transfer_cents,deduction_cents,processed_at)
                     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(sheet_id,person['id'],g.user['id'],person['first_name']+' '+person['last_name'],
-                    person['username'],g.user['first_name']+' '+g.user['last_name'],(ending-timedelta(days=6)).isoformat(),
+                    person['username'],g.user['first_name']+' '+g.user['last_name'],saved_period(current)[0].isoformat(),
                     current['week_end'],current['total_units'],current['rate_cents'],current['total_cents'],cash,transfer,deductions,timestamp())).lastrowid
                 db().commit()
                 flash('Payment processed. The payment slip is now available to the staff member.', 'success')
@@ -950,13 +980,15 @@ def create_app(test_config=None):
     @require('employee')
     def employee_dashboard():
         day=today()
-        ending=week_end(day,6)
+        ending=profile_end(day,g.user['work_week'])
         entry=db().execute('SELECT e.*,s.status AS sheet_status FROM entries e JOIN sheets s ON s.id=e.sheet_id WHERE e.user_id=? AND e.work_date=?', (g.user['id'],day.isoformat())).fetchone()
         sheet=db().execute('SELECT status FROM sheets WHERE user_id=? AND week_end=?', (g.user['id'],ending.isoformat())).fetchone()
         if entry and (entry['committed_at'] or entry['sheet_status']=='submitted'):
             timesheet_state='committed'
         elif entry:
             timesheet_state='draft'
+        elif g.user['work_week'] == 'mon_fri' and day.weekday() > 4:
+            timesheet_state='outside_profile'
         elif sheet and sheet['status']=='submitted':
             timesheet_state='submitted'
         else:
@@ -1495,9 +1527,10 @@ def display_datetime(value):
 def group_timesheets(sheets):
     groups = {}
     for sheet in sheets:
-        end = date.fromisoformat(sheet['week_end'])
-        group = groups.setdefault(sheet['week_end'], dict(ending=end, start=end-timedelta(days=6),
-                                  legacy=end.weekday()!=6, sheets=[], total_units=0, total_cents=0, submitted=0))
+        start, end, label = saved_period(sheet)
+        key = (sheet['week_end'], start.isoformat(), label)
+        group = groups.setdefault(key, dict(ending=end, start=start, label=label,
+                                  sheets=[], total_units=0, total_cents=0, submitted=0))
         group['sheets'].append(sheet)
         group['total_units'] += sheet['total_units'] or 0
         group['total_cents'] += sheet['total_cents'] or 0

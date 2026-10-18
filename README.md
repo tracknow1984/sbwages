@@ -5,12 +5,12 @@ A server-backed staff management and weekly timesheet app for SB EMPIRE, built f
 ## Included
 
 - Admin tabs: Staff Details, Timesheets and Settings.
-- Staff contact and emergency contact details; hourly rate in AUD; username; optional password; active/terminated status; fixed Monday–Sunday timesheets.
+- Staff contact and emergency contact details; hourly rate in AUD; username; optional password; active/terminated status; saved per-staff timesheet work-week profiles.
 - Searchable staff table with edit and email invitation actions.
 - Separate `/admin/login` and `/employee/login` pages.
-- Employee contact updates, daily start/finish times and activity notes across all seven days, separate Save day and Commit day buttons, calculated hours, live totals and weekly submission.
+- Employee contact updates, daily start/finish times and activity notes across the selected date range, separate Save day and Commit day buttons, calculated hours, live totals and weekly submission.
 - Committed days are locked on the server. Only administrators can correct or unlock them, with a required reason and a retained change history. Admins can see draft weeks as soon as a day is saved.
-- All new timesheets run Monday–Sunday. Dates use Australia/Brisbane.
+- Admin can save Monday–Sunday, Monday–Friday, or Friday to the following Saturday on each staff profile. New timesheets follow that choice; existing sheets retain their saved date range. Dates use Australia/Brisbane.
 - Employees may submit at any time, including before Sunday when working a partial week. Entered days must be committed; days not worked can stay blank. Submitted records are locked and visible in the admin table and employee history.
 - Submission snapshots the rate, hours and weekly amount. Later rate changes do not rewrite submitted records.
 - Hashed passwords, server-side role and ownership checks, CSRF protection, login throttling and single-use 48-hour password setup invitations. Termination revokes existing employee sessions.
@@ -73,9 +73,9 @@ python -m unittest discover -s tests -v
 node --check static/app.js
 ```
 
-The integration tests exercise staff creation/editing, employee field restrictions and isolation, both week schedules, calculations and rounding, locked submission snapshots, invalid inputs, CSRF, termination, invitation activation and replay protection, SMTP failure and login throttling. SMTP is mocked in tests; live email and Render deployment require configuration. The daily entry workflow is also checked in a local browser when browser dependencies are available.
+The integration tests exercise staff creation/editing, employee field restrictions and isolation, all three work-week profiles, calculations and rounding, locked submission snapshots, invalid inputs, CSRF, termination, invitation activation and replay protection, SMTP failure and login throttling. SMTP is mocked in tests; live email and Render deployment require configuration. The daily entry workflow is also checked in a local browser when browser dependencies are available.
 
-All employees use Sunday week endings. Existing Friday-ending records keep their original dates and totals and remain accessible in timesheet history, including drafts. Dates already recorded there cannot be entered again in a Monday–Sunday sheet and are excluded from its totals. Payroll exports are not included.
+Existing employees default to Monday–Sunday. Monday–Friday has five dated rows and shows the just-ended Friday on weekend visits. Friday to the following Saturday has nine dated rows and advances weekly: the two overlapping dates may only be recorded on one timesheet and are excluded from the other sheet’s total. Work-week choices survive restarts. Each new sheet snapshots its profile and start date; existing drafts, submitted sheets and payments retain their dates and totals after profile changes. Historical Friday-ending sheets retain their original seven-day range. Admin review, history and payment slips use each sheet’s saved range. Payroll exports are not included.
 
 
 ## Daily commits and administrator corrections
