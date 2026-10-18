@@ -245,6 +245,8 @@ def create_app(test_config=None):
             request.max_content_length = 4 * 1024 * 1024
         elif request.endpoint == 'save_public_blocktexx_questions':
             request.max_content_length = 512 * 1024
+        elif request.endpoint == 'bf_job_action':
+            request.max_content_length = 8 * 1024 * 1024
         elif request.endpoint == 'employee_prestart':
             request.max_content_length = 32 * 1024 * 1024
         elif request.endpoint == 'upload_licence_photos':
@@ -348,11 +350,14 @@ def create_app(test_config=None):
             hashed = user['password_hash'] if user and user['password_hash'] else app.config['DUMMY_HASH']
             matched = check_password_hash(hashed, request.form.get('password', ''))
             if user and matched and user['status'] == 'active':
+                binflow_next = session.get('binflow_next', '')
                 session.clear()
                 session.update(uid=user['id'], version=user['auth_version'])
                 session.permanent = True
                 db().execute('DELETE FROM login_attempts WHERE key IN (?,?)', (key, ipkey))
                 db().commit()
+                if binflow_next.startswith('/binflow/') or binflow_next == '/admin/bin-management':
+                    return redirect(binflow_next)
                 return redirect(url_for('index'))
             flash('Username or password is incorrect, or your account is inactive.', 'error')
         return render_template('login.html', audience=audience)
@@ -1473,6 +1478,8 @@ def create_app(test_config=None):
     register_quotes(app, db, require)
     from site_tour import register_site_tour
     register_site_tour(app, require)
+    from binflow import register_binflow
+    register_binflow(app, db, require)
     return app
 
 

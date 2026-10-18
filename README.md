@@ -286,3 +286,54 @@ not additional charges on top of it.
 
 Checks: `node tests/test_blocktexx_pricing.js` and
 `python -m unittest discover -s tests -p test_blocktexx_pricing.py`.
+
+## Bin Management / Transport (BinFlow)
+
+Open `/admin/bin-management` from the new main-navigation tab. This is the live
+bin-custody module; the existing Transport Model remains a separate planning tool.
+
+1. Under **Clients, sites & setup**, add warehouses and clients, then each client's
+   collection sites. A client may have multiple sites in multiple states.
+2. Under **Bins & QR labels**, register batches by warehouse, size and empty tare.
+   IDs and QR tokens are permanent per physical bin. Print the same bin's label
+   for its front and lid. Default sizes are 240 L, 660 L and 1100 L; add other sizes
+   in setup. No operational bins or client records are seeded in production.
+3. Create a pickup/delivery for one client site and same-state warehouse. Select
+   collection bins and/or empty replacements by size and quantity. This reserves
+   exact IDs without yet changing physical locations. A delivery-only job makes
+   the initial client allocation; a collection-only job is also supported.
+4. At the client, confirm every physical bin on the manifest, capture recipient
+   signature or an explicit reason for driver-only confirmation, and optionally
+   take a contents photo. Delivered empties become the site's bins; collections
+   enter inbound transit.
+5. Receive all collected bins at the warehouse, then enter and confirm each bin's
+   gross and actual tare. Net contents are calculated in integer grams. Recorded
+   weights are final and cannot be overwritten. The final weighed POD is available
+   as a PDF once all collection bins have been weighed. Until then it is clearly
+   marked as provisional / weight pending. Download a PDF to provide to the client;
+   the module does not automatically email it or publish client records.
+6. Weighed contents stay in warehouse stock until the operator records their
+   processing/release reference on the bin. The empty bin can then rotate again.
+
+Each movement records operator, timestamp, location and docket. Reservations use a
+unique partial index and stock transitions run in SQLite transactions. Repeated
+job creation, exchange, receipt and identical weighing submissions are handled
+without repeating stock movements. A bin cannot be booked twice, collected from a
+different client, or allocated outside its state pool. Cancelling an unexecuted
+job releases its reservations.
+
+Administrators have full access. Under module setup, explicitly grant transport
+access to active employees; all operational routes, QR records, evidence, PDFs
+and exports enforce it on the server. Employees cannot change setup/access or
+register new stock. Staff authentication and payroll permissions otherwise stay
+unchanged. QR scans retain their target through the normal login flow. Customer
+self-service accounts and finer staff-area permissions are future extensions.
+
+Data uses additive `bf_*` tables in the existing persistent application database.
+Only the bin-size lookup is seeded. Setup does not clear existing wages or
+transport-model data. QR images are generated locally (`qrcode`); POD PDFs are
+created locally (`reportlab`). Run the workflow regression checks with:
+
+```sh
+python -m unittest discover -s tests -p test_binflow.py -v
+```
