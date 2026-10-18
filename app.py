@@ -594,7 +594,7 @@ def create_app(test_config=None):
             (person['id'], days[0].isoformat(), ending.isoformat(), ending.isoformat())).fetchall()
         return dict(sheet=sheet, days=days, entries=by_day, total_units=units, rate=rate, total_cents=total,
                     booked_days={row['work_date']: row['week_end'] for row in booked},
-                    period_label=period_label, saved_profile=bool(sheet and sheet['work_week'] != person['work_week']),
+                    period_label=period_label, saved_profile=bool(sheet and (sheet['work_week'] != person['work_week'] or period_label != WORK_WEEKS[person['work_week']]['label'])),
                     overlap_week=(ending - start).days == 8,
                     payment=db().execute('SELECT * FROM payments WHERE sheet_id=?',(sheet['id'],)).fetchone() if sheet else None)
 
@@ -633,9 +633,8 @@ def create_app(test_config=None):
         existing = db().execute('SELECT * FROM sheets WHERE user_id=? AND week_end=?', (person['id'], ending.isoformat())).fetchone()
         if not existing and ending.weekday() != WORK_WEEKS[profile]['ending']:
             abort(400, 'Choose a week ending that matches your saved work-week profile.')
-        allowed_ending = profile_end(today(), existing['work_week']) if existing and existing['work_week'] else current_ending
-        if existing and not existing['work_week']:
-            allowed_ending = week_end(today(), ending.weekday())
+        # Saved records retain their ending day even when a profile is corrected.
+        allowed_ending = week_end(today(), ending.weekday()) if existing else current_ending
         if ending > allowed_ending:
             abort(400, 'Future timesheets are not available yet.')
         data = sheet_data(person, ending)

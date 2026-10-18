@@ -5,7 +5,8 @@ from datetime import date, timedelta
 WORK_WEEKS = {
     'mon_sun': {'label': 'Monday–Sunday', 'ending': 6, 'days': 7},
     'mon_fri': {'label': 'Monday–Friday', 'ending': 4, 'days': 5},
-    'fri_next_sat': {'label': 'Friday to the following Saturday', 'ending': 5, 'days': 9},
+    # Keep the stored identifier compatible with existing SQLite constraints and staff selections.
+    'fri_next_sat': {'label': 'Saturday to the following Friday', 'ending': 4, 'days': 7},
 }
 
 
@@ -29,4 +30,6 @@ def saved_period(sheet):
     profile = sheet.get('work_week')
     label = WORK_WEEKS[profile]['label'] if profile in WORK_WEEKS else (
         'Monday–Sunday' if ending.weekday() == 6 else 'Existing Friday-ending week')
+    if profile == 'fri_next_sat' and (ending - start).days == 8:
+        label = 'Previous Friday to Saturday period'
     return start, ending, label
