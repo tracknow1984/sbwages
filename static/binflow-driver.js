@@ -5,7 +5,7 @@
   const form = document.querySelector('[data-scan-form]');
   let busy = false;
   async function refreshStock() {
-    if (busy || document.hidden) return;
+    if (busy || document.hidden || !stock.dataset.stateUrl) return;
     try {
       const response = await fetch(stock.dataset.stateUrl, {headers: {Accept: 'application/json'}, cache: 'no-store'});
       if (response.ok && response.headers.get('content-type')?.includes('application/json')) {
@@ -39,8 +39,8 @@
     start.hidden = false;
   }
   function setAction() {
-    const selected = form.querySelector('[name="action"]:checked');
-    context.textContent = context.dataset[selected.value];
+    const selected = form.querySelector('[name="action"]:checked') || form.querySelector('[name="action"]');
+    context.textContent = context.dataset[selected.value] || '';
     lastCode = '';
     say('Ready. Scan one bin at a time for this movement.');
   }
@@ -62,7 +62,8 @@
       }
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.message || 'Scan could not be saved. Try again.');
-      stock.innerHTML = result.html;
+      if (result.html) stock.innerHTML = result.html;
+      if (form.dataset.guided && result.stage !== form.dataset.guided) { stopCamera(); location.assign(result.redirect); return; }
       say(result.message);
       input.value = '';
       if (!result.duplicate && navigator.vibrate) navigator.vibrate(80);

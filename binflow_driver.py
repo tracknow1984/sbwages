@@ -1,5 +1,6 @@
 """Individual, transactional scans between warehouses, trucks and client sites."""
 from urllib.parse import urlparse
+from binflow_runs import guard_movement, check_owner, mark_returned, run_data, valid_date
 import sqlite3
 
 from flask import abort, g, jsonify, redirect, render_template, request, url_for
@@ -47,6 +48,8 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
         j = job(job_id) if job_id else None
         if j and j['truck_id'] != truck_id:
             abort(404)
+        if j:
+            check_owner(db(),truck_id,j['scheduled_date'],g.user)
         manifest = db().execute('''SELECT i.*,b.location_id,b.truck_id,b.truck_load,b.status,
             COALESCE(t.name,l.name,'In transit') AS current_location
             FROM bf_job_bins i JOIN bf_bins b ON b.id=i.bin_id
@@ -72,19 +75,36 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
                 return success('Truck added. Assign a pickup / delivery to start scanning.', 'bf_truck', truck_id=tid)
             except (ValueError, sqlite3.IntegrityError) as error:
                 return failure(error if isinstance(error, ValueError) else ValueError('That truck is already registered.'), 'bf_drivers')
+        try:
+            run_date=valid_date(request.args.get('date',now()[:10]))
+        except ValueError as error:
+            abort(400,str(error))
         trucks = db().execute('''SELECT t.*,
             (SELECT COUNT(*) FROM bf_bins b WHERE b.truck_id=t.id AND b.truck_load='empty') AS empties,
             (SELECT COUNT(*) FROM bf_bins b WHERE b.truck_id=t.id AND b.truck_load='full') AS full
             FROM bf_trucks t ORDER BY state,name''').fetchall()
         jobs = db().execute("SELECT * FROM bf_jobs WHERE status='scheduled' AND truck_id IS NULL ORDER BY scheduled_date,id").fetchall()
-        return render('drivers', section='driver', trucks=trucks, jobs=jobs)
+        summaries={r['truck_id']:r['n'] for r in db().execute("SELECT truck_id,COUNT(*) AS n FROM bf_jobs WHERE scheduled_date=? AND status!='cancelled' GROUP BY truck_id",(run_date,))}
+        previous=db().execute("""SELECT DISTINCT j.truck_id,j.scheduled_date,t.name FROM bf_jobs j JOIN bf_trucks t ON t.id=j.truck_id
+            WHERE j.scheduled_date<? AND j.status IN ('scheduled','collected') ORDER BY j.scheduled_date DESC,t.name""",(run_date,)).fetchall()
+        if g.user['role']!='admin':
+            def mine(tid,day):
+                run=db().execute('SELECT driver_id FROM bf_runs WHERE truck_id=? AND run_date=?',(tid,day)).fetchone()
+                assigned={r['driver_id'] for r in db().execute("SELECT driver_id FROM bf_jobs WHERE truck_id=? AND scheduled_date=? AND status!='cancelled'",(tid,day)) if r['driver_id']}
+                return (not run or not run['driver_id'] or run['driver_id']==g.user['id']) and (not assigned or assigned=={g.user['id']})
+            trucks=[t for t in trucks if mine(t['id'],run_date)]
+            previous=[r for r in previous if mine(r['truck_id'],r['scheduled_date'])]
+        return render('drivers', section='driver', trucks=trucks, jobs=jobs,run_date=run_date,summaries=summaries,previous=previous)
 
     @app.post('/binflow/pickups/<int:job_id>/truck')
-    @access
+    @require('admin')
     def bf_assign_truck(job_id):
         try:
             db().execute('BEGIN IMMEDIATE')
             j, t = job(job_id), truck(integer('truck_id'))
+            run = db().execute('SELECT departed_at,returned_at FROM bf_runs WHERE truck_id=? AND run_date=?',(t['id'],j['scheduled_date'])).fetchone()
+            if j['truck_id'] != t['id'] and run and (run['departed_at'] or run['returned_at']):
+                raise ValueError('This truck has already started its run for this date. Choose an unstarted run.')
             if j['status'] != 'scheduled':
                 raise ValueError('Choose a truck before completing the client handover.')
             if j['state'] != t['state']:
@@ -103,19 +123,12 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
     @access
     def bf_truck(truck_id):
         t = truck(truck_id)
-        jobs = db().execute("SELECT * FROM bf_jobs WHERE truck_id=? AND status NOT IN ('complete','cancelled') ORDER BY scheduled_date,id", (truck_id,)).fetchall()
-        jid = request.args.get('job', type=int) or (jobs[0]['id'] if jobs else None)
-        data = snapshot(truck_id, jid)
-        rows = data['manifest']
-        if any(i['direction']=='deliver' and not i['loaded_at'] for i in rows):
-            action = 'load'
-        elif any(i['direction']=='deliver' and not i['delivered_at'] for i in rows):
-            action = 'deliver'
-        elif any(i['direction']=='collect' and not i['picked_up_at'] for i in rows):
-            action = 'collect'
-        else:
-            action = 'return'
-        return render('driver', section='driver', jobs=jobs, action=action, **data)
+        selected = request.args.get('job', type=int)
+        j = job(selected) if selected else None
+        if j and j['truck_id'] != truck_id:
+            abort(404)
+        run_date = j['scheduled_date'] if j else request.args.get('date',now()[:10])
+        return redirect(url_for('bf_run',truck_id=truck_id,date=run_date))
 
     @app.get('/binflow/driver/<int:truck_id>/state')
     @access
@@ -125,17 +138,18 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
 
     @app.post('/binflow/driver/<int:truck_id>/scan')
     @access
-    def bf_truck_scan(truck_id):
-        jid = request.form.get('job_id', type=int)
+    def bf_truck_scan(truck_id, guided_job=None, guided_action=None, guided_date=None):
+        jid = guided_job or request.form.get('job_id', type=int)
         wants_json = request.headers.get('Accept') == 'application/json'
         try:
             db().execute('BEGIN IMMEDIATE')
-            t, j = truck(truck_id), job(integer('job_id'))
+            t, j = truck(truck_id), job(jid or integer('job_id'))
+            check_owner(db(),truck_id,j['scheduled_date'],g.user)
             if j['truck_id'] != truck_id or not j['scan_mode']:
                 raise ValueError('This job is not assigned to this truck. Choose the correct job or truck.')
             if j['status'] == 'cancelled':
                 raise ValueError('This job has been cancelled.')
-            action = text_field('action')
+            action = guided_action or text_field('action')
             columns = {'load':'loaded_at', 'deliver':'delivered_at', 'collect':'picked_up_at', 'return':'returned_at'}
             if action not in (*columns, 'unload'):
                 raise ValueError('Choose a scan action.')
@@ -158,6 +172,7 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
             if duplicate:
                 message = f'{b["code"]} — already scanned for this step. Stock unchanged.'
             else:
+                guard_movement(db(),j,action,g.user,now()[:10])
                 if b['reserved_job'] != j['id'] or b['state'] != t['state']:
                     raise ValueError('The bin allocation changed. Refresh the job before scanning.')
                 if action in ('load','deliver','collect','unload') and j['status'] != 'scheduled':
@@ -202,8 +217,14 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
                 event(b['id'], label, j['id'], origin, target, from_truck=from_truck, to_truck=to_truck)
                 if action == 'return' and not db().execute("SELECT 1 FROM bf_job_bins WHERE job_id=? AND direction='collect' AND returned_at IS NULL", (j['id'],)).fetchone():
                     db().execute("UPDATE bf_jobs SET status='received',received_at=? WHERE id=?", (now(),j['id']))
+                if action == 'return':
+                    mark_returned(db(),truck_id,j['scheduled_date'],now())
                 message = f'{b["code"]} — {label.lower()}.'
             db().commit()
+            if guided_job:
+                data=run_data(db(),truck_id,guided_date,g.user['id'],now()[:10])
+                return jsonify(ok=True,message=message,duplicate=duplicate,stage=data['stage'],remaining=data['remaining'],
+                               redirect=url_for('bf_run',truck_id=truck_id,date=guided_date),html=render_template('binflow/run_bins.html',**data))
             if wants_json:
                 return jsonify(ok=True, message=message, duplicate=duplicate,
                     html=render_template('binflow/driver_stock.html', **snapshot(truck_id, j['id'])))
@@ -213,3 +234,5 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
             if wants_json:
                 return jsonify(ok=False, message=str(error)), 409
             return failure(error, 'bf_truck', truck_id=truck_id, job=jid)
+
+    app.extensions['bf_scan'] = bf_truck_scan

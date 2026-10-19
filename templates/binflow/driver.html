@@ -4,7 +4,7 @@
 {% block body %}
 <script src="{{ url_for('static',filename='vendor/jsQR.min.js') }}" defer></script>
 <script src="{{ url_for('static',filename='binflow-driver.js') }}" defer></script>
-<div class="bf-toolbar"><a href="{{ url_for('bf_drivers') }}">← Choose truck / assign jobs</a>{% if job %}<a href="{{ url_for('bf_job',job_id=job.id) }}">Docket {{ job.code }} →</a>{% endif %}</div>
+<div class="bf-toolbar"><a href="{{ url_for('bf_drivers') }}">← Choose truck / assign jobs</a><a class="button primary" href="{{ url_for('bf_load_list',truck_id=truck.id,date=job.scheduled_date if job else None) }}">Run loading list →</a>{% if job %}<a href="{{ url_for('bf_job',job_id=job.id) }}">Docket {{ job.code }} →</a>{% endif %}</div>
 {% if job %}
 <section class="bf-panel bf-pad"><form method="get" class="bf-form"><label>Client stop<select name="job" data-autosubmit>{% for j in jobs %}<option value="{{ j.id }}" {{ 'selected' if j.id==job.id }}>{{ j.client_name }} · {{ j.site_name }} · {{ j.code }}</option>{% endfor %}{% if job.id not in jobs|map(attribute='id')|list %}<option value="{{ job.id }}" selected>{{ job.client_name }} · {{ job.code }}</option>{% endif %}</select></label><noscript><button>Open stop</button></noscript></form><p class="bf-muted">{{ job.site_address }} · Warehouse: {{ job.warehouse_name }}</p></section>
 {% if job.status in ['scheduled','collected'] %}

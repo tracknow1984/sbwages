@@ -1,7 +1,7 @@
 {% extends 'binflow/layout.html' %}
 {% block title %}Edit {{ 'warehouse' if record.kind == 'warehouse' else 'client site' }}{% endblock %}
 {% block subtitle %}Update the location details used for future allocations and pickups.{% endblock %}
-{% block body %}
+{% block body %}<p><a href="{{ url_for('bf_geofence',location_id=record.id) }}">Set / edit site geofence →</a></p>
 <section class="bf-panel bf-pad bf-narrow">
   <h2>{{ record.name }}</h2>
   {% if record.client_name %}<p class="bf-muted">Client: {{ record.client_name }}</p>{% endif %}
@@ -30,5 +30,6 @@
     </div>
   </form>
 </section>
+{% if record.kind=='client' %}<section class="bf-panel bf-pad"><h2>Client bin requirements</h2><p>Set how many bins of each size this site needs, so pickups have a suggested empty load.</p><a class="button primary" href="{{ url_for('bf_requirements',location_id=record.id) }}">Edit bin requirements →</a></section>{% endif %}
 {% include 'binflow/source_profile.html' %}
 {% endblock %}

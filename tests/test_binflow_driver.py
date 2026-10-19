@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from app import create_app
 import test_binflow as legacy
+from binflow_helpers import prestart, depart
 
 
 class DriverScanTests(unittest.TestCase):
@@ -21,6 +22,7 @@ class DriverScanTests(unittest.TestCase):
         self.post('/binflow/driver', {'name':'QLD Truck 01','state':'QLD'})
         self.job(collect=collect, deliver=deliver, legacy=False)
         self.post('/binflow/pickups/2/truck', {'truck_id':1})
+        prestart(self)
 
     def scan(self, action, bid, jid=2, truck=1, expected=200):
         with self.client.session_transaction() as session:
@@ -51,8 +53,10 @@ class DriverScanTests(unittest.TestCase):
         self.assert_custody(4,1,None,None,'empty')
         self.assertIn(b'Empty on truck',self.client.get('/binflow/bins/3').data)
         self.scan('load','https://example.com/binflow/qr/'+tokens[3]['token'])
+        depart(self)
         self.scan('deliver',3)
         self.assert_custody(3,3,None,None,'at_client')
+        self.scan('deliver',4)
         self.scan('collect',1)
         self.assert_custody(1,None,1,'full','transit')
         self.scan('return',1,expected=409)
@@ -60,7 +64,7 @@ class DriverScanTests(unittest.TestCase):
         self.assertIsNone(self.rows('SELECT collected_at FROM bf_jobs WHERE id=2')[0]['collected_at'])
         self.scan('deliver',4)
         self.scan('collect',2)
-        self.assertIn(b'Client scans complete',self.client.get('/binflow/driver/1?job=2').data)
+        self.assertIn(b'Finish this client',self.client.get('/binflow/driver/1?job=2',follow_redirects=True).data)
         self.exchange(2,())
         self.assertEqual(self.rows('SELECT status FROM bf_jobs WHERE id=2')[0]['status'],'collected')
         self.assertIn(b'WEIGHT PENDING',self.client.get('/binflow/pickups/2/pod').data)
@@ -100,6 +104,7 @@ class DriverScanTests(unittest.TestCase):
             results = list(executor.map(simultaneous,range(2)))
         self.assertEqual([r.status_code for r in results],[200,200])
         self.assertEqual(sum(r.json['duplicate'] for r in results),1)
+        depart(self)
         self.scan('deliver',3)
         events = self.rows('SELECT * FROM bf_events')
         self.assertTrue(self.scan('load',3)['duplicate'])
@@ -117,6 +122,7 @@ class DriverScanTests(unittest.TestCase):
         self.post('/binflow/driver',{'name':'QLD Truck 02','state':'QLD'})
         self.scan('load',3)
         self.scan('load',4,jid=3)
+        depart(self)
         state=self.client.get('/binflow/driver/1/state?job=2').json['html']
         self.assertIn('2 empty',state)
         self.scan('deliver',4,expected=409)
@@ -125,10 +131,14 @@ class DriverScanTests(unittest.TestCase):
         self.scan('load','BF999999',expected=409)
         self.scan('collect',3,expected=409)
         self.assertEqual(len(self.rows('SELECT * FROM bf_bins WHERE truck_id=1')),2)
+        self.scan('deliver',4,jid=3,expected=409)
+        self.scan('deliver',3)
+        self.scan('collect',1)
+        self.exchange(2,())
         self.scan('deliver',4,jid=3)
         self.exchange(3,())
         self.assert_custody(4,4,None,None,'at_client')
-        self.assert_custody(3,None,1,'empty','transit')
+        self.assert_custody(3,3,None,None,'at_client')
 
     def test_unload_cancellation_and_reassignment_preserve_custody(self):
         self.prepare(collect=(),deliver=(3,))
@@ -144,6 +154,7 @@ class DriverScanTests(unittest.TestCase):
         self.assertTrue(self.scan('unload',3)['duplicate'])
         self.assert_custody(3,1,None,None,'empty')
         self.post('/binflow/pickups/2/truck',{'truck_id':2})
+        prestart(self,truck=2)
         self.scan('load',3,truck=2)
         self.scan('unload',3,truck=2)
         self.post('/binflow/pickups/2/cancel',{'reason':'Changed route'})
@@ -155,10 +166,11 @@ class DriverScanTests(unittest.TestCase):
         self.prepare(collect=(1,),deliver=(3,))
         self.assertEqual(self.rows('SELECT scan_mode FROM bf_jobs WHERE id=2')[0]['scan_mode'],1)
         for route in ('/binflow/driver','/binflow/driver/1','/binflow/driver/1/state?job=2'):
-            self.assertEqual(self.client.get(route).status_code,200)
+            self.assertEqual(self.client.get(route,follow_redirects=True).status_code,200)
         self.assertEqual(self.client.get('/binflow/driver/1/scan').status_code,405)
         self.assertEqual(self.client.post('/binflow/driver/1/scan',data={'job_id':2,'action':'load','code':'BF000003'}).status_code,400)
         self.scan('load',3)
+        depart(self)
         before = self.rows('SELECT * FROM bf_bins')
         create_app(dict(self.app.config))
         self.assertEqual(self.rows('SELECT * FROM bf_bins'),before)
@@ -178,9 +190,11 @@ class DriverScanTests(unittest.TestCase):
         uid=self.rows("SELECT id FROM users WHERE username='scan'")[0]['id']
         with sqlite3.connect(self.path) as conn:
             conn.execute('INSERT INTO bf_access(user_id) VALUES(?)',(uid,))
+        self.scan('deliver',3,expected=403)
+        self.assertEqual(self.post('/binflow/driver',{'name':'Blocked','state':'QLD'}).status_code,403)
+        self.login()
         self.scan('deliver',3)
         self.scan('collect',1)
-        self.assertEqual(self.post('/binflow/driver',{'name':'Blocked','state':'QLD'}).status_code,403)
 
     def test_old_schema_migration_preserves_stock_and_dockets(self):
         from binflow import SCHEMA

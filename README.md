@@ -297,26 +297,27 @@ bin-custody module; the existing Transport Model remains a separate planning too
 2. Under **Bins & QR labels**, register batches by warehouse, size and empty tare.
    IDs and QR tokens are permanent per physical bin. Print the same bin's label
    for its front and lid. Default sizes are 240 L, 660 L and 1100 L; add other sizes
-   in setup. No operational bins or client records are seeded in production.
+   in setup. Physical stock is registered explicitly; planning estimates never create bins.
 3. Create a pickup/delivery for one client site and same-state warehouse. Select
    collection bins and/or empty replacements by size and quantity. This reserves
    exact IDs without yet changing physical locations. A delivery-only job makes
    the initial client allocation; a collection-only job is also supported.
-4. In **Driver / truck**, add a truck by registration/fleet name and state, then
-   assign planned jobs to it. One truck can carry bins for several client stops.
-   Open its scanner, select the client stop and movement: **Load empties**
-   (warehouse → truck), **Drop empties** (truck → client), **Pick up full bins**
-   (client → truck), or **Return full bins** (truck → warehouse). Each accepted
-   scan immediately moves one bin and updates the live empty/full truck manifest.
-   Use the phone camera, handheld scanner or typed bin ID. Finish the client
-   handover with a recipient signature or explicit reason for driver-only
-   confirmation, plus an optional contents photo, before warehouse returns.
-5. Scan collected bins off the truck individually, then enter and confirm each bin's
-   gross and actual tare. Net contents are calculated in integer grams. Recorded
-   weights are final and cannot be overwritten. The final weighed POD is available
-   as a PDF once all collection bins have been weighed. Until then it is clearly
-   marked as provisional / weight pending. Download a PDF to provide to the client;
-   the module does not automatically email it or publish client records.
+4. In **Driver day**, add each truck and assign planned jobs. **Daily schedule**
+   sets the driver, stop order and optional local arrival times before loading.
+   The guided phone screen requires today's signed vehicle prestart, shows the
+   full day's empty load by client and size, and scans every empty onto the truck.
+   Only then can the driver start the first stop. At each ordered stop, scan
+   empties off, full bins on, then record recipient signature or a reason for
+   driver-only handover. The next client opens automatically. The server rejects
+   skipped steps, wrong-client bins, another driver's run and future-day scans.
+   Defects or unfitness hold the truck until an administrator records a resolution
+   and a fresh inspection passes. These signed records also appear in Prestart.
+5. After all client handovers, scan full bins back into their assigned warehouses.
+   The warehouse records gross and actual tare; net contents use integer grams.
+   Final weights cannot be overwritten. A collected-bin POD closes only when all
+   its returned bins are weighed. Delivery-only PODs close at client handover.
+   **Daily PODs** shows the day's provisional and final dockets. Approved client
+   logins at `/binflow/client/login` can view/download only their final PODs.
 6. Weighed contents stay in warehouse stock until the operator records their
    processing/release reference on the bin. The empty bin can then rotate again.
 
@@ -343,8 +344,8 @@ Administrators have full access. Under module setup, explicitly grant transport
 access to active employees; all operational routes, QR records, evidence, PDFs
 and exports enforce it on the server. Employees cannot change setup/access or
 register new stock. Staff authentication and payroll permissions otherwise stay
-unchanged. QR scans retain their target through the normal login flow. Customer
-self-service accounts and finer staff-area permissions are future extensions.
+unchanged. QR scans retain their target through the normal login flow. Client logins use separate accounts and an explicit client allowlist; they have no
+staff, inventory or payroll access. Finer employee-area permissions can be added later.
 
 Data uses additive `bf_*` tables in the existing persistent application database.
 Only the bin-size lookup is seeded. Setup does not clear existing wages or
@@ -364,3 +365,63 @@ The transaction records its source revision and summary in `bf_import_runs`, wit
 Checks: `python -m unittest discover -s tests -p 'test_binflow*.py' -v`.
 
 BinFlow pages use the full available viewport width with aligned navigation and responsive client/physical-bin registers. Administrators can use **Edit location** in the physical register or bin detail page to correct a bin's warehouse/client location within its state. The permanent code and QR token are unchanged, and each change records its previous/new location, status, time, administrator and optional notes. Empty client returns require explicit confirmation. Active/reserved movements and pending weigh-ins must be resolved through their dockets; full client bins return through the pickup/weighing workflow, and weighed stock remains full until processing is recorded. Stale edit forms cannot overwrite newer movements.
+
+### Daily schedules, targets and client POD access
+
+`/binflow/calendar` displays a seven-day date strip and truck schedules: blue for
+in-progress work, green after client handover, orange once received at the
+warehouse. POD closure has its own label. The open screen refreshes every 20
+seconds. `/binflow/driver/<truck>/day?date=YYYY-MM-DD` is the guided run;
+`/binflow/driver/<truck>/load-list` is its printable loading list. There is one
+ordered run per truck per scheduled day. Finish an earlier run before departure
+on another day. The driver needs a new prestart on each actual working day.
+
+Client-site requirements are editable in setup. New jobs calculate empties from
+the target, current on-site bins, same/earlier-date reservations and selected
+collections. The job keeps a snapshot of its loading calculation. Shortfalls are
+visible; allocated physical bins, rather than a planning target, form the manifest.
+State allocation plans distinguish site targets, editable rotation allowance and
+physically registered stock. The default rotation allowance is one spare target
+set, not a verified procurement minimum.
+
+With the existing private Blocktexx import flag enabled, a separate one-time
+ledger seeds site requirements from saved source equipment. Cages initially map
+one-for-one to 1100 L; 660 L capacity converts to 1100 L rounded up per site; 240 L
+stays 240 L; 120 L capacity converts to 240 L rounded up. Repeated service-line
+counts use the maximum per type and are flagged for review. Pallecons and unknown
+quantities need review. Existing manually edited profiles are preserved. No
+physical bins, deliveries or purchase quantities are fabricated by this import.
+
+Administrators create, disable and reset client logins under **Client POD access**.
+Each login has explicit access to one or more client accounts. Passwords are
+hashed, changes revoke sessions, login attempts are throttled and POSTs use CSRF.
+The original client is snapshotted on each job; later site changes cannot change
+ownership of historical PODs. Direct PDF requests enforce both account scope and
+final status. Credentials and invitations are not automatically emailed.
+
+### Wialon token and geofences
+
+Open **Clients, sites & setup → GPS & Wialon token** (`/binflow/settings/gps`).
+Select the Wialon Hosting region, paste a 72-character token with read access to
+unit positions, then **Test connection & save token**. Match each truck to a unit
+and configure circular arrival areas for client sites and warehouses. These
+areas are stored in BinFlow; this integration does not edit Wialon geozones.
+
+The token is encrypted with Fernet using a domain-separated key derived from the
+application SECRET_KEY. Keep that existing secret stable and backed up; rotating
+it requires entering the Wialon token again. Tokens/session IDs are never rendered
+in pages or logged. Requests use a fixed HTTPS host allowlist, no redirects,
+bounded response sizes and timeouts. Replacing a token clears truck mappings so
+units must be explicitly re-linked. Wialon sessions are logged out after queries.
+
+The open calendar polls cached positions at most every 30 seconds across web
+workers. It records observed geofence transitions, marks positions older than
+five minutes stale, and respects missing/private coordinates. This is an
+open-screen position monitor, not an unattended geofence-history service. GPS
+never moves stock or completes a job: scans, handovers and weighing do that.
+The ChatGPT Wialon app connection is separate from the server token entered here.
+
+Checks: `python -m unittest discover -s tests -p 'test_binflow*.py'` and the
+existing `test_prestart.py` suite. New coverage exercises a complete four-stop day,
+prestart holds/expiry, sequence/driver gates, concurrent scans, immutable weights,
+client PDF isolation/session revocation and mocked Wialon protocol/privacy cases.

@@ -15,10 +15,30 @@
       const target = root.querySelector('[data-selected-count="' + name + '"]');
       if (target) target.textContent = count + ' selected';
     });
+    updateLoading();
+  }
+  function updateLoading() {
+    let shortfall = 0;
+    root.querySelectorAll('[data-plan-size]').forEach(row => {
+      const sid = row.dataset.planSize;
+      const count = direction => root.querySelectorAll('input[name="'+direction+'"][data-size-id="'+sid+'"]:checked').length;
+      const collect = count('collect'), selected = count('deliver');
+      const needed = Math.max(0, Number(row.dataset.target) - Number(row.dataset.projected) + collect);
+      row.dataset.needed = needed;
+      row.querySelector('[data-plan-collect]').textContent = collect;
+      row.querySelector('[data-plan-needed]').textContent = needed;
+      row.querySelector('[data-plan-selected]').textContent = selected;
+      row.querySelector('[data-plan-short]').textContent = Math.max(0,needed-selected);
+      row.querySelector('[data-plan-short]').classList.toggle('bf-plan-short',needed>selected);
+      shortfall += Math.max(0,needed-selected);
+    });
+    const note = root.querySelector('[data-load-note]');
+    if (note) note.textContent = shortfall ? shortfall+' empties short of the suggested load. Use available stock or review the job before saving.' : 'The selected empties cover the suggested load.';
   }
   root.querySelectorAll('[data-group]').forEach(group => {
     const boxes = [...group.querySelectorAll('input[type="checkbox"]')];
     const quantity = group.querySelector('[data-quantity]');
+    quantity.value = boxes.filter(b => b.checked).length;
     quantity.addEventListener('input', () => {
       const count = Math.max(0, Math.min(boxes.length, Number(quantity.value) || 0));
       boxes.forEach((box, i) => { box.checked = i < count; });
@@ -26,6 +46,21 @@
     });
     boxes.forEach(box => box.addEventListener('change', () => { quantity.value = boxes.filter(b => b.checked).length; updateCounts(); }));
   });
+  root.querySelector('[data-use-load]')?.addEventListener('click', () => {
+    const profiled = new Set([...root.querySelectorAll('[data-plan-size]')].map(r=>r.dataset.planSize));
+    let slots = 200 - [...root.querySelectorAll('input[name="deliver"]:checked')].filter(b=>!profiled.has(b.dataset.sizeId)).length;
+    root.querySelectorAll('[data-plan-size]').forEach(row => {
+      const group = root.querySelector('[data-group][data-direction="deliver"][data-size-id="'+row.dataset.planSize+'"]');
+      if (!group) return;
+      const boxes = [...group.querySelectorAll('input[name="deliver"]')];
+      const quantity = Math.min(boxes.length,Number(row.dataset.needed),Math.max(0,slots));
+      boxes.forEach((box,i)=>{box.checked=i<quantity;});
+      group.querySelector('[data-quantity]').value = quantity;
+      slots -= quantity;
+    });
+    updateCounts();
+  });
+  updateCounts();
   root.querySelectorAll('[data-confirm-scan]').forEach(button => {
     const form = button.form;
     const input = form.querySelector('[data-manifest-scan]');
@@ -64,7 +99,7 @@
     container.querySelector('[data-clear-signature]').addEventListener('click', () => { strokes=[]; active=null; draw(); });
     const select = container.closest('form').querySelector('[data-confirmation]');
     const update = () => { container.hidden = select.value !== 'signed'; };
-    select.addEventListener('change', update); update();
+    if (select) { select.addEventListener('change', update); update(); }
   });
   root.querySelectorAll('form[method="post"]:not([data-scan-form])').forEach(form => form.addEventListener('submit', () => {
     // Disable only the submit button; keep all input values in the request.

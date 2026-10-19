@@ -245,7 +245,7 @@ def create_app(test_config=None):
             request.max_content_length = 4 * 1024 * 1024
         elif request.endpoint == 'save_public_blocktexx_questions':
             request.max_content_length = 512 * 1024
-        elif request.endpoint == 'bf_job_action':
+        elif request.endpoint in ('bf_job_action','bf_run_prestart'):
             request.max_content_length = 8 * 1024 * 1024
         elif request.endpoint == 'employee_prestart':
             request.max_content_length = 32 * 1024 * 1024
