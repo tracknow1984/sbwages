@@ -19,7 +19,7 @@ from binflow_driver import migrate_driver, register_driver
 from binflow_runs import migrate_runs, register_runs, guard_movement, check_owner
 from binflow_gps import migrate_gps, register_gps
 from binflow_portal import migrate_portal, register_portal
-from binflow_qr import migrate_qr, register_qr, link_request, reopen_requests, pickup_requests
+from binflow_qr import migrate_qr, register_qr, link_request, reopen_requests, pickup_requests, approve_requests, request_queue
 from binflow_tares import STANDARD_TARES, apply_standard_tares
 from binflow_approvals import migrate_approvals, register_approvals, ensure_approved, allocation_history
 from binflow_collections import migrate_collections, populate_collection_profiles, register_collections
@@ -223,11 +223,21 @@ def register_binflow(app, db, require):
         counts = {key: sum(b['status'] == key for b in stock) for key in STATUSES}
         jobs = db().execute("SELECT * FROM bf_jobs WHERE approval_status='approved' AND status NOT IN ('complete','cancelled')" + (' AND state=?' if state else '') + ' ORDER BY scheduled_date,id LIMIT 30', args).fetchall()
         sizes = db().execute('SELECT * FROM bf_sizes ORDER BY litres').fetchall()
-        state_rows = [dict(state=s, total=sum(b['state'] == s for b in stock), available=sum(b['state'] == s and b['status'] == 'empty' and not b['reserved_job'] for b in stock),
-                           on_site=sum(b['state'] == s and b['status'] in ('at_client','full') for b in stock), returning=sum(b['state'] == s and b['status'] == 'transit' for b in stock), warehouse_full=sum(b['state'] == s and b['status'] in ('received','weighed') for b in stock)) for s in STATES if not state or s == state]
+        state_rows=[]
+        for area in STATES:
+            if state and state!=area: continue
+            for size in sizes:
+                group=[b for b in stock if b['state']==area and b['size_id']==size['id']]
+                state_rows.append(dict(state=area,size_id=size['id'],size_name=size['name'],total=len(group),
+                    available=sum(b['status']=='empty' and not b['reserved_job'] for b in group),
+                    reserved=sum(b['status']=='empty' and bool(b['reserved_job']) for b in group),
+                    on_site=sum(b['status'] in ('at_client','full') for b in group),
+                    returning=sum(b['status']=='transit' for b in group),
+                    warehouse_full=sum(b['status'] in ('received','weighed') for b in group)))
         by_size = [dict(name=s['name'], total=sum(b['size_id'] == s['id'] for b in stock), available=sum(b['size_id'] == s['id'] and b['status'] == 'empty' and not b['reserved_job'] for b in stock), at_client=sum(b['size_id'] == s['id'] and b['status'] in ('at_client','full') for b in stock)) for s in sizes]
         net = db().execute('SELECT COALESCE(SUM(i.net_g),0) FROM bf_job_bins i JOIN bf_jobs j ON j.id=i.job_id WHERE i.weighed_at IS NOT NULL' + (' AND j.state=?' if state else ''), args).fetchone()[0]
         return render('dashboard', section='overview', state=state, stock=stock, counts=counts, jobs=jobs, state_rows=state_rows, by_size=by_size, net=net,
+                      request_dashboard=True,**request_queue(db(),state,request.args.get('requests','all'),limit=12),
                       client_count=db().execute('SELECT COUNT(*) FROM bf_clients').fetchone()[0], warehouse_count=db().execute("SELECT COUNT(*) FROM bf_locations WHERE kind='warehouse'").fetchone()[0])
 
     @app.route('/binflow/setup', methods=['GET', 'POST'])
@@ -499,7 +509,11 @@ def register_binflow(app, db, require):
     @access
     def bf_new_job():
         if request.method == 'POST':
+            approve_schedule=request.form.get('approve_schedule')=='yes'
+            if approve_schedule and g.user['role']!='admin': abort(403)
             try:
+                if approve_schedule and not request.form.get('collection_request',type=int):
+                    raise ValueError('Choose a collection request before approving its schedule.')
                 key = text_field('request_key', 80)
                 if not re.fullmatch(r'[A-Za-z0-9_-]{20,80}', key):
                     raise ValueError('Refresh this form before saving.')
@@ -558,6 +572,9 @@ def register_binflow(app, db, require):
                 rid=request.form.get('collection_request',type=int)
                 if rid:
                     link_request(db(),rid,jid,site['id'],{b['id'] for d,b in selected if d=='collect'},actor(),now())
+                if approve_schedule:
+                    app.extensions['bf_review_allocation'](jid,'approve')
+                    return success('Collection schedule approved. Choose a truck to add it to a driver run.','bf_job',job_id=jid)
                 return success('Job saved as an allocation awaiting approval. Bins are reserved until an administrator approves or rejects it.', 'bf_job', job_id=jid)
             except (ValueError, sqlite3.IntegrityError) as error:
                 return failure(error if isinstance(error,ValueError) else ValueError('One of these bins was just reserved by another user. Please refresh and select available bins.'), 'bf_new_job', site=request.form.get('site_id',''), warehouse=request.form.get('warehouse_id',''),collection_request=request.form.get('collection_request',''))
@@ -854,6 +871,6 @@ def register_binflow(app, db, require):
     register_portal(app, db, access, require, render, success, failure, now, actor, bf_pod_pdf.__wrapped__)
 
     register_qr(app, db, access, require, allowed, render, success, failure, now, actor)
-    register_approvals(app,db,access,require,allowed,render,job,items,bins,event,success,failure,now,actor,reopen_requests)
+    register_approvals(app,db,access,require,allowed,render,job,items,bins,event,success,failure,now,actor,reopen_requests,approve_requests)
     register_collections(app,db,access,require,render,success,now,actor)
     register_acceptance(app,db,access,success,failure,now,actor)

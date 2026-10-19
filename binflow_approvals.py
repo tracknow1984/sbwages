@@ -31,7 +31,7 @@ def allocation_history(conn, jid, action, actor, uid, stamp, notes=''):
         VALUES(?,?,?,?,?,?)''', (jid,action,actor,uid,notes,stamp))
 
 
-def register_approvals(app,db,access,require,allowed,render,job,items,bins,event,success,failure,now,actor,reopen_requests):
+def register_approvals(app,db,access,require,allowed,render,job,items,bins,event,success,failure,now,actor,reopen_requests,approve_requests):
     app.jinja_env.globals['bf_job_label'] = lambda j: (
         'Awaiting approval' if j['approval_status']=='pending' else
         'Disapproved' if j['approval_status']=='rejected' else
@@ -59,6 +59,43 @@ def register_approvals(app,db,access,require,allowed,render,job,items,bins,event
             WHERE submitted_at IS NOT NULL'''+(' AND state=?' if state else '')+' GROUP BY approval_status',(state,) if state else ())}
         return render('allocation_approvals',section='approvals',allocations=rows,groups=groups,counts=counts,state=state,selected=status)
 
+    def apply_review(job_id,decision,notes=''):
+        # Caller owns the transaction; both review paths use the same stock checks.
+        if not g.user or g.user['role']!='admin': abort(403)
+        j=job(job_id);rows=items(job_id)
+        target='approved' if decision=='approve' else 'rejected'
+        if j['approval_status']==target:
+            return False
+        if j['approval_status']!='pending' or j['status']!='scheduled':
+            raise ValueError('This allocation has already been reviewed. Create a new allocation for changes.')
+        if not rows or any(i['loaded_at'] or i['delivered_at'] or i['picked_up_at'] or i['weighed_at'] for i in rows):
+            raise ValueError('This allocation has unexpected movements. Review its docket before continuing.')
+        if decision=='approve':
+            if j['driver_id'] and not db().execute('''SELECT 1 FROM users u WHERE id=? AND status='active'
+                AND (role='admin' OR EXISTS(SELECT 1 FROM bf_access a WHERE a.user_id=u.id))''',(j['driver_id'],)).fetchone():
+                raise ValueError('The proposed driver no longer has active transport access. Reject and revise this allocation.')
+            for item in rows:
+                b=bins('b.id=?',(item['bin_id'],))[0]
+                location=j['site_id'] if item['direction']=='collect' else j['warehouse_id']
+                states=('at_client','full') if item['direction']=='collect' else ('empty',)
+                if not item['active'] or b['reserved_job']!=job_id or b['location_id']!=location or b['status'] not in states or b['state']!=j['state'] or b['truck_id']:
+                    raise ValueError(f'{b["code"]} is no longer available for this allocation. Reject it and prepare a revised allocation.')
+        stamp=now();who=actor()
+        db().execute('UPDATE bf_jobs SET approval_status=?,reviewed_at=?,reviewed_by=?,review_note=? WHERE id=?',
+            (target,stamp,who,notes,job_id))
+        if decision=='reject':
+            db().execute("UPDATE bf_jobs SET status='cancelled' WHERE id=?",(job_id,))
+            db().execute('UPDATE bf_job_bins SET active=0 WHERE job_id=?',(job_id,))
+            reopen_requests(db(),job_id,who,stamp)
+        else:
+            approve_requests(db(),job_id,who,stamp)
+        label='Allocation approved' if decision=='approve' else 'Allocation rejected; reservation released'
+        allocation_history(db(),job_id,label,who,g.user['id'],stamp,notes)
+        for item in rows:event(item['bin_id'],label,job_id,notes=notes)
+        return True
+
+    app.extensions['bf_review_allocation']=apply_review
+
     @app.post('/binflow/pickups/<int:job_id>/review')
     @require('admin')
     def bf_review_allocation(job_id):
@@ -70,34 +107,8 @@ def register_approvals(app,db,access,require,allowed,render,job,items,bins,event
             if decision=='reject' and not notes:
                 raise ValueError('Enter a reason for rejecting this allocation.')
             db().execute('BEGIN IMMEDIATE')
-            j=job(job_id);rows=items(job_id)
-            target='approved' if decision=='approve' else 'rejected'
-            if j['approval_status']==target:
-                return success('This allocation has already been '+target+'.','bf_job',job_id=job_id)
-            if j['approval_status']!='pending' or j['status']!='scheduled':
-                raise ValueError('This allocation has already been reviewed. Create a new allocation for changes.')
-            if not rows or any(i['loaded_at'] or i['delivered_at'] or i['picked_up_at'] or i['weighed_at'] for i in rows):
-                raise ValueError('This allocation has unexpected movements. Review its docket before continuing.')
-            if decision=='approve':
-                if j['driver_id'] and not db().execute('''SELECT 1 FROM users u WHERE id=? AND status='active'
-                    AND (role='admin' OR EXISTS(SELECT 1 FROM bf_access a WHERE a.user_id=u.id))''',(j['driver_id'],)).fetchone():
-                    raise ValueError('The proposed driver no longer has active transport access. Reject and revise this allocation.')
-                for item in rows:
-                    b=bins('b.id=?',(item['bin_id'],))[0]
-                    location=j['site_id'] if item['direction']=='collect' else j['warehouse_id']
-                    states=('at_client','full') if item['direction']=='collect' else ('empty',)
-                    if not item['active'] or b['reserved_job']!=job_id or b['location_id']!=location or b['status'] not in states or b['state']!=j['state'] or b['truck_id']:
-                        raise ValueError(f'{b["code"]} is no longer available for this allocation. Reject it and prepare a revised allocation.')
-            stamp=now();who=actor()
-            db().execute('UPDATE bf_jobs SET approval_status=?,reviewed_at=?,reviewed_by=?,review_note=? WHERE id=?',
-                (target,stamp,who,notes,job_id))
-            if decision=='reject':
-                db().execute("UPDATE bf_jobs SET status='cancelled' WHERE id=?",(job_id,))
-                db().execute('UPDATE bf_job_bins SET active=0 WHERE job_id=?',(job_id,))
-                reopen_requests(db(),job_id,who,stamp)
-            label='Allocation approved' if decision=='approve' else 'Allocation rejected; reservation released'
-            allocation_history(db(),job_id,label,who,g.user['id'],stamp,notes)
-            for item in rows:event(item['bin_id'],label,job_id,notes=notes)
+            if not apply_review(job_id,decision,notes):
+                return success('This allocation has already been '+('approved' if decision=='approve' else 'rejected')+'.','bf_job',job_id=job_id)
             return success('Allocation approved. Choose a truck to schedule the run.' if decision=='approve' else
                 'Allocation rejected. Bins are available again; the reason is saved.','bf_job',job_id=job_id)
         except ValueError as error:

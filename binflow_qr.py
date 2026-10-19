@@ -28,6 +28,52 @@ def migrate_qr(conn):
         id INTEGER PRIMARY KEY,request_id INTEGER NOT NULL REFERENCES bf_collection_requests(id),
         action TEXT NOT NULL,actor TEXT NOT NULL,notes TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL);
     ''')
+    conn.execute('CREATE INDEX IF NOT EXISTS bf_request_history_lookup ON bf_collection_request_history(request_id,id)')
+    columns={r['name'] for r in conn.execute('PRAGMA table_info(bf_collection_requests)')}
+    for name,definition in {
+        'review_state': "TEXT NOT NULL DEFAULT 'pending' CHECK(review_state IN ('pending','referred'))",
+        'review_note': "TEXT NOT NULL DEFAULT ''",
+    }.items():
+        if name not in columns:
+            conn.execute(f'ALTER TABLE bf_collection_requests ADD COLUMN {name} {definition}')
+
+
+REQUEST_FILTERS = [('all','All requests'),('attention','Needs action'),('referred','Referred to BLOCKTEXX'),
+                   ('approved','Schedule approved'),('closed','Dismissed'),('collected','Collected')]
+
+
+def request_queue(conn,state='',selected='all',limit=None):
+    if selected not in dict(REQUEST_FILTERS) and selected not in ('new','scheduled'):
+        abort(400)
+    rows=[dict(r) for r in conn.execute('''SELECT r.*,l.name AS site_name,l.state,c.name AS client_name,
+        s.name AS size_name,b.location_id AS current_location_id,b.status AS bin_status,
+        j.code AS job_code,j.scheduled_date,j.approval_status,
+        h.action AS last_action,h.actor AS last_actor,h.created_at AS last_action_at
+        FROM bf_collection_requests r JOIN bf_locations l ON l.id=r.site_id
+        JOIN bf_clients c ON c.id=r.client_id JOIN bf_bins b ON b.id=r.bin_id
+        JOIN bf_sizes s ON s.id=b.size_id LEFT JOIN bf_jobs j ON j.id=r.job_id
+        LEFT JOIN bf_collection_request_history h ON h.id=(SELECT MAX(id) FROM bf_collection_request_history WHERE request_id=r.id)'''+
+        (' WHERE l.state=?' if state else '')+' ORDER BY r.updated_at DESC,r.id DESC',(state,) if state else ())]
+    counts={key:0 for key,_ in REQUEST_FILTERS}
+    for r in rows:
+        r['bucket']=('closed' if r['status']=='closed' else 'collected' if r['status']=='collected' else
+                     'approved' if r['status']=='scheduled' and r['approval_status']=='approved' else
+                     'referred' if r['status']=='new' and r['review_state']=='referred' else 'attention')
+        r['label']='Awaiting allocation approval' if r['status']=='scheduled' and r['approval_status']=='pending' else dict(REQUEST_FILTERS)[r['bucket']]
+        counts[r['bucket']]+=1
+    counts['all']=len(rows)
+    rows.sort(key=lambda r: {'attention':0,'referred':1}.get(r['bucket'],2))
+    rows=[r for r in rows if selected=='all' or (r['status']==selected if selected in ('new','scheduled') else r['bucket']==selected)]
+    total=len(rows)
+    if limit: rows=rows[:limit]
+    history={}
+    # Bound each parameter list even when the full request register is large.
+    for start in range(0,len(rows),200):
+        ids=[r['id'] for r in rows[start:start+200]]
+        for h in conn.execute('SELECT * FROM bf_collection_request_history WHERE request_id IN ('+','.join('?' for _ in ids)+') ORDER BY id DESC',ids):
+            history.setdefault(h['request_id'],[]).append(h)
+    return dict(requests=rows,request_counts=counts,request_total=total,request_history=history,
+                request_selected=selected,request_filters=REQUEST_FILTERS)
 
 
 def request_history(conn, rid, action, actor, stamp, notes=''):
@@ -39,7 +85,7 @@ def link_request(conn, rid, jid, site_id, collection_ids, actor, stamp):
     row=conn.execute('SELECT * FROM bf_collection_requests WHERE id=?',(rid,)).fetchone()
     if not row or row['status']!='new' or row['site_id']!=site_id or row['bin_id'] not in collection_ids:
         raise ValueError('This request changed, or its bin is missing from the collection. Review the request before booking.')
-    conn.execute("UPDATE bf_collection_requests SET status='scheduled',job_id=?,updated_at=? WHERE id=?",(jid,stamp,rid))
+    conn.execute("UPDATE bf_collection_requests SET status='scheduled',review_state='pending',review_note='',job_id=?,updated_at=? WHERE id=?",(jid,stamp,rid))
     request_history(conn,rid,'Collection allocated; awaiting approval',actor,stamp,f'Docket BF-{jid:06d}')
 
 
@@ -53,8 +99,14 @@ def pickup_requests(conn,jid,bid,actor,stamp):
 def reopen_requests(conn,jid,actor,stamp):
     rows=conn.execute("SELECT id FROM bf_collection_requests WHERE job_id=? AND status='scheduled'",(jid,)).fetchall()
     for row in rows:
-        conn.execute("UPDATE bf_collection_requests SET status='new',job_id=NULL,updated_at=? WHERE id=?",(stamp,row['id']))
+        conn.execute("UPDATE bf_collection_requests SET status='new',review_state='pending',review_note='',job_id=NULL,updated_at=? WHERE id=?",(stamp,row['id']))
         request_history(conn,row['id'],'Allocation released; request returned to office queue',actor,stamp)
+
+
+def approve_requests(conn,jid,actor,stamp):
+    for row in conn.execute("SELECT id FROM bf_collection_requests WHERE job_id=? AND status='scheduled'",(jid,)).fetchall():
+        conn.execute('UPDATE bf_collection_requests SET updated_at=? WHERE id=?',(stamp,row['id']))
+        request_history(conn,row['id'],'Schedule approved',actor,stamp,f'Docket BF-{jid:06d}')
 
 
 def register_qr(app,db,access,require,allowed,render,success,failure,now,actor):
@@ -157,29 +209,54 @@ def register_qr(app,db,access,require,allowed,render,success,failure,now,actor):
     @app.get('/binflow/collection-requests')
     @access
     def bf_collection_requests():
-        state=request.args.get('status','new')
-        if state not in ('new','scheduled','collected','closed','all'): abort(400)
-        rows=db().execute('''SELECT r.*,l.name AS site_name,c.name AS client_name,b.token,b.location_id AS current_location_id,
-            j.code AS job_code,j.scheduled_date,j.approval_status FROM bf_collection_requests r JOIN bf_locations l ON l.id=r.site_id
-            JOIN bf_clients c ON c.id=r.client_id JOIN bf_bins b ON b.id=r.bin_id LEFT JOIN bf_jobs j ON j.id=r.job_id'''+
-            (' WHERE r.status=?' if state!='all' else '')+' ORDER BY r.created_at DESC,r.id DESC',(state,) if state!='all' else ()).fetchall()
-        return render('collection_requests',section='requests',requests=rows,selected=state)
+        state=request.args.get('state','')
+        if state not in ('','QLD','NSW','VIC','SA','WA','TAS','ACT','NT'): abort(400)
+        return render('collection_requests',section='requests',state=state,request_dashboard=False,
+                      **request_queue(db(),state,request.args.get('status','all')))
+
+    def request_destination():
+        state=request.form.get('state','')
+        if state not in ('','QLD','NSW','VIC','SA','WA','TAS','ACT','NT'): state=''
+        return ('bf_dashboard' if request.form.get('return_to')=='dashboard' else 'bf_collection_requests'),dict(state=state)
+
+    @app.post('/binflow/collection-requests/<int:request_id>/refer')
+    @require('admin')
+    def bf_refer_collection_request(request_id):
+        endpoint,values=request_destination()
+        try:
+            notes=request.form.get('notes','').strip()
+            if len(notes)>1000: raise ValueError('Keep referral notes under 1,001 characters.')
+            db().execute('BEGIN IMMEDIATE')
+            row=db().execute('SELECT * FROM bf_collection_requests WHERE id=?',(request_id,)).fetchone()
+            if not row: abort(404)
+            if row['status']!='new': raise ValueError('This request has already been handled. Review its current status.')
+            if row['review_state']=='referred': return success('Already referred to BLOCKTEXX.',endpoint,**values)
+            stamp=now()
+            db().execute("UPDATE bf_collection_requests SET review_state='referred',review_note=?,updated_at=? WHERE id=?",(notes,stamp,request_id))
+            request_history(db(),request_id,'Referred to BLOCKTEXX',actor(),stamp,notes)
+            return success('Marked for BLOCKTEXX follow-up.',endpoint,**values)
+        except ValueError as exc:
+            return failure(exc,endpoint,**values)
 
     @app.post('/binflow/collection-requests/<int:request_id>/close')
     @require('admin')
     def bf_close_collection_request(request_id):
+        endpoint,values=request_destination()
         try:
             notes=request.form.get('resolution','').strip()
-            if not notes or len(notes)>1000: raise ValueError('Record why this unbooked request is being closed.')
+            if not notes or len(notes)>1000: raise ValueError('Enter a reason for dismissing this request (up to 1,000 characters).')
             db().execute('BEGIN IMMEDIATE')
             row=db().execute('SELECT * FROM bf_collection_requests WHERE id=?',(request_id,)).fetchone()
             if not row: abort(404)
-            if row['status']=='closed': return success('Request already closed.','bf_collection_requests')
+            if row['status']=='closed': return success('Request already dismissed.',endpoint,**values)
             if row['status']!='new': raise ValueError('Manage an allocated collection through its scheduled docket.')
-            db().execute("UPDATE bf_collection_requests SET status='closed',resolution=?,updated_at=? WHERE id=?",(notes,now(),request_id))
-            request_history(db(),request_id,'Request closed',actor(),now(),notes)
-            return success('Request closed; no physical bin movement recorded.','bf_collection_requests')
+            stamp=now()
+            db().execute("UPDATE bf_collection_requests SET status='closed',resolution=?,updated_at=? WHERE id=?",(notes,stamp,request_id))
+            request_history(db(),request_id,'Request dismissed',actor(),stamp,notes)
+            return success('Request dismissed. The reason is saved.',endpoint,**values)
         except ValueError as exc:
-            return failure(exc,'bf_collection_requests')
+            return failure(exc,endpoint,**values)
 
-    app.context_processor(lambda: dict(bf_request_count=db().execute("SELECT COUNT(*) FROM bf_collection_requests WHERE status='new'").fetchone()[0] if allowed() else 0))
+    app.context_processor(lambda: dict(bf_request_count=db().execute("""SELECT COUNT(*) FROM bf_collection_requests r
+        LEFT JOIN bf_jobs j ON j.id=r.job_id WHERE (r.status='new' AND r.review_state='pending')
+        OR (r.status='scheduled' AND j.approval_status='pending')""").fetchone()[0] if allowed() else 0))

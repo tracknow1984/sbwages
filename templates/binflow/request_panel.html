@@ -1,0 +1,29 @@
+<section class="bf-panel bf-pad" id="collection-requests">
+  <div class="bf-toolbar"><div><h2>Collection requests</h2><p class="bf-muted">{{ request_counts.attention }} need action · {{ request_counts.referred }} referred to BLOCKTEXX · {{ request_counts.approved }} schedules approved · {{ request_counts.closed }} dismissed</p></div>
+    {% if request_dashboard %}<a href="{{ url_for('bf_collection_requests',state=state,status=request_selected) }}">View all requests →</a>{% endif %}
+  </div>
+  <form method="get" action="{{ url_for('bf_dashboard' if request_dashboard else 'bf_collection_requests') }}#collection-requests" class="bf-filters">
+    {% if request_dashboard %}<input type="hidden" name="state" value="{{ state }}">{% else %}<label>State<select name="state"><option value="">All states</option>{% for s in states %}<option {{ 'selected' if s==state }}>{{ s }}</option>{% endfor %}</select></label>{% endif %}
+    <label>Request status<select name="{{ 'requests' if request_dashboard else 'status' }}" data-autosubmit>{% for value,label in request_filters %}<option value="{{ value }}" {{ 'selected' if request_selected==value }}>{{ label }} ({{ request_counts[value] }})</option>{% endfor %}{% if request_selected in ('new','scheduled') %}<option value="{{ request_selected }}" selected>{{ 'Unbooked requests' if request_selected=='new' else 'Allocated / scheduled' }}</option>{% endif %}</select></label><button class="secondary">Show requests</button>
+  </form>
+  <div class="bf-request-grid">
+  {% for r in requests %}<article class="bf-request-card" data-request-id="{{ r.id }}">
+    <div class="bf-toolbar"><span class="bf-mono">QR-{{ '%06d'|format(r.id) }} · {{ r.state }}</span><span class="bf-status bf-request-{{ r.bucket }}">{{ r.label }}</span></div>
+    <h3>{{ r.client_name }}</h3><p>{{ r.site_name }}<br><a href="{{ url_for('bf_bin',bin_id=r.bin_id) }}">{{ r.bin_code }}</a> · <strong>{{ r.size_name }}</strong></p>
+    <p>{{ r.requester }} · {{ r.contact }}</p><p class="bf-muted">Requested {{ r.created_at|bfstamp }} AEST{% if r.preferred_date %}<br>Preferred collection: {{ r.preferred_date|display_date }}{% endif %}</p>
+    {% if r.notes %}<p class="bf-note">{{ r.notes }}</p>{% endif %}
+    {% if r.bucket=='referred' %}<p class="bf-note">Awaiting BLOCKTEXX follow-up{% if r.review_note %}: {{ r.review_note }}{% endif %}</p>{% endif %}
+    {% if r.status=='closed' %}<p class="bf-note"><strong>Dismissal reason:</strong> {{ r.resolution }}</p>{% endif %}
+    {% if r.status=='new' %}
+      {% if r.current_location_id==r.site_id and r.bin_status in ('at_client','full') %}<a class="button primary" href="{{ url_for('bf_new_job',site=r.site_id,collection_request=r.id,date=r.preferred_date or None) }}">{{ 'Approve schedule' if current_user.role=='admin' else 'Prepare allocation' }} →</a>{% else %}<p class="bf-note">This bin has moved. Review its record before scheduling.</p>{% endif %}
+      {% if current_user.role=='admin' %}
+        {% if r.review_state!='referred' %}<details class="bf-request-decision"><summary>Refer to BLOCKTEXX</summary><form method="post" action="{{ url_for('bf_refer_collection_request',request_id=r.id) }}" class="bf-form"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="return_to" value="{{ 'dashboard' if request_dashboard else 'requests' }}"><input type="hidden" name="state" value="{{ state }}"><p class="bf-muted">Mark for office follow-up with BLOCKTEXX. This records the referral; it does not send a message.</p><label>Referral notes (optional)<textarea name="notes" maxlength="1000" rows="2"></textarea></label><button class="secondary">Refer to BLOCKTEXX</button></form></details>{% endif %}
+        <details class="bf-request-decision"><summary>Dismiss with a reason</summary><form method="post" action="{{ url_for('bf_close_collection_request',request_id=r.id) }}" class="bf-form"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="return_to" value="{{ 'dashboard' if request_dashboard else 'requests' }}"><input type="hidden" name="state" value="{{ state }}"><label>Reason for dismissal<textarea name="resolution" maxlength="1000" rows="2" required></textarea></label><button class="secondary">Dismiss request</button></form></details>
+      {% endif %}
+    {% elif r.job_id %}<a class="button {{ 'primary' if r.approval_status=='pending' else 'secondary' }}" href="{{ url_for('bf_job',job_id=r.job_id) }}">{{ 'Review & approve schedule' if r.approval_status=='pending' else r.job_code }} · {{ r.scheduled_date|display_date }} →</a>{% endif %}
+    {% if r.last_action_at %}<p class="bf-muted">{{ r.last_action }}<br>{{ r.last_actor }} · {{ r.last_action_at|bfstamp }} AEST</p>{% endif %}
+    <details class="bf-request-history"><summary>Action history</summary>{% for h in request_history.get(r.id,[]) %}<p><strong>{{ h.action }}</strong><br><span class="bf-muted">{{ h.actor }} · {{ h.created_at|bfstamp }} AEST</span>{% if h.notes %}<br>{{ h.notes }}{% endif %}</p>{% endfor %}</details>
+  </article>{% else %}<p class="bf-muted">No collection requests in this view. New public QR requests will appear here.</p>{% endfor %}
+  </div>
+  {% if request_total>requests|length %}<p><a href="{{ url_for('bf_collection_requests',state=state,status=request_selected) }}">Showing {{ requests|length }} of {{ request_total }} requests. View all →</a></p>{% endif %}
+</section>
