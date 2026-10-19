@@ -52,9 +52,14 @@ class BinFlowTests(unittest.TestCase):
     def login(self, audience='admin', username='admin'):
         return self.post('/'+audience+'/login',{'username':username,'password':'test-admin-password'})
 
-    def job(self, collect=(), deliver=(), site=3, warehouse=1, key=None):
+    def job(self, collect=(), deliver=(), site=3, warehouse=1, key=None, legacy=True):
         import secrets
-        result=self.post('/binflow/pickups/new',{'request_key':key or secrets.token_urlsafe(24),'site_id':site,'warehouse_id':warehouse,'scheduled_date':'2026-10-19','collect':list(collect),'deliver':list(deliver)})
+        key = key or secrets.token_urlsafe(24)
+        result=self.post('/binflow/pickups/new',{'request_key':key,'site_id':site,'warehouse_id':warehouse,'scheduled_date':'2026-10-19','collect':list(collect),'deliver':list(deliver)})
+        if legacy:
+            # Regression fixture for dockets created before individual truck scans were introduced.
+            with sqlite3.connect(self.path) as conn:
+                conn.execute('UPDATE bf_jobs SET scan_mode=0 WHERE request_key=?', (key,))
         return result
 
     def exchange(self, jid, ids):

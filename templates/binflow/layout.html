@@ -4,7 +4,7 @@
 <div class="bf">
 <header class="bf-heading no-print"><div><span class="bf-kicker"><span class="bf-mark">B</span> BINFLOW <span class="bf-divider">/</span> NATIONAL OPERATIONS</span><h1>{% block title %}Bin management & transport{% endblock %}</h1><p>{% block subtitle %}Every bin. Every movement. One record.{% endblock %}</p></div><div class="bf-actions"><a class="button secondary" href="{{ url_for('bf_scan_search') }}">▣ Scan / find bin</a><a class="button primary" href="{{ url_for('bf_new_job') }}">+ New pickup / delivery</a></div></header>
 <nav class="bf-nav no-print" aria-label="Bin management navigation">
-{% for key,label,endpoint in [('overview','National overview','bf_dashboard'),('bins','Bins & QR labels','bf_inventory'),('pickups','Pickups & deliveries','bf_jobs'),('warehouse','Warehouse','bf_warehouse')] %}<a href="{{ url_for(endpoint) }}" class="{{ 'active' if section==key }}">{{ label }}</a>{% endfor %}
+{% for key,label,endpoint in [('overview','National overview','bf_dashboard'),('bins','Bins & QR labels','bf_inventory'),('driver','Driver / truck','bf_drivers'),('pickups','Pickups & deliveries','bf_jobs'),('warehouse','Warehouse','bf_warehouse')] %}<a href="{{ url_for(endpoint) }}" class="{{ 'active' if section==key }}">{{ label }}</a>{% endfor %}
 {% if current_user and current_user.role=='admin' %}<a href="{{ url_for('bf_setup') }}" class="{{ 'active' if section=='setup' }}">Clients, sites & setup</a>{% endif %}
 </nav>
 {% block body %}{% endblock %}

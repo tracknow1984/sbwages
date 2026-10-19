@@ -1,0 +1,26 @@
+{% extends 'binflow/layout.html' %}
+{% block title %}{{ truck.name }}{% endblock %}
+{% block subtitle %}{{ truck.state }} · Scan each bin as it moves.{% endblock %}
+{% block body %}
+<script src="{{ url_for('static',filename='vendor/jsQR.min.js') }}" defer></script>
+<script src="{{ url_for('static',filename='binflow-driver.js') }}" defer></script>
+<div class="bf-toolbar"><a href="{{ url_for('bf_drivers') }}">← Choose truck / assign jobs</a>{% if job %}<a href="{{ url_for('bf_job',job_id=job.id) }}">Docket {{ job.code }} →</a>{% endif %}</div>
+{% if job %}
+<section class="bf-panel bf-pad"><form method="get" class="bf-form"><label>Client stop<select name="job" data-autosubmit>{% for j in jobs %}<option value="{{ j.id }}" {{ 'selected' if j.id==job.id }}>{{ j.client_name }} · {{ j.site_name }} · {{ j.code }}</option>{% endfor %}{% if job.id not in jobs|map(attribute='id')|list %}<option value="{{ job.id }}" selected>{{ job.client_name }} · {{ job.code }}</option>{% endif %}</select></label><noscript><button>Open stop</button></noscript></form><p class="bf-muted">{{ job.site_address }} · Warehouse: {{ job.warehouse_name }}</p></section>
+{% if job.status in ['scheduled','collected'] %}
+<section class="bf-panel bf-pad bf-driver-scanner" data-driver-scanner>
+<form method="post" action="{{ url_for('bf_truck_scan',truck_id=truck.id) }}" class="bf-form" data-scan-form>
+<input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="job_id" value="{{ job.id }}">
+<h2>What are you doing?</h2>
+<div class="bf-scan-actions">{% for key,title,detail in [('load','1. Load empties','Warehouse → truck'),('deliver','2. Drop empties','Truck → client'),('collect','3. Pick up full bins','Client → truck'),('return','4. Return full bins','Truck → warehouse')] %}<label><input type="radio" name="action" value="{{ key }}" {{ 'checked' if action==key }} data-scan-action><span><strong>{{ title }}</strong><small>{{ detail }}</small></span></label>{% endfor %}</div>
+<p class="bf-scan-context" data-scan-context data-load="{{ job.warehouse_name }} → {{ truck.name }}" data-deliver="{{ truck.name }} → {{ job.client_name }} · {{ job.site_name }}" data-collect="{{ job.client_name }} · {{ job.site_name }} → {{ truck.name }}" data-return="{{ truck.name }} → {{ job.warehouse_name }}" data-unload="Unused empties: {{ truck.name }} → {{ job.warehouse_name }}"></p>
+<div class="bf-camera-controls"><button class="primary" type="button" data-camera-start>Open camera to scan</button><button class="secondary" type="button" data-camera-stop hidden>Stop camera</button><span class="bf-muted">Or use a handheld scanner / enter the bin ID below.</span></div>
+<video class="bf-camera" data-camera playsinline muted hidden aria-label="Bin QR scanner"></video>
+<div class="bf-scan-entry"><label>Bin ID / QR code<input name="code" data-scan-code maxlength="1000" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="BF000001" required></label><button class="primary" type="submit">Scan bin</button></div>
+<p class="bf-scan-feedback" data-scan-feedback role="status" aria-live="polite">Ready. Each successful scan saves the bin’s new location.</p>
+<details><summary>Unused empty bins?</summary><label class="bf-check"><input type="radio" name="action" value="unload" data-scan-action><span>Unload unused empties back at {{ job.warehouse_name }}</span></label><small>Scan them off the truck before cancelling or changing this job.</small></details>
+</form></section>
+{% endif %}
+{% else %}<div class="bf-panel bf-pad"><h2>No open client stops assigned</h2><p>Assign a planned pickup / delivery to this truck to start scanning.</p><a class="button primary" href="{{ url_for('bf_drivers') }}">Choose a job</a></div>{% endif %}
+<div data-driver-stock data-state-url="{{ url_for('bf_truck_state',truck_id=truck.id,job=job.id if job else None) }}">{% include 'binflow/driver_stock.html' %}</div>
+{% endblock %}

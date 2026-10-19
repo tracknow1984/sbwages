@@ -302,11 +302,16 @@ bin-custody module; the existing Transport Model remains a separate planning too
    collection bins and/or empty replacements by size and quantity. This reserves
    exact IDs without yet changing physical locations. A delivery-only job makes
    the initial client allocation; a collection-only job is also supported.
-4. At the client, confirm every physical bin on the manifest, capture recipient
-   signature or an explicit reason for driver-only confirmation, and optionally
-   take a contents photo. Delivered empties become the site's bins; collections
-   enter inbound transit.
-5. Receive all collected bins at the warehouse, then enter and confirm each bin's
+4. In **Driver / truck**, add a truck by registration/fleet name and state, then
+   assign planned jobs to it. One truck can carry bins for several client stops.
+   Open its scanner, select the client stop and movement: **Load empties**
+   (warehouse → truck), **Drop empties** (truck → client), **Pick up full bins**
+   (client → truck), or **Return full bins** (truck → warehouse). Each accepted
+   scan immediately moves one bin and updates the live empty/full truck manifest.
+   Use the phone camera, handheld scanner or typed bin ID. Finish the client
+   handover with a recipient signature or explicit reason for driver-only
+   confirmation, plus an optional contents photo, before warehouse returns.
+5. Scan collected bins off the truck individually, then enter and confirm each bin's
    gross and actual tare. Net contents are calculated in integer grams. Recorded
    weights are final and cannot be overwritten. The final weighed POD is available
    as a PDF once all collection bins have been weighed. Until then it is clearly
@@ -317,10 +322,22 @@ bin-custody module; the existing Transport Model remains a separate planning too
 
 Each movement records operator, timestamp, location and docket. Reservations use a
 unique partial index and stock transitions run in SQLite transactions. Repeated
-job creation, exchange, receipt and identical weighing submissions are handled
+job creation, individual movement scans and identical weighing submissions are handled
 without repeating stock movements. A bin cannot be booked twice, collected from a
 different client, or allocated outside its state pool. Cancelling an unexecuted
-job releases its reservations.
+job releases its reservations. Unused loaded empties can be scanned back to their
+warehouse before changing trucks or cancelling. Jobs with completed client
+movements must finish their docket; cancellation cannot strand bins on a truck.
+Existing dockets already in transit retain their original receipt workflow and
+historical PODs. New jobs require individual scans; old scheduled jobs can be
+assigned a truck to adopt the scan workflow. Startup migrations add custody and
+scan fields without rewriting existing stock or historical movements.
+
+Camera decoding uses the vendored jsQR 1.4.0 distribution (Apache-2.0; license in
+`static/vendor/jsQR-LICENSE.txt`). Images stay in the browser; only the decoded
+bin identity is posted with CSRF protection. A connection is required to save
+scans. An uncertain response can safely be retried for the same movement; the
+server never marks an offline scan as saved.
 
 Administrators have full access. Under module setup, explicitly grant transport
 access to active employees; all operational routes, QR records, evidence, PDFs
@@ -335,7 +352,7 @@ transport-model data. QR images are generated locally (`qrcode`); POD PDFs are
 created locally (`reportlab`). Run the workflow regression checks with:
 
 ```sh
-python -m unittest discover -s tests -p test_binflow.py -v
+python -m unittest discover -s tests -p 'test_binflow*.py' -v
 ```
 
 ### Private Blocktexx client register import

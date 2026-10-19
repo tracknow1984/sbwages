@@ -15,11 +15,12 @@ from zoneinfo import ZoneInfo
 
 from flask import abort, flash, g, redirect, render_template, request, send_file, session, url_for
 from prestart_media import photo_jpeg, signature_png
+from binflow_driver import migrate_driver, register_driver
 from binflow_import import SCHEMA as IMPORT_SCHEMA, IMPORT_ID, import_blocktexx, profiles as source_profiles
 
 STATES = ('QLD', 'NSW', 'VIC', 'SA', 'WA', 'TAS', 'ACT', 'NT')
 STATUSES = {'empty': 'Empty at warehouse', 'at_client': 'At client', 'full': 'Full / pickup requested',
-            'transit': 'Returning to warehouse', 'received': 'Awaiting weight', 'weighed': 'Full stock in warehouse'}
+            'transit': 'On truck / in transit', 'received': 'Awaiting weight', 'weighed': 'Full stock in warehouse'}
 JOB_STATUSES = {'scheduled': 'Scheduled', 'collected': 'On the road', 'received': 'Weighing', 'complete': 'Complete', 'cancelled': 'Cancelled'}
 SCHEMA = '''
 CREATE TABLE IF NOT EXISTS bf_clients (
@@ -89,6 +90,7 @@ def grams(raw, label='Weight'):
 def register_binflow(app, db, require):
     with app.app_context():
         db().executescript(SCHEMA)
+        migrate_driver(db())
         db().executescript(IMPORT_SCHEMA)
         for litres in (240, 660, 1100):
             db().execute('INSERT OR IGNORE INTO bf_sizes(name,litres) VALUES(?,?)', (f'{litres} L', litres))
@@ -141,9 +143,9 @@ def register_binflow(app, db, require):
             raise ValueError('Choose a valid client site or warehouse.')
         return row
 
-    def event(bin_id, label, job_id=None, origin=None, target=None, notes=''):
-        db().execute('INSERT INTO bf_events(bin_id,job_id,event,from_location,to_location,actor,notes,created_at) VALUES(?,?,?,?,?,?,?,?)',
-                     (bin_id, job_id, label, origin, target, actor(), notes, now()))
+    def event(bin_id, label, job_id=None, origin=None, target=None, notes='', from_truck=None, to_truck=None):
+        db().execute('INSERT INTO bf_events(bin_id,job_id,event,from_location,to_location,actor,notes,created_at,from_truck,to_truck) VALUES(?,?,?,?,?,?,?,?,?,?)',
+                     (bin_id, job_id, label, origin, target, actor(), notes, now(), from_truck, to_truck))
 
     def job(job_id):
         row = db().execute('SELECT j.*,u.first_name||\' \'||u.last_name AS driver_name FROM bf_jobs j LEFT JOIN users u ON u.id=j.driver_id WHERE j.id=?', (job_id,)).fetchone()
@@ -155,10 +157,11 @@ def register_binflow(app, db, require):
         return db().execute('SELECT i.*,b.token FROM bf_job_bins i JOIN bf_bins b ON b.id=i.bin_id WHERE i.job_id=? ORDER BY i.direction,i.bin_code', (job_id,)).fetchall()
 
     def bins(where='1=1', args=()):
-        return db().execute('''SELECT b.*,s.name AS size_name,l.name AS location_name,l.kind,c.name AS client_name,
+        return db().execute('''SELECT b.*,s.name AS size_name,COALESCE(t.name,l.name) AS location_name,l.kind,c.name AS client_name,
+            t.name AS truck_name,
             (SELECT i.job_id FROM bf_job_bins i WHERE i.bin_id=b.id AND i.active=1) AS reserved_job
             FROM bf_bins b JOIN bf_sizes s ON s.id=b.size_id LEFT JOIN bf_locations l ON l.id=b.location_id
-            LEFT JOIN bf_clients c ON c.id=l.client_id WHERE ''' + where + ' ORDER BY b.id', args).fetchall()
+            LEFT JOIN bf_clients c ON c.id=l.client_id LEFT JOIN bf_trucks t ON t.id=b.truck_id WHERE ''' + where + ' ORDER BY b.id', args).fetchall()
 
     def render(name, **values):
         return render_template('binflow/' + name + '.html', tab='binflow', states=STATES, statuses=STATUSES,
@@ -375,7 +378,7 @@ def register_binflow(app, db, require):
                 return success('Bin updated.', 'bf_bin', bin_id=bin_id)
             except ValueError as error:
                 return failure(error, 'bf_bin', bin_id=bin_id)
-        history = db().execute('SELECT e.*,f.name AS from_name,t.name AS to_name,j.code AS job_code FROM bf_events e LEFT JOIN bf_locations f ON f.id=e.from_location LEFT JOIN bf_locations t ON t.id=e.to_location LEFT JOIN bf_jobs j ON j.id=e.job_id WHERE e.bin_id=? ORDER BY e.id DESC', (bin_id,)).fetchall()
+        history = db().execute('SELECT e.*,COALESCE(ft.name,f.name) AS from_name,COALESCE(tt.name,t.name) AS to_name,j.code AS job_code FROM bf_events e LEFT JOIN bf_locations f ON f.id=e.from_location LEFT JOIN bf_locations t ON t.id=e.to_location LEFT JOIN bf_jobs j ON j.id=e.job_id LEFT JOIN bf_trucks ft ON ft.id=e.from_truck LEFT JOIN bf_trucks tt ON tt.id=e.to_truck WHERE e.bin_id=? ORDER BY e.id DESC', (bin_id,)).fetchall()
         current_item = db().execute("SELECT i.*,j.code,j.status AS job_status FROM bf_job_bins i JOIN bf_jobs j ON j.id=i.job_id WHERE i.bin_id=? AND i.active=1", (bin_id,)).fetchone()
         return render('bin', section='bins', b=stock[0], history=history, current_item=current_item)
 
@@ -515,10 +518,11 @@ def register_binflow(app, db, require):
                 jid = db().execute('SELECT COALESCE(MAX(id),0)+1 FROM bf_jobs').fetchone()[0]
                 db().execute('''INSERT INTO bf_jobs(id,code,request_key,site_id,warehouse_id,driver_id,scheduled_date,status,client_name,site_name,site_address,warehouse_name,state,vehicle,notes,created_at,created_by)
                     VALUES(?,?,?,?,?,?,?,'scheduled',?,?,?,?,?,?,?,?,?)''', (jid,f'BF-{jid:06d}',key,site['id'],warehouse['id'],driver or None,scheduled.isoformat(),site['client_name'],site['name'],site['address'],warehouse['name'],site['state'],text_field('vehicle',80,False),text_field('notes',1000,False),now(),g.user['id']))
+                db().execute('UPDATE bf_jobs SET scan_mode=1 WHERE id=?', (jid,))
                 for direction,b in selected:
                     db().execute('INSERT INTO bf_job_bins(job_id,bin_id,direction,bin_code,size_name,tare_g) VALUES(?,?,?,?,?,?)', (jid,b['id'],direction,b['code'],b['size_name'],b['tare_g']))
                     event(b['id'], 'Reserved for collection' if direction == 'collect' else 'Reserved for delivery', jid, b['location_id'], notes=f'Due {scheduled.isoformat()}')
-                return success('Job saved and bins reserved. Confirm the physical exchange at the client site.', 'bf_job', job_id=jid)
+                return success('Job saved and bins reserved. Choose a truck to start scanning.', 'bf_job', job_id=jid)
             except (ValueError, sqlite3.IntegrityError) as error:
                 return failure(error if isinstance(error,ValueError) else ValueError('One of these bins was just reserved by another user. Please refresh and select available bins.'), 'bf_new_job', site=request.form.get('site_id',''), warehouse=request.form.get('warehouse_id',''))
         sites = db().execute("SELECT l.*,c.name AS client_name FROM bf_locations l JOIN bf_clients c ON c.id=l.client_id WHERE l.kind='client' ORDER BY c.name,l.name").fetchall()
@@ -539,7 +543,10 @@ def register_binflow(app, db, require):
     def bf_job(job_id):
         j = job(job_id)
         rows = items(job_id)
-        return render('job', section='pickups', job=j, items=rows, net=sum(i['net_g'] or 0 for i in rows), remaining=sum(i['direction']=='collect' and i['weighed_at'] is None for i in rows))
+        return render('job', section='pickups', job=j, items=rows, net=sum(i['net_g'] or 0 for i in rows), remaining=sum(i['direction']=='collect' and i['weighed_at'] is None for i in rows),
+                      trucks=db().execute('SELECT * FROM bf_trucks WHERE state=? ORDER BY name', (j['state'],)).fetchall(),
+                      scan_ready=all(i['delivered_at'] if i['direction']=='deliver' else i['picked_up_at'] for i in rows),
+                      scans_started=any(i['loaded_at'] or i['delivered_at'] or i['picked_up_at'] for i in rows))
 
     @app.post('/binflow/pickups/<int:job_id>/<action>')
     @access
@@ -562,6 +569,8 @@ def register_binflow(app, db, require):
                     return success('Job already cancelled.', 'bf_job', job_id=job_id)
                 if j['status'] != 'scheduled':
                     raise ValueError('Only a job that has not been physically completed at the client can be cancelled.')
+                if j['scan_mode'] and any(i['loaded_at'] or i['delivered_at'] or i['picked_up_at'] for i in rows):
+                    raise ValueError('Bins have already moved. Unload unused empties before cancelling; finish any client movements on this docket.')
                 reason = text_field('reason', 500)
                 db().execute("UPDATE bf_jobs SET status='cancelled' WHERE id=?", (job_id,))
                 db().execute('UPDATE bf_job_bins SET active=0 WHERE job_id=?', (job_id,))
@@ -573,8 +582,10 @@ def register_binflow(app, db, require):
                     return success('This exchange has already been recorded.', 'bf_job', job_id=job_id)
                 if j['status'] != 'scheduled':
                     raise ValueError('This job is not scheduled.')
-                confirmed = set(request.form.getlist('confirmed'))
-                if confirmed != {str(i['bin_id']) for i in rows}:
+                if j['scan_mode']:
+                    if not j['truck_id'] or not all(i['delivered_at'] if i['direction']=='deliver' else i['picked_up_at'] for i in rows):
+                        raise ValueError('Scan every delivery and pickup at the client before finishing this handover.')
+                elif set(request.form.getlist('confirmed')) != {str(i['bin_id']) for i in rows}:
                     raise ValueError('Check or scan every physical bin to confirm the complete exchange.')
                 confirmation = text_field('confirmation')
                 receiver = text_field('receiver_name', 150, False)
@@ -591,21 +602,33 @@ def register_binflow(app, db, require):
                     b = bins('b.id=?', (item['bin_id'],))[0]
                     if b['reserved_job'] != job_id:
                         raise ValueError('A bin reservation changed. Refresh this job.')
-                    if item['direction'] == 'deliver':
-                        if b['status'] != 'empty' or b['location_id'] != j['warehouse_id']:
-                            raise ValueError('A replacement bin is no longer empty at the warehouse.')
-                        db().execute("UPDATE bf_bins SET location_id=?,status='at_client' WHERE id=?", (j['site_id'], b['id']))
-                        db().execute('UPDATE bf_job_bins SET active=0 WHERE id=?', (item['id'],))
-                        event(b['id'], 'Empty bin delivered to client', job_id, j['warehouse_id'], j['site_id'])
+                    if j['scan_mode']:
+                        if item['direction'] == 'deliver':
+                            if b['location_id'] != j['site_id'] or b['status'] not in ('at_client','full') or b['truck_id']:
+                                raise ValueError('A delivered bin has changed. Review this docket.')
+                            db().execute('UPDATE bf_job_bins SET active=0 WHERE id=?', (item['id'],))
+                        elif b['truck_id'] != j['truck_id'] or b['truck_load'] != 'full':
+                            raise ValueError('A collection bin is no longer on the assigned truck.')
                     else:
-                        if b['status'] not in ('at_client','full') or b['location_id'] != j['site_id']:
-                            raise ValueError('A collection bin is no longer at this client site.')
-                        db().execute("UPDATE bf_bins SET location_id=NULL,status='transit' WHERE id=?", (b['id'],))
-                        event(b['id'], 'Full bin collected; returning to warehouse', job_id, j['site_id'], notes=f'Destination: {j["warehouse_name"]}')
+                        if item['direction'] == 'deliver':
+                            if b['status'] != 'empty' or b['location_id'] != j['warehouse_id']:
+                                raise ValueError('A replacement bin is no longer empty at the warehouse.')
+                            db().execute("UPDATE bf_bins SET location_id=?,status='at_client' WHERE id=?", (j['site_id'], b['id']))
+                            db().execute('UPDATE bf_job_bins SET active=0 WHERE id=?', (item['id'],))
+                            event(b['id'], 'Empty bin delivered to client', job_id, j['warehouse_id'], j['site_id'])
+                        else:
+                            if b['status'] not in ('at_client','full') or b['location_id'] != j['site_id']:
+                                raise ValueError('A collection bin is no longer at this client site.')
+                            db().execute("UPDATE bf_bins SET location_id=NULL,status='transit' WHERE id=?", (b['id'],))
+                            event(b['id'], 'Full bin collected; returning to warehouse', job_id, j['site_id'], notes=f'Destination: {j["warehouse_name"]}')
                 has_collections = any(i['direction'] == 'collect' for i in rows)
                 db().execute('UPDATE bf_jobs SET status=?,collected_at=?,collected_by=?,receiver_name=?,confirmation=?,confirmation_note=?,signature=?,photo=?,completed_at=? WHERE id=?',
                              ('collected' if has_collections else 'complete',now(),actor(),receiver,confirmation,note,signature,photo,None if has_collections else now(),job_id))
+                if j['scan_mode']:
+                    return success('Client handover saved. Continue scanning on your truck.', 'bf_truck', truck_id=j['truck_id'], job=job_id)
                 return success('Exchange recorded. Collected bins are now in transit; replacement bins are assigned to the client.', 'bf_job', job_id=job_id)
+            if j['scan_mode']:
+                raise ValueError('Use Driver / truck to scan each returning bin into the warehouse.')
             if j['status'] in ('received','complete'):
                 return success('This warehouse return has already been recorded.', 'bf_job', job_id=job_id)
             if j['status'] != 'collected':
@@ -644,7 +667,7 @@ def register_binflow(app, db, require):
                 if gross == item['gross_g'] and tare == item['tare_g']:
                     return success('This weight is already saved.', 'bf_job', job_id=job_id)
                 raise ValueError('This weight is already finalised. It cannot be overwritten.')
-            if j['status'] != 'received':
+            if j['status'] != 'received' and not (j['scan_mode'] and j['status']=='collected' and item['returned_at']):
                 raise ValueError('Receive the bins at the warehouse before weighing.')
             b = bins('b.id=?', (item['bin_id'],))[0]
             if b['status'] != 'received' or b['location_id'] != j['warehouse_id'] or b['reserved_job'] != job_id:
@@ -661,7 +684,7 @@ def register_binflow(app, db, require):
     @app.get('/binflow/warehouse')
     @access
     def bf_warehouse():
-        stock = bins("b.status IN ('transit','received','weighed')")
+        stock = bins("b.status IN ('transit','received','weighed') AND (b.truck_load IS NULL OR b.truck_load='full')")
         return render('warehouse', section='warehouse', stock=stock)
 
     @app.get('/binflow/pickups/<int:job_id>/pod')
@@ -753,3 +776,5 @@ def register_binflow(app, db, require):
         for b in bins():
             writer.writerow([safe(v) for v in (b['code'],b['size_name'],b['state'],STATUSES[b['status']],b['client_name'],b['location_name'] or 'In transit',kg(b['tare_g']),f'BF-{b["reserved_job"]:06d}' if b['reserved_job'] else '')])
         return send_file(io.BytesIO(stream.getvalue().encode('utf-8-sig')),mimetype='text/csv',as_attachment=True,download_name='binflow-inventory.csv')
+
+    register_driver(app, db, access, require, bins, job, items, render, event, success, failure, text_field, integer, now, STATES)

@@ -66,7 +66,7 @@
     const update = () => { container.hidden = select.value !== 'signed'; };
     select.addEventListener('change', update); update();
   });
-  root.querySelectorAll('form[method="post"]').forEach(form => form.addEventListener('submit', () => {
+  root.querySelectorAll('form[method="post"]:not([data-scan-form])').forEach(form => form.addEventListener('submit', () => {
     // Disable only the submit button; keep all input values in the request.
     const button = form.querySelector('button[type="submit"],button:not([type])');
     if (button) { setTimeout(() => { button.disabled = true; }, 0); }
