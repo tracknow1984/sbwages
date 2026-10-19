@@ -12,6 +12,7 @@ from prestart_media import signature_png
 from binflow_requirements import load_plan
 from binflow_approvals import ensure_approved
 from binflow_acceptance import acceptance_ok, manifest, schedule_changed
+from binflow_workday import run_workday, driver_today
 
 CHECKS = VEHICLE_CHECKS + [('lift', 'Tail lift / bin lifter and controls (if fitted)', True)]
 
@@ -59,6 +60,10 @@ def run_data(conn, truck_id, run_date, driver_id, today):
     run = dict(run) if run else dict(truck_id=truck_id, run_date=run_date, driver_id=None, departed_at=None, returned_at=None,
         acceptance_required=1,accepted_at=None,accepted_by=None,accepted_name='',accepted_manifest='')
     accepted=acceptance_ok(conn,run,truck_id,run_date)
+    workday=run_workday(conn,driver_id,truck_id,run_date)
+    person=conn.execute('SELECT role FROM users WHERE id=?',(driver_id,)).fetchone()
+    clock_required=bool(person and person['role']=='employee' and run.get('clock_required',1))
+    clock_ready=bool((workday and not workday['finished_at']) or (not clock_required and not workday))
     rows = conn.execute('''SELECT i.*,j.client_name,j.site_name,j.warehouse_name,j.warehouse_id,j.site_id
         FROM bf_job_bins i JOIN bf_jobs j ON j.id=i.job_id
         WHERE j.truck_id=? AND j.scheduled_date=? AND j.approval_status='approved' AND j.status!='cancelled'
@@ -74,7 +79,17 @@ def run_data(conn, truck_id, run_date, driver_id, today):
     returns = [r for r in rows if r['direction']=='collect' and not r['returned_at']]
     current_rows = [r for r in rows if current and r['job_id']==current['id']]
     action, scan_rows = None, []
-    if not jobs:
+    if workday and workday['finished_at']:
+        stage='finished'
+    elif clock_required and not workday:
+        stage='startday'
+    elif workday and run_date>today:
+        stage='planned'
+    elif workday and hold:
+        stage='hold'
+    elif workday and not passed:
+        stage='prestart'
+    elif not jobs:
         stage = 'empty'
     elif run['returned_at']:
         stage = 'done' if all(j['status']=='complete' for j in jobs) else 'weighing'
@@ -104,7 +119,8 @@ def run_data(conn, truck_id, run_date, driver_id, today):
     return dict(truck=truck,run=run,jobs=jobs,rows=rows,current=current,current_rows=current_rows,
                 hold=hold,passed=passed,stage=stage,action=action,scan_rows=scan_rows,
                 remaining=len(scan_rows),stop_number=next((n for n,j in enumerate(jobs,1) if current and j['id']==current['id']),0),
-                completed_stops=sum(bool(j['collected_at']) for j in jobs),acceptance_ok=accepted)
+                completed_stops=sum(bool(j['collected_at']) for j in jobs),acceptance_ok=accepted,
+                workday=workday,clock_ready=clock_ready)
 
 
 def check_owner(conn, truck_id, run_date, user):
@@ -120,6 +136,8 @@ def guard_movement(conn, j, action, user, today):
     ensure_approved(j)
     check_owner(conn,j['truck_id'],j['scheduled_date'],user)
     data = run_data(conn,j['truck_id'],j['scheduled_date'],user['id'],today)
+    if not data['clock_ready']:
+        raise ValueError('Start your driver day and select this vehicle before scanning. A finalised day cannot record more movements.')
     if action=='unload' and data['acceptance_ok'] and (not data['run']['accepted_by'] or data['run']['accepted_by']==user['id']) and data['passed'] and not data['hold'] and not data['run']['departed_at']:
         return
     expected = 'handover' if action=='exchange' else action
@@ -146,7 +164,7 @@ def mark_returned(conn, truck_id, run_date, timestamp):
 
 
 def register_runs(app, db, access, require, render, success, failure, now, actor):
-    today = lambda: now()[:10]
+    today = lambda: driver_today(db(),g.user,now())
 
     def data_for(truck_id, run_date):
         valid_date(run_date)
@@ -217,7 +235,7 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
                          (truck_id,today(),g.user['id'],pid,int(passed)))
             db().execute('INSERT OR IGNORE INTO bf_runs(truck_id,run_date,driver_id) VALUES(?,?,?)',(truck_id,run_date,g.user['id']))
             db().execute('UPDATE bf_runs SET driver_id=COALESCE(driver_id,?) WHERE truck_id=? AND run_date=?',(g.user['id'],truck_id,run_date))
-            return success('Prestart passed. Load your scheduled bins.' if passed else 'Prestart saved. Truck on hold — contact the office.',
+            return success(('Prestart passed. Review and accept today’s schedule.' if data['workday'] else 'Prestart passed. Load your scheduled bins.') if passed else 'Prestart saved. Truck on hold — contact the office.',
                            'bf_run',truck_id=truck_id,date=run_date)
         except ValueError as error:
             return failure(error,'bf_run',truck_id=truck_id,date=run_date if run_date else today())

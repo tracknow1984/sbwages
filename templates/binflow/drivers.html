@@ -2,6 +2,7 @@
 {% block title %}Driver schedules{% endblock %}
 {% block subtitle %}Choose your state and day, accept your schedule, then prepare your truck.{% endblock %}
 {% block body %}
+<p><a class="button primary" href="{{ url_for('bf_workday') }}">Open my mobile driver day →</a></p>
 <h2>1. Choose your state</h2>
 <nav class="bf-state-tabs" aria-label="Driver schedule state">{% for s in states %}<a class="{{ 'active' if selected_state==s }}" href="{{ url_for('bf_drivers',state=s,date=run_date) }}" {{ 'aria-current=page' if selected_state==s }}>{{ s }} <small>{{ state_counts.get(s,0) }} runs</small></a>{% endfor %}</nav>
 {% if selected_state %}

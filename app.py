@@ -20,6 +20,7 @@ from werkzeug.utils import secure_filename
 from werkzeug.security import check_password_hash, generate_password_hash
 from lunch import deduct_lunch, migrate_lunch
 from work_weeks import WORK_WEEKS, profile_end, profile_start, saved_period
+from binflow_workday import active_entry
 from prestart_config import ASSETS, DECLARATION, checklist
 from prestart_media import signature_png, photo_jpeg
 
@@ -603,6 +604,8 @@ def create_app(test_config=None):
             (person['id'], days[0].isoformat(), ending.isoformat(), ending.isoformat())).fetchall()
         return dict(sheet=sheet, days=days, entries=by_day, total_units=units, rate=rate, total_cents=total,
                     booked_days={row['work_date']: row['week_end'] for row in booked},
+                    driver_dates={r['work_date'] for r in db().execute('''SELECT e.work_date FROM bf_workday_entries e JOIN bf_workdays d ON d.id=e.workday_id
+                        WHERE d.user_id=? AND d.finished_at IS NULL''',(person['id'],))},
                     period_label=period_label, saved_profile=bool(sheet and (sheet['work_week'] != person['work_week'] or period_label != WORK_WEEKS[person['work_week']]['label'])),
                     overlap_week=(ending - start).days == 8,
                     payment=db().execute('SELECT * FROM payments WHERE sheet_id=?',(sheet['id'],)).fetchone() if sheet else None)
@@ -620,7 +623,7 @@ def create_app(test_config=None):
                 raise ValueError('Enter valid start and finish times.')
             sh, sm = map(int, start.split(':'))
             fh, fm = map(int, finish.split(':'))
-            if sh > 23 or fh > 23:
+            if sh > 23 or fh > 24 or (fh == 24 and fm != 0):
                 raise ValueError('Enter valid start and finish times.')
             minutes = fh * 60 + fm - sh * 60 - sm
             if minutes <= 0:
@@ -679,6 +682,8 @@ def create_app(test_config=None):
                     old = db().execute('SELECT * FROM entries WHERE user_id=? AND work_date=?', (person['id'], day.isoformat())).fetchone()
                     if old and (not current or old['sheet_id'] != current['id']):
                         raise ValueError('This date belongs to another timesheet. Ask admin to check the week ending.')
+                    if active_entry(db(),person['id'],day.isoformat()):
+                        raise ValueError('This driver day is in progress. Use Finish day in BINFLOW to complete its timesheet.')
                     if old and old['committed_at']:
                         raise ValueError('This day is committed and locked. Only an administrator can change it.')
                     start, finish, units, activity, lunch_units = parse_day()
@@ -742,6 +747,11 @@ def create_app(test_config=None):
     @require('admin')
     def archive_sheet(sheet_id):
         restore = request.form.get('action') == 'restore'
+        db().execute('BEGIN IMMEDIATE')
+        if not restore and db().execute('''SELECT 1 FROM bf_workday_entries e JOIN bf_workdays d ON d.id=e.workday_id WHERE e.sheet_id=? AND d.finished_at IS NULL''',(sheet_id,)).fetchone():
+            db().rollback()
+            flash('Finish the active BINFLOW driver day before archiving its timesheet.','error')
+            return redirect(url_for('view_sheet',sheet_id=sheet_id))
         cursor = db().execute('UPDATE sheets SET archived_at=? WHERE id=?', (None if restore else timestamp(), sheet_id))
         if not cursor.rowcount:
             abort(404)
@@ -762,6 +772,10 @@ def create_app(test_config=None):
             abort(404)
         payment = db().execute('SELECT * FROM payments WHERE sheet_id=?', (sheet_id,)).fetchone()
         if request.method == 'POST':
+            if db().execute('''SELECT 1 FROM bf_workday_entries e JOIN bf_workdays d ON d.id=e.workday_id WHERE e.sheet_id=? AND d.finished_at IS NULL''',(sheet_id,)).fetchone():
+                db().rollback()
+                flash('Finish the active BINFLOW driver day before deleting its timesheet.','error')
+                return redirect(url_for('view_sheet',sheet_id=sheet_id))
             # Do not delete a newly processed payment that was absent from the confirmation page.
             if request.form.get('payment_id','') != (str(payment['id']) if payment else ''):
                 db().rollback()
@@ -811,6 +825,8 @@ def create_app(test_config=None):
                 db().execute('BEGIN IMMEDIATE')
                 if db().execute('SELECT id FROM payments WHERE sheet_id=?',(sheet_id,)).fetchone():
                     raise ValueError('Payment has been processed. This timesheet is locked.')
+                if active_entry(db(),person['id'],work_date):
+                    raise ValueError('This driver day is in progress. Finish the BINFLOW day before correcting its hours.')
                 before = db().execute('SELECT * FROM entries WHERE sheet_id=? AND work_date=?', (sheet_id, work_date)).fetchone()
                 current = db().execute('SELECT * FROM sheets WHERE id=?', (sheet_id,)).fetchone()
                 now = datetime.now(ZoneInfo('Australia/Brisbane')).isoformat()
@@ -833,7 +849,9 @@ def create_app(test_config=None):
                 db().rollback()
                 flash(str(error) if isinstance(error, ValueError) else 'The correction could not be saved.', 'error')
         audit = db().execute('SELECT a.*,u.first_name,u.last_name FROM entry_audit a JOIN users u ON u.id=a.admin_id WHERE a.user_id=? AND a.work_date=? ORDER BY a.id DESC', (person['id'], work_date)).fetchall()
-        return render_template('day_edit.html', sheet=sheet, entry=entry, person=person, audit=audit, tab='submissions')
+        active_driverday=db().execute('''SELECT d.* FROM bf_workdays d JOIN bf_workday_entries e ON e.workday_id=d.id
+            WHERE e.sheet_id=? AND e.work_date=? AND d.finished_at IS NULL''',(sheet_id,work_date)).fetchone()
+        return render_template('day_edit.html', sheet=sheet, entry=entry, person=person, audit=audit, active_driverday=active_driverday, tab='submissions')
 
     @app.route('/admin/timesheets/<int:sheet_id>/payment', methods=['GET','POST'])
     @require('admin')

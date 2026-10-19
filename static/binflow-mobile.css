@@ -1,0 +1,15 @@
+.driver-mode{background:#f3f6fa}.driver-mode .topbar{padding:12px 18px;gap:12px}.driver-mode .brand-logo{width:145px;height:auto}
+.driver-mode .user-menu{gap:8px}.driver-mode .user-menu>span{font-size:12px}.driver-mode .user-menu small{display:none}.driver-mode .user-menu button{font-size:12px;padding:8px}
+.driver-mode>.main{max-width:600px;padding:20px 16px 40px;margin:auto}.driver-mode>.main .bf-day{max-width:560px}
+.driver-mode footer{max-width:600px;margin:auto;padding:18px}.driver-mode footer span{display:none}
+.bf-mobile-nav{display:flex;justify-content:space-between;gap:16px;font-size:13px;margin-bottom:26px}.bf-mobile-nav a:first-child{font-weight:800;letter-spacing:1px}
+.bf-mobile-day h1,.driver-mode .bf-day h1{font-size:29px}.driver-mode .bf-day h2{font-size:22px}.driver-mode .bf-day .bf-pad{padding:20px}
+.driver-mode .bf-day input:not([type=checkbox]),.driver-mode .bf-day select,.driver-mode .bf-day textarea{font-size:16px;min-height:48px}
+.driver-mode .bf-day .bf-next{min-height:54px;border-radius:10px}.driver-mode .bf-day .bf-scan-entry{display:flex;flex-direction:column;align-items:stretch}.driver-mode .bf-day .bf-scan-entry button{min-height:48px}
+.driver-mode .bf-day .bf-prestart-check{padding:14px}.driver-mode .bf-day .bf-signature{width:100%}.driver-mode .bf-day .bf-camera{max-height:280px;object-fit:cover}
+.bf-clock-card{border-top:4px solid #225bc0}.bf-clock-card h2{margin-top:12px}.bf-clock-strip{padding:15px 17px;border:1px solid #c8dfd2;border-radius:10px;background:#eef8f1;margin:0 0 20px;font-size:13px}.bf-clock-strip small{display:block;margin-top:6px;color:#567261}
+.bf-clock-times{display:grid;gap:16px;margin:20px 0}.bf-clock-times dt{font-size:12px;color:#66758a}.bf-clock-times dd{margin:5px 0;font-size:20px;font-weight:700}
+.bf-day-outline{padding-left:23px;color:#66758a;line-height:1.7;font-size:14px}.bf-day-outline li{padding:7px 0}.bf-finish-day{margin-top:22px}
+.bf-mobile-progress{margin:0 0 22px}.bf-mobile-progress p{font-size:13px;font-weight:700}.bf-mobile-progress progress{width:100%;height:8px;accent-color:#225bc0}
+.driver-mode .bf-day-progress{font-size:10px}.driver-mode .bf-day .bf-request-grid{grid-template-columns:1fr}
+@media(max-width:390px){.driver-mode .brand-logo{width:125px}.driver-mode .user-menu>span{display:none}.driver-mode .topbar{padding-inline:14px}}

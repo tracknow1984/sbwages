@@ -5,6 +5,7 @@ import sqlite3
 from binflow_qr import pickup_requests
 from binflow_approvals import ensure_approved
 from binflow_acceptance import schedule_cards, ensure_run_unstarted, schedule_changed
+from binflow_workday import driver_today
 
 from flask import abort, g, jsonify, redirect, render_template, request, url_for
 
@@ -65,6 +66,8 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
     @app.route('/binflow/driver', methods=['GET', 'POST'])
     @access
     def bf_drivers():
+        if request.method=='GET' and g.user['role']=='employee':
+            return redirect(url_for('bf_workday'))
         if request.method == 'POST':
             if g.user['role'] != 'admin':
                 abort(403)
@@ -181,7 +184,7 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
             if duplicate:
                 message = f'{b["code"]} — already scanned for this step. Stock unchanged.'
             else:
-                guard_movement(db(),j,action,g.user,now()[:10])
+                guard_movement(db(),j,action,g.user,driver_today(db(),g.user,now()))
                 if b['reserved_job'] != j['id'] or b['state'] != t['state']:
                     raise ValueError('The bin allocation changed. Refresh the job before scanning.')
                 if action in ('load','deliver','collect','unload') and j['status'] != 'scheduled':
@@ -235,7 +238,7 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
             if qr_token:
                 return success(message,'bf_qr_driver',token=qr_token,movement={'load':'load','collect':'pickup','deliver':'delivery'}[action],job=j['id'])
             if guided_job:
-                data=run_data(db(),truck_id,guided_date,g.user['id'],now()[:10])
+                data=run_data(db(),truck_id,guided_date,g.user['id'],driver_today(db(),g.user,now()))
                 return jsonify(ok=True,message=message,duplicate=duplicate,stage=data['stage'],remaining=data['remaining'],
                                redirect=url_for('bf_run',truck_id=truck_id,date=guided_date),html=render_template('binflow/run_bins.html',**data))
             if wants_json:

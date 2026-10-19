@@ -103,7 +103,8 @@ def schedule_cards(conn,state,run_date,today,user):
 
 
 def register_acceptance(app,db,access,success,failure,now,actor):
-    from binflow_runs import run_jobs,valid_date
+    from binflow_runs import run_jobs,valid_date,run_data
+    from binflow_workday import run_workday,driver_today
 
     @app.post('/binflow/driver/<int:truck_id>/accept')
     @access
@@ -114,6 +115,11 @@ def register_acceptance(app,db,access,success,failure,now,actor):
         try:
             valid_date(run_date)
             db().execute('BEGIN IMMEDIATE')
+            day=run_workday(db(),g.user['id'],truck_id,run_date)
+            if g.user['role']=='employee' or day:
+                data=run_data(db(),truck_id,run_date,g.user['id'],driver_today(db(),g.user,now()))
+                if not day or day['finished_at'] or not data['passed'] or data['hold']:
+                    raise ValueError('Start your driver day, select this vehicle and pass the prestart before accepting the schedule.')
             jobs=run_jobs(db(),truck_id,run_date)
             if not jobs: raise ValueError('There are no approved jobs on this truck for the selected day.')
             run=db().execute('SELECT * FROM bf_runs WHERE truck_id=? AND run_date=?',(truck_id,run_date)).fetchone()
@@ -144,7 +150,7 @@ def register_acceptance(app,db,access,success,failure,now,actor):
                 WHERE truck_id=? AND run_date=?''',(stamp,g.user['id'],person,version,truck_id,run_date))
             db().execute('''INSERT INTO bf_run_acceptance_history(truck_id,run_date,action,user_id,actor,manifest,created_at)
                 VALUES(?,?,'Schedule accepted',?,?,?,?)''',(truck_id,run_date,g.user['id'],person,snapshot,stamp))
-            return success('Schedule accepted. Complete today’s prestart, then scan your allocated empty bins onto the truck.',
+            return success('Schedule accepted. Scan the allocated empty bins onto your truck.' if day else 'Schedule accepted. Complete today’s prestart, then scan your allocated empty bins onto the truck.',
                 'bf_run',truck_id=truck_id,date=run_date)
         except ValueError as error:
             return failure(error,'bf_drivers',state=truck['state'],date=run_date or now()[:10])

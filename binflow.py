@@ -20,6 +20,7 @@ from binflow_runs import migrate_runs, register_runs, guard_movement, check_owne
 from binflow_gps import migrate_gps, register_gps
 from binflow_portal import migrate_portal, register_portal
 from binflow_qr import migrate_qr, register_qr, link_request, reopen_requests, pickup_requests, approve_requests, request_queue
+from binflow_workday import migrate_workdays, register_workdays, driver_today
 from binflow_tares import STANDARD_TARES, apply_standard_tares
 from binflow_approvals import migrate_approvals, register_approvals, ensure_approved, allocation_history
 from binflow_collections import migrate_collections, populate_collection_profiles, register_collections
@@ -104,6 +105,7 @@ def register_binflow(app, db, require):
         migrate_requirements(db())
         migrate_runs(db())
         migrate_acceptance(db())
+        migrate_workdays(db())
         migrate_gps(db())
         migrate_portal(db())
         migrate_qr(db())
@@ -664,7 +666,7 @@ def register_binflow(app, db, require):
                     raise ValueError('This job is not scheduled.')
                 if j['scan_mode']:
                     if j['truck_id']:
-                        guard_movement(db(),j,'exchange',g.user,now()[:10])
+                        guard_movement(db(),j,'exchange',g.user,driver_today(db(),g.user,now()))
                     if not j['truck_id'] or not all(i['delivered_at'] if i['direction']=='deliver' else i['picked_up_at'] for i in rows):
                         raise ValueError('Scan every delivery and pickup at the client before finishing this handover.')
                 elif set(request.form.getlist('confirmed')) != {str(i['bin_id']) for i in rows}:
@@ -874,3 +876,4 @@ def register_binflow(app, db, require):
     register_approvals(app,db,access,require,allowed,render,job,items,bins,event,success,failure,now,actor,reopen_requests,approve_requests)
     register_collections(app,db,access,require,render,success,now,actor)
     register_acceptance(app,db,access,success,failure,now,actor)
+    register_workdays(app,db,access,require,render,success,failure,now)

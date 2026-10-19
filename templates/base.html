@@ -23,7 +23,7 @@
 <a class="{{ 'selected' if tab == 'settings' }}" href="{{ url_for('admin_settings') }}">SETTINGS</a>
 {% else %}
 <a class="{{ 'selected' if tab == 'home' }}" href="{{ url_for('employee_dashboard') }}">HOME</a>
-{% if binflow_allowed %}<a class="{{ 'selected' if tab == 'binflow' }}" href="{{ url_for('bf_dashboard') }}">BINFLOW</a>{% endif %}
+{% if binflow_allowed %}<a class="{{ 'selected' if tab == 'binflow' }}" href="{{ url_for('bf_workday') }}">BINFLOW</a>{% endif %}
 <a class="{{ 'selected' if tab == 'hit-me' }}" href="{{ url_for('employee_hit_me') }}">EMPIRE WIRE</a>
 <a class="{{ 'selected' if tab == 'timesheet' }}" href="{{ url_for('employee_timesheet') }}">MY TIMESHEET</a>
 <a class="{{ 'selected' if tab == 'prestart' }}" href="{{ url_for('employee_prestart') }}">PRESTART</a>

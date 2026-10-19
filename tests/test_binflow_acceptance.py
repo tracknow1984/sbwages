@@ -8,8 +8,8 @@ from concurrent.futures import ThreadPoolExecutor
 import test_binflow as legacy
 from app import create_app
 from binflow_acceptance import migrate_acceptance
-from binflow_helpers import accept, prestart, depart, RUN_DATE
-from binflow_runs import run_data
+from binflow_helpers import accept, prestart, depart, RUN_DATE, SIGNATURE
+from binflow_runs import run_data, CHECKS
 from werkzeug.security import generate_password_hash
 
 
@@ -117,6 +117,16 @@ class AcceptanceTests(unittest.TestCase):
             clients.append((client,csrf))
         def claim(pair):
             client,csrf=pair
+            client.post('/binflow/driver/start-day',data={'csrf':csrf})
+            with client.session_transaction() as session:uid=session['uid']
+            day=self.rows('SELECT id FROM bf_workdays WHERE user_id=?',(uid,))[0]['id']
+            client.post(f'/binflow/driver/my-day/{day}/vehicle',data={'csrf':csrf,'state':'QLD','truck_id':1})
+            page=client.get('/binflow/driver/1/day?date='+RUN_DATE)
+            prestart_token=re.search(rb'name="submission_token" value="([^"]+)"',page.data)
+            if prestart_token:
+                values={f'check_{key}':'pass' for key,_,_ in CHECKS}
+                values.update(csrf=csrf,date=RUN_DATE,submission_token=prestart_token[1].decode(),reading='12345',fit_for_duty='yes',signature=SIGNATURE,signed='yes')
+                client.post('/binflow/driver/1/prestart',data=values)
             return client.post('/binflow/driver/1/accept',data={'csrf':csrf,'date':RUN_DATE,'manifest_version':token})
         with ThreadPoolExecutor(max_workers=2) as pool: responses=list(pool.map(claim,clients))
         self.assertEqual([r.status_code for r in responses],[302,302])
