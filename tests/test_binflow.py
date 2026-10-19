@@ -56,6 +56,10 @@ class BinFlowTests(unittest.TestCase):
         import secrets
         key = key or secrets.token_urlsafe(24)
         result=self.post('/binflow/pickups/new',{'request_key':key,'site_id':site,'warehouse_id':warehouse,'scheduled_date':'2026-10-19','collect':list(collect),'deliver':list(deliver)})
+        saved=self.rows('SELECT id,approval_status FROM bf_jobs WHERE request_key=?',(key,))
+        if saved and saved[0]['approval_status']=='pending':
+            reviewed=self.post(f'/binflow/pickups/{saved[0]["id"]}/review',{'decision':'approve'})
+            self.assertIn(b'Allocation approved.',reviewed.data)
         if legacy:
             # Regression fixture for dockets created before individual truck scans were introduced.
             with sqlite3.connect(self.path) as conn:

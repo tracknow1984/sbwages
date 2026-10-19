@@ -106,7 +106,7 @@ def register_portal(app, db, access, require, render, success, failure, now, act
         except ValueError as error: abort(400,str(error))
         jobs=db().execute('''SELECT j.*,(SELECT SUM(net_g) FROM bf_job_bins i WHERE i.job_id=j.id AND i.direction='collect') AS net,
             (SELECT COUNT(*) FROM bf_job_bins i WHERE i.job_id=j.id AND i.direction='collect' AND i.weighed_at IS NULL) AS unweighed
-            FROM bf_jobs j WHERE j.scheduled_date=? AND j.status!='cancelled' ORDER BY j.client_name,j.site_name,j.id''',(run_date,)).fetchall()
+            FROM bf_jobs j WHERE j.scheduled_date=? AND j.approval_status='approved' AND j.status!='cancelled' ORDER BY j.client_name,j.site_name,j.id''',(run_date,)).fetchall()
         return render('daily_pods',section='pods',run_date=run_date,jobs=jobs,closed=sum(j['status']=='complete' for j in jobs))
 
     @app.route('/binflow/settings/client-access',methods=['GET','POST'])

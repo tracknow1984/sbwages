@@ -40,7 +40,7 @@ def link_request(conn, rid, jid, site_id, collection_ids, actor, stamp):
     if not row or row['status']!='new' or row['site_id']!=site_id or row['bin_id'] not in collection_ids:
         raise ValueError('This request changed, or its bin is missing from the collection. Review the request before booking.')
     conn.execute("UPDATE bf_collection_requests SET status='scheduled',job_id=?,updated_at=? WHERE id=?",(jid,stamp,rid))
-    request_history(conn,rid,'Collection scheduled',actor,stamp,f'Docket BF-{jid:06d}')
+    request_history(conn,rid,'Collection allocated; awaiting approval',actor,stamp,f'Docket BF-{jid:06d}')
 
 
 def pickup_requests(conn,jid,bid,actor,stamp):
@@ -54,7 +54,7 @@ def reopen_requests(conn,jid,actor,stamp):
     rows=conn.execute("SELECT id FROM bf_collection_requests WHERE job_id=? AND status='scheduled'",(jid,)).fetchall()
     for row in rows:
         conn.execute("UPDATE bf_collection_requests SET status='new',job_id=NULL,updated_at=? WHERE id=?",(stamp,row['id']))
-        request_history(conn,row['id'],'Booking cancelled; request returned to office queue',actor,stamp)
+        request_history(conn,row['id'],'Allocation released; request returned to office queue',actor,stamp)
 
 
 def register_qr(app,db,access,require,allowed,render,success,failure,now,actor):
@@ -133,7 +133,7 @@ def register_qr(app,db,access,require,allowed,render,success,failure,now,actor):
         selected=request.form.get('job_id',type=int) if request.method=='POST' else request.args.get('job',type=int)
         rows=db().execute('''SELECT i.*,j.code,j.truck_id,j.scheduled_date,j.client_name,j.site_name,j.status AS job_status
             FROM bf_job_bins i JOIN bf_jobs j ON j.id=i.job_id WHERE i.bin_id=? AND i.direction=?
-            AND j.scan_mode=1 AND j.status!='cancelled' '''+(' AND j.id=?' if selected else '')+
+            AND j.scan_mode=1 AND j.approval_status='approved' AND j.status!='cancelled' '''+(' AND j.id=?' if selected else '')+
             ' ORDER BY i.active DESC,j.id DESC LIMIT 1',(b['id'],direction,selected) if selected else (b['id'],direction)).fetchall()
         item=rows[0] if rows else None
         if request.method=='POST':
@@ -152,7 +152,7 @@ def register_qr(app,db,access,require,allowed,render,success,failure,now,actor):
         state=request.args.get('status','new')
         if state not in ('new','scheduled','collected','closed','all'): abort(400)
         rows=db().execute('''SELECT r.*,l.name AS site_name,c.name AS client_name,b.token,b.location_id AS current_location_id,
-            j.code AS job_code,j.scheduled_date FROM bf_collection_requests r JOIN bf_locations l ON l.id=r.site_id
+            j.code AS job_code,j.scheduled_date,j.approval_status FROM bf_collection_requests r JOIN bf_locations l ON l.id=r.site_id
             JOIN bf_clients c ON c.id=r.client_id JOIN bf_bins b ON b.id=r.bin_id LEFT JOIN bf_jobs j ON j.id=r.job_id'''+
             (' WHERE r.status=?' if state!='all' else '')+' ORDER BY r.created_at DESC,r.id DESC',(state,) if state!='all' else ()).fetchall()
         return render('collection_requests',section='requests',requests=rows,selected=state)

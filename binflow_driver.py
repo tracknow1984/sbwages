@@ -3,6 +3,7 @@ from urllib.parse import urlparse
 from binflow_runs import guard_movement, check_owner, mark_returned, run_data, valid_date
 import sqlite3
 from binflow_qr import pickup_requests
+from binflow_approvals import ensure_approved
 
 from flask import abort, g, jsonify, redirect, render_template, request, url_for
 
@@ -84,7 +85,7 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
             (SELECT COUNT(*) FROM bf_bins b WHERE b.truck_id=t.id AND b.truck_load='empty') AS empties,
             (SELECT COUNT(*) FROM bf_bins b WHERE b.truck_id=t.id AND b.truck_load='full') AS full
             FROM bf_trucks t ORDER BY state,name''').fetchall()
-        jobs = db().execute("SELECT * FROM bf_jobs WHERE status='scheduled' AND truck_id IS NULL ORDER BY scheduled_date,id").fetchall()
+        jobs = db().execute("SELECT * FROM bf_jobs WHERE approval_status='approved' AND status='scheduled' AND truck_id IS NULL ORDER BY scheduled_date,id").fetchall()
         summaries={r['truck_id']:r['n'] for r in db().execute("SELECT truck_id,COUNT(*) AS n FROM bf_jobs WHERE scheduled_date=? AND status!='cancelled' GROUP BY truck_id",(run_date,))}
         previous=db().execute("""SELECT DISTINCT j.truck_id,j.scheduled_date,t.name FROM bf_jobs j JOIN bf_trucks t ON t.id=j.truck_id
             WHERE j.scheduled_date<? AND j.status IN ('scheduled','collected') ORDER BY j.scheduled_date DESC,t.name""",(run_date,)).fetchall()
@@ -103,6 +104,7 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
         try:
             db().execute('BEGIN IMMEDIATE')
             j, t = job(job_id), truck(integer('truck_id'))
+            ensure_approved(j)
             run = db().execute('SELECT departed_at,returned_at FROM bf_runs WHERE truck_id=? AND run_date=?',(t['id'],j['scheduled_date'])).fetchone()
             if j['truck_id'] != t['id'] and run and (run['departed_at'] or run['returned_at']):
                 raise ValueError('This truck has already started its run for this date. Choose an unstarted run.')
@@ -145,6 +147,7 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
         try:
             db().execute('BEGIN IMMEDIATE')
             t, j = truck(truck_id), job(jid or integer('job_id'))
+            ensure_approved(j)
             check_owner(db(),truck_id,j['scheduled_date'],g.user)
             if j['truck_id'] != truck_id or not j['scan_mode']:
                 raise ValueError('This job is not assigned to this truck. Choose the correct job or truck.')

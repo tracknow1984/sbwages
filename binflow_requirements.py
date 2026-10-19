@@ -179,12 +179,12 @@ def site_plan(conn, site_id, warehouse_id, collections=None, run_date=None):
 
 def load_plan(conn, truck_id, run_date):
     """Dated load sheet uses reserved physical bins, never unconfirmed profile estimates."""
-    jobs = conn.execute("SELECT * FROM bf_jobs WHERE truck_id=? AND scheduled_date=? AND status!='cancelled' ORDER BY run_order,id", (truck_id,run_date)).fetchall()
+    jobs = conn.execute("SELECT * FROM bf_jobs WHERE truck_id=? AND scheduled_date=? AND approval_status='approved' AND status!='cancelled' ORDER BY run_order,id", (truck_id,run_date)).fetchall()
     rows = conn.execute('''SELECT j.id AS job_id,j.warehouse_id,j.warehouse_name,i.bin_code,i.loaded_at,i.delivered_at,
         i.size_name,b.size_id,s.litres,b.truck_id,b.truck_load,b.location_id
         FROM bf_jobs j JOIN bf_job_bins i ON i.job_id=j.id JOIN bf_bins b ON b.id=i.bin_id
         JOIN bf_sizes s ON s.id=b.size_id
-        WHERE j.truck_id=? AND j.scheduled_date=? AND j.status!='cancelled' AND i.direction='deliver'
+        WHERE j.truck_id=? AND j.scheduled_date=? AND j.approval_status='approved' AND j.status!='cancelled' AND i.direction='deliver'
         ORDER BY s.litres,b.size_id,i.bin_code''', (truck_id,run_date)).fetchall()
     totals, warehouses, per_job = {}, {}, defaultdict(dict)
     for r in rows:

@@ -10,6 +10,7 @@ from flask import abort, g, jsonify, redirect, request, url_for
 from prestart_config import VEHICLE_CHECKS, DECLARATION
 from prestart_media import signature_png
 from binflow_requirements import load_plan
+from binflow_approvals import ensure_approved
 
 CHECKS = VEHICLE_CHECKS + [('lift', 'Tail lift / bin lifter and controls (if fitted)', True)]
 
@@ -44,7 +45,7 @@ def valid_date(value):
 
 
 def run_jobs(conn, truck_id, run_date):
-    return conn.execute("SELECT * FROM bf_jobs WHERE truck_id=? AND scheduled_date=? AND status!='cancelled' ORDER BY run_order,id",
+    return conn.execute("SELECT * FROM bf_jobs WHERE truck_id=? AND scheduled_date=? AND approval_status='approved' AND status!='cancelled' ORDER BY run_order,id",
                         (truck_id, run_date)).fetchall()
 
 
@@ -57,7 +58,7 @@ def run_data(conn, truck_id, run_date, driver_id, today):
     run = dict(run) if run else dict(truck_id=truck_id, run_date=run_date, driver_id=None, departed_at=None, returned_at=None)
     rows = conn.execute('''SELECT i.*,j.client_name,j.site_name,j.warehouse_name,j.warehouse_id,j.site_id
         FROM bf_job_bins i JOIN bf_jobs j ON j.id=i.job_id
-        WHERE j.truck_id=? AND j.scheduled_date=? AND j.status!='cancelled'
+        WHERE j.truck_id=? AND j.scheduled_date=? AND j.approval_status='approved' AND j.status!='cancelled'
         ORDER BY j.run_order,j.id,i.direction,i.bin_code''', (truck_id, run_date)).fetchall()
     current = next((j for j in jobs if j['status']=='scheduled'), None)
     hold = conn.execute('''SELECT i.*,p.checks_json,p.notes,p.employee_name,p.submitted_at FROM bf_run_inspections i
@@ -109,6 +110,7 @@ def check_owner(conn, truck_id, run_date, user):
 
 
 def guard_movement(conn, j, action, user, today):
+    ensure_approved(j)
     check_owner(conn,j['truck_id'],j['scheduled_date'],user)
     data = run_data(conn,j['truck_id'],j['scheduled_date'],user['id'],today)
     if action=='unload' and data['passed'] and not data['hold'] and not data['run']['departed_at']:
@@ -290,7 +292,7 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
             FROM bf_jobs j LEFT JOIN bf_trucks t ON t.id=j.truck_id
             LEFT JOIN bf_runs r ON r.truck_id=j.truck_id AND r.run_date=j.scheduled_date
             LEFT JOIN users u ON u.id=COALESCE(r.driver_id,j.driver_id)
-            WHERE j.scheduled_date=? AND j.status!='cancelled' ORDER BY t.state,t.name,j.run_order,j.id''',(run_date,)).fetchall()
+            WHERE j.scheduled_date=? AND j.approval_status='approved' AND j.status!='cancelled' ORDER BY t.state,t.name,j.run_order,j.id''',(run_date,)).fetchall()
         groups={}
         for row in jobs:
             j=dict(row)

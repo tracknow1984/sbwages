@@ -38,8 +38,12 @@ class PublicQrTests(unittest.TestCase):
         return self.public_post(self.url(suffix='/collection'),values)
 
     def schedule(self,rid=1):
-        return self.post('/binflow/pickups/new',dict(request_key=secrets.token_urlsafe(24),site_id=3,warehouse_id=1,
+        key=secrets.token_urlsafe(24)
+        result=self.post('/binflow/pickups/new',dict(request_key=key,site_id=3,warehouse_id=1,
             scheduled_date=RUN_DATE,collect=[1],deliver=[3],collection_request=rid))
+        saved=self.rows('SELECT id FROM bf_jobs WHERE request_key=?',(key,))
+        if saved:self.post(f'/binflow/pickups/{saved[0]["id"]}/review',{'decision':'approve'})
+        return result
 
     def test_public_three_actions_request_privacy_csrf_and_duplicate_safety(self):
         before=self.rows('SELECT * FROM bf_bins');jobs=self.rows('SELECT * FROM bf_jobs')

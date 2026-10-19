@@ -21,6 +21,7 @@ from binflow_gps import migrate_gps, register_gps
 from binflow_portal import migrate_portal, register_portal
 from binflow_qr import migrate_qr, register_qr, link_request, reopen_requests, pickup_requests
 from binflow_tares import STANDARD_TARES, apply_standard_tares
+from binflow_approvals import migrate_approvals, register_approvals, ensure_approved, allocation_history
 from binflow_requirements import migrate_requirements, populate_requirements, site_plan, register_requirements
 from binflow_import import SCHEMA as IMPORT_SCHEMA, IMPORT_ID, import_blocktexx, profiles as source_profiles
 
@@ -103,6 +104,7 @@ def register_binflow(app, db, require):
         migrate_gps(db())
         migrate_portal(db())
         migrate_qr(db())
+        migrate_approvals(db())
         for litres, tare in STANDARD_TARES.items():
             db().execute('INSERT OR IGNORE INTO bf_sizes(name,litres,default_tare_g) VALUES(?,?,?)', (f'{litres} L', litres, tare))
         db().commit()
@@ -209,7 +211,7 @@ def register_binflow(app, db, require):
         where, args = ('b.state=?', (state,)) if state else ('1=1', ())
         stock = bins(where, args)
         counts = {key: sum(b['status'] == key for b in stock) for key in STATUSES}
-        jobs = db().execute('SELECT * FROM bf_jobs WHERE status NOT IN (\'complete\',\'cancelled\')' + (' AND state=?' if state else '') + ' ORDER BY scheduled_date,id LIMIT 30', args).fetchall()
+        jobs = db().execute("SELECT * FROM bf_jobs WHERE approval_status='approved' AND status NOT IN ('complete','cancelled')" + (' AND state=?' if state else '') + ' ORDER BY scheduled_date,id LIMIT 30', args).fetchall()
         sizes = db().execute('SELECT * FROM bf_sizes ORDER BY litres').fetchall()
         state_rows = [dict(state=s, total=sum(b['state'] == s for b in stock), available=sum(b['state'] == s and b['status'] == 'empty' and not b['reserved_job'] for b in stock),
                            on_site=sum(b['state'] == s and b['status'] in ('at_client','full') for b in stock), returning=sum(b['state'] == s and b['status'] == 'transit' for b in stock), warehouse_full=sum(b['state'] == s and b['status'] in ('received','weighed') for b in stock)) for s in STATES if not state or s == state]
@@ -537,14 +539,16 @@ def register_binflow(app, db, require):
                 for row in loading:
                     row['selected'] = selected_deliveries.get(row['size_id'],0)
                     row['shortfall'] = max(0,row['recommended']-row['selected'])
-                db().execute('UPDATE bf_jobs SET scan_mode=1,bin_plan=?,pod_client_id=? WHERE id=?', (json.dumps(loading),site['client_id'],jid))
+                stamp=now()
+                db().execute("UPDATE bf_jobs SET scan_mode=1,bin_plan=?,pod_client_id=?,approval_status='pending',submitted_at=? WHERE id=?", (json.dumps(loading),site['client_id'],stamp,jid))
+                allocation_history(db(),jid,'Allocation submitted',actor(),g.user['id'],stamp)
                 for direction,b in selected:
                     db().execute('INSERT INTO bf_job_bins(job_id,bin_id,direction,bin_code,size_name,tare_g) VALUES(?,?,?,?,?,?)', (jid,b['id'],direction,b['code'],b['size_name'],b['tare_g']))
                     event(b['id'], 'Reserved for collection' if direction == 'collect' else 'Reserved for delivery', jid, b['location_id'], notes=f'Due {scheduled.isoformat()}')
                 rid=request.form.get('collection_request',type=int)
                 if rid:
                     link_request(db(),rid,jid,site['id'],{b['id'] for d,b in selected if d=='collect'},actor(),now())
-                return success('Job saved and bins reserved. Choose a truck to start scanning.', 'bf_job', job_id=jid)
+                return success('Job saved as an allocation awaiting approval. Bins are reserved until an administrator approves or rejects it.', 'bf_job', job_id=jid)
             except (ValueError, sqlite3.IntegrityError) as error:
                 return failure(error if isinstance(error,ValueError) else ValueError('One of these bins was just reserved by another user. Please refresh and select available bins.'), 'bf_new_job', site=request.form.get('site_id',''), warehouse=request.form.get('warehouse_id',''),collection_request=request.form.get('collection_request',''))
         try:
@@ -586,6 +590,7 @@ def register_binflow(app, db, require):
         j = job(job_id)
         rows = items(job_id)
         return render('job', section='pickups', job=j, items=rows, net=sum(i['net_g'] or 0 for i in rows), remaining=sum(i['direction']=='collect' and i['weighed_at'] is None for i in rows),
+                      approval_history=db().execute('SELECT * FROM bf_allocation_history WHERE job_id=? ORDER BY id',(job_id,)).fetchall(),
                       trucks=db().execute('SELECT * FROM bf_trucks WHERE state=? ORDER BY name', (j['state'],)).fetchall(), loading=json.loads(j['bin_plan']),
                       scan_ready=all(i['delivered_at'] if i['direction']=='deliver' else i['picked_up_at'] for i in rows),
                       scans_started=any(i['loaded_at'] or i['delivered_at'] or i['picked_up_at'] for i in rows))
@@ -606,6 +611,7 @@ def register_binflow(app, db, require):
                     signature = signature_png(raw_signature)
             db().execute('BEGIN IMMEDIATE')
             j = job(job_id); rows = items(job_id)
+            ensure_approved(j)
             if action == 'cancel':
                 if j['status'] == 'cancelled':
                     return success('Job already cancelled.', 'bf_job', job_id=job_id)
@@ -706,6 +712,7 @@ def register_binflow(app, db, require):
                 raise ValueError('Confirm that the tare is the actual empty-bin weight.')
             db().execute('BEGIN IMMEDIATE')
             j = job(job_id)
+            ensure_approved(j)
             item = db().execute("SELECT * FROM bf_job_bins WHERE id=? AND job_id=? AND direction='collect'", (item_id,job_id)).fetchone()
             if not item:
                 abort(404)
@@ -833,3 +840,4 @@ def register_binflow(app, db, require):
     register_portal(app, db, access, require, render, success, failure, now, actor, bf_pod_pdf.__wrapped__)
 
     register_qr(app, db, access, require, allowed, render, success, failure, now, actor)
+    register_approvals(app,db,access,require,allowed,render,job,items,bins,event,success,failure,now,actor,reopen_requests)

@@ -298,9 +298,11 @@ bin-custody module; the existing Transport Model remains a separate planning too
    IDs and QR tokens are permanent per physical bin. Print the same bin's label
    for its front and lid. Default sizes are 240 L, 660 L and 1100 L; add other sizes
    in setup. Physical stock is registered explicitly; planning estimates never create bins.
-3. Create a pickup/delivery for one client site and same-state warehouse. Select
+3. Create an allocation for one client site and same-state warehouse. Select
    collection bins and/or empty replacements by size and quantity. This reserves
-   exact IDs without yet changing physical locations. A delivery-only job makes
+   exact IDs without yet changing physical locations. Submit it for approval;
+   an administrator reviews the client, date and manifest in **Allocation approvals**
+   before it becomes available for truck assignment. A delivery-only job makes
    the initial client allocation; a collection-only job is also supported.
 4. In **Driver day**, add each truck and assign planned jobs. **Daily schedule**
    sets the driver, stop order and optional local arrival times before loading.
@@ -355,6 +357,28 @@ created locally (`reportlab`). Run the workflow regression checks with:
 ```sh
 python -m unittest discover -s tests -p 'test_binflow*.py' -v
 ```
+
+### Allocation approvals
+
+**New allocation** creates a pending proposal with an exact bin manifest. Its
+reservations prevent double booking while the administrator reviews it at
+`/binflow/allocation-approvals`. Pending allocations appear in that queue and
+pickup records, but not driver runs, loading lists, the daily calendar or PODs.
+Truck assignment, all scans, handover and weighing enforce approval on the server.
+
+Only an administrator can **Approve allocation** or **Disapprove allocation**.
+Approval checks that the reserved bins are still at the expected source and any
+proposed driver still has transport access. Disapproval requires a reason and
+releases all reservations; a linked public collection request returns to the office
+queue. A revised allocation is submitted as a new record. Review decisions are
+immutable, retain reviewer/time/notes, and duplicate or concurrent submissions
+cannot create contradictory outcomes. Transport staff can submit allocations and
+view decisions, but cannot approve them.
+
+Existing dockets are migrated as approved so live runs and historical PODs continue
+unchanged. The migration does not invent review records for old dockets. The state
+allocation screen still manages site targets and rotation planning separately from
+these approvals of actual physical bin movements.
 
 ### Private Blocktexx client register import
 
