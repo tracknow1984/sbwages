@@ -144,7 +144,7 @@ def register_binflow(app, db, require):
                 session['binflow_next'] = request.path
                 return redirect(url_for('bf_signin'))
             if not allowed():
-                abort(403, 'Ask an administrator to enable Bin Management / Transport access for your staff login.')
+                abort(403, 'Ask an administrator to enable BINFLOW access for your staff login.')
             return fn(*args, **kwargs)
         return wrapped
 

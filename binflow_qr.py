@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 
 from flask import abort, flash, g, redirect, render_template, request, url_for
 
-from binflow_runs import valid_date
+from binflow_runs import valid_date, check_owner
 
 
 def migrate_qr(conn):
@@ -87,6 +87,12 @@ def register_qr(app,db,access,require,allowed,render,success,failure,now,actor):
     def bf_qr_open(token):
         return public_render('qr_actions',bin_record(token))
 
+    @app.get('/binflow/qr/<token>/staff')
+    @access
+    def bf_qr_staff(token):
+        bin_record(token)
+        return redirect(url_for('bf_qr_open',token=token))
+
     @app.route('/binflow/qr/<token>/collection',methods=['GET','POST'])
     def bf_qr_collection(token):
         b=bin_record(token)
@@ -127,23 +133,25 @@ def register_qr(app,db,access,require,allowed,render,success,failure,now,actor):
     @app.route('/binflow/qr/<token>/driver/<movement>',methods=['GET','POST'])
     @access
     def bf_qr_driver(token,movement):
-        if movement not in ('pickup','delivery'): abort(404)
+        if movement not in ('load','pickup','delivery'): abort(404)
         b=bin_record(token)
         direction='collect' if movement=='pickup' else 'deliver'
+        action='load' if movement=='load' else direction
         selected=request.form.get('job_id',type=int) if request.method=='POST' else request.args.get('job',type=int)
         rows=db().execute('''SELECT i.*,j.code,j.truck_id,j.scheduled_date,j.client_name,j.site_name,j.status AS job_status
             FROM bf_job_bins i JOIN bf_jobs j ON j.id=i.job_id WHERE i.bin_id=? AND i.direction=?
             AND j.scan_mode=1 AND j.approval_status='approved' AND j.status!='cancelled' '''+(' AND j.id=?' if selected else '')+
             ' ORDER BY i.active DESC,j.id DESC LIMIT 1',(b['id'],direction,selected) if selected else (b['id'],direction)).fetchall()
         item=rows[0] if rows else None
+        if item and item['truck_id']: check_owner(db(),item['truck_id'],item['scheduled_date'],g.user)
         if request.method=='POST':
             if not selected or not item or not item['truck_id']:
                 return failure(ValueError('This bin needs a scheduled job and assigned truck before the driver can record it.'),'bf_qr_driver',token=token,movement=movement)
-            return app.extensions['bf_scan'](item['truck_id'],guided_job=item['job_id'],guided_action=direction,
+            return app.extensions['bf_scan'](item['truck_id'],guided_job=item['job_id'],guided_action=action,
                 scanned_code=b['token'],qr_token=token)
-        stamp=item['picked_up_at' if movement=='pickup' else 'delivered_at'] if item else None
+        stamp=item[{'load':'loaded_at','pickup':'picked_up_at','delivery':'delivered_at'}[movement]] if item else None
         recorded=db().execute('SELECT actor FROM bf_events WHERE bin_id=? AND job_id=? AND event=? ORDER BY id DESC LIMIT 1',
-            (b['id'],item['job_id'],'Full bin scanned onto truck at client' if movement=='pickup' else 'Empty bin scanned to client')).fetchone() if item and stamp else None
+            (b['id'],item['job_id'],{'load':'Empty bin scanned onto truck','pickup':'Full bin scanned onto truck at client','delivery':'Empty bin scanned to client'}[movement])).fetchone() if item and stamp else None
         return render('qr_driver',section='driver',driver_mode=True,b=b,item=item,movement=movement,stamp=stamp,recorded_by=recorded['actor'] if recorded else None)
 
     @app.get('/binflow/collection-requests')

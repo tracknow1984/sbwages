@@ -45,11 +45,14 @@ class PublicQrTests(unittest.TestCase):
         if saved:self.post(f'/binflow/pickups/{saved[0]["id"]}/review',{'decision':'approve'})
         return result
 
-    def test_public_three_actions_request_privacy_csrf_and_duplicate_safety(self):
+    def test_public_collection_only_request_privacy_csrf_and_duplicate_safety(self):
         before=self.rows('SELECT * FROM bf_bins');jobs=self.rows('SELECT * FROM bf_jobs')
         page=self.public.get(self.url())
         self.assertEqual(page.status_code,200)
-        for label in (b'NEW COLLECTION',b'DRIVER PICKUP',b'DRIVER DELIVERY'): self.assertIn(label,page.data)
+        self.assertIn(b'NEW COLLECTION',page.data)
+        for label in (b'ALLOCATE TO TRUCK',b'DRIVER PICKUP',b'DRIVER DELIVERY'):
+            self.assertNotIn(label,page.data)
+            self.assertIn(label,self.client.get(self.url()).data)
         for private in (b'Client Alpha',b'QLD warehouse',b'Cancel',b'Add bin',b'Movement &amp; stock history'): self.assertNotIn(private,page.data)
         bad=self.public_post(self.url(suffix='/collection'),{'requester':'Private'},csrf=False)
         self.assertEqual(bad.status_code,400)
@@ -116,6 +119,8 @@ class PublicQrTests(unittest.TestCase):
         self.post('/logout');self.client.get(route)
         self.assertEqual(self.login('employee','qrstaff').status_code,403)
         self.assertEqual(self.post(route,dict(job_id=1)).status_code,403)
+        page=self.client.get(self.url()).data
+        for label in (b'ALLOCATE TO TRUCK',b'DRIVER PICKUP',b'DRIVER DELIVERY'): self.assertNotIn(label,page)
         with sqlite3.connect(self.path) as conn:conn.execute('INSERT INTO bf_access(user_id) VALUES(?)',(uid,))
         self.assertEqual(self.client.get(route).status_code,200)
         self.assertEqual(self.client.get('/binflow/qr/'+self.tokens[1]).status_code,200)
@@ -150,6 +155,48 @@ class PublicQrTests(unittest.TestCase):
         create_app(dict(self.app.config))
         self.assertEqual(self.rows('SELECT id,code,token FROM bf_bins'),before)
         self.assertEqual(self.public.get(self.url()).status_code,200)
+
+
+    def test_individual_qr_load_and_delivery_only_move_the_scanned_bin(self):
+        self.post('/binflow/driver',dict(name='QR loading truck',state='QLD'))
+        self.job(collect=(1,),deliver=(3,4),legacy=False)
+        self.post('/binflow/pickups/2/truck',dict(truck_id=1))
+        loading=self.url(3,'/driver/load')
+        self.assertEqual(self.public.get(loading).status_code,302)
+        self.assertEqual(self.client.post(loading,data={'job_id':2}).status_code,400)
+        response=self.post(loading,dict(job_id=2))
+        self.assertIn(b'Accept this schedule',response.data)
+        self.assertIsNone(self.rows('SELECT truck_id FROM bf_bins WHERE id=3')[0]['truck_id'])
+        prestart(self)
+        response=self.post(loading,dict(job_id=2,code='BF000004'))
+        self.assertIn(b'Truck loading recorded',response.data)
+        self.assertIn(b'Scan next bin',response.data)
+        stamp=self.rows('SELECT loaded_at FROM bf_job_bins WHERE job_id=2 AND bin_id=3')[0]['loaded_at']
+        self.assertIn(stamp[11:19].encode(),response.data)
+        self.assertEqual(self.rows('SELECT location_id,truck_id FROM bf_bins WHERE id=3')[0],dict(location_id=None,truck_id=1))
+        self.assertEqual(self.rows('SELECT location_id,truck_id FROM bf_bins WHERE id=4')[0],dict(location_id=1,truck_id=None))
+        events=self.rows('SELECT * FROM bf_events')
+        self.post(loading,dict(job_id=2))
+        self.assertEqual(self.rows('SELECT * FROM bf_events'),events)
+        self.assertEqual(self.rows('SELECT loaded_at FROM bf_job_bins WHERE job_id=2 AND bin_id=3')[0]['loaded_at'],stamp)
+        self.post(self.url(4,'/driver/load'),dict(job_id=2))
+        depart(self)
+        self.post(self.url(3,'/driver/delivery'),dict(job_id=2))
+        self.assertEqual(self.rows('SELECT location_id,truck_id FROM bf_bins WHERE id=3')[0],dict(location_id=3,truck_id=None))
+        self.assertEqual(self.rows('SELECT location_id,truck_id FROM bf_bins WHERE id=4')[0],dict(location_id=None,truck_id=1))
+        self.post(self.url(4,'/driver/delivery'),dict(job_id=2))
+        self.assertEqual(self.rows('SELECT location_id,truck_id FROM bf_bins WHERE id=4')[0],dict(location_id=3,truck_id=None))
+        self.assertEqual(self.client.get('/binflow/driver/1/day/state?date='+RUN_DATE).json['stage'],'collect')
+        self.assertFalse(self.rows('SELECT * FROM bf_job_bins WHERE bin_id=5'))
+        self.post(self.url(5,'/driver/load'),dict(job_id=2))
+        self.assertIsNone(self.rows('SELECT truck_id FROM bf_bins WHERE id=5')[0]['truck_id'])
+
+    def test_qr_staff_entry_returns_to_hidden_actions_after_signin(self):
+        self.post('/logout')
+        self.assertEqual(self.client.get(self.url(suffix='/staff')).status_code,302)
+        page=self.login()
+        self.assertIn(b'ALLOCATE TO TRUCK',page.data)
+        self.assertIn(b'DRIVER DELIVERY',page.data)
 
 
 if __name__=='__main__':unittest.main()

@@ -12,7 +12,8 @@ from urllib.request import Request, build_opener, HTTPRedirectHandler
 from zoneinfo import ZoneInfo
 
 from cryptography.fernet import Fernet, InvalidToken
-from flask import abort, jsonify, render_template, request
+from flask import abort, g, jsonify, render_template, request
+from binflow_tracking import tracking_snapshot, STATES
 
 HOSTS = ('https://hst-api.wialon.com','https://hst-api.wialon.us','https://hst-api.wialon.eu','https://hst-api.wialon.org')
 FRESH_SECONDS = 300
@@ -140,7 +141,7 @@ def register_gps(app, db, access, require, render, success, failure, now, actor)
             config=db().execute('SELECT * FROM bf_gps_config WHERE id=1').fetchone()
             if not config or time.time()-config['last_poll']<30: return
             epoch=int(time.time())
-            cursor=db().execute('UPDATE bf_gps_config SET last_poll=? WHERE id=1 AND last_poll<?',(epoch,epoch-30))
+            cursor=db().execute('UPDATE bf_gps_config SET last_poll=? WHERE id=1 AND last_poll<=?',(epoch,epoch-30))
             db().commit()
             if not cursor.rowcount: return
             try:
@@ -255,3 +256,12 @@ def register_gps(app, db, access, require, render, success, failure, now, actor)
             t.update(fresh=fresh,places=[r['name'] for r in places],updated=datetime.fromtimestamp(t['position_time'],ZoneInfo('Australia/Brisbane')).strftime('%d %b %H:%M:%S') if t['position_time'] else None)
             trucks.append(t)
         return jsonify(html=render_template('binflow/gps_status.html',config=config,trucks=trucks))
+
+
+    @app.get('/binflow/gps/map')
+    @access
+    def bf_gps_map():
+        state=request.args.get('state','')
+        if state and state not in STATES: abort(400)
+        refresh()
+        return jsonify(tracking_snapshot(db(),state,include_unlinked=g.user['role']=='admin'))

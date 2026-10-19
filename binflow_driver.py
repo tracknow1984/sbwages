@@ -233,7 +233,7 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
                 message = f'{b["code"]} — {label.lower()}.'
             db().commit()
             if qr_token:
-                return success(message,'bf_qr_driver',token=qr_token,movement='pickup' if action=='collect' else 'delivery',job=j['id'])
+                return success(message,'bf_qr_driver',token=qr_token,movement={'load':'load','collect':'pickup','deliver':'delivery'}[action],job=j['id'])
             if guided_job:
                 data=run_data(db(),truck_id,guided_date,g.user['id'],now()[:10])
                 return jsonify(ok=True,message=message,duplicate=duplicate,stage=data['stage'],remaining=data['remaining'],
@@ -245,7 +245,7 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
         except ValueError as error:
             db().rollback()
             if qr_token:
-                return failure(error,'bf_qr_driver',token=qr_token,movement='pickup' if guided_action=='collect' else 'delivery',job=jid)
+                return failure(error,'bf_qr_driver',token=qr_token,movement={'load':'load','collect':'pickup','deliver':'delivery'}.get(guided_action,'delivery'),job=jid)
             if wants_json:
                 return jsonify(ok=False, message=str(error)), 409
             return failure(error, 'bf_truck', truck_id=truck_id, job=jid)

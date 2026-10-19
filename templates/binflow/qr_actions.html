@@ -1,6 +1,9 @@
 {% extends 'binflow/qr_layout.html' %}{% block subtitle %}<p>What would you like to do?</p>{% endblock %}{% block body %}
 <div class="bf-qr-actions">
-<a class="bf-qr-action primary-action" href="{{ url_for('bf_qr_collection',token=b.token) }}"><span class="bf-qr-icon">+</span><span><strong>NEW COLLECTION</strong><small>Request a collection for this bin</small></span><b>→</b></a>
-<a class="bf-qr-action" href="{{ url_for('bf_qr_driver',token=b.token,movement='pickup') }}"><span class="bf-qr-icon">↑</span><span><strong>DRIVER PICKUP</strong><small>{{ 'Record pickup date & time' if staff else 'Staff sign-in required' }}</small></span><b>→</b></a>
-<a class="bf-qr-action" href="{{ url_for('bf_qr_driver',token=b.token,movement='delivery') }}"><span class="bf-qr-icon">↓</span><span><strong>DRIVER DELIVERY</strong><small>{{ 'Record delivery date & time' if staff else 'Staff sign-in required' }}</small></span><b>→</b></a>
-</div><p class="bf-muted">No login is needed to request a collection. Pickup and delivery are recorded by authorised staff.</p>{% endblock %}
+{% if staff %}
+<a class="bf-qr-action primary-action" href="{{ url_for('bf_qr_driver',token=b.token,movement='load') }}"><span class="bf-qr-icon">↑</span><span><strong>ALLOCATE TO TRUCK</strong><small>Scan this empty bin from warehouse to truck</small></span><b>→</b></a>
+<a class="bf-qr-action" href="{{ url_for('bf_qr_driver',token=b.token,movement='delivery') }}"><span class="bf-qr-icon">↓</span><span><strong>DRIVER DELIVERY</strong><small>Scan this empty bin from truck to client</small></span><b>→</b></a>
+<a class="bf-qr-action" href="{{ url_for('bf_qr_driver',token=b.token,movement='pickup') }}"><span class="bf-qr-icon">↑</span><span><strong>DRIVER PICKUP</strong><small>Scan this full bin from client to truck</small></span><b>→</b></a>
+{% endif %}
+<a class="bf-qr-action {{ 'primary-action' if not staff }}" href="{{ url_for('bf_qr_collection',token=b.token) }}"><span class="bf-qr-icon">+</span><span><strong>NEW COLLECTION</strong><small>Request a collection for this bin</small></span><b>→</b></a>
+</div><p class="bf-muted">No login is needed to request a collection.</p>{% if not staff %}<p><a href="{{ url_for('bf_qr_staff',token=b.token) }}">Staff sign-in</a></p>{% else %}<p class="bf-muted">Scan each bin individually. Truck and client movements follow your approved, accepted schedule and daily prestart.</p>{% endif %}{% endblock %}

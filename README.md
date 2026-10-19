@@ -485,9 +485,11 @@ client PDF isolation/session revocation and mocked Wialon protocol/privacy cases
 
 ### Public QR collection requests
 
-Existing permanent `/binflow/qr/<token>` labels open a public three-button menu:
-**New collection**, **Driver pickup** and **Driver delivery**. There are no public
-cancel-collection or add-bin options. New collection accepts the requester's name,
+Existing permanent `/binflow/qr/<token>` labels show **New collection** publicly.
+**Allocate to truck**, **Driver delivery** and **Driver pickup** appear only for
+signed-in staff with BINFLOW access. A generic staff sign-in link returns to this
+bin after authentication. There are no public driver movement, cancel-collection
+or add-bin options. New collection accepts the requester's name,
 phone or email, optional preferred date and notes without a login. It records a
 request for office confirmation; it does not move stock or automatically book a
 run. Requests require CSRF, have a rate limit, and duplicate submissions cannot
@@ -499,7 +501,7 @@ are private. A pickup closes the request; cancelling an unexecuted staff booking
 returns its request to the office queue. Administrators can resolve an unbooked
 request with a recorded reason, without recording a bin movement.
 
-Driver pickup and delivery require an authorised staff login. Each confirmation
+Truck loading, driver pickup and delivery require an authorised staff login. Each confirmation
 uses the existing scheduled truck, daily prestart, stop order and custody checks.
 The route's scanned token identifies the bin. The server records the time and
 staff identity when the movement succeeds, displaying seconds in Australia/Brisbane
@@ -541,3 +543,50 @@ record or custody change. Existing physical runs underway when this feature is
 first deployed continue without fabricated acceptance events. Fresh runs always
 require acceptance, including after app restarts. Weighing changes never alter
 the accepted client/bin schedule.
+
+
+### National fleet map and navigation
+
+The main operations tab is **BINFLOW**. The former **TRANSPORT MODEL** tab is
+removed from navigation; its saved data and administrator URL `/admin/blocktexx`
+remain available.
+
+The National overview includes a Wialon map and accessible vehicle list beneath
+the bin totals. Save/test the existing token under **GPS settings** to populate
+available positions. Administrators can see unlinked Wialon units in the national
+view immediately. Link each BinFlow truck to its GPS unit to assign a state and
+make it visible to transport staff. The selected state means the truck's home
+state, not a geographical guess from its current coordinates.
+
+`/binflow/gps/map` requires transport access, shares the existing 30-second Wialon
+refresh lease, and returns only display fields. It never returns credentials or
+Wialon session IDs. Positions older than five minutes, failed refreshes and lost
+browser connectivity are labelled stale; units whose access/position was removed
+have no displayable coordinates. A failed/expired staff session clears the view.
+GPS does not alter bin custody, schedules, PODs or completion.
+
+Leaflet 1.9.4 is vendored under `static/vendor/leaflet`, with its BSD licence and
+JS/CSS SHA-256 hashes verified against https://leafletjs.com/download.html.
+OpenStreetMap standard tiles are loaded directly by the browser using normal HTTP
+caching, visible attribution and an origin-only image referrer. Only the national
+dashboard CSP permits that tile host; scripts stay self-hosted. No bulk/offline
+tile download is provided. See https://operations.osmfoundation.org/policies/tiles/.
+The map/list continues to show the last known data if background tiles fail.
+
+Checks: BinFlow Python suite, `node tests/test_binflow_map.js`, and the document
+access/isolation test for the shared response-header change. GPS tests use mocked
+Wialon responses and do not connect or modify a production account.
+
+
+### Individual QR loading and delivery
+
+The signed-in QR menu includes **ALLOCATE TO TRUCK**. This records only the scanned
+empty bin moving from its warehouse onto the truck already assigned to its
+approved docket. The driver must first accept the schedule and pass the daily
+prestart. The action never creates an allocation, skips approval or moves other
+bins on the manifest. **DRIVER DELIVERY** similarly records only the scanned bin
+leaving the truck for the current client. Both record staff/time, preserve the
+original timestamp on a repeated scan, and offer **Scan next bin** to return to
+the guided continuous scanner. Public visitors cannot see or execute these actions.
+The new-allocation form remains the office planning step; physical scans happen
+against the approved schedule.

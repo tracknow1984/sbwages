@@ -1,0 +1,18 @@
+'use strict';
+const assert=require('node:assert/strict');
+const {hasPosition,statusFor}=require('../static/binflow-map.js');
+const position={latitude:-27.47,longitude:153.02,position_time:1000,speed:42,fresh:true,status:'moving'};
+assert.equal(hasPosition(position),true);
+assert.equal(statusFor(position,1001),'moving');
+assert.equal(statusFor({...position,speed:0},1001),'stopped');
+assert.equal(statusFor({...position,speed:null},1001),'current');
+assert.equal(statusFor(position,1301),'stale','Clock ageing must mark old positions stale without another successful response');
+assert.equal(statusFor(position,1001,true),'stale','Network failure must not retain a live indicator');
+assert.equal(statusFor({...position,fresh:false},1001),'stale');
+assert.equal(statusFor(position,900),'stale');
+assert.equal(hasPosition({...position,latitude:null}),false,'Missing positions must never become 0,0 markers');
+assert.equal(hasPosition({...position,latitude:NaN}),false);
+assert.equal(hasPosition({...position,longitude:200}),false);
+assert.equal(statusFor({...position,latitude:null,status:'unavailable'},1001),'unavailable');
+assert.equal(statusFor({...position,latitude:null,status:'unlinked'},1001),'unlinked');
+console.log('Map position, stale-time and connection-failure checks passed.');

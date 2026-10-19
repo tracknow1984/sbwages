@@ -136,7 +136,7 @@ class BinFlowTests(unittest.TestCase):
             with self.subTest(route=route):
                 result=self.client.get(route)
                 self.assertEqual(result.status_code,200,result.data[:300])
-        self.assertIn(b'BIN MANAGEMENT / TRANSPORT',self.client.get('/admin/dashboard').data)
+        self.assertIn(b'>BINFLOW</a>',self.client.get('/admin/dashboard').data)
         self.assertEqual(self.client.get('/health').status_code,200)
 
     def test_complete_rotation_preserves_identity_and_weight_history(self):
@@ -289,7 +289,7 @@ class BinFlowTests(unittest.TestCase):
         self.assertEqual(self.client.get('/admin/staff').status_code,403)
         self.assertEqual(self.client.post('/binflow/bins/1',data={'action':'full'}).status_code,400)
         self.assertEqual(self.post('/binflow/bins',{'warehouse_id':1,'size_id':1,'quantity':1,'tare':0}).status_code,403)
-        self.assertIn(b'BIN MANAGEMENT / TRANSPORT',self.client.get('/employee/dashboard').data)
+        self.assertIn(b'>BINFLOW</a>',self.client.get('/employee/dashboard').data)
 
     def test_unique_qr_labels_and_no_public_customer_data(self):
         tokens=[r['token'] for r in self.rows('SELECT token FROM bf_bins ORDER BY id')]
