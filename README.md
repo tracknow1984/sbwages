@@ -341,8 +341,8 @@ scans. An uncertain response can safely be retried for the same movement; the
 server never marks an offline scan as saved.
 
 Administrators have full access. Under module setup, explicitly grant transport
-access to active employees; all operational routes, QR records, evidence, PDFs
-and exports enforce it on the server. Employees cannot change setup/access or
+access to active employees; operational routes, private bin records, evidence, PDFs
+and exports enforce it on the server. The public QR menu only shows bin ID, size and the actions described below. Employees cannot change setup/access or
 register new stock. Staff authentication and payroll permissions otherwise stay
 unchanged. QR scans retain their target through the normal login flow. Client logins use separate accounts and an explicit client allowlist; they have no
 staff, inventory or payroll access. Finer employee-area permissions can be added later.
@@ -425,3 +425,27 @@ Checks: `python -m unittest discover -s tests -p 'test_binflow*.py'` and the
 existing `test_prestart.py` suite. New coverage exercises a complete four-stop day,
 prestart holds/expiry, sequence/driver gates, concurrent scans, immutable weights,
 client PDF isolation/session revocation and mocked Wialon protocol/privacy cases.
+
+### Public QR collection requests
+
+Existing permanent `/binflow/qr/<token>` labels open a public three-button menu:
+**New collection**, **Driver pickup** and **Driver delivery**. There are no public
+cancel-collection or add-bin options. New collection accepts the requester's name,
+phone or email, optional preferred date and notes without a login. It records a
+request for office confirmation; it does not move stock or automatically book a
+run. Requests require CSRF, have a rate limit, and duplicate submissions cannot
+create multiple open requests for the same bin.
+
+Staff use **Collection requests** (`/binflow/collection-requests`) to schedule the
+requested bin on a docket. Names, contact details, site identity and request notes
+are private. A pickup closes the request; cancelling an unexecuted staff booking
+returns its request to the office queue. Administrators can resolve an unbooked
+request with a recorded reason, without recording a bin movement.
+
+Driver pickup and delivery require an authorised staff login. Each confirmation
+uses the existing scheduled truck, daily prestart, stop order and custody checks.
+The route's scanned token identifies the bin. The server records the time and
+staff identity when the movement succeeds, displaying seconds in Australia/Brisbane
+time. Repeated scans keep the original timestamp. Handover, warehouse receipt and
+weighing remain required for POD completion. Public QR access does not expose
+inventory history, GPS, customer contacts or PODs.

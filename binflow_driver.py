@@ -2,6 +2,7 @@
 from urllib.parse import urlparse
 from binflow_runs import guard_movement, check_owner, mark_returned, run_data, valid_date
 import sqlite3
+from binflow_qr import pickup_requests
 
 from flask import abort, g, jsonify, redirect, render_template, request, url_for
 
@@ -138,7 +139,7 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
 
     @app.post('/binflow/driver/<int:truck_id>/scan')
     @access
-    def bf_truck_scan(truck_id, guided_job=None, guided_action=None, guided_date=None):
+    def bf_truck_scan(truck_id, guided_job=None, guided_action=None, guided_date=None, scanned_code=None, qr_token=None):
         jid = guided_job or request.form.get('job_id', type=int)
         wants_json = request.headers.get('Accept') == 'application/json'
         try:
@@ -153,7 +154,7 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
             columns = {'load':'loaded_at', 'deliver':'delivered_at', 'collect':'picked_up_at', 'return':'returned_at'}
             if action not in (*columns, 'unload'):
                 raise ValueError('Choose a scan action.')
-            value = text_field('code', 1000)
+            value = scanned_code or text_field('code', 1000)
             if value.startswith(('https://', 'http://')):
                 value = urlparse(value).path.rstrip('/').split('/')[-1]
             stock = bins('b.code=? COLLATE NOCASE OR b.token=?', (value, value))
@@ -217,10 +218,14 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
                 event(b['id'], label, j['id'], origin, target, from_truck=from_truck, to_truck=to_truck)
                 if action == 'return' and not db().execute("SELECT 1 FROM bf_job_bins WHERE job_id=? AND direction='collect' AND returned_at IS NULL", (j['id'],)).fetchone():
                     db().execute("UPDATE bf_jobs SET status='received',received_at=? WHERE id=?", (now(),j['id']))
+                if action == 'collect':
+                    pickup_requests(db(),j['id'],b['id'],(g.user['first_name']+' '+g.user['last_name']).strip(),now())
                 if action == 'return':
                     mark_returned(db(),truck_id,j['scheduled_date'],now())
                 message = f'{b["code"]} — {label.lower()}.'
             db().commit()
+            if qr_token:
+                return success(message,'bf_qr_driver',token=qr_token,movement='pickup' if action=='collect' else 'delivery',job=j['id'])
             if guided_job:
                 data=run_data(db(),truck_id,guided_date,g.user['id'],now()[:10])
                 return jsonify(ok=True,message=message,duplicate=duplicate,stage=data['stage'],remaining=data['remaining'],
@@ -231,6 +236,8 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
             return success(message, 'bf_truck', truck_id=truck_id, job=j['id'])
         except ValueError as error:
             db().rollback()
+            if qr_token:
+                return failure(error,'bf_qr_driver',token=qr_token,movement='pickup' if guided_action=='collect' else 'delivery',job=jid)
             if wants_json:
                 return jsonify(ok=False, message=str(error)), 409
             return failure(error, 'bf_truck', truck_id=truck_id, job=jid)

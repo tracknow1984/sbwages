@@ -1,0 +1,6 @@
+{% extends 'binflow/qr_layout.html' %}{% block subtitle %}<p>What would you like to do?</p>{% endblock %}{% block body %}
+<div class="bf-qr-actions">
+<a class="bf-qr-action primary-action" href="{{ url_for('bf_qr_collection',token=b.token) }}"><span class="bf-qr-icon">+</span><span><strong>NEW COLLECTION</strong><small>Request a collection for this bin</small></span><b>→</b></a>
+<a class="bf-qr-action" href="{{ url_for('bf_qr_driver',token=b.token,movement='pickup') }}"><span class="bf-qr-icon">↑</span><span><strong>DRIVER PICKUP</strong><small>{{ 'Record pickup date & time' if staff else 'Staff sign-in required' }}</small></span><b>→</b></a>
+<a class="bf-qr-action" href="{{ url_for('bf_qr_driver',token=b.token,movement='delivery') }}"><span class="bf-qr-icon">↓</span><span><strong>DRIVER DELIVERY</strong><small>{{ 'Record delivery date & time' if staff else 'Staff sign-in required' }}</small></span><b>→</b></a>
+</div><p class="bf-muted">No login is needed to request a collection. Pickup and delivery are recorded by authorised staff.</p>{% endblock %}

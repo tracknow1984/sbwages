@@ -19,6 +19,7 @@ from binflow_driver import migrate_driver, register_driver
 from binflow_runs import migrate_runs, register_runs, guard_movement
 from binflow_gps import migrate_gps, register_gps
 from binflow_portal import migrate_portal, register_portal
+from binflow_qr import migrate_qr, register_qr, link_request, reopen_requests, pickup_requests
 from binflow_requirements import migrate_requirements, populate_requirements, site_plan, register_requirements
 from binflow_import import SCHEMA as IMPORT_SCHEMA, IMPORT_ID, import_blocktexx, profiles as source_profiles
 
@@ -100,6 +101,7 @@ def register_binflow(app, db, require):
         migrate_runs(db())
         migrate_gps(db())
         migrate_portal(db())
+        migrate_qr(db())
         for litres in (240, 660, 1100):
             db().execute('INSERT OR IGNORE INTO bf_sizes(name,litres) VALUES(?,?)', (f'{litres} L', litres))
         db().commit()
@@ -342,19 +344,11 @@ def register_binflow(app, db, require):
             return render('scan', section='bins')
         if value.startswith(('https://','http://')):
             value = urlparse(value).path.rstrip('/').split('/')[-1]
-        row = db().execute('SELECT id FROM bf_bins WHERE code=? COLLATE NOCASE OR token=?', (value, value)).fetchone()
+        row = db().execute('SELECT id,token FROM bf_bins WHERE code=? COLLATE NOCASE OR token=?', (value, value)).fetchone()
         if not row:
             flash('Bin not found. Scan its label or enter the BF number.', 'error')
             return render('scan', section='bins'), 404
-        return redirect(url_for('bf_bin', bin_id=row['id']))
-
-    @app.get('/binflow/qr/<token>')
-    @access
-    def bf_qr_open(token):
-        row = db().execute('SELECT id FROM bf_bins WHERE token=?', (token,)).fetchone()
-        if not row:
-            abort(404)
-        return redirect(url_for('bf_bin', bin_id=row['id']))
+        return redirect(url_for('bf_qr_open', token=row['token']))
 
     @app.route('/binflow/bins/<int:bin_id>', methods=['GET','POST'])
     @access
@@ -542,16 +536,26 @@ def register_binflow(app, db, require):
                 for direction,b in selected:
                     db().execute('INSERT INTO bf_job_bins(job_id,bin_id,direction,bin_code,size_name,tare_g) VALUES(?,?,?,?,?,?)', (jid,b['id'],direction,b['code'],b['size_name'],b['tare_g']))
                     event(b['id'], 'Reserved for collection' if direction == 'collect' else 'Reserved for delivery', jid, b['location_id'], notes=f'Due {scheduled.isoformat()}')
+                rid=request.form.get('collection_request',type=int)
+                if rid:
+                    link_request(db(),rid,jid,site['id'],{b['id'] for d,b in selected if d=='collect'},actor(),now())
                 return success('Job saved and bins reserved. Choose a truck to start scanning.', 'bf_job', job_id=jid)
             except (ValueError, sqlite3.IntegrityError) as error:
-                return failure(error if isinstance(error,ValueError) else ValueError('One of these bins was just reserved by another user. Please refresh and select available bins.'), 'bf_new_job', site=request.form.get('site_id',''), warehouse=request.form.get('warehouse_id',''))
+                return failure(error if isinstance(error,ValueError) else ValueError('One of these bins was just reserved by another user. Please refresh and select available bins.'), 'bf_new_job', site=request.form.get('site_id',''), warehouse=request.form.get('warehouse_id',''),collection_request=request.form.get('collection_request',''))
         try:
             plan_date = date.fromisoformat(request.args.get('date') or now()[:10]).isoformat()
         except ValueError:
             abort(400,'Choose a valid run date.')
         sites = db().execute("SELECT l.*,c.name AS client_name FROM bf_locations l JOIN bf_clients c ON c.id=l.client_id WHERE l.kind='client' ORDER BY c.name,l.name").fetchall()
         warehouses = db().execute("SELECT * FROM bf_locations WHERE kind='warehouse' ORDER BY state,name").fetchall()
+        requested_id=request.args.get('collection_request',type=int)
+        collection_request=db().execute("SELECT * FROM bf_collection_requests WHERE id=? AND status='new'",(requested_id,)).fetchone() if requested_id else None
+        if requested_id and not collection_request:
+            flash('That request has already been handled. Open its docket from Collection requests.','error')
+            return redirect(url_for('bf_collection_requests'))
         site_id, warehouse_id = request.args.get('site', type=int), request.args.get('warehouse', type=int)
+        if collection_request:
+            site_id=collection_request['site_id']
         site = next((s for s in sites if s['id'] == site_id), None)
         warehouse = next((w for w in warehouses if w['id'] == warehouse_id), None)
         if site and not warehouse:
@@ -566,7 +570,9 @@ def register_binflow(app, db, require):
                 matching = sorted((b for b in available if b['size_id']==plan['size_id']),key=lambda b:(b['status']!='full',b['id']))
                 quantity = plan['collect'] if direction=='collect' else plan['selected']
                 defaults[direction].update(b['id'] for b in matching[:quantity])
-        return render('new_job', section='pickups', sites=sites, warehouses=warehouses, site=site, warehouse=warehouse, collect=collect, deliver=deliver, drivers=drivers, request_key=secrets.token_urlsafe(24), profile=profile, loading=loading, defaults=defaults, plan_date=plan_date,
+        if collection_request and any(b['id']==collection_request['bin_id'] for b in collect):
+            defaults['collect'].add(collection_request['bin_id'])
+        return render('new_job', section='pickups',collection_request=collection_request, sites=sites, warehouses=warehouses, site=site, warehouse=warehouse, collect=collect, deliver=deliver, drivers=drivers, request_key=secrets.token_urlsafe(24), profile=profile, loading=loading, defaults=defaults, plan_date=plan_date,
                       source_profiles=source_profiles(db(), site['id']) if site else [])
 
     @app.get('/binflow/pickups/<int:job_id>')
@@ -605,6 +611,7 @@ def register_binflow(app, db, require):
                 reason = text_field('reason', 500)
                 db().execute("UPDATE bf_jobs SET status='cancelled' WHERE id=?", (job_id,))
                 db().execute('UPDATE bf_job_bins SET active=0 WHERE job_id=?', (job_id,))
+                reopen_requests(db(),job_id,actor(),now())
                 for item in rows:
                     event(item['bin_id'], 'Job cancelled; reservation released', job_id, notes=reason)
                 return success('Job cancelled. Bins are available again.', 'bf_job', job_id=job_id)
@@ -653,6 +660,7 @@ def register_binflow(app, db, require):
                             if b['status'] not in ('at_client','full') or b['location_id'] != j['site_id']:
                                 raise ValueError('A collection bin is no longer at this client site.')
                             db().execute("UPDATE bf_bins SET location_id=NULL,status='transit' WHERE id=?", (b['id'],))
+                            pickup_requests(db(),job_id,b['id'],actor(),now())
                             event(b['id'], 'Full bin collected; returning to warehouse', job_id, j['site_id'], notes=f'Destination: {j["warehouse_name"]}')
                 has_collections = any(i['direction'] == 'collect' for i in rows)
                 db().execute('UPDATE bf_jobs SET status=?,collected_at=?,collected_by=?,receiver_name=?,confirmation=?,confirmation_note=?,signature=?,photo=?,completed_at=? WHERE id=?',
@@ -818,3 +826,5 @@ def register_binflow(app, db, require):
 
     register_gps(app, db, access, require, render, success, failure, now, actor)
     register_portal(app, db, access, require, render, success, failure, now, actor, bf_pod_pdf.__wrapped__)
+
+    register_qr(app, db, access, require, allowed, render, success, failure, now, actor)

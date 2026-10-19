@@ -263,7 +263,8 @@ class BinFlowTests(unittest.TestCase):
         self.post('/logout')
         token=self.rows('SELECT token FROM bf_bins WHERE id=1')[0]['token']
         result=self.client.get('/binflow/qr/'+token)
-        self.assertEqual(result.status_code,302)
+        self.assertEqual(result.status_code,200)
+        self.client.get('/binflow/qr/'+token+'/driver/pickup')
         result=self.login('employee','driver')
         self.assertEqual(result.status_code,403)
         for path in ('/binflow/bins','/binflow/pickups/1','/binflow/export.csv','/binflow/bins/1/qr.png'):
@@ -272,10 +273,10 @@ class BinFlowTests(unittest.TestCase):
         uid=self.rows("SELECT id FROM users WHERE username='driver'")[0]['id']
         self.post('/binflow/setup',{'action':'access','users':[uid]})
         self.post('/logout')
-        self.client.get('/binflow/qr/'+token)
+        self.client.get('/binflow/qr/'+token+'/driver/pickup')
         result=self.login('employee','driver')
         self.assertEqual(result.status_code,200)
-        self.assertEqual(result.request.path,'/binflow/bins/1')
+        self.assertEqual(result.request.path,'/binflow/qr/'+token+'/driver/pickup')
         self.assertEqual(self.client.get('/binflow/setup').status_code,403)
         self.assertEqual(self.client.get('/binflow/locations/1/edit').status_code,403)
         self.assertEqual(self.client.get('/binflow/bins/1/edit').status_code,403)
@@ -292,8 +293,8 @@ class BinFlowTests(unittest.TestCase):
         image=self.client.get('/binflow/bins/1/qr.png')
         self.assertEqual(image.status_code,200)
         self.assertTrue(image.data.startswith(b'\x89PNG'))
-        self.assertEqual(self.client.get('/binflow/scan?code=BF000001').location,'/binflow/bins/1')
-        self.assertEqual(self.client.get('/binflow/scan?code=https://example.com/binflow/qr/'+tokens[0]).location,'/binflow/bins/1')
+        self.assertEqual(self.client.get('/binflow/scan?code=BF000001').location,'/binflow/qr/'+tokens[0])
+        self.assertEqual(self.client.get('/binflow/scan?code=https://example.com/binflow/qr/'+tokens[0]).location,'/binflow/qr/'+tokens[0])
         self.assertEqual(self.client.get('/binflow/labels?bin=nope').status_code,400)
         self.post('/logout')
         for path in ('/binflow/bins/1','/binflow/bins/1/qr.png','/binflow/qr/'+tokens[0]):
