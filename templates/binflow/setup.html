@@ -20,7 +20,7 @@
           <td data-label="Client">{{ l.client_name or '—' }}</td>
           <td data-label="State">{{ l.state }}</td>
           <td data-label="Address">{{ l.address }}</td>
-          <td data-label="Actions"><div class="bf-actions"><a class="button secondary" href="{{ url_for('bf_edit_location',location_id=l.id) }}" aria-label="Edit {{ l.name }}">Edit</a>{% if l.kind=='client' %}<a class="button secondary" href="{{ url_for('bf_requirements',location_id=l.id) }}">Bin requirements</a><a href="{{ url_for('bf_new_job',site=l.id) }}">Allocate bins →</a>{% endif %}</div></td>
+          <td data-label="Actions"><div class="bf-actions"><a class="button secondary" href="{{ url_for('bf_edit_location',location_id=l.id) }}" aria-label="Edit {{ l.name }}">Edit</a>{% if l.kind=='client' %}<a class="button secondary" href="{{ url_for('bf_requirements',location_id=l.id) }}">Bin requirements</a><a href="{{ url_for('bf_collection_profile',location_id=l.id) }}">Collection frequency</a><a href="{{ url_for('bf_new_job',site=l.id) }}">Allocate bins →</a>{% endif %}</div></td>
         </tr>
         {% else %}<tr><td colspan="6">Add your first warehouse and client site above.</td></tr>{% endfor %}
       </tbody>

@@ -1,0 +1,18 @@
+{% extends 'binflow/layout.html' %}
+{% block title %}Collection frequency{% endblock %}
+{% block subtitle %}{{ location.client_name }} · {{ location.name }} · {{ location.state }}{% endblock %}
+{% block body %}
+<div class="bf-toolbar"><a href="{{ url_for('bf_collection_calendar',state=location.state) }}">← {{ location.state }} collection calendar</a><a href="{{ url_for('bf_requirements',location_id=location.id) }}">Edit bin requirements →</a></div>
+{% if error %}<p class="notice error" role="alert">{{ error }}</p>{% endif %}
+{% if values.source_frequency %}<section class="bf-panel bf-pad"><h2>Imported collection reference</h2><p><strong>{{ values.source_frequency }}</strong> · Saved model revision {{ values.source_revision }}</p>{% if values.review_note %}<p class="bf-note">{{ values.review_note }}</p>{% endif %}<p class="bf-muted">Weekdays can come from the source or its saved route plan. Numbered route weeks need a first calendar date before they are confirmed.</p></section>{% endif %}
+<form method="post" class="bf-panel bf-pad bf-form">
+<input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ values.version }}">
+<div class="bf-grid three"><label>Collection frequency<select name="cadence" required>{% for key,label in cadences.items() %}<option value="{{ key }}" {{ 'selected' if values.cadence==key }}>{{ label }}</option>{% endfor %}</select></label><label>First cycle / collection date<input type="date" name="start_date" value="{{ values.start_date }}" min="2000-01-01" max="2100-12-31"><small>For weekly cycles, choose a date in the first active week. Visits start on or after this date. For monthly collections, this sets the day of the month.</small></label><label>End date (optional)<input type="date" name="end_date" value="{{ values.end_date }}" min="2000-01-01" max="2100-12-31"></label></div>
+<fieldset><legend>Collection weekdays</legend><div class="bf-chips">{% for day in days %}<label class="bf-inline"><input type="checkbox" name="days" value="{{ loop.index0 }}" {{ 'checked' if loop.index0 in selected_days }}>{{ day }}</label>{% endfor %}</div><p class="bf-muted">Select multiple days for multiple visits each active week. Every 4 weeks is a 28-day cycle; calendar monthly follows the date and uses month-end for shorter months. Monthly and ad hoc profiles ignore weekday selections.</p></fieldset>
+<label>Default warehouse in {{ location.state }}<select name="warehouse_id"><option value="">Choose when allocating</option>{% for w in warehouses %}<option value="{{ w.id }}" {{ 'selected' if values.warehouse_id==w.id }}>{{ w.name }}</option>{% endfor %}</select></label>
+<label>Collection instructions<textarea name="notes" maxlength="1000" rows="3">{{ values.notes }}</textarea></label>
+<label class="bf-check"><input type="checkbox" name="confirmed" value="yes" {{ 'checked' if values.confirmed }}><span>I have confirmed this collection frequency and its calendar dates.</span></label>
+<p class="bf-note">Saving updates proposed visits. Existing allocations, approvals and driver jobs retain their saved dates and bin manifests.</p><button class="primary">Save collection profile</button>
+</form>
+{% if history %}<details class="bf-panel bf-pad"><summary>Profile history</summary><div class="bf-table-wrap"><table><thead><tr><th>Version</th><th>Saved by</th><th>Date & time</th></tr></thead><tbody>{% for h in history %}<tr><td>{{ h.version }}</td><td>{{ h.actor }}</td><td>{{ h.created_at|bfstamp }}</td></tr>{% endfor %}</tbody></table></div></details>{% endif %}
+{% endblock %}

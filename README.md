@@ -358,6 +358,38 @@ created locally (`reportlab`). Run the workflow regression checks with:
 python -m unittest discover -s tests -p 'test_binflow*.py' -v
 ```
 
+### State collection profiles and calendar
+
+**Collection calendar** (`/binflow/collection-calendar`) shows dated week/month
+views, state tabs, proposed visits, linked allocations and operational job status.
+The profile register includes each client location's frequency, weekdays, first
+cycle date, same-state warehouse and current bin targets. Administrators can edit
+frequency profiles from the calendar, state allocations, setup or bin requirements.
+The existing **Daily schedule** also filters by state, including its live updates.
+
+On first deployment, existing `bf_location_sources` identities are profiled from
+the current saved Blocktexx model (falling back to their imported snapshot when
+absent). Source frequency/revision and a full profile history are retained. Later
+restarts preserve user edits. No customer records are committed to source code.
+Weekly, fortnightly, 4-week and 8-week intervals remain distinct; multiple fixed
+weekdays are supported. Calendar-month recurrence uses the first collection day,
+clamped to month-end in shorter months. Ad hoc, paused and unconfirmed frequencies
+never become automatic recurring visits. Decommissioning partners are identified
+and flagged for review of movement purpose.
+
+Consistent saved route slots supply proposed weekdays and cycle phase. Source
+weekdays take precedence over conflicting routes. The numbered four-week planner
+has no real start date, so imported profiles use the deployment week's Monday as
+a proposed cycle anchor, with any supported route-week offset. All imported
+profiles require confirmation; missing/mismatched days stay in **Dates to set**.
+Edit the first cycle date before relying on a recurring calendar for dispatch.
+Calendar entries create no bins, reservations, jobs or client promises. Clicking
+**Allocate bins** preselects the site, date and warehouse in the existing approval
+workflow. A collection allocation on that date replaces the proposed card; a
+delivery-only docket does not satisfy a collection. Disapproval/cancellation makes
+the proposed visit available again. Editing a frequency never rewrites a saved job.
+Profile writes require administrator access, CSRF and the latest profile version.
+
 ### Allocation approvals
 
 **New allocation** creates a pending proposal with an exact bin manifest. Its

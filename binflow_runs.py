@@ -284,7 +284,7 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
         except ValueError as error:
             return jsonify(error=str(error)),400
 
-    def calendar_data(run_date):
+    def calendar_data(run_date,state=''):
         jobs=db().execute('''SELECT j.*,t.name AS truck_name,u.first_name||' '||u.last_name AS driver_name,
             r.departed_at,r.returned_at,
             (SELECT COUNT(*) FROM bf_job_bins i WHERE i.job_id=j.id AND i.direction='collect' AND i.weighed_at IS NULL) AS unweighed,
@@ -292,7 +292,9 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
             FROM bf_jobs j LEFT JOIN bf_trucks t ON t.id=j.truck_id
             LEFT JOIN bf_runs r ON r.truck_id=j.truck_id AND r.run_date=j.scheduled_date
             LEFT JOIN users u ON u.id=COALESCE(r.driver_id,j.driver_id)
-            WHERE j.scheduled_date=? AND j.approval_status='approved' AND j.status!='cancelled' ORDER BY t.state,t.name,j.run_order,j.id''',(run_date,)).fetchall()
+            WHERE j.scheduled_date=? AND j.approval_status='approved' AND j.status!='cancelled' '''+
+            ('AND j.state=? ' if state else '')+'ORDER BY t.state,t.name,j.run_order,j.id',
+            (run_date,state) if state else (run_date,)).fetchall()
         groups={}
         for row in jobs:
             j=dict(row)
@@ -306,26 +308,31 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
             groups.setdefault(j['truck_id'],dict(truck_id=j['truck_id'],name=j['truck_name'] or 'Truck unassigned',driver=j['driver_name'],jobs=[]))['jobs'].append(j)
         holds=db().execute('''SELECT i.*,t.name,p.employee_name,p.checks_json,p.notes FROM bf_run_inspections i
             JOIN bf_trucks t ON t.id=i.truck_id JOIN prestarts p ON p.id=i.prestart_id
-            WHERE i.passed=0 AND i.resolved_at IS NULL ORDER BY i.id DESC''').fetchall()
+            WHERE i.passed=0 AND i.resolved_at IS NULL '''+('AND t.state=? ' if state else '')+
+            'ORDER BY i.id DESC',(state,) if state else ()).fetchall()
         return dict(groups=list(groups.values()),holds=[dict(h,checks=json.loads(h['checks_json'])) for h in holds])
 
     @app.get('/binflow/calendar')
     @access
     def bf_calendar():
+        state=request.args.get('state','')
+        if state not in ('','QLD','NSW','VIC','SA','WA','TAS','ACT','NT'): abort(400)
         try: run_date=valid_date(request.args.get('date',today()))
         except ValueError as error: abort(400,str(error))
         day=date.fromisoformat(run_date)
         week=[(day+timedelta(days=n)).isoformat() for n in range(-3,4)]
         employees=db().execute("SELECT id,first_name,last_name FROM users WHERE status='active' AND (role='admin' OR id IN (SELECT user_id FROM bf_access)) ORDER BY first_name,last_name").fetchall()
-        return render('calendar',section='calendar',run_date=run_date,week=week,employees=employees,**calendar_data(run_date))
+        return render('calendar',section='calendar',run_date=run_date,week=week,employees=employees,selected_state=state,**calendar_data(run_date,state))
 
     @app.get('/binflow/calendar/state')
     @access
     def bf_calendar_state():
         from flask import render_template
+        state=request.args.get('state','')
+        if state not in ('','QLD','NSW','VIC','SA','WA','TAS','ACT','NT'): abort(400)
         try: run_date=valid_date(request.args.get('date',today()))
         except ValueError as error: abort(400,str(error))
-        return jsonify(html=render_template('binflow/calendar_cards.html',run_date=run_date,**calendar_data(run_date)))
+        return jsonify(html=render_template('binflow/calendar_cards.html',run_date=run_date,**calendar_data(run_date,state)))
 
     @app.post('/binflow/driver/<int:truck_id>/schedule')
     @require('admin')

@@ -22,6 +22,7 @@ from binflow_portal import migrate_portal, register_portal
 from binflow_qr import migrate_qr, register_qr, link_request, reopen_requests, pickup_requests
 from binflow_tares import STANDARD_TARES, apply_standard_tares
 from binflow_approvals import migrate_approvals, register_approvals, ensure_approved, allocation_history
+from binflow_collections import migrate_collections, populate_collection_profiles, register_collections
 from binflow_requirements import migrate_requirements, populate_requirements, site_plan, register_requirements
 from binflow_import import SCHEMA as IMPORT_SCHEMA, IMPORT_ID, import_blocktexx, profiles as source_profiles
 
@@ -105,6 +106,7 @@ def register_binflow(app, db, require):
         migrate_portal(db())
         migrate_qr(db())
         migrate_approvals(db())
+        migrate_collections(db())
         for litres, tare in STANDARD_TARES.items():
             db().execute('INSERT OR IGNORE INTO bf_sizes(name,litres,default_tare_g) VALUES(?,?,?)', (f'{litres} L', litres, tare))
         db().commit()
@@ -120,6 +122,12 @@ def register_binflow(app, db, require):
             plan_summary, changed = populate_requirements(db(), now())
             if plan_summary:
                 app.logger.warning('BinFlow national bin allocation profiles %s: %s', 'populated' if changed else 'already populated', json.dumps(plan_summary, sort_keys=True))
+        collection_summary=populate_collection_profiles(db(),now())
+        if collection_summary:
+            frequency_counts=[dict(r) for r in db().execute('''SELECT l.state,p.cadence,COUNT(*) AS sites,
+                SUM(CASE WHEN p.start_date!='' AND (p.cadence='monthly' OR (p.cadence IN ('weekly','fortnightly','four_weekly','eight_weekly') AND p.service_days!='[]')) THEN 1 ELSE 0 END) AS dated
+                FROM bf_collection_profiles p JOIN bf_locations l ON l.id=p.location_id GROUP BY l.state,p.cadence''')]
+            app.logger.warning('BinFlow collection profiles imported: %s; calendar coverage: %s',json.dumps(collection_summary),json.dumps(frequency_counts))
     app.jinja_env.filters['bfkg'] = kg
 
     def allowed():
@@ -841,3 +849,4 @@ def register_binflow(app, db, require):
 
     register_qr(app, db, access, require, allowed, render, success, failure, now, actor)
     register_approvals(app,db,access,require,allowed,render,job,items,bins,event,success,failure,now,actor,reopen_requests)
+    register_collections(app,db,access,require,render,success,now,actor)
