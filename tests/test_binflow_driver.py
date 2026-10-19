@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from app import create_app
 import test_binflow as legacy
-from binflow_helpers import prestart, depart
+from binflow_helpers import prestart, depart, accept
 
 
 class DriverScanTests(unittest.TestCase):
@@ -119,6 +119,7 @@ class DriverScanTests(unittest.TestCase):
         self.prepare(collect=(1,),deliver=(3,))
         self.job(deliver=(4,),site=4,legacy=False)
         self.post('/binflow/pickups/3/truck',{'truck_id':1})
+        accept(self)
         self.post('/binflow/driver',{'name':'QLD Truck 02','state':'QLD'})
         self.scan('load',3)
         self.scan('load',4,jid=3)

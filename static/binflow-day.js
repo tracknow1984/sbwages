@@ -21,7 +21,7 @@
           document.querySelector('[data-calendar-updated]').textContent='Updated '+new Date().toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit'});
         }
       }
-      if (day && ['hold','weighing','done','planned','empty'].includes(day.dataset.runStage)) {
+      if (day && ['acceptance','assigned','hold','weighing','done','planned','empty'].includes(day.dataset.runStage)) {
         const response=await fetch(day.dataset.runState,{headers:{Accept:'application/json'}});
         if(response.ok && response.headers.get('content-type')?.includes('application/json')) {
           const data=await response.json();

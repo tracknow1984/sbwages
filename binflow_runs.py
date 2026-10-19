@@ -11,6 +11,7 @@ from prestart_config import VEHICLE_CHECKS, DECLARATION
 from prestart_media import signature_png
 from binflow_requirements import load_plan
 from binflow_approvals import ensure_approved
+from binflow_acceptance import acceptance_ok, manifest, schedule_changed
 
 CHECKS = VEHICLE_CHECKS + [('lift', 'Tail lift / bin lifter and controls (if fitted)', True)]
 
@@ -55,7 +56,9 @@ def run_data(conn, truck_id, run_date, driver_id, today):
         abort(404)
     jobs = run_jobs(conn, truck_id, run_date)
     run = conn.execute('SELECT * FROM bf_runs WHERE truck_id=? AND run_date=?', (truck_id, run_date)).fetchone()
-    run = dict(run) if run else dict(truck_id=truck_id, run_date=run_date, driver_id=None, departed_at=None, returned_at=None)
+    run = dict(run) if run else dict(truck_id=truck_id, run_date=run_date, driver_id=None, departed_at=None, returned_at=None,
+        acceptance_required=1,accepted_at=None,accepted_by=None,accepted_name='',accepted_manifest='')
+    accepted=acceptance_ok(conn,run,truck_id,run_date)
     rows = conn.execute('''SELECT i.*,j.client_name,j.site_name,j.warehouse_name,j.warehouse_id,j.site_id
         FROM bf_job_bins i JOIN bf_jobs j ON j.id=i.job_id
         WHERE j.truck_id=? AND j.scheduled_date=? AND j.approval_status='approved' AND j.status!='cancelled'
@@ -73,10 +76,14 @@ def run_data(conn, truck_id, run_date, driver_id, today):
     action, scan_rows = None, []
     if not jobs:
         stage = 'empty'
-    elif run_date > today:
-        stage = 'planned'
     elif run['returned_at']:
         stage = 'done' if all(j['status']=='complete' for j in jobs) else 'weighing'
+    elif not accepted:
+        stage = 'acceptance'
+    elif run['accepted_by'] and run['accepted_by']!=driver_id:
+        stage = 'assigned'
+    elif run_date > today:
+        stage = 'planned'
     elif hold:
         stage = 'hold'
     elif not passed:
@@ -97,7 +104,7 @@ def run_data(conn, truck_id, run_date, driver_id, today):
     return dict(truck=truck,run=run,jobs=jobs,rows=rows,current=current,current_rows=current_rows,
                 hold=hold,passed=passed,stage=stage,action=action,scan_rows=scan_rows,
                 remaining=len(scan_rows),stop_number=next((n for n,j in enumerate(jobs,1) if current and j['id']==current['id']),0),
-                completed_stops=sum(bool(j['collected_at']) for j in jobs))
+                completed_stops=sum(bool(j['collected_at']) for j in jobs),acceptance_ok=accepted)
 
 
 def check_owner(conn, truck_id, run_date, user):
@@ -113,11 +120,13 @@ def guard_movement(conn, j, action, user, today):
     ensure_approved(j)
     check_owner(conn,j['truck_id'],j['scheduled_date'],user)
     data = run_data(conn,j['truck_id'],j['scheduled_date'],user['id'],today)
-    if action=='unload' and data['passed'] and not data['hold'] and not data['run']['departed_at']:
+    if action=='unload' and data['acceptance_ok'] and (not data['run']['accepted_by'] or data['run']['accepted_by']==user['id']) and data['passed'] and not data['hold'] and not data['run']['departed_at']:
         return
     expected = 'handover' if action=='exchange' else action
     if data['stage'] != expected:
-        labels = {'prestart':'Complete today’s vehicle prestart first.', 'hold':'This truck is on hold. Contact the office.',
+        labels = {'acceptance':'Accept this schedule, then complete today’s prestart before scanning.',
+                  'assigned':'This schedule was accepted by another driver.',
+                  'prestart':'Complete today’s vehicle prestart first.', 'hold':'This truck is on hold. Contact the office.',
                   'load':'Load all scheduled empties before leaving the warehouse.', 'ready':'Tap Start first stop before client scans.',
                   'deliver':'Finish dropping the empty bins at the current client.', 'collect':'Finish picking up the full bins at the current client.',
                   'handover':'Finish the current client handover first.', 'return':'Return and scan the full bins into the warehouse.',
@@ -156,8 +165,13 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
             session_key = secrets.token_urlsafe(24)
         else:
             session_key = ''
+        assigned={j['driver_id'] for j in data['jobs'] if j['driver_id']}
+        if data['run']['driver_id']: assigned.add(data['run']['driver_id'])
+        can_accept=not assigned or assigned=={g.user['id']}
         return render('run',section='driver',driver_mode=True,run_date=run_date,today=today(),checks=CHECKS,declaration=DECLARATION,
-                      submission_token=session_key,loading=load_plan(db(),truck_id,run_date),**data)
+                      submission_token=session_key,loading=load_plan(db(),truck_id,run_date),can_accept=can_accept,
+                      manifest_version=manifest(db(),truck_id,run_date)[2],
+                      acceptance_history=db().execute('SELECT * FROM bf_run_acceptance_history WHERE truck_id=? AND run_date=? ORDER BY id',(truck_id,run_date)).fetchall(),**data)
 
     @app.post('/binflow/driver/<int:truck_id>/prestart')
     @access
@@ -268,6 +282,8 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
                 AND j.truck_id=? AND j.scheduled_date=? AND j.status!='cancelled'
                 AND i.direction=? ORDER BY i.active DESC,j.id DESC LIMIT 1''',
                 (value,value,truck_id,run_date,'deliver' if data['action'] in ('load','deliver') else 'collect')).fetchone()
+            if data['stage']=='acceptance':
+                raise ValueError('Accept this schedule before scanning bins.')
             if not row or not data['action']:
                 raise ValueError('This bin is not expected for the current step. Check the bin ID and the list below.')
             # Use the same transactional scan implementation as the detailed manifest.
@@ -286,7 +302,7 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
 
     def calendar_data(run_date,state=''):
         jobs=db().execute('''SELECT j.*,t.name AS truck_name,u.first_name||' '||u.last_name AS driver_name,
-            r.departed_at,r.returned_at,
+            r.departed_at,r.returned_at,r.accepted_at,r.accepted_name,r.acceptance_required,
             (SELECT COUNT(*) FROM bf_job_bins i WHERE i.job_id=j.id AND i.direction='collect' AND i.weighed_at IS NULL) AS unweighed,
             (SELECT COUNT(*) FROM bf_job_bins i WHERE i.job_id=j.id AND (i.loaded_at IS NOT NULL OR i.picked_up_at IS NOT NULL)) AS moved
             FROM bf_jobs j LEFT JOIN bf_trucks t ON t.id=j.truck_id
@@ -305,7 +321,8 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
             else:
                 active=(j['departed_at'] and not any(k['status']=='scheduled' for k in groups.get(j['truck_id'],{}).get('jobs',[]))) or j['moved']
                 j.update(colour='blue' if active else 'queued',phase='In progress' if active else 'Scheduled',detail='')
-            groups.setdefault(j['truck_id'],dict(truck_id=j['truck_id'],name=j['truck_name'] or 'Truck unassigned',driver=j['driver_name'],jobs=[]))['jobs'].append(j)
+            groups.setdefault(j['truck_id'],dict(truck_id=j['truck_id'],name=j['truck_name'] or 'Truck unassigned',driver=j['driver_name'],
+                accepted_at=j['accepted_at'],accepted_name=j['accepted_name'],acceptance_required=j['acceptance_required'],jobs=[]))['jobs'].append(j)
         holds=db().execute('''SELECT i.*,t.name,p.employee_name,p.checks_json,p.notes FROM bf_run_inspections i
             JOIN bf_trucks t ON t.id=i.truck_id JOIN prestarts p ON p.id=i.prestart_id
             WHERE i.passed=0 AND i.resolved_at IS NULL '''+('AND t.state=? ' if state else '')+
@@ -351,6 +368,7 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
             if not db().execute("SELECT 1 FROM users WHERE id=? AND status='active' AND (role='admin' OR id IN (SELECT user_id FROM bf_access))",(uid,)).fetchone():
                 raise ValueError('Choose a staff member with transport access.')
             orders=[]
+            before=manifest(db(),truck_id,run_date)[2]
             for j in jobs:
                 order=int(request.form.get('order_'+str(j['id']),'0'))
                 clock=request.form.get('time_'+str(j['id']),'')
@@ -359,6 +377,8 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
                 orders.append(order)
                 db().execute('UPDATE bf_jobs SET run_order=?,scheduled_time=?,driver_id=? WHERE id=?',(order,clock,uid,j['id']))
             if len(set(orders))!=len(jobs): raise ValueError('Each client needs a different stop number.')
+            if before!=manifest(db(),truck_id,run_date)[2]:
+                schedule_changed(db(),truck_id,run_date,g.user['id'],actor(),now(),'Office updated driver or stop order.')
             db().execute('INSERT INTO bf_runs(truck_id,run_date,driver_id) VALUES(?,?,?) ON CONFLICT(truck_id,run_date) DO UPDATE SET driver_id=excluded.driver_id',(truck_id,run_date,uid))
             return success('Driver and stop order saved.','bf_calendar',date=run_date)
         except (ValueError,TypeError) as error:

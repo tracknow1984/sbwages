@@ -304,7 +304,8 @@ bin-custody module; the existing Transport Model remains a separate planning too
    an administrator reviews the client, date and manifest in **Allocation approvals**
    before it becomes available for truck assignment. A delivery-only job makes
    the initial client allocation; a collection-only job is also supported.
-4. In **Driver day**, add each truck and assign planned jobs. **Daily schedule**
+4. In **Driver day**, add each truck and assign approved jobs. Drivers choose their
+   state and day, then accept the schedule before their prestart and loading. **Daily schedule**
    sets the driver, stop order and optional local arrival times before loading.
    The guided phone screen requires today's signed vehicle prestart, shows the
    full day's empty load by client and size, and scans every empty onto the truck.
@@ -515,3 +516,28 @@ PODs, and cancelled docket snapshots remain unchanged. Restarting does not
 overwrite later measured tare adjustments. New registrations prefill the size
 default and use it server-side when no tare is supplied; measured overrides
 remain available.
+
+
+### Driver schedule acceptance
+
+Open **Driver schedules** (`/binflow/driver`), choose a state, then a day.
+Only approved jobs assigned to a truck are available to accept. Each truck card
+lists the ordered client stops, receiving/loading warehouse and allocated empty
+bins by size. Recurring collection-calendar proposals remain office planning
+entries until real bins are allocated, approved and assigned to a truck.
+
+**Accept schedule** claims the truck/day for the signed-in transport user and
+records their identity, timestamp and an immutable manifest snapshot. The driver
+then passes the daily prestart and scans each allocated empty warehouse → truck.
+Future schedules can be accepted ahead of time; their prestart and scans open on
+the day. Another driver cannot claim or operate an accepted schedule, and one
+driver cannot accept two unfinished trucks for the same date.
+
+An office driver/order/truck change or job cancellation before loading clears
+acceptance and records why. The driver must review and accept again. Once loading
+has started, unload unused empties before changing the schedule; departed/client
+movements must finish their run. Retrying an acceptance creates no duplicate
+record or custody change. Existing physical runs underway when this feature is
+first deployed continue without fabricated acceptance events. Fresh runs always
+require acceptance, including after app restarts. Weighing changes never alter
+the accepted client/bin schedule.

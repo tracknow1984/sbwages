@@ -4,6 +4,7 @@ from binflow_runs import guard_movement, check_owner, mark_returned, run_data, v
 import sqlite3
 from binflow_qr import pickup_requests
 from binflow_approvals import ensure_approved
+from binflow_acceptance import schedule_cards, ensure_run_unstarted, schedule_changed
 
 from flask import abort, g, jsonify, redirect, render_template, request, url_for
 
@@ -81,22 +82,22 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
             run_date=valid_date(request.args.get('date',now()[:10]))
         except ValueError as error:
             abort(400,str(error))
-        trucks = db().execute('''SELECT t.*,
-            (SELECT COUNT(*) FROM bf_bins b WHERE b.truck_id=t.id AND b.truck_load='empty') AS empties,
-            (SELECT COUNT(*) FROM bf_bins b WHERE b.truck_id=t.id AND b.truck_load='full') AS full
-            FROM bf_trucks t ORDER BY state,name''').fetchall()
+        state=request.args.get('state','')
+        if state not in ('',)+tuple(states): abort(400)
         jobs = db().execute("SELECT * FROM bf_jobs WHERE approval_status='approved' AND status='scheduled' AND truck_id IS NULL ORDER BY scheduled_date,id").fetchall()
-        summaries={r['truck_id']:r['n'] for r in db().execute("SELECT truck_id,COUNT(*) AS n FROM bf_jobs WHERE scheduled_date=? AND status!='cancelled' GROUP BY truck_id",(run_date,))}
-        previous=db().execute("""SELECT DISTINCT j.truck_id,j.scheduled_date,t.name FROM bf_jobs j JOIN bf_trucks t ON t.id=j.truck_id
+        previous=db().execute("""SELECT DISTINCT j.truck_id,j.scheduled_date,t.name,t.state FROM bf_jobs j JOIN bf_trucks t ON t.id=j.truck_id
             WHERE j.scheduled_date<? AND j.status IN ('scheduled','collected') ORDER BY j.scheduled_date DESC,t.name""",(run_date,)).fetchall()
         if g.user['role']!='admin':
             def mine(tid,day):
                 run=db().execute('SELECT driver_id FROM bf_runs WHERE truck_id=? AND run_date=?',(tid,day)).fetchone()
                 assigned={r['driver_id'] for r in db().execute("SELECT driver_id FROM bf_jobs WHERE truck_id=? AND scheduled_date=? AND status!='cancelled'",(tid,day)) if r['driver_id']}
                 return (not run or not run['driver_id'] or run['driver_id']==g.user['id']) and (not assigned or assigned=={g.user['id']})
-            trucks=[t for t in trucks if mine(t['id'],run_date)]
             previous=[r for r in previous if mine(r['truck_id'],r['scheduled_date'])]
-        return render('drivers', section='driver', trucks=trucks, jobs=jobs,run_date=run_date,summaries=summaries,previous=previous)
+        previous=[r for r in previous if state and r['state']==state]
+        jobs=[j for j in jobs if state and j['state']==state and j['scheduled_date']==run_date]
+        pending=db().execute("SELECT COUNT(*) FROM bf_jobs WHERE approval_status='pending' AND state=? AND scheduled_date=?",(state,run_date)).fetchone()[0]
+        return render('drivers', section='driver', jobs=jobs,run_date=run_date,previous=previous,
+            selected_state=state,pending=pending,**schedule_cards(db(),state,run_date,now()[:10],g.user))
 
     @app.post('/binflow/pickups/<int:job_id>/truck')
     @require('admin')
@@ -115,6 +116,10 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
             if j['truck_id'] != t['id'] and any(i['loaded_at'] or i['delivered_at'] or i['picked_up_at'] for i in items(job_id)):
                 raise ValueError('This job has bins in movement. Unload any unused empties before changing trucks.')
             if j['truck_id'] != t['id']:
+                ensure_run_unstarted(db(),j['truck_id'],j['scheduled_date'])
+                ensure_run_unstarted(db(),t['id'],j['scheduled_date'])
+                for tid in (j['truck_id'],t['id']):
+                    schedule_changed(db(),tid,j['scheduled_date'],g.user['id'],(g.user['first_name']+' '+g.user['last_name']).strip(),now(),'Truck allocation changed: '+j['code'])
                 db().execute('UPDATE bf_jobs SET truck_id=?,scan_mode=1,vehicle=? WHERE id=?', (t['id'],t['name'],job_id))
                 for i in items(job_id):
                     event(i['bin_id'], 'Truck assigned', job_id, notes=t['name'])

@@ -16,13 +16,14 @@ from zoneinfo import ZoneInfo
 from flask import abort, flash, g, redirect, render_template, request, send_file, session, url_for
 from prestart_media import photo_jpeg, signature_png
 from binflow_driver import migrate_driver, register_driver
-from binflow_runs import migrate_runs, register_runs, guard_movement
+from binflow_runs import migrate_runs, register_runs, guard_movement, check_owner
 from binflow_gps import migrate_gps, register_gps
 from binflow_portal import migrate_portal, register_portal
 from binflow_qr import migrate_qr, register_qr, link_request, reopen_requests, pickup_requests
 from binflow_tares import STANDARD_TARES, apply_standard_tares
 from binflow_approvals import migrate_approvals, register_approvals, ensure_approved, allocation_history
 from binflow_collections import migrate_collections, populate_collection_profiles, register_collections
+from binflow_acceptance import migrate_acceptance, register_acceptance, ensure_run_unstarted, schedule_changed
 from binflow_requirements import migrate_requirements, populate_requirements, site_plan, register_requirements
 from binflow_import import SCHEMA as IMPORT_SCHEMA, IMPORT_ID, import_blocktexx, profiles as source_profiles
 
@@ -102,6 +103,7 @@ def register_binflow(app, db, require):
         db().executescript(IMPORT_SCHEMA)
         migrate_requirements(db())
         migrate_runs(db())
+        migrate_acceptance(db())
         migrate_gps(db())
         migrate_portal(db())
         migrate_qr(db())
@@ -628,6 +630,10 @@ def register_binflow(app, db, require):
                 if j['scan_mode'] and any(i['loaded_at'] or i['delivered_at'] or i['picked_up_at'] for i in rows):
                     raise ValueError('Bins have already moved. Unload unused empties before cancelling; finish any client movements on this docket.')
                 reason = text_field('reason', 500)
+                if j['truck_id']:
+                    check_owner(db(),j['truck_id'],j['scheduled_date'],g.user)
+                    ensure_run_unstarted(db(),j['truck_id'],j['scheduled_date'])
+                    schedule_changed(db(),j['truck_id'],j['scheduled_date'],g.user['id'],actor(),now(),'Client job cancelled: '+j['code'])
                 db().execute("UPDATE bf_jobs SET status='cancelled' WHERE id=?", (job_id,))
                 db().execute('UPDATE bf_job_bins SET active=0 WHERE job_id=?', (job_id,))
                 reopen_requests(db(),job_id,actor(),now())
@@ -850,3 +856,4 @@ def register_binflow(app, db, require):
     register_qr(app, db, access, require, allowed, render, success, failure, now, actor)
     register_approvals(app,db,access,require,allowed,render,job,items,bins,event,success,failure,now,actor,reopen_requests)
     register_collections(app,db,access,require,render,success,now,actor)
+    register_acceptance(app,db,access,success,failure,now,actor)

@@ -44,7 +44,7 @@ class DriverDayTests(unittest.TestCase):
     def test_four_stop_guidance_returns_weights_and_client_isolation(self):
         self.prepare(multiple=True)
         original=self.rows('SELECT id,token FROM bf_bins ORDER BY id')
-        self.assertEqual(self.stage(),'prestart')
+        self.assertEqual(self.stage(),'acceptance')
         self.scan(3,409)
         prestart(self)
         self.assertEqual(self.stage(),'load')
