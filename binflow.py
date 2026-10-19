@@ -232,6 +232,35 @@ def register_binflow(app, db, require):
                       sizes=db().execute('SELECT * FROM bf_sizes ORDER BY litres').fetchall(),
                       staff=db().execute("SELECT u.*,a.user_id AS access FROM users u LEFT JOIN bf_access a ON a.user_id=u.id WHERE u.role='employee' AND u.status='active' ORDER BY first_name,last_name").fetchall())
 
+    @app.route('/binflow/locations/<int:location_id>/edit', methods=['GET', 'POST'])
+    @require('admin')
+    def bf_edit_location(location_id):
+        if request.method == 'POST':
+            db().execute('BEGIN IMMEDIATE')
+        record = db().execute('SELECT l.*,c.name AS client_name FROM bf_locations l LEFT JOIN bf_clients c ON c.id=l.client_id WHERE l.id=?', (location_id,)).fetchone()
+        if not record:
+            abort(404)
+        state_locked = bool(db().execute('''SELECT EXISTS(SELECT 1 FROM bf_bins WHERE location_id=?)
+            OR EXISTS(SELECT 1 FROM bf_jobs WHERE site_id=? OR warehouse_id=?)''', (location_id, location_id, location_id)).fetchone()[0])
+        values = dict(record)
+        error = None
+        if request.method == 'POST':
+            values.update({key: request.form.get(key, '').strip() for key in ('name', 'state', 'address')})
+            try:
+                name, state, address = text_field('name'), text_field('state'), text_field('address', 500)
+                if state not in STATES:
+                    raise ValueError('Choose an Australian state or territory.')
+                if state != record['state'] and state_locked:
+                    raise ValueError('This location has linked bins or jobs, so its state cannot be changed. Add a new location for another state.')
+                db().execute('UPDATE bf_locations SET name=?,state=?,address=? WHERE id=?', (name, state, address, location_id))
+                return success('Warehouse updated.' if record['kind'] == 'warehouse' else 'Client site updated.', 'bf_setup', _anchor='clients-locations')
+            except sqlite3.IntegrityError:
+                error = 'A location with this name already exists for this state or client. Please use a different name.'
+            except ValueError as exc:
+                error = str(exc)
+            db().rollback()
+        return render('location_edit', section='setup', record=record, values=values, state_locked=state_locked, error=error), 400 if error else 200
+
     @app.route('/binflow/bins', methods=['GET', 'POST'])
     @access
     def bf_inventory():

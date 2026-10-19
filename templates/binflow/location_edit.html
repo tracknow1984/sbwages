@@ -1,0 +1,33 @@
+{% extends 'binflow/layout.html' %}
+{% block title %}Edit {{ 'warehouse' if record.kind == 'warehouse' else 'client site' }}{% endblock %}
+{% block subtitle %}Update the location details used for future allocations and pickups.{% endblock %}
+{% block body %}
+<section class="bf-panel bf-pad bf-narrow">
+  <h2>{{ record.name }}</h2>
+  {% if record.client_name %}<p class="bf-muted">Client: {{ record.client_name }}</p>{% endif %}
+  {% if error %}<p class="bf-note" role="alert">{{ error }}</p>{% endif %}
+  <form method="post" class="bf-form">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+    <label>{{ 'Warehouse' if record.kind == 'warehouse' else 'Site' }} name
+      <input name="name" value="{{ values.name }}" maxlength="200" required>
+    </label>
+    <label>State
+      <select name="state" {% if state_locked %}disabled aria-describedby="state-help"{% endif %}>
+        {% for s in states %}<option value="{{ s }}" {{ 'selected' if s == (record.state if state_locked else values.state) }}>{{ s }}</option>{% endfor %}
+      </select>
+    </label>
+    {% if state_locked %}
+      <input type="hidden" name="state" value="{{ record.state }}">
+      <p class="bf-muted" id="state-help">State is fixed once bins or jobs are linked. Add a new location for another state.</p>
+    {% endif %}
+    <label>Street address
+      <input name="address" value="{{ values.address }}" maxlength="500" required autocomplete="street-address">
+    </label>
+    <p class="bf-muted">Existing bin allocations stay linked to this location. Saved jobs and PODs keep their original details.</p>
+    <div class="bf-actions">
+      <button class="primary" type="submit">Save changes</button>
+      <a class="button secondary" href="{{ url_for('bf_setup', _anchor='clients-locations') }}">Cancel</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

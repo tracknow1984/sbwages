@@ -139,6 +139,39 @@ class BinFlowTests(unittest.TestCase):
         self.assertIn(b'only once',result.data)
         self.assertEqual(len(self.rows('SELECT * FROM bf_jobs')),1)
 
+    def test_location_edits_preserve_stock_and_job_snapshots(self):
+        warehouse_path = '/binflow/locations/1/edit'
+        self.assertIn(b'Edit QLD warehouse', self.client.get('/binflow/setup').data)
+        self.assertIn(b'value="1 Depot Road"', self.client.get(warehouse_path).data)
+        invalid = self.post(warehouse_path, {'name':'Changed', 'state':'NSW', 'address':'New address'})
+        self.assertEqual(invalid.status_code, 400)
+        self.assertIn(b'state cannot be changed', invalid.data)
+        self.assertEqual(self.rows('SELECT name,state FROM bf_locations WHERE id=1')[0], {'name':'QLD warehouse','state':'QLD'})
+        self.initial_delivery()
+        stock, jobs = self.rows('SELECT * FROM bf_bins'), self.rows('SELECT * FROM bf_jobs')
+        result = self.post(warehouse_path, {'name':'North Maclean depot', 'state':'QLD', 'address':'99 Depot Road'})
+        self.assertIn(b'Warehouse updated.', result.data)
+        self.assertEqual(self.rows('SELECT name,address FROM bf_locations WHERE id=1')[0], {'name':'North Maclean depot','address':'99 Depot Road'})
+        result = self.post('/binflow/locations/3/edit', {'name':'Alpha distribution centre', 'state':'QLD', 'address':'88 Client Road'})
+        self.assertIn(b'Client site updated.', result.data)
+        self.assertEqual(self.rows('SELECT * FROM bf_bins'), stock)
+        self.assertEqual(self.rows('SELECT * FROM bf_jobs'), jobs)
+        pod = self.client.get('/binflow/pickups/1/pod').data
+        self.assertIn(b'Alpha QLD', pod)
+        self.assertNotIn(b'Alpha distribution centre', pod)
+        self.job(deliver=(3,))
+        self.assertEqual(self.rows('SELECT warehouse_name,site_name,site_address FROM bf_jobs WHERE id=2')[0],
+                         {'warehouse_name':'North Maclean depot','site_name':'Alpha distribution centre','site_address':'88 Client Road'})
+        unused_path = '/binflow/locations/2/edit'
+        result = self.post(unused_path, {'name':'North Maclean depot', 'state':'QLD', 'address':'Duplicate'})
+        self.assertEqual(result.status_code, 400)
+        self.assertEqual(self.rows('SELECT state FROM bf_locations WHERE id=2')[0]['state'], 'NSW')
+        result = self.post(unused_path, {'name':'Melbourne depot', 'state':'VIC', 'address':'4 Depot Road'})
+        self.assertIn(b'Warehouse updated.', result.data)
+        self.assertEqual(self.rows('SELECT state FROM bf_locations WHERE id=2')[0]['state'], 'VIC')
+        self.assertEqual(self.client.get('/binflow/locations/999/edit').status_code, 404)
+        self.assertEqual(self.client.post(warehouse_path, data={'name':'No CSRF'}).status_code, 400)
+
     def test_partial_confirmation_does_not_move_any_bin(self):
         self.job(deliver=(1,2))
         result=self.exchange(1,(1,))
@@ -183,6 +216,8 @@ class BinFlowTests(unittest.TestCase):
         self.assertEqual(result.status_code,200)
         self.assertEqual(result.request.path,'/binflow/bins/1')
         self.assertEqual(self.client.get('/binflow/setup').status_code,403)
+        self.assertEqual(self.client.get('/binflow/locations/1/edit').status_code,403)
+        self.assertEqual(self.post('/binflow/locations/1/edit', {'name':'Blocked','state':'QLD','address':'Blocked'}).status_code,403)
         self.assertEqual(self.client.get('/admin/staff').status_code,403)
         self.assertEqual(self.client.post('/binflow/bins/1',data={'action':'full'}).status_code,400)
         self.assertEqual(self.post('/binflow/bins',{'warehouse_id':1,'size_id':1,'quantity':1,'tare':0}).status_code,403)
