@@ -449,3 +449,13 @@ staff identity when the movement succeeds, displaying seconds in Australia/Brisb
 time. Repeated scans keep the original timestamp. Handover, warehouse receipt and
 weighing remain required for POD completion. Public QR access does not expose
 inventory history, GPS, customer contacts or PODs.
+
+### Standard empty-bin weights
+
+The approved defaults are 240 L = 13 kg, 660 L = 42 kg and 1100 L = 42 kg.
+A one-time, audited update applies these to existing physical bins and active
+unweighed docket lines. Already recorded gross, tare and net weights, completed
+PODs, and cancelled docket snapshots remain unchanged. Restarting does not
+overwrite later measured tare adjustments. New registrations prefill the size
+default and use it server-side when no tare is supplied; measured overrides
+remain available.

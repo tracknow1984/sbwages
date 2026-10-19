@@ -20,6 +20,7 @@ from binflow_runs import migrate_runs, register_runs, guard_movement
 from binflow_gps import migrate_gps, register_gps
 from binflow_portal import migrate_portal, register_portal
 from binflow_qr import migrate_qr, register_qr, link_request, reopen_requests, pickup_requests
+from binflow_tares import STANDARD_TARES, apply_standard_tares
 from binflow_requirements import migrate_requirements, populate_requirements, site_plan, register_requirements
 from binflow_import import SCHEMA as IMPORT_SCHEMA, IMPORT_ID, import_blocktexx, profiles as source_profiles
 
@@ -102,9 +103,12 @@ def register_binflow(app, db, require):
         migrate_gps(db())
         migrate_portal(db())
         migrate_qr(db())
-        for litres in (240, 660, 1100):
-            db().execute('INSERT OR IGNORE INTO bf_sizes(name,litres) VALUES(?,?)', (f'{litres} L', litres))
+        for litres, tare in STANDARD_TARES.items():
+            db().execute('INSERT OR IGNORE INTO bf_sizes(name,litres,default_tare_g) VALUES(?,?,?)', (f'{litres} L', litres, tare))
         db().commit()
+        tare_update = apply_standard_tares(db(), now())
+        if tare_update:
+            app.logger.info('BinFlow standard empty weights applied: %s', json.dumps(tare_update))
         if os.environ.get('BINFLOW_IMPORT_BLOCKTEXX') == IMPORT_ID:
             summary, changed = import_blocktexx(db(), json.loads(os.environ.get('BINFLOW_BLOCKTEXX_GROUPS_JSON', '[]')), now())
             if summary:
@@ -306,7 +310,8 @@ def register_binflow(app, db, require):
                 size = db().execute('SELECT * FROM bf_sizes WHERE id=?', (integer('size_id'),)).fetchone()
                 if not size:
                     raise ValueError('Choose a bin size.')
-                tare = grams(request.form.get('tare', '0'), 'Empty tare')
+                supplied_tare = request.form.get('tare', '').strip()
+                tare = grams(supplied_tare, 'Empty tare') if supplied_tare else size['default_tare_g']
                 db().execute('BEGIN IMMEDIATE')
                 if db().execute('SELECT 1 FROM bf_batches WHERE request_key=?', (key,)).fetchone():
                     return success('This batch has already been registered.', 'bf_inventory')
