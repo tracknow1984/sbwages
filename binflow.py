@@ -1,6 +1,8 @@
 """Persistent national bin inventory, exchange dockets and warehouse custody."""
 import csv
 import io
+import json
+import os
 import re
 import secrets
 import sqlite3
@@ -13,6 +15,7 @@ from zoneinfo import ZoneInfo
 
 from flask import abort, flash, g, redirect, render_template, request, send_file, session, url_for
 from prestart_media import photo_jpeg, signature_png
+from binflow_import import SCHEMA as IMPORT_SCHEMA, IMPORT_ID, import_blocktexx, profiles as source_profiles
 
 STATES = ('QLD', 'NSW', 'VIC', 'SA', 'WA', 'TAS', 'ACT', 'NT')
 STATUSES = {'empty': 'Empty at warehouse', 'at_client': 'At client', 'full': 'Full / pickup requested',
@@ -86,9 +89,16 @@ def grams(raw, label='Weight'):
 def register_binflow(app, db, require):
     with app.app_context():
         db().executescript(SCHEMA)
+        db().executescript(IMPORT_SCHEMA)
         for litres in (240, 660, 1100):
             db().execute('INSERT OR IGNORE INTO bf_sizes(name,litres) VALUES(?,?)', (f'{litres} L', litres))
         db().commit()
+        if os.environ.get('BINFLOW_IMPORT_BLOCKTEXX') == IMPORT_ID:
+            summary, changed = import_blocktexx(db(), json.loads(os.environ.get('BINFLOW_BLOCKTEXX_GROUPS_JSON', '[]')), now())
+            if summary:
+                app.logger.warning('BinFlow Blocktexx register import %s: %s', 'completed' if changed else 'already complete', json.dumps(summary, sort_keys=True))
+            else:
+                app.logger.warning('BinFlow Blocktexx register import waiting: no populated saved source model.')
     app.jinja_env.filters['bfkg'] = kg
 
     def allowed():
@@ -227,7 +237,10 @@ def register_binflow(app, db, require):
                 return failure(ValueError('This record already exists. Please use a different name.'), 'bf_setup')
             except ValueError as error:
                 return failure(error, 'bf_setup')
-        return render('setup', section='setup', clients=db().execute('SELECT * FROM bf_clients ORDER BY name').fetchall(),
+        imported = db().execute('SELECT * FROM bf_import_runs WHERE id=?', (IMPORT_ID,)).fetchone()
+        return render('setup', section='setup', import_summary=json.loads(imported['summary']) if imported else None,
+                      source_locations={row['location_id']: row['kind'] for row in db().execute('SELECT location_id,kind FROM bf_location_sources')},
+                      clients=db().execute('SELECT * FROM bf_clients ORDER BY name').fetchall(),
                       locations=db().execute('SELECT l.*,c.name AS client_name FROM bf_locations l LEFT JOIN bf_clients c ON c.id=l.client_id ORDER BY l.kind DESC,l.state,l.name').fetchall(),
                       sizes=db().execute('SELECT * FROM bf_sizes ORDER BY litres').fetchall(),
                       staff=db().execute("SELECT u.*,a.user_id AS access FROM users u LEFT JOIN bf_access a ON a.user_id=u.id WHERE u.role='employee' AND u.status='active' ORDER BY first_name,last_name").fetchall())
@@ -259,7 +272,8 @@ def register_binflow(app, db, require):
             except ValueError as exc:
                 error = str(exc)
             db().rollback()
-        return render('location_edit', section='setup', record=record, values=values, state_locked=state_locked, error=error), 400 if error else 200
+        return render('location_edit', section='setup', record=record, values=values, state_locked=state_locked, error=error,
+                      source_profiles=source_profiles(db(), location_id)), 400 if error else 200
 
     @app.route('/binflow/bins', methods=['GET', 'POST'])
     @access
@@ -467,7 +481,8 @@ def register_binflow(app, db, require):
         collect = bins("b.location_id=? AND b.status IN ('at_client','full') AND NOT EXISTS(SELECT 1 FROM bf_job_bins i WHERE i.bin_id=b.id AND i.active=1)", (site['id'],)) if site else []
         deliver = bins("b.location_id=? AND b.status='empty' AND NOT EXISTS(SELECT 1 FROM bf_job_bins i WHERE i.bin_id=b.id AND i.active=1)", (warehouse['id'],)) if warehouse and site and warehouse['state'] == site['state'] else []
         drivers = db().execute("SELECT u.id,u.first_name,u.last_name FROM users u WHERE u.status='active' AND (u.role='admin' OR EXISTS(SELECT 1 FROM bf_access a WHERE a.user_id=u.id)) ORDER BY u.first_name").fetchall()
-        return render('new_job', section='pickups', sites=sites, warehouses=warehouses, site=site, warehouse=warehouse, collect=collect, deliver=deliver, drivers=drivers, request_key=secrets.token_urlsafe(24))
+        return render('new_job', section='pickups', sites=sites, warehouses=warehouses, site=site, warehouse=warehouse, collect=collect, deliver=deliver, drivers=drivers, request_key=secrets.token_urlsafe(24),
+                      source_profiles=source_profiles(db(), site['id']) if site else [])
 
     @app.get('/binflow/pickups/<int:job_id>')
     @access

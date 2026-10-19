@@ -1,0 +1,20 @@
+{% if source_profiles %}
+<section class="bf-panel bf-pad">
+  <h2>Blocktexx service requirements</h2>
+  <p class="bf-muted">Imported planning information. Register and allocate your physical bins separately.</p>
+  {% for profile in source_profiles %}
+    <div class="bf-note bf-source-profile">
+      <strong>{{ 'Collection site' if profile.kind == 'collection' else 'Decommissioning partner' }}</strong>
+      <p>Pickup frequency: {{ profile.source.frequency or 'To confirm' }}{% if profile.days %} · {{ profile.days }}{% endif %}</p>
+      {% if profile.source.source_frequency and profile.source.source_frequency != profile.source.frequency %}<p>Original source frequency: {{ profile.source.source_frequency }}</p>{% endif %}
+      {% if profile.containers %}<div class="bf-chips">{% for item in profile.containers %}<span>{{ item.quantity }} × {{ item.label }}</span>{% endfor %}</div>{% endif %}
+      {% if profile.source.equipment %}<details><summary>Original equipment listing</summary><p class="bf-source-text">{{ profile.source.equipment }}</p></details>{% endif %}
+      {% if profile.source.notes %}<p class="bf-source-text">{{ profile.source.notes }}</p>{% endif %}
+      {% if profile.average_kg is not none %}<p>Historical average: {{ '%.2f'|format(profile.average_kg) }} kg per pickup ({{ profile.sample_count }} samples).</p>{% endif %}
+      {% if profile.source.scenario_pickup_kg is defined and profile.source.scenario_pickup_kg is not none %}<p>Planning estimate: {{ profile.source.scenario_pickup_kg }} kg per pickup.</p>{% endif %}
+      {% if profile.address_review %}<p><strong>Address needs confirmation.</strong> Update the site address before scheduling a pickup.</p>{% endif %}
+      <small>Saved transport model revision {{ profile.revision }} · {{ profile.source.id }}</small>
+    </div>
+  {% endfor %}
+</section>
+{% endif %}

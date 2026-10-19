@@ -337,3 +337,11 @@ created locally (`reportlab`). Run the workflow regression checks with:
 ```sh
 python -m unittest discover -s tests -p test_binflow.py -v
 ```
+
+### Private Blocktexx client register import
+
+An explicitly enabled, one-time import copies the current saved `blocktexx_model` collection sites and decommissioning partners into BinFlow. The deployment setting `BINFLOW_IMPORT_BLOCKTEXX=blocktexx-clients-2026-10-19-v1` enables it; `BINFLOW_BLOCKTEXX_GROUPS_JSON` supplies the reviewed private client account groups. No customer data or account-group configuration is committed to source. Exact existing client/location identities are reused, and user-entered contacts, warehouses, bins, jobs and PODs are preserved. Different departments at one street address remain distinct sites.
+
+The transaction records its source revision and summary in `bf_import_runs`, with immutable per-site source snapshots in `bf_location_sources`. Frequencies, equipment requirements, original notes and historical pickup samples are visible on location Edit and the pickup planner. These are planning references: importing does not create physical bins, allocations, jobs or operational weigh-ins. Missing source addresses are flagged for confirmation. Restarting the service does not repeat the import or overwrite later edits.
+
+Checks: `python -m unittest discover -s tests -p 'test_binflow*.py' -v`.
