@@ -1,0 +1,44 @@
+{% extends 'binflow/layout.html' %}
+{% block title %}Edit bin location{% endblock %}
+{% block subtitle %}{{ b.code }} · {{ b.size_name }} · {{ b.state }} pool{% endblock %}
+{% block body %}
+<div class="bf-columns equal">
+  <section class="bf-panel bf-pad">
+    <h2>Current location</h2>
+    <p class="bf-location">{{ b.location_name or 'In transit to warehouse' }}</p>
+    {% if b.client_name %}<p>{{ b.client_name }}</p>{% endif %}
+    <span class="bf-status {{ b.status }}">{{ statuses[b.status] }}</span>
+    <p class="bf-muted">Bin ID {{ b.code }} and its QR code stay the same. Each location change is recorded in the movement history.</p>
+    {% if b.reserved_job %}<p><a class="button primary" href="{{ url_for('bf_job', job_id=b.reserved_job) }}">Open docket BF-{{ '%06d'|format(b.reserved_job) }}</a></p>{% endif %}
+    <a href="{{ url_for('bf_inventory') }}">← Back to physical bin register</a>
+  </section>
+  <section class="bf-panel bf-pad">
+    <h2>Update location</h2>
+    {% if error %}<p class="bf-note" role="alert">{{ error }}</p>{% endif %}
+    {% if blocked %}
+      <p>This bin is reserved, in transit or awaiting weighing. Complete or cancel its active docket before editing its location.</p>
+    {% else %}
+      <form method="post" class="bf-form">
+        <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+        <input type="hidden" name="version" value="{{ version }}">
+        <label>New location in {{ b.state }}
+          <select name="location_id" required>
+            <option value="">Choose a warehouse or client site</option>
+            {% for kind,label in [('warehouse','Warehouses'),('client','Client sites')] %}
+            {% if (kind == 'warehouse' and b.status != 'full') or (kind == 'client' and b.status != 'weighed') %}
+              <optgroup label="{{ label }}">
+                {% for l in locations if l.kind == kind %}<option value="{{ l.id }}" {{ 'selected' if l.id|string == selected }}>{{ l.name }}{% if l.client_name %} · {{ l.client_name }}{% endif %}</option>{% endfor %}
+              </optgroup>
+            {% endif %}
+            {% endfor %}
+          </select>
+        </label>
+        {% if b.status == 'at_client' %}<label class="bf-check"><input type="checkbox" name="confirm_empty" value="yes" {{ 'checked' if request.form.get('confirm_empty') == 'yes' }}><span>If returning to a warehouse, I confirm this bin is empty.</span></label>{% endif %}
+        {% if b.status == 'full' %}<p class="bf-muted">Full bins return to the warehouse through a pickup docket so their weights and POD are recorded.</p>{% elif b.status == 'weighed' %}<p class="bf-muted">This bin contains weighed stock. You can change its warehouse; record its contents as processed before allocating it to a client.</p>{% else %}<p class="bf-muted">The register updates the bin to “At client” or “Empty at warehouse” to match its new location.</p>{% endif %}
+        <label>Notes (optional)<textarea name="notes" maxlength="500" rows="3" placeholder="Location correction, stock transfer or initial allocation…">{{ notes }}</textarea></label>
+        <div class="bf-actions"><button type="submit" class="primary">Save location</button><a class="button secondary" href="{{ url_for('bf_inventory') }}">Cancel</a></div>
+      </form>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

@@ -66,6 +66,62 @@ class BinFlowTests(unittest.TestCase):
         response=self.exchange(1,(1,2))
         self.assertIn(b'Exchange recorded',response.data)
 
+    def move_bin(self, bid, destination, **values):
+        version = self.rows('SELECT COALESCE(MAX(id),0) AS n FROM bf_events WHERE bin_id=?', (bid,))[0]['n']
+        return self.post(f'/binflow/bins/{bid}/edit', {'location_id':destination,'version':str(version),**values})
+
+    def test_register_location_edits_preserve_qr_and_record_stock_movements(self):
+        original = self.rows('SELECT * FROM bf_bins WHERE id=1')[0]
+        self.assertIn(b'Edit location for BF000001', self.client.get('/binflow/bins').data)
+        result = self.move_bin(1,3,notes='Initial site allocation')
+        self.assertIn(b'Bin location updated.',result.data)
+        b = self.rows('SELECT * FROM bf_bins WHERE id=1')[0]
+        self.assertEqual((b['location_id'],b['status'],b['token'],b['code']), (3,'at_client',original['token'],original['code']))
+        event = self.rows('SELECT * FROM bf_events WHERE bin_id=1 ORDER BY id DESC')[0]
+        self.assertEqual((event['from_location'],event['to_location']), (1,3))
+        self.assertIn('Initial site allocation',event['notes']);self.assertTrue(event['actor'])
+        count = len(self.rows('SELECT * FROM bf_events WHERE bin_id=1'))
+        self.move_bin(1,3,version='0')
+        self.assertEqual(len(self.rows('SELECT * FROM bf_events WHERE bin_id=1')),count)
+        self.assertEqual(self.move_bin(1,1).status_code,400)
+        self.assertEqual(self.rows('SELECT location_id FROM bf_bins WHERE id=1')[0]['location_id'],3)
+        self.move_bin(1,1,confirm_empty='yes')
+        self.assertEqual(self.rows('SELECT status FROM bf_bins WHERE id=1')[0]['status'],'empty')
+        self.assertEqual(self.move_bin(1,2).status_code,400)
+        self.assertEqual(self.move_bin(1,999).status_code,400)
+        self.assertEqual(self.client.post('/binflow/bins/1/edit',data={'location_id':3}).status_code,400)
+        self.assertEqual(self.client.get('/binflow/bins/999/edit').status_code,404)
+        self.assertFalse(self.rows('SELECT * FROM bf_jobs'))
+
+    def test_location_edits_guard_active_dockets_full_stock_and_stale_forms(self):
+        self.initial_delivery()
+        original_jobs = self.rows('SELECT * FROM bf_jobs')
+        version = self.rows('SELECT MAX(id) AS n FROM bf_events WHERE bin_id=1')[0]['n']
+        self.move_bin(1,4)
+        self.assertEqual(self.move_bin(1,1,version=str(version),confirm_empty='yes').status_code,400)
+        self.assertEqual(self.rows('SELECT * FROM bf_jobs'),original_jobs)
+        self.post('/binflow/bins/1',{'action':'full'})
+        self.assertEqual(self.move_bin(1,1,confirm_empty='yes').status_code,400)
+        self.move_bin(1,3)
+        self.assertEqual(self.rows('SELECT status FROM bf_bins WHERE id=1')[0]['status'],'full')
+        self.job(collect=(1,))
+        self.assertEqual(self.move_bin(1,4).status_code,400)
+        self.assertIn(b'Open docket',self.client.get('/binflow/bins/1/edit').data)
+        self.exchange(2,(1,))
+        self.assertEqual(self.move_bin(1,3).status_code,400)
+        self.post('/binflow/pickups/2/receive',{'confirmed':[1]})
+        self.assertEqual(self.move_bin(1,4).status_code,400)
+        iid=self.rows("SELECT id FROM bf_job_bins WHERE job_id=2 AND direction='collect'")[0]['id']
+        self.post(f'/binflow/pickups/2/weigh/{iid}',{'gross':'20','tare':'5','confirm_tare':'yes'})
+        self.post('/binflow/setup',{'action':'warehouse','name':'Second QLD warehouse','state':'QLD','address':'5 Depot Road'})
+        weights=self.rows('SELECT * FROM bf_job_bins')
+        self.move_bin(1,6,notes='Warehouse stock transfer')
+        self.assertEqual(self.rows('SELECT location_id,status FROM bf_bins WHERE id=1')[0], {'location_id':6,'status':'weighed'})
+        self.assertEqual(self.rows('SELECT * FROM bf_job_bins'),weights)
+        self.assertEqual(self.move_bin(1,3).status_code,400)
+        self.post('/binflow/bins/1',{'action':'empty','notes':'Contents processed'})
+        self.assertIn(b'Bin location updated.',self.move_bin(1,4).data)
+
     def test_all_pages_and_empty_setup_render(self):
         for route in ('/admin/bin-management','/binflow/setup','/binflow/bins','/binflow/pickups','/binflow/pickups/new','/binflow/pickups/new?site=3&warehouse=1','/binflow/warehouse','/binflow/scan','/binflow/bins/1','/binflow/labels?bin=1&bin=2'):
             with self.subTest(route=route):
@@ -217,6 +273,8 @@ class BinFlowTests(unittest.TestCase):
         self.assertEqual(result.request.path,'/binflow/bins/1')
         self.assertEqual(self.client.get('/binflow/setup').status_code,403)
         self.assertEqual(self.client.get('/binflow/locations/1/edit').status_code,403)
+        self.assertEqual(self.client.get('/binflow/bins/1/edit').status_code,403)
+        self.assertEqual(self.move_bin(1,3).status_code,403)
         self.assertEqual(self.post('/binflow/locations/1/edit', {'name':'Blocked','state':'QLD','address':'Blocked'}).status_code,403)
         self.assertEqual(self.client.get('/admin/staff').status_code,403)
         self.assertEqual(self.client.post('/binflow/bins/1',data={'action':'full'}).status_code,400)

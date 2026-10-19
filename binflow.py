@@ -379,6 +379,56 @@ def register_binflow(app, db, require):
         current_item = db().execute("SELECT i.*,j.code,j.status AS job_status FROM bf_job_bins i JOIN bf_jobs j ON j.id=i.job_id WHERE i.bin_id=? AND i.active=1", (bin_id,)).fetchone()
         return render('bin', section='bins', b=stock[0], history=history, current_item=current_item)
 
+    @app.route('/binflow/bins/<int:bin_id>/edit', methods=['GET', 'POST'])
+    @require('admin')
+    def bf_edit_bin(bin_id):
+        if request.method == 'POST':
+            db().execute('BEGIN IMMEDIATE')
+        stock = bins('b.id=?', (bin_id,))
+        if not stock:
+            abort(404)
+        b = stock[0]
+        version = db().execute('SELECT COALESCE(MAX(id),0) FROM bf_events WHERE bin_id=?', (bin_id,)).fetchone()[0]
+        blocked = bool(b['reserved_job'] or b['status'] in ('transit', 'received'))
+        selected = request.form.get('location_id', str(b['location_id'] or ''))
+        notes = request.form.get('notes', '')
+        error = None
+        if request.method == 'POST':
+            try:
+                if blocked:
+                    raise ValueError('This bin is linked to an active movement. Complete or cancel its docket before editing its location.')
+                target = location(integer('location_id'))
+                if target['state'] != b['state']:
+                    raise ValueError('Choose a location in this bin\'s state. Bin pools stay within each state.')
+                if target['id'] == b['location_id']:
+                    return success('This bin is already at the selected location.', 'bf_bin', bin_id=bin_id)
+                if request.form.get('version') != str(version):
+                    raise ValueError('This bin changed after you opened the form. Review its current location and status before saving again.')
+                if target['kind'] == 'warehouse':
+                    if b['status'] == 'full':
+                        raise ValueError('Use a pickup docket to return full bins to a warehouse for weighing.')
+                    if b['status'] == 'at_client' and request.form.get('confirm_empty') != 'yes':
+                        raise ValueError('Confirm the bin is empty before returning it to warehouse empty stock. Use a pickup docket for full bins.')
+                    status = 'weighed' if b['status'] == 'weighed' else 'empty'
+                else:
+                    if b['status'] == 'weighed':
+                        raise ValueError('Record the contents as processed before allocating this bin to a client.')
+                    status = 'full' if b['status'] == 'full' else 'at_client'
+                note = text_field('notes', 500, False)
+                db().execute('UPDATE bf_bins SET location_id=?,status=? WHERE id=?', (target['id'], status, bin_id))
+                audit = f'{STATUSES[b["status"]]} → {STATUSES[status]}. {note}'.strip()
+                if b['status'] == 'at_client' and target['kind'] == 'warehouse':
+                    audit += ' Administrator confirmed the bin is empty.'
+                event(bin_id, 'Location updated in physical bin register', origin=b['location_id'], target=target['id'], notes=audit)
+                return success('Bin location updated.', 'bf_bin', bin_id=bin_id)
+            except ValueError as exc:
+                error = str(exc)
+                db().rollback()
+        choices = db().execute('''SELECT l.*,c.name AS client_name FROM bf_locations l
+            LEFT JOIN bf_clients c ON c.id=l.client_id WHERE l.state=? ORDER BY l.kind DESC,c.name,l.name''', (b['state'],)).fetchall()
+        return render('bin_edit', section='bins', b=b, version=version, blocked=blocked,
+                      locations=choices, selected=selected, notes=notes, error=error), 400 if error else 200
+
     def qr_url(token):
         base = app.config['APP_URL'] or request.url_root.rstrip('/')
         return base + url_for('bf_qr_open', token=token)
