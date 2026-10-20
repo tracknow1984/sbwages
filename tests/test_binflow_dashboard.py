@@ -122,7 +122,7 @@ class DashboardReviewTests(unittest.TestCase):
         from werkzeug.security import generate_password_hash
         with sqlite3.connect(self.path) as conn:
             uid=conn.execute("INSERT INTO users(role,first_name,last_name,email,username,password_hash) VALUES('employee','Dashboard','Driver','dash@example.com','dashdriver',?)",(generate_password_hash('test-admin-password'),)).lastrowid
-            conn.execute('INSERT INTO bf_access(user_id) VALUES(?)',(uid,))
+            conn.execute("UPDATE users SET business_role='driver',working_state='QLD' WHERE id=?",(uid,))
         self.post('/logout');self.login('employee','dashdriver')
         response=self.client.get('/admin/bin-management',follow_redirects=True)
         self.assertEqual(response.request.path,'/binflow/driver/my-day')

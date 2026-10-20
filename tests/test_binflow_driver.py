@@ -190,7 +190,7 @@ class DriverScanTests(unittest.TestCase):
         self.assertEqual(self.post('/binflow/driver/1/scan',{'job_id':2,'action':'collect','code':'BF000001'}).status_code,403)
         uid=self.rows("SELECT id FROM users WHERE username='scan'")[0]['id']
         with sqlite3.connect(self.path) as conn:
-            conn.execute('INSERT INTO bf_access(user_id) VALUES(?)',(uid,))
+            conn.execute("UPDATE users SET business_role='driver',working_state='QLD' WHERE id=?",(uid,))
         self.scan('deliver',3,expected=403)
         self.assertEqual(self.post('/binflow/driver',{'name':'Blocked','state':'QLD'}).status_code,403)
         self.login()

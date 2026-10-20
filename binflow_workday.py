@@ -3,6 +3,7 @@ import sqlite3
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from binflow_permissions import selected_state, state_scope, require_state
 
 from flask import abort, g, redirect, request, url_for
 from lunch import deduct_lunch
@@ -174,6 +175,7 @@ def register_workdays(app,db,access,require,render,success,failure,now):
     def owned(wid):
         row=db().execute('SELECT * FROM bf_workdays WHERE id=? AND user_id=?',(wid,g.user['id'])).fetchone()
         if not row: abort(404)
+        if row['state']: require_state(g.user,row['state'])
         return row
 
     @app.post('/binflow/driver/my-day/<int:day_id>/reconcile')
@@ -215,9 +217,10 @@ def register_workdays(app,db,access,require,render,success,failure,now):
         if not day:
             latest=db().execute('SELECT * FROM bf_workdays WHERE user_id=? ORDER BY id DESC LIMIT 1',(g.user['id'],)).fetchone()
             if latest and latest['work_date']==datetime.fromisoformat(now()).astimezone(ZoneInfo(latest['timezone'])).date().isoformat(): day=latest
+        if day and day['state']: require_state(g.user,day['state'])
         if day and day['truck_id'] and not day['finished_at'] and request.args.get('summary')!='1':
             return redirect(url_for('bf_run',truck_id=day['truck_id'],date=day['work_date']))
-        state=request.args.get('state',day['state'] if day else '')
+        state=selected_state(g.user,request.args.get('state',day['state'] if day else ''))
         if state not in ('',)+STATES: abort(400)
         trucks=[]
         if day and not day['finished_at'] and state:
@@ -251,8 +254,8 @@ def register_workdays(app,db,access,require,render,success,failure,now):
             key=stamp.date().isoformat()
             if db().execute('SELECT 1 FROM bf_workdays WHERE user_id=? AND work_date=?',(g.user['id'],key)).fetchone():
                 return success('This driver day has already been finalised.','bf_workday')
-            wid=db().execute('''INSERT INTO bf_workdays(user_id,work_date,timezone,started_at,start_received_at,phone_started_at)
-                VALUES(?,?,?,?,?,?)''',(g.user['id'],key,zone,stamp.isoformat(),received,phone)).lastrowid
+            wid=db().execute('''INSERT INTO bf_workdays(user_id,work_date,timezone,started_at,start_received_at,phone_started_at,state)
+                VALUES(?,?,?,?,?,?,?)''',(g.user['id'],key,zone,stamp.isoformat(),received,phone,state_scope(g.user) or '')).lastrowid
             day=owned(wid)
             if g.user['role']=='employee': start_entry(db(),g.user,day,stamp)
             workday_event(db(),wid,g.user['id'],'Day started',received,source)
@@ -268,7 +271,7 @@ def register_workdays(app,db,access,require,render,success,failure,now):
             from binflow_acceptance import ensure_run_unstarted
             db().execute('BEGIN IMMEDIATE');day=owned(day_id)
             if day['finished_at']: raise ValueError('This driver day is already finalised.')
-            tid=request.form.get('truck_id',type=int);state=request.form.get('state','')
+            tid=request.form.get('truck_id',type=int);state=selected_state(g.user,request.form.get('state',''))
             truck=db().execute('SELECT * FROM bf_trucks WHERE id=? AND state=?',(tid,state)).fetchone()
             if not truck or state not in STATES: raise ValueError('Choose a vehicle allocated to your selected state.')
             check_owner(db(),tid,day['work_date'],g.user)

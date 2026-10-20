@@ -6,6 +6,7 @@ from binflow_qr import pickup_requests
 from binflow_approvals import ensure_approved
 from binflow_acceptance import schedule_cards, ensure_run_unstarted, schedule_changed
 from binflow_workday import driver_today
+from binflow_permissions import require_state, is_driver, is_office
 
 from flask import abort, g, jsonify, redirect, render_template, request, url_for
 
@@ -66,7 +67,7 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
     @app.route('/binflow/driver', methods=['GET', 'POST'])
     @access
     def bf_drivers():
-        if request.method=='GET' and g.user['role']=='employee':
+        if request.method=='GET' and is_driver(db(),g.user):
             return redirect(url_for('bf_workday'))
         if request.method == 'POST':
             if g.user['role'] != 'admin':
@@ -90,7 +91,7 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
         jobs = db().execute("SELECT * FROM bf_jobs WHERE approval_status='approved' AND status='scheduled' AND truck_id IS NULL ORDER BY scheduled_date,id").fetchall()
         previous=db().execute("""SELECT DISTINCT j.truck_id,j.scheduled_date,t.name,t.state FROM bf_jobs j JOIN bf_trucks t ON t.id=j.truck_id
             WHERE j.scheduled_date<? AND j.status IN ('scheduled','collected') ORDER BY j.scheduled_date DESC,t.name""",(run_date,)).fetchall()
-        if g.user['role']!='admin':
+        if not is_office(g.user):
             def mine(tid,day):
                 run=db().execute('SELECT driver_id FROM bf_runs WHERE truck_id=? AND run_date=?',(tid,day)).fetchone()
                 assigned={r['driver_id'] for r in db().execute("SELECT driver_id FROM bf_jobs WHERE truck_id=? AND scheduled_date=? AND status!='cancelled'",(tid,day)) if r['driver_id']}
@@ -134,6 +135,7 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
     @access
     def bf_truck(truck_id):
         t = truck(truck_id)
+        require_state(g.user,t['state'])
         selected = request.args.get('job', type=int)
         j = job(selected) if selected else None
         if j and j['truck_id'] != truck_id:

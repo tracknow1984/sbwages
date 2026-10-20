@@ -31,7 +31,7 @@ class DriverWorkdayTests(unittest.TestCase):
         self.post('/binflow/pickups/2/truck',dict(truck_id=1))
         with sqlite3.connect(self.path) as conn:
             self.uid=conn.execute("INSERT INTO users(role,first_name,last_name,email,username,password_hash) VALUES('employee','Phone','Driver','phone@example.com','phonedriver',?)",(generate_password_hash('test-admin-password'),)).lastrowid
-            conn.execute('INSERT INTO bf_access(user_id) VALUES(?)',(self.uid,))
+            conn.execute("UPDATE users SET business_role='driver',working_state='QLD' WHERE id=?",(self.uid,))
         self.post('/logout');self.login('employee','phonedriver')
 
     def tearDown(self):
@@ -163,7 +163,7 @@ class DriverWorkdayTests(unittest.TestCase):
         self.assertEqual(self.post(f'/binflow/driver/my-day/{day_id}/finish',self.stamp()).status_code,404)
         self.assertEqual(self.client.get('/binflow/driver/my-day?day='+str(day_id)).status_code,404)
         self.post('/logout');self.login('employee','phonedriver')
-        with sqlite3.connect(self.path) as conn:conn.execute('DELETE FROM bf_access WHERE user_id=?',(self.uid,))
+        with sqlite3.connect(self.path) as conn:conn.execute("UPDATE users SET business_role='labour' WHERE id=?",(self.uid,))
         self.assertEqual(self.post(f'/binflow/driver/my-day/{day_id}/finish',self.stamp()).status_code,403)
         self.assertIsNone(self.rows('SELECT finished_at FROM bf_workdays')[0]['finished_at'])
 

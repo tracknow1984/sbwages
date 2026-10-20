@@ -27,5 +27,5 @@
     </table>
   </div>
 </section>
-<section class="bf-panel bf-pad"><h2>Driver access to BINFLOW</h2><p class="bf-muted">Enable Driver day, Daily schedule and Daily PODs for selected staff. Drivers can scan their runs and use their personal staff pages. Allocations, stock, warehouse weighing and settings are managed by administrators.</p><form method="post"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="action" value="access"><div class="bf-check-grid">{% for person in staff %}<label class="bf-check"><input type="checkbox" name="users" value="{{ person.id }}" {{ 'checked' if person.access }}><span>{{ person.first_name }} {{ person.last_name }}<small>{{ person.username }}</small></span></label>{% else %}<p>No active employee profiles yet. Add staff under Staff Details.</p>{% endfor %}</div><button class="primary">Save driver access</button></form></section>
+<section class="bf-panel bf-pad"><h2>Employee roles & state access</h2><p class="bf-muted">BINFLOW access is controlled by each employee’s business role and working state. Driver and contractor accounts see only their allocated state, labour accounts have no BINFLOW access, and managers have the national operations view.</p><a class="button primary" href="{{ url_for('admin_staff') }}">Manage employee profiles →</a></section>
 {% endblock %}

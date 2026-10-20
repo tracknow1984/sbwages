@@ -130,7 +130,7 @@ class DriverDayTests(unittest.TestCase):
         from werkzeug.security import generate_password_hash
         with sqlite3.connect(self.path) as conn:
             driver=conn.execute("INSERT INTO users(role,first_name,last_name,email,username,password_hash) VALUES('employee','Other','Driver','other@example.com','other',?)",(generate_password_hash('test-admin-password'),)).lastrowid
-            conn.execute('INSERT INTO bf_access(user_id) VALUES(?)',(driver,))
+            conn.execute("UPDATE users SET business_role='driver',working_state='QLD' WHERE id=?",(driver,))
         self.post('/logout');self.login('employee','other')
         self.assertEqual(self.client.get('/binflow/driver/1/day?date='+RUN_DATE).status_code,403)
         self.scan(4,403)

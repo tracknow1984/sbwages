@@ -13,7 +13,7 @@ from binflow_requirements import load_plan
 from binflow_approvals import ensure_approved
 from binflow_acceptance import acceptance_ok, manifest, schedule_changed
 from binflow_workday import run_workday, driver_today
-from binflow_permissions import can_view_job
+from binflow_permissions import can_view_job, is_office, require_state, selected_state, eligible_driver, available_drivers
 
 CHECKS = VEHICLE_CHECKS + [('lift', 'Tail lift / bin lifter and controls (if fitted)', True)]
 
@@ -125,7 +125,10 @@ def run_data(conn, truck_id, run_date, driver_id, today):
 
 
 def check_owner(conn, truck_id, run_date, user):
-    if user['role']=='admin':
+    truck=conn.execute('SELECT state FROM bf_trucks WHERE id=?',(truck_id,)).fetchone()
+    if not truck: abort(404)
+    require_state(user,truck['state'])
+    if is_office(user):
         return
     run = conn.execute('SELECT driver_id FROM bf_runs WHERE truck_id=? AND run_date=?', (truck_id,run_date)).fetchone()
     assigned = {r['driver_id'] for r in run_jobs(conn,truck_id,run_date) if r['driver_id']}
@@ -348,27 +351,27 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
             JOIN bf_trucks t ON t.id=i.truck_id JOIN prestarts p ON p.id=i.prestart_id
             WHERE i.passed=0 AND i.resolved_at IS NULL '''+('AND t.state=? ' if state else '')+
             'ORDER BY i.id DESC',(state,) if state else ()).fetchall()
-        if g.user['role'] != 'admin':
+        if not is_office(g.user):
             holds=[h for h in holds if h['driver_id']==g.user['id']]
         return dict(groups=list(groups.values()),holds=[dict(h,checks=json.loads(h['checks_json'])) for h in holds])
 
     @app.get('/binflow/calendar')
     @access
     def bf_calendar():
-        state=request.args.get('state','')
+        state=selected_state(g.user,request.args.get('state',''))
         if state not in ('','QLD','NSW','VIC','SA','WA','TAS','ACT','NT'): abort(400)
         try: run_date=valid_date(request.args.get('date',today()))
         except ValueError as error: abort(400,str(error))
         day=date.fromisoformat(run_date)
         week=[(day+timedelta(days=n)).isoformat() for n in range(-3,4)]
-        employees=db().execute("SELECT id,first_name,last_name FROM users WHERE status='active' AND (role='admin' OR id IN (SELECT user_id FROM bf_access)) ORDER BY first_name,last_name").fetchall() if g.user['role']=='admin' else []
+        employees=available_drivers(db(),state) if g.user['role']=='admin' else []
         return render('calendar',section='calendar',run_date=run_date,week=week,employees=employees,selected_state=state,**calendar_data(run_date,state))
 
     @app.get('/binflow/calendar/state')
     @access
     def bf_calendar_state():
         from flask import render_template
-        state=request.args.get('state','')
+        state=selected_state(g.user,request.args.get('state',''))
         if state not in ('','QLD','NSW','VIC','SA','WA','TAS','ACT','NT'): abort(400)
         try: run_date=valid_date(request.args.get('date',today()))
         except ValueError as error: abort(400,str(error))
@@ -388,8 +391,9 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
                 WHERE j.truck_id=? AND j.scheduled_date=? AND (i.loaded_at IS NOT NULL OR i.picked_up_at IS NOT NULL)''',(truck_id,run_date)).fetchone():
                 raise ValueError('This run has started. Its driver and stop order are locked to protect bin movements.')
             uid=int(request.form.get('driver_id','0'))
-            if not db().execute("SELECT 1 FROM users WHERE id=? AND status='active' AND (role='admin' OR id IN (SELECT user_id FROM bf_access))",(uid,)).fetchone():
-                raise ValueError('Choose a staff member with transport access.')
+            truck=db().execute('SELECT state FROM bf_trucks WHERE id=?',(truck_id,)).fetchone()
+            if not truck or not eligible_driver(db(),uid,truck['state']):
+                raise ValueError('Choose an active driver or contractor allocated to this state, or a manager.')
             orders=[]
             before=manifest(db(),truck_id,run_date)[2]
             for j in jobs:

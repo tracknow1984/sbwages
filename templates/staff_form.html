@@ -2,6 +2,10 @@
 <a class="back" href="{{ url_for('admin_staff') }}">← Staff details</a><div class="page-heading"><div><span class="eyebrow">TEAM MANAGEMENT</span><h1>{{ 'Edit staff member' if editing else 'Add staff member' }}</h1></div></div>
 <form method="post" class="form-panel panel"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
 <section><h2>Contact details</h2>{% include 'contact_fields.html' %}</section>{% include 'licence_fields.html' %}
+<section><h2>Business role & working state</h2><div class="form-grid">
+<label>Business role<select name="business_role" required><option value="">Choose role</option>{% for key,label in business_roles.items() %}<option value="{{ key }}" {{ 'selected' if person and person.business_role==key }}>{{ label }}</option>{% endfor %}</select></label>
+<label>Working state<select name="working_state" required><option value="">Choose state</option>{% for state in working_states %}<option value="{{ state }}" {{ 'selected' if person and person.working_state==state }}>{{ state }}</option>{% endfor %}</select></label>
+</div><p class="hint">DRIVER and CONTRACTOR: BINFLOW driver tools for their allocated state only. LABOUR: no BINFLOW access. MANAGER: national BINFLOW operations. Business role does not grant payroll or staff administration. Role and state changes apply on the employee’s next sign-in.</p></section>
 <section><h2>Employment & pay</h2><div class="form-grid three">
 <label>Hourly rate ($ AUD)<input name="hourly_rate" type="number" step="0.01" min="0" max="100000" value="{{ person.hourly_rate if person and person.hourly_rate is defined else ('%.2f'|format(person.rate_cents/100) if person and person.rate_cents is defined else '') }}" required></label>
 <label>Employment status<select name="status" required><option value="active" {{ 'selected' if not person or person.status == 'active' }}>Active</option><option value="terminated" {{ 'selected' if person and person.status == 'terminated' }}>Terminated</option></select></label>

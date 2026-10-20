@@ -21,7 +21,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from lunch import deduct_lunch, migrate_lunch
 from work_weeks import WORK_WEEKS, profile_end, profile_start, saved_period
 from binflow_workday import active_entry
-from binflow_permissions import is_driver
+from binflow_permissions import is_driver, is_manager, has_binflow_access, BUSINESS_ROLES, WORKING_STATES
 from prestart_config import ASSETS, DECLARATION, checklist
 from prestart_media import signature_png, photo_jpeg
 
@@ -201,6 +201,13 @@ def create_app(test_config=None):
             db().execute('ALTER TABLE payments_new RENAME TO payments')
             db().execute('CREATE INDEX payments_by_user ON payments(user_id,processed_at)')
         user_columns = {row['name'] for row in db().execute('PRAGMA table_info(users)')}
+        if 'business_role' not in user_columns:
+            db().execute("ALTER TABLE users ADD COLUMN business_role TEXT NOT NULL DEFAULT '' CHECK(business_role IN ('','driver','labour','manager','contractor'))")
+            # Preserve the existing driver designation, but never guess a working state.
+            if db().execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='bf_access'").fetchone():
+                db().execute("UPDATE users SET business_role='driver' WHERE role='employee' AND id IN (SELECT user_id FROM bf_access)")
+        if 'working_state' not in user_columns:
+            db().execute("ALTER TABLE users ADD COLUMN working_state TEXT NOT NULL DEFAULT '' CHECK(working_state IN ('','QLD','NSW','VIC','SA','WA','ACT'))")
         if 'emergency_phone' not in user_columns:
             db().execute("ALTER TABLE users ADD COLUMN emergency_phone TEXT NOT NULL DEFAULT ''")
         for name in ('licence_number', 'licence_state', 'licence_expiry'):
@@ -314,7 +321,8 @@ def create_app(test_config=None):
         return int((Decimal(units) * cents / 100).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
 
     app.jinja_env.filters.update(money=money, hours=hours, display_date=display_date, display_datetime=display_datetime)
-    app.context_processor(lambda: dict(csrf_token=csrf_token, current_user=g.user, today=today(), mail_ready=mail_ready(), work_weeks=WORK_WEEKS))
+    app.context_processor(lambda: dict(csrf_token=csrf_token, current_user=g.user, today=today(), mail_ready=mail_ready(), work_weeks=WORK_WEEKS,
+                                       business_roles=BUSINESS_ROLES, working_states=WORKING_STATES))
 
     def mail_ready():
         return bool(app.config['SMTP_HOST'] and app.config['SMTP_FROM'] and app.config['APP_URL'].startswith('https://'))
@@ -339,6 +347,8 @@ def create_app(test_config=None):
         if g.user:
             if is_driver(db(), g.user):
                 return redirect(url_for('bf_workday'))
+            if is_manager(g.user) and has_binflow_access(g.user):
+                return redirect(url_for('bf_dashboard'))
             return redirect(url_for('admin_dashboard' if g.user['role'] == 'admin' else 'employee_dashboard'))
         return redirect(url_for('login', audience='employee'))
 
@@ -406,6 +416,11 @@ def create_app(test_config=None):
             except ValueError:
                 raise ValueError('Enter a valid licence expiry date.')
         if admin:
+            if 'business_role' in request.form or 'working_state' in request.form:
+                values['business_role'] = request.form.get('business_role', '')
+                values['working_state'] = request.form.get('working_state', '')
+                if values['business_role'] not in BUSINESS_ROLES or values['working_state'] not in WORKING_STATES:
+                    raise ValueError('Choose a business role and working state for this employee.')
             values['username'] = request.form.get('username', '').strip().lower()
             if not re.fullmatch(r'[a-z0-9._@+-]{3,80}', values['username']):
                 raise ValueError('Username must be 3–80 letters, numbers, or . _ @ + - characters.')
@@ -443,8 +458,11 @@ def create_app(test_config=None):
                     raise ValueError('Passwords must have at least 12 characters.')
                 db().execute('BEGIN IMMEDIATE')
                 if person:
+                    profile_changed = any(key in values and values[key] != person[key] for key in ('business_role', 'working_state'))
+                    if profile_changed and db().execute('SELECT 1 FROM bf_workdays WHERE user_id=? AND finished_at IS NULL', (user_id,)).fetchone():
+                        raise ValueError('Finish or reconcile this employee’s active driver day before changing their role or working state.')
                     db().execute('UPDATE users SET ' + ','.join(f'{k}=?' for k in values) + ' WHERE id=?', (*values.values(), user_id))
-                    if person['status'] != values['status'] or person['username'] != values['username']:
+                    if profile_changed or person['status'] != values['status'] or person['username'] != values['username']:
                         db().execute('UPDATE users SET auth_version=auth_version+1 WHERE id=?', (user_id,))
                 else:
                     cursor = db().execute("INSERT INTO users(role," + ','.join(values) + ") VALUES('employee'," + ','.join('?' for _ in values) + ')', tuple(values.values()))

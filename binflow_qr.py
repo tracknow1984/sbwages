@@ -185,8 +185,10 @@ def register_qr(app,db,access,require,allowed,render,success,failure,now,actor):
     @app.route('/binflow/qr/<token>/driver/<movement>',methods=['GET','POST'])
     @access
     def bf_qr_driver(token,movement):
+        from binflow_permissions import require_state
         if movement not in ('load','pickup','delivery'): abort(404)
         b=bin_record(token)
+        require_state(g.user,b['state'])
         direction='collect' if movement=='pickup' else 'deliver'
         action='load' if movement=='load' else direction
         selected=request.form.get('job_id',type=int) if request.method=='POST' else request.args.get('job',type=int)

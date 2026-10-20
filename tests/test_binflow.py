@@ -282,7 +282,8 @@ class BinFlowTests(unittest.TestCase):
             self.assertEqual(self.client.get(path).status_code,403)
         self.post('/logout'); self.login()
         uid=self.rows("SELECT id FROM users WHERE username='driver'")[0]['id']
-        self.post('/binflow/setup',{'action':'access','users':[uid]})
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("UPDATE users SET business_role='driver',working_state='QLD' WHERE id=?",(uid,))
         self.post('/logout')
         self.client.get('/binflow/qr/'+token+'/driver/pickup')
         result=self.login('employee','driver')

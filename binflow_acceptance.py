@@ -64,6 +64,7 @@ def schedule_changed(conn,truck_id,run_date,uid,actor,stamp,notes):
 
 def schedule_cards(conn,state,run_date,today,user):
     """Only actual approved jobs with a truck can be accepted; planning profiles are separate."""
+    from binflow_permissions import is_office
     first=min(run_date,today);last=max(run_date,(date.fromisoformat(today)+timedelta(days=60)).isoformat())
     jobs=conn.execute('''SELECT j.*,t.name AS truck_name,r.driver_id AS run_driver,r.accepted_at,r.accepted_by,r.accepted_name,r.returned_at,
         r.acceptance_required,u.first_name||' '||u.last_name AS assigned_name
@@ -78,7 +79,7 @@ def schedule_cards(conn,state,run_date,today,user):
     for (tid,day),rows in grouped.items():
         assigned={r['driver_id'] for r in rows if r['driver_id']}|{r['run_driver'] for r in rows if r['run_driver']}
         mine=not assigned or assigned=={user['id']}
-        if user['role']!='admin' and not mine: continue
+        if not is_office(user) and not mine: continue
         active=any(r['status'] in ('scheduled','collected') for r in rows)
         if active and day>=today: state_counts[rows[0]['state']]+=1
         if rows[0]['state']!=state: continue
@@ -109,9 +110,11 @@ def register_acceptance(app,db,access,success,failure,now,actor):
     @app.post('/binflow/driver/<int:truck_id>/accept')
     @access
     def bf_accept_run(truck_id):
+        from binflow_permissions import require_state
         run_date=request.form.get('date','')
         truck=db().execute('SELECT * FROM bf_trucks WHERE id=?',(truck_id,)).fetchone()
         if not truck: abort(404)
+        require_state(g.user,truck['state'])
         try:
             valid_date(run_date)
             db().execute('BEGIN IMMEDIATE')

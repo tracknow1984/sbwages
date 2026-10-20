@@ -1,4 +1,8 @@
-"""Driver portal permissions shared by navigation and server-side routes."""
+"""Business roles and state boundaries for BINFLOW and staff profiles."""
+from flask import abort
+
+BUSINESS_ROLES = {'driver': 'DRIVER', 'labour': 'LABOUR', 'manager': 'MANAGER', 'contractor': 'CONTRACTOR'}
+WORKING_STATES = ('QLD', 'NSW', 'VIC', 'SA', 'WA', 'ACT')
 
 # Supporting routes belong to Driver day, Daily schedule or Daily PODs.
 # New operations routes remain office-only until explicitly reviewed here.
@@ -12,12 +16,58 @@ DRIVER_ENDPOINTS = frozenset({
 
 
 def is_driver(conn, user):
-    return bool(user and user['role'] == 'employee' and conn.execute(
-        'SELECT 1 FROM bf_access WHERE user_id=?', (user['id'],)).fetchone())
+    return bool(user and user['role'] == 'employee' and user['business_role'] in ('driver', 'contractor') and has_binflow_access(user))
+
+
+def is_manager(user):
+    return bool(user and user['role'] == 'employee' and user['business_role'] == 'manager')
+
+
+def is_office(user):
+    return bool(user and (user['role'] == 'admin' or is_manager(user)))
+
+
+def has_binflow_access(user):
+    return bool(user and (user['role'] == 'admin' or
+        (user['business_role'] in ('driver', 'manager', 'contractor') and user['working_state'] in WORKING_STATES)))
+
+
+def state_scope(user):
+    return user['working_state'] if user and user['role'] == 'employee' and user['business_role'] in ('driver', 'contractor') else None
+
+
+def state_allowed(user, state):
+    return has_binflow_access(user) and (state_scope(user) is None or state_scope(user) == state)
+
+
+def require_state(user, state):
+    if not state_allowed(user, state):
+        abort(403, 'This information is outside your allocated working state. Ask the office to review your profile.')
+
+
+def selected_state(user, supplied=''):
+    scope = state_scope(user)
+    if scope is not None:
+        require_state(user, supplied or scope)
+        return scope
+    return supplied
+
+
+def eligible_driver(conn, user_id, state):
+    user = conn.execute('SELECT * FROM users WHERE id=? AND status=\'active\'', (user_id,)).fetchone()
+    return bool(user and state_allowed(user, state))
+
+
+def available_drivers(conn, state=''):
+    users = conn.execute('SELECT * FROM users WHERE status=\'active\' ORDER BY first_name,last_name').fetchall()
+    return [u for u in users if has_binflow_access(u) and (not state or state_allowed(u, state))]
 
 
 def can_view_run(conn, user, truck_id, run_date, include_available=True):
-    if user['role'] == 'admin':
+    truck = conn.execute('SELECT state FROM bf_trucks WHERE id=?', (truck_id,)).fetchone()
+    if not truck or not state_allowed(user, truck['state']):
+        return False
+    if is_office(user):
         return True
     run = conn.execute('SELECT driver_id FROM bf_runs WHERE truck_id=? AND run_date=?',
                        (truck_id, run_date)).fetchone()
@@ -30,8 +80,12 @@ def can_view_run(conn, user, truck_id, run_date, include_available=True):
 
 
 def can_view_job(conn, user, job):
-    if not user or user['role'] == 'admin':
+    if not user:
         # Client portal PDFs have their own account/scope check before calling the renderer.
+        return True
+    if not state_allowed(user, job['state']):
+        return False
+    if is_office(user):
         return True
     if job['approval_status'] != 'approved' or job['status'] == 'cancelled':
         return False

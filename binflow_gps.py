@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 from cryptography.fernet import Fernet, InvalidToken
 from flask import abort, g, jsonify, render_template, request
 from binflow_tracking import tracking_snapshot, visible_unit_ids, STATES
+from binflow_permissions import is_office
 
 HOSTS = ('https://hst-api.wialon.com','https://hst-api.wialon.us','https://hst-api.wialon.eu','https://hst-api.wialon.org')
 FRESH_SECONDS = 300
@@ -279,4 +280,4 @@ def register_gps(app, db, access, require, render, success, failure, now, actor)
         state=request.args.get('state','')
         if state and state not in STATES: abort(400)
         refresh()
-        return jsonify(tracking_snapshot(db(),state,include_unlinked=g.user['role']=='admin'))
+        return jsonify(tracking_snapshot(db(),state,include_unlinked=is_office(g.user)))

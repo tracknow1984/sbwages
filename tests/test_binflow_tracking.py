@@ -97,7 +97,7 @@ class TrackingTests(unittest.TestCase):
             uid=conn.execute("INSERT INTO users(role,first_name,last_name,email,username,password_hash) VALUES('employee','Map','Driver','map@example.com','map',?)",(generate_password_hash('test-admin-password'),)).lastrowid
         self.login('employee','map')
         self.assertEqual(self.client.get('/binflow/gps/map').status_code,403)
-        with sqlite3.connect(self.path) as conn: conn.execute('INSERT INTO bf_access(user_id) VALUES(?)',(uid,))
+        with sqlite3.connect(self.path) as conn: conn.execute("UPDATE users SET business_role='driver',working_state='QLD' WHERE id=?",(uid,))
         self.assertEqual(self.client.get('/binflow/gps/map').status_code,403)
         self.assertEqual(self.client.get('/binflow/gps/status').status_code,403)
         self.assertEqual(self.client.get('/admin/bin-management').location,'/binflow/driver/my-day')

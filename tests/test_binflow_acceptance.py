@@ -40,7 +40,7 @@ class AcceptanceTests(unittest.TestCase):
     def driver(self,name):
         with sqlite3.connect(self.path) as conn:
             uid=conn.execute("INSERT INTO users(role,first_name,last_name,email,username,password_hash) VALUES('employee',?,'Driver',?,?,?)",(name,name+'@example.com',name,generate_password_hash('test-admin-password'))).lastrowid
-            conn.execute('INSERT INTO bf_access(user_id) VALUES(?)',(uid,))
+            conn.execute("UPDATE users SET business_role='driver',working_state='QLD' WHERE id=?",(uid,))
         return uid
 
     def test_state_day_cards_only_offer_approved_assigned_jobs(self):
@@ -185,7 +185,7 @@ class AcceptanceTests(unittest.TestCase):
         self.post('/logout')
         self.assertEqual(self.post('/binflow/driver/1/accept',{'date':RUN_DATE,'manifest_version':token},follow=False).status_code,302)
         uid=self.driver('unauthorised')
-        with sqlite3.connect(self.path) as conn: conn.execute('DELETE FROM bf_access WHERE user_id=?',(uid,))
+        with sqlite3.connect(self.path) as conn: conn.execute("UPDATE users SET business_role='labour' WHERE id=?",(uid,))
         self.login('employee','unauthorised')
         self.assertEqual(self.post('/binflow/driver/1/accept',{'date':RUN_DATE,'manifest_version':token}).status_code,403)
         self.assertFalse(self.rows('SELECT * FROM bf_run_acceptance_history'))

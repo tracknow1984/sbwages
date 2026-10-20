@@ -138,7 +138,7 @@ class CollectionCalendarTests(unittest.TestCase):
         self.assertEqual(self.client.post('/binflow/locations/3/collection-profile',data={}).status_code,400)
         with sqlite3.connect(self.path) as conn:
             uid=conn.execute("INSERT INTO users(role,first_name,last_name,email,username,password_hash) VALUES('employee','Transport','Worker','worker@example.com','planner',?)",(generate_password_hash('test-admin-password'),)).lastrowid
-            conn.execute('INSERT INTO bf_access VALUES(?)',(uid,))
+            conn.execute("UPDATE users SET business_role='driver',working_state='QLD' WHERE id=?",(uid,))
         self.post('/logout');self.login('employee','planner')
         self.assertEqual(self.client.get('/binflow/collection-calendar').status_code,403)
         self.assertEqual(self.client.get('/binflow/locations/3/collection-profile').status_code,403)

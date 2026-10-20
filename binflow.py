@@ -16,7 +16,8 @@ from zoneinfo import ZoneInfo
 from flask import abort, flash, g, redirect, render_template, request, send_file, session, url_for
 from prestart_media import photo_jpeg, signature_png
 from binflow_driver import migrate_driver, register_driver
-from binflow_permissions import DRIVER_ENDPOINTS, is_driver, can_view_job
+from binflow_permissions import (DRIVER_ENDPOINTS, is_driver, is_manager, is_office, can_view_job,
+    has_binflow_access, state_scope, eligible_driver, available_drivers)
 from binflow_runs import migrate_runs, register_runs, guard_movement, check_owner
 from binflow_gps import migrate_gps, register_gps
 from binflow_portal import migrate_portal, register_portal
@@ -136,9 +137,10 @@ def register_binflow(app, db, require):
     app.jinja_env.filters['bfkg'] = kg
 
     def allowed():
-        return bool(g.user and (g.user['role'] == 'admin' or db().execute('SELECT 1 FROM bf_access WHERE user_id=?', (g.user['id'],)).fetchone()))
+        return has_binflow_access(g.user)
 
-    app.context_processor(lambda: dict(binflow_allowed=allowed(), binflow_driver=is_driver(db(), g.user)))
+    app.context_processor(lambda: dict(binflow_allowed=allowed(), binflow_driver=is_driver(db(), g.user),
+                                      binflow_manager=is_manager(g.user), binflow_state=state_scope(g.user)))
 
     def access(fn):
         @wraps(fn)
@@ -147,8 +149,8 @@ def register_binflow(app, db, require):
                 session['binflow_next'] = request.path
                 return redirect(url_for('bf_signin'))
             if not allowed():
-                abort(403, 'Ask an administrator to enable BINFLOW access for your staff login.')
-            if g.user['role'] != 'admin':
+                abort(403, 'BINFLOW requires a DRIVER, MANAGER or CONTRACTOR profile with an allocated working state. Ask the office to update Staff details.')
+            if not is_office(g.user):
                 if fn.__name__ == 'bf_dashboard':
                     return redirect(url_for('bf_workday'))
                 if fn.__name__ not in DRIVER_ENDPOINTS:
@@ -196,6 +198,9 @@ def register_binflow(app, db, require):
         return db().execute('SELECT i.*,b.token FROM bf_job_bins i JOIN bf_bins b ON b.id=i.bin_id WHERE i.job_id=? ORDER BY i.direction,i.bin_code', (job_id,)).fetchall()
 
     def bins(where='1=1', args=()):
+        scope = state_scope(g.user)
+        if scope is not None:
+            where, args = '(' + where + ') AND b.state=?', (*args, scope)
         return db().execute('''SELECT b.*,s.name AS size_name,COALESCE(t.name,l.name) AS location_name,l.kind,c.name AS client_name,
             t.name AS truck_name,
             (SELECT i.job_id FROM bf_job_bins i WHERE i.bin_id=b.id AND i.active=1) AS reserved_job
@@ -203,7 +208,8 @@ def register_binflow(app, db, require):
             LEFT JOIN bf_clients c ON c.id=l.client_id LEFT JOIN bf_trucks t ON t.id=b.truck_id WHERE ''' + where + ' ORDER BY b.id', args).fetchall()
 
     def render(name, **values):
-        return render_template('binflow/' + name + '.html', tab='binflow', states=STATES, statuses=STATUSES,
+        scope = state_scope(g.user)
+        return render_template('binflow/' + name + '.html', tab='binflow', states=(scope,) if scope else STATES, statuses=STATUSES,
                                job_statuses=JOB_STATUSES, **values)
 
     def success(message, endpoint, **values):
@@ -273,15 +279,7 @@ def register_binflow(app, db, require):
                 elif kind == 'size':
                     db().execute('INSERT INTO bf_sizes(name,litres,default_tare_g) VALUES(?,?,?)', (text_field('name', 60), integer('litres', 50000), grams(request.form.get('tare', '0'), 'Empty tare')))
                 elif kind == 'access':
-                    ids = request.form.getlist('users')
-                    if len(ids) > 1000 or any(not v.isdigit() for v in ids):
-                        raise ValueError('Invalid staff selection.')
-                    db().execute('DELETE FROM bf_access')
-                    for uid in set(ids):
-                        row = db().execute("SELECT id FROM users WHERE id=? AND role='employee' AND status='active'", (uid,)).fetchone()
-                        if not row:
-                            raise ValueError('Only active employees can receive bin transport access.')
-                        db().execute('INSERT INTO bf_access(user_id) VALUES(?)', (uid,))
+                    raise ValueError('Set each employee’s business role and working state in Staff details. The old access checkbox is no longer used.')
                 else:
                     raise ValueError('Unknown action.')
                 return success('Saved.', 'bf_setup')
@@ -538,8 +536,8 @@ def register_binflow(app, db, require):
                     raise ValueError('Choose a warehouse in the same state as the client site. Bin pools stay within their state.')
                 scheduled = date.fromisoformat(text_field('scheduled_date'))
                 driver = request.form.get('driver_id', '')
-                if driver and not db().execute("SELECT 1 FROM users u WHERE u.id=? AND u.status='active' AND (u.role='admin' OR EXISTS(SELECT 1 FROM bf_access a WHERE a.user_id=u.id))", (driver,)).fetchone():
-                    raise ValueError('Choose an active staff member with bin transport access.')
+                if driver and not eligible_driver(db(), driver, site['state']):
+                    raise ValueError('Choose an active driver or contractor allocated to this state, or a manager.')
                 selected = []
                 for direction in ('collect','deliver'):
                     ids = request.form.getlist(direction)
@@ -608,7 +606,7 @@ def register_binflow(app, db, require):
             warehouse = next((w for w in warehouses if w['state'] == site['state']), None)
         collect = bins("b.location_id=? AND b.status IN ('at_client','full') AND NOT EXISTS(SELECT 1 FROM bf_job_bins i WHERE i.bin_id=b.id AND i.active=1)", (site['id'],)) if site else []
         deliver = bins("b.location_id=? AND b.status='empty' AND NOT EXISTS(SELECT 1 FROM bf_job_bins i WHERE i.bin_id=b.id AND i.active=1)", (warehouse['id'],)) if warehouse and site and warehouse['state'] == site['state'] else []
-        drivers = db().execute("SELECT u.id,u.first_name,u.last_name FROM users u WHERE u.status='active' AND (u.role='admin' OR EXISTS(SELECT 1 FROM bf_access a WHERE a.user_id=u.id)) ORDER BY u.first_name").fetchall()
+        drivers = available_drivers(db(), site['state'] if site else '')
         profile, loading = site_plan(db(),site['id'],warehouse['id'],run_date=plan_date) if site and warehouse and site['state']==warehouse['state'] else (None,[])
         defaults = {'collect':set(), 'deliver':set()}
         for direction, available in (('collect',collect),('deliver',deliver)):
@@ -626,7 +624,7 @@ def register_binflow(app, db, require):
     def bf_job(job_id):
         j = job(job_id)
         rows = items(job_id)
-        if g.user['role'] != 'admin':
+        if not is_office(g.user):
             return render('driver_job', section='pods' if j['collected_at'] else 'calendar',
                           job=j, items=rows, net=sum(i['net_g'] or 0 for i in rows))
         return render('job', section='pickups', job=j, items=rows, net=sum(i['net_g'] or 0 for i in rows), remaining=sum(i['direction']=='collect' and i['weighed_at'] is None for i in rows),
@@ -640,7 +638,7 @@ def register_binflow(app, db, require):
     def bf_job_action(job_id, action):
         if action not in ('exchange','receive','cancel'):
             abort(404)
-        if g.user['role'] != 'admin':
+        if not is_office(g.user):
             j = job(job_id)
             if action != 'exchange' or not j['scan_mode'] or not j['truck_id']:
                 abort(403, 'Use your driver day to scan bins and complete the client handover.')

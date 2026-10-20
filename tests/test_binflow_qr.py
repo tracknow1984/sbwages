@@ -121,7 +121,7 @@ class PublicQrTests(unittest.TestCase):
         self.assertEqual(self.post(route,dict(job_id=1)).status_code,403)
         page=self.client.get(self.url()).data
         for label in (b'ALLOCATE TO TRUCK',b'DRIVER PICKUP',b'DRIVER DELIVERY'): self.assertNotIn(label,page)
-        with sqlite3.connect(self.path) as conn:conn.execute('INSERT INTO bf_access(user_id) VALUES(?)',(uid,))
+        with sqlite3.connect(self.path) as conn:conn.execute("UPDATE users SET business_role='driver',working_state='QLD' WHERE id=?",(uid,))
         self.assertEqual(self.client.get(route).status_code,200)
         self.assertEqual(self.client.get('/binflow/qr/'+self.tokens[1]).status_code,200)
 

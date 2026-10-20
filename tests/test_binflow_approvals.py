@@ -103,7 +103,7 @@ class AllocationApprovalTests(unittest.TestCase):
         from werkzeug.security import generate_password_hash
         with sqlite3.connect(self.path) as conn:
             uid=conn.execute("INSERT INTO users(role,first_name,last_name,email,username,password_hash) VALUES('employee','Allocation','Operator','allocation@example.com','allocator',?)",(generate_password_hash('test-admin-password'),)).lastrowid
-            conn.execute('INSERT INTO bf_access(user_id) VALUES(?)',(uid,))
+            conn.execute("UPDATE users SET business_role='driver',working_state='QLD' WHERE id=?",(uid,))
         self.post('/logout');self.login('employee','allocator')
         result=self.allocate()
         self.assertEqual(result.status_code,403)

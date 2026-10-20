@@ -22,8 +22,8 @@ class DriverPortalTests(unittest.TestCase):
             self.other = conn.execute("""INSERT INTO users(role,first_name,email,username,password_hash)
                 VALUES('employee','Other','other@example.com','other',?)""",
                 (generate_password_hash('test-admin-password'),)).lastrowid
-            conn.execute('INSERT INTO bf_access VALUES(?)', (self.uid,))
-            conn.execute('INSERT INTO bf_access VALUES(?)', (self.other,))
+            conn.execute("UPDATE users SET business_role='driver',working_state='QLD' WHERE id=?", (self.uid,))
+            conn.execute("UPDATE users SET business_role='driver',working_state='QLD' WHERE id=?", (self.other,))
 
     def driver(self):
         self.post('/logout')
@@ -101,7 +101,7 @@ class DriverPortalTests(unittest.TestCase):
         self.assertIn('New allocation', admin)
         self.assertNotIn('aria-label="Driver menu"', admin)
         with sqlite3.connect(self.path) as conn:
-            conn.execute('DELETE FROM bf_access WHERE user_id=?', (self.other,))
+            conn.execute("UPDATE users SET business_role='labour' WHERE id=?", (self.other,))
         self.post('/logout')
         page = self.login('employee', 'other')
         self.assertEqual(page.request.path, '/employee/dashboard')

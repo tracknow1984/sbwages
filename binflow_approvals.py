@@ -71,9 +71,9 @@ def register_approvals(app,db,access,require,allowed,render,job,items,bins,event
         if not rows or any(i['loaded_at'] or i['delivered_at'] or i['picked_up_at'] or i['weighed_at'] for i in rows):
             raise ValueError('This allocation has unexpected movements. Review its docket before continuing.')
         if decision=='approve':
-            if j['driver_id'] and not db().execute('''SELECT 1 FROM users u WHERE id=? AND status='active'
-                AND (role='admin' OR EXISTS(SELECT 1 FROM bf_access a WHERE a.user_id=u.id))''',(j['driver_id'],)).fetchone():
-                raise ValueError('The proposed driver no longer has active transport access. Reject and revise this allocation.')
+            from binflow_permissions import eligible_driver
+            if j['driver_id'] and not eligible_driver(db(),j['driver_id'],j['state']):
+                raise ValueError('The proposed driver no longer has transport access for this state. Reject and revise this allocation.')
             for item in rows:
                 b=bins('b.id=?',(item['bin_id'],))[0]
                 location=j['site_id'] if item['direction']=='collect' else j['warehouse_id']
