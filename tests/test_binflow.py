@@ -2,6 +2,9 @@ import io
 import sqlite3
 import tempfile
 import unittest
+from datetime import datetime
+from unittest.mock import patch
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from urllib.parse import urlparse
 from werkzeug.datastructures import MultiDict
@@ -12,6 +15,10 @@ from app import create_app
 
 class BinFlowTests(unittest.TestCase):
     def setUp(self):
+        # All legacy run/request fixtures use this date; keep their daily gates deterministic.
+        clock = patch('binflow.datetime', wraps=datetime)
+        clock.start().now.return_value = datetime(2026, 10, 19, 8, tzinfo=ZoneInfo('Australia/Brisbane'))
+        self.addCleanup(clock.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.path = str(Path(self.temp.name) / 'test.db')
         self.app = create_app({'TESTING': True, 'DATABASE': self.path, 'SECRET_KEY': 'test-binflow-secret-'*4,
@@ -289,7 +296,7 @@ class BinFlowTests(unittest.TestCase):
         self.assertEqual(self.client.get('/admin/staff').status_code,403)
         self.assertEqual(self.client.post('/binflow/bins/1',data={'action':'full'}).status_code,400)
         self.assertEqual(self.post('/binflow/bins',{'warehouse_id':1,'size_id':1,'quantity':1,'tare':0}).status_code,403)
-        self.assertIn(b'>BINFLOW</a>',self.client.get('/employee/dashboard').data)
+        self.assertEqual(self.client.get('/employee/dashboard').location,'/binflow/driver/my-day')
 
     def test_unique_qr_labels_and_no_public_customer_data(self):
         tokens=[r['token'] for r in self.rows('SELECT token FROM bf_bins ORDER BY id')]

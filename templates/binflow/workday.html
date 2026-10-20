@@ -4,7 +4,7 @@
 <script src="{{ url_for('static',filename='binflow.js') }}" defer></script>
 <script src="{{ url_for('static',filename='binflow-clock.js') }}" defer></script>
 <div class="bf bf-day bf-mobile-day">
-<nav class="bf-mobile-nav"><a href="{{ url_for('bf_dashboard') }}">BINFLOW</a><a href="{{ url_for('employee_timesheet') if current_user.role=='employee' else url_for('bf_drivers') }}">{{ 'My timesheet' if current_user.role=='employee' else 'Office schedules' }}</a></nav>
+{% if not binflow_driver %}<nav class="bf-mobile-nav"><a href="{{ url_for('bf_dashboard') }}">BINFLOW</a><a href="{{ url_for('employee_timesheet') if current_user.role=='employee' else url_for('bf_drivers') }}">{{ 'My timesheet' if current_user.role=='employee' else 'Office schedules' }}</a></nav>{% endif %}
 <header class="bf-heading"><div><span class="bf-kicker">MY DRIVER DAY</span><h1>{{ 'Day complete' if workday and workday.finished_at else 'Hello, '+current_user.first_name }}</h1><p>{{ workday.work_date|display_date if workday else 'One step at a time. Start when you are ready for work.' }}</p></div></header>
 {% if not workday %}
 <section class="bf-panel bf-pad bf-clock-card"><span class="bf-kicker">STEP 1 · START WORK</span><h2>Ready to start your day?</h2><p data-device-now>Your phone will record the time when you tap Start day.</p><form method="post" action="{{ url_for('bf_start_workday') }}" data-clock-form><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="primary bf-next">Start day</button></form><p class="bf-muted">{{ 'Your start time goes straight onto your timesheet.' if current_user.role=='employee' else 'Admin accounts record a driver day without creating wage entries.' }}</p></section>

@@ -140,7 +140,7 @@ class CollectionCalendarTests(unittest.TestCase):
             uid=conn.execute("INSERT INTO users(role,first_name,last_name,email,username,password_hash) VALUES('employee','Transport','Worker','worker@example.com','planner',?)",(generate_password_hash('test-admin-password'),)).lastrowid
             conn.execute('INSERT INTO bf_access VALUES(?)',(uid,))
         self.post('/logout');self.login('employee','planner')
-        self.assertEqual(self.client.get('/binflow/collection-calendar').status_code,200)
+        self.assertEqual(self.client.get('/binflow/collection-calendar').status_code,403)
         self.assertEqual(self.client.get('/binflow/locations/3/collection-profile').status_code,403)
         self.assertEqual(self.profile().status_code,403)
         self.post('/logout')

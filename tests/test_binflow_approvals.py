@@ -99,21 +99,21 @@ class AllocationApprovalTests(unittest.TestCase):
         self.assertEqual(len(self.rows('SELECT * FROM bf_jobs')),2)
         self.assertEqual(self.rows('SELECT approval_status FROM bf_jobs WHERE id=2')[0]['approval_status'],'pending')
 
-    def test_employee_can_submit_but_only_admin_can_decide(self):
+    def test_only_office_can_submit_and_decide_allocations(self):
         from werkzeug.security import generate_password_hash
         with sqlite3.connect(self.path) as conn:
             uid=conn.execute("INSERT INTO users(role,first_name,last_name,email,username,password_hash) VALUES('employee','Allocation','Operator','allocation@example.com','allocator',?)",(generate_password_hash('test-admin-password'),)).lastrowid
             conn.execute('INSERT INTO bf_access(user_id) VALUES(?)',(uid,))
         self.post('/logout');self.login('employee','allocator')
         result=self.allocate()
-        self.assertIn(b'administrator needs to approve',result.data)
-        self.assertNotIn(b'>Approve allocation</button>',result.data)
+        self.assertEqual(result.status_code,403)
         self.assertEqual(self.review().status_code,403)
         self.assertEqual(self.review(decision='reject',notes='Not permitted').status_code,403)
-        self.assertEqual(self.rows('SELECT approval_status FROM bf_jobs')[0]['approval_status'],'pending')
+        self.assertEqual(self.rows('SELECT * FROM bf_jobs'),[])
         self.post('/logout')
         self.assertEqual(self.client.get('/binflow/allocation-approvals').status_code,302)
         self.login()
+        self.allocate()
         self.assertEqual(self.client.post('/binflow/pickups/1/review',data=dict(decision='approve')).status_code,400)
         self.review()
         self.assertEqual(self.rows('SELECT approval_status FROM bf_jobs')[0]['approval_status'],'approved')

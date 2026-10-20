@@ -268,6 +268,7 @@ def register_requirements(app, db, require, access, location, render, success, a
     @app.get('/binflow/driver/<int:truck_id>/load-list')
     @access
     def bf_load_list(truck_id):
+        from binflow_runs import check_owner
         truck = db().execute('SELECT * FROM bf_trucks WHERE id=?',(truck_id,)).fetchone()
         if not truck:
             abort(404)
@@ -275,6 +276,7 @@ def register_requirements(app, db, require, access, location, render, success, a
             run_date = date.fromisoformat(request.args.get('date') or now()[:10]).isoformat()
         except ValueError:
             abort(400,'Choose a valid run date.')
+        check_owner(db(),truck_id,run_date,g.user)
         return render('load_list',section='driver',truck=truck,run_date=run_date,**load_plan(db(),truck_id,run_date))
 
     @app.route('/binflow/allocations',methods=['GET','POST'])

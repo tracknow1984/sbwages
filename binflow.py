@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 from flask import abort, flash, g, redirect, render_template, request, send_file, session, url_for
 from prestart_media import photo_jpeg, signature_png
 from binflow_driver import migrate_driver, register_driver
+from binflow_permissions import DRIVER_ENDPOINTS, is_driver, can_view_job
 from binflow_runs import migrate_runs, register_runs, guard_movement, check_owner
 from binflow_gps import migrate_gps, register_gps
 from binflow_portal import migrate_portal, register_portal
@@ -137,7 +138,7 @@ def register_binflow(app, db, require):
     def allowed():
         return bool(g.user and (g.user['role'] == 'admin' or db().execute('SELECT 1 FROM bf_access WHERE user_id=?', (g.user['id'],)).fetchone()))
 
-    app.context_processor(lambda: dict(binflow_allowed=allowed()))
+    app.context_processor(lambda: dict(binflow_allowed=allowed(), binflow_driver=is_driver(db(), g.user)))
 
     def access(fn):
         @wraps(fn)
@@ -147,6 +148,11 @@ def register_binflow(app, db, require):
                 return redirect(url_for('bf_signin'))
             if not allowed():
                 abort(403, 'Ask an administrator to enable BINFLOW access for your staff login.')
+            if g.user['role'] != 'admin':
+                if fn.__name__ == 'bf_dashboard':
+                    return redirect(url_for('bf_workday'))
+                if fn.__name__ not in DRIVER_ENDPOINTS:
+                    abort(403, 'This area is managed by the office. Use your driver menu to continue.')
             return fn(*args, **kwargs)
         return wrapped
 
@@ -182,6 +188,8 @@ def register_binflow(app, db, require):
         row = db().execute('SELECT j.*,u.first_name||\' \'||u.last_name AS driver_name FROM bf_jobs j LEFT JOIN users u ON u.id=j.driver_id WHERE j.id=?', (job_id,)).fetchone()
         if not row:
             abort(404)
+        if not can_view_job(db(), g.user, row):
+            abort(403, 'This docket is not assigned or available to you.')
         return row
 
     def items(job_id):
@@ -211,7 +219,7 @@ def register_binflow(app, db, require):
     @app.get('/binflow/sign-in')
     def bf_signin():
         if g.user:
-            return redirect(url_for('bf_dashboard'))
+            return redirect(url_for('bf_workday' if is_driver(db(), g.user) else 'bf_dashboard'))
         return render('signin', section='')
 
     @app.get('/admin/bin-management')
@@ -618,6 +626,9 @@ def register_binflow(app, db, require):
     def bf_job(job_id):
         j = job(job_id)
         rows = items(job_id)
+        if g.user['role'] != 'admin':
+            return render('driver_job', section='pods' if j['collected_at'] else 'calendar',
+                          job=j, items=rows, net=sum(i['net_g'] or 0 for i in rows))
         return render('job', section='pickups', job=j, items=rows, net=sum(i['net_g'] or 0 for i in rows), remaining=sum(i['direction']=='collect' and i['weighed_at'] is None for i in rows),
                       approval_history=db().execute('SELECT * FROM bf_allocation_history WHERE job_id=? ORDER BY id',(job_id,)).fetchall(),
                       trucks=db().execute('SELECT * FROM bf_trucks WHERE state=? ORDER BY name', (j['state'],)).fetchall(), loading=json.loads(j['bin_plan']),
@@ -629,6 +640,10 @@ def register_binflow(app, db, require):
     def bf_job_action(job_id, action):
         if action not in ('exchange','receive','cancel'):
             abort(404)
+        if g.user['role'] != 'admin':
+            j = job(job_id)
+            if action != 'exchange' or not j['scan_mode'] or not j['truck_id']:
+                abort(403, 'Use your driver day to scan bins and complete the client handover.')
         try:
             photo = None; signature = None
             if action == 'exchange':

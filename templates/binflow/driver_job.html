@@ -1,0 +1,17 @@
+{% extends 'binflow/layout.html' %}
+{% block title %}{{ job.code }}{% endblock %}
+{% block subtitle %}{{ job.client_name }} · {{ job.site_name }}{% endblock %}
+{% block body %}
+<section class="bf-panel bf-pad">
+  <span class="bf-status {{ job.status }}">{{ bf_job_label(job) }}</span>
+  <p>{{ job.scheduled_date|display_date }} · {{ job.vehicle or 'Vehicle awaiting allocation' }}</p>
+  <p>{{ job.site_address }}</p>
+  {% if job.collected_at %}<a class="button primary" href="{{ url_for('bf_pod',job_id=job.id) }}">View {{ 'final POD' if job.status=='complete' else 'provisional docket' }}</a>
+  {% elif job.truck_id %}<a class="button primary" href="{{ url_for('bf_run',truck_id=job.truck_id,date=job.scheduled_date) }}">Continue driver day →</a>
+  {% else %}<p>The office will assign a vehicle before this job can start.</p>{% endif %}
+</section>
+<section class="bf-panel bf-pad"><h2>Bins on this docket</h2><ul class="driver-docket-list">
+{% for item in items %}<li><strong>{{ item.bin_code }} · {{ item.size_name }}</strong><span>{{ 'Collect full' if item.direction=='collect' else 'Deliver empty' }}{% if item.net_g is not none %} · {{ item.net_g|bfkg }} kg net{% endif %}</span></li>{% endfor %}
+</ul>{% if job.collected_at %}<p>Recorded net weight: <strong>{{ net|bfkg }} kg</strong></p>{% if job.status!='complete' %}<p class="bf-muted">The POD closes after warehouse return and weighing.</p>{% endif %}{% endif %}</section>
+<p><a href="{{ url_for('bf_daily_pods' if job.collected_at else 'bf_calendar',date=job.scheduled_date) }}">← {{ 'Daily PODs' if job.collected_at else 'Daily schedule' }}</a></p>
+{% endblock %}

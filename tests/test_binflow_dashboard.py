@@ -124,16 +124,18 @@ class DashboardReviewTests(unittest.TestCase):
             uid=conn.execute("INSERT INTO users(role,first_name,last_name,email,username,password_hash) VALUES('employee','Dashboard','Driver','dash@example.com','dashdriver',?)",(generate_password_hash('test-admin-password'),)).lastrowid
             conn.execute('INSERT INTO bf_access(user_id) VALUES(?)',(uid,))
         self.post('/logout');self.login('employee','dashdriver')
-        page=self.dashboard()
-        self.assertIn(b'Prepare allocation',page)
+        response=self.client.get('/admin/bin-management',follow_redirects=True)
+        self.assertEqual(response.request.path,'/binflow/driver/my-day')
+        page=response.data
+        self.assertNotIn(b'Prepare allocation',page)
         self.assertNotIn(b'<summary>Refer to BLOCKTEXX</summary>',page)
         self.assertNotIn(b'<summary>Dismiss with a reason</summary>',page)
         self.assertEqual(self.post('/binflow/collection-requests/1/refer',dict(notes='No')).status_code,403)
         self.assertEqual(self.post('/binflow/collection-requests/1/close',dict(resolution='No')).status_code,403)
         self.assertEqual(self.allocate(approve=True).status_code,403)
         self.assertEqual(len(self.rows('SELECT * FROM bf_jobs')),1)
-        self.allocate()
-        self.assertEqual(self.rows('SELECT approval_status FROM bf_jobs WHERE id=2')[0]['approval_status'],'pending')
+        self.assertEqual(self.allocate().status_code,403)
+        self.assertEqual(len(self.rows('SELECT * FROM bf_jobs')),1)
         public=self.public.get(self.url()).data
         for value in (b'Private Contact',b'Private gate instructions',b'Refer to BLOCKTEXX',b'Dismiss with a reason'):
             self.assertNotIn(value,public)

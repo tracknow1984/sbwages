@@ -98,10 +98,9 @@ class TrackingTests(unittest.TestCase):
         self.login('employee','map')
         self.assertEqual(self.client.get('/binflow/gps/map').status_code,403)
         with sqlite3.connect(self.path) as conn: conn.execute('INSERT INTO bf_access(user_id) VALUES(?)',(uid,))
-        data=self.payload();self.assertEqual(len(data['units']),3);self.assertEqual(data['unlinked_count'],0)
-        self.assertNotIn('Unlinked fleet unit',str(data));self.assertNotIn('unit-3',[u['key'] for u in data['units']])
-        page=self.client.get('/admin/bin-management').data
-        self.assertIn(b'>BINFLOW</a>',page);self.assertNotIn(b'>GPS settings</a>',page)
+        self.assertEqual(self.client.get('/binflow/gps/map').status_code,403)
+        self.assertEqual(self.client.get('/binflow/gps/status').status_code,403)
+        self.assertEqual(self.client.get('/admin/bin-management').location,'/binflow/driver/my-day')
         self.assertEqual(self.client.get('/binflow/settings/gps').status_code,403)
 
     def test_refresh_is_shared_and_uses_server_saved_token(self):

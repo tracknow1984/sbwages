@@ -10,6 +10,7 @@ from flask import abort, flash, g, redirect, render_template, request, session, 
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from binflow_runs import valid_date
+from binflow_permissions import can_view_job
 
 
 def migrate_portal(conn):
@@ -107,6 +108,7 @@ def register_portal(app, db, access, require, render, success, failure, now, act
         jobs=db().execute('''SELECT j.*,(SELECT SUM(net_g) FROM bf_job_bins i WHERE i.job_id=j.id AND i.direction='collect') AS net,
             (SELECT COUNT(*) FROM bf_job_bins i WHERE i.job_id=j.id AND i.direction='collect' AND i.weighed_at IS NULL) AS unweighed
             FROM bf_jobs j WHERE j.scheduled_date=? AND j.approval_status='approved' AND j.status!='cancelled' ORDER BY j.client_name,j.site_name,j.id''',(run_date,)).fetchall()
+        jobs=[j for j in jobs if can_view_job(db(),g.user,j)]
         return render('daily_pods',section='pods',run_date=run_date,jobs=jobs,closed=sum(j['status']=='complete' for j in jobs))
 
     @app.route('/binflow/settings/client-access',methods=['GET','POST'])

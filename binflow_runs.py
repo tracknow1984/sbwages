@@ -13,6 +13,7 @@ from binflow_requirements import load_plan
 from binflow_approvals import ensure_approved
 from binflow_acceptance import acceptance_ok, manifest, schedule_changed
 from binflow_workday import run_workday, driver_today
+from binflow_permissions import can_view_job
 
 CHECKS = VEHICLE_CHECKS + [('lift', 'Tail lift / bin lifter and controls (if fitted)', True)]
 
@@ -331,6 +332,8 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
             (run_date,state) if state else (run_date,)).fetchall()
         groups={}
         for row in jobs:
+            if not can_view_job(db(),g.user,row):
+                continue
             j=dict(row)
             if j['received_at'] or (j['returned_at'] and j['collected_at']):
                 j.update(colour='orange',phase='Back at warehouse',detail='POD closed' if j['status']=='complete' else f'{j["unweighed"]} bins to weigh')
@@ -345,6 +348,8 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
             JOIN bf_trucks t ON t.id=i.truck_id JOIN prestarts p ON p.id=i.prestart_id
             WHERE i.passed=0 AND i.resolved_at IS NULL '''+('AND t.state=? ' if state else '')+
             'ORDER BY i.id DESC',(state,) if state else ()).fetchall()
+        if g.user['role'] != 'admin':
+            holds=[h for h in holds if h['driver_id']==g.user['id']]
         return dict(groups=list(groups.values()),holds=[dict(h,checks=json.loads(h['checks_json'])) for h in holds])
 
     @app.get('/binflow/calendar')
@@ -356,7 +361,7 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
         except ValueError as error: abort(400,str(error))
         day=date.fromisoformat(run_date)
         week=[(day+timedelta(days=n)).isoformat() for n in range(-3,4)]
-        employees=db().execute("SELECT id,first_name,last_name FROM users WHERE status='active' AND (role='admin' OR id IN (SELECT user_id FROM bf_access)) ORDER BY first_name,last_name").fetchall()
+        employees=db().execute("SELECT id,first_name,last_name FROM users WHERE status='active' AND (role='admin' OR id IN (SELECT user_id FROM bf_access)) ORDER BY first_name,last_name").fetchall() if g.user['role']=='admin' else []
         return render('calendar',section='calendar',run_date=run_date,week=week,employees=employees,selected_state=state,**calendar_data(run_date,state))
 
     @app.get('/binflow/calendar/state')

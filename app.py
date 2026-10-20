@@ -21,6 +21,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from lunch import deduct_lunch, migrate_lunch
 from work_weeks import WORK_WEEKS, profile_end, profile_start, saved_period
 from binflow_workday import active_entry
+from binflow_permissions import is_driver
 from prestart_config import ASSETS, DECLARATION, checklist
 from prestart_media import signature_png, photo_jpeg
 
@@ -336,6 +337,8 @@ def create_app(test_config=None):
     @app.get('/')
     def index():
         if g.user:
+            if is_driver(db(), g.user):
+                return redirect(url_for('bf_workday'))
             return redirect(url_for('admin_dashboard' if g.user['role'] == 'admin' else 'employee_dashboard'))
         return redirect(url_for('login', audience='employee'))
 
@@ -1005,6 +1008,8 @@ def create_app(test_config=None):
     @app.get('/employee/dashboard')
     @require('employee')
     def employee_dashboard():
+        if is_driver(db(), g.user):
+            return redirect(url_for('bf_workday'))
         day=today()
         ending=profile_end(day,g.user['work_week'])
         entry=db().execute('SELECT e.*,s.status AS sheet_status FROM entries e JOIN sheets s ON s.id=e.sheet_id WHERE e.user_id=? AND e.work_date=?', (g.user['id'],day.isoformat())).fetchone()
