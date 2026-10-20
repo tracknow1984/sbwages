@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 
 from cryptography.fernet import Fernet, InvalidToken
 from flask import abort, g, jsonify, render_template, request
-from binflow_tracking import tracking_snapshot, STATES
+from binflow_tracking import tracking_snapshot, visible_unit_ids, STATES
 
 HOSTS = ('https://hst-api.wialon.com','https://hst-api.wialon.us','https://hst-api.wialon.eu','https://hst-api.wialon.org')
 FRESH_SECONDS = 300
@@ -41,6 +41,8 @@ def migrate_gps(conn):
         inside INTEGER NOT NULL,position_time INTEGER NOT NULL,observed_at TEXT NOT NULL,
         UNIQUE(truck_id,location_id,position_time));
     ''')
+    if 'display_unit_ids' not in {row[1] for row in conn.execute('PRAGMA table_info(bf_gps_config)')}:
+        conn.execute('ALTER TABLE bf_gps_config ADD COLUMN display_unit_ids TEXT')
 
 
 def cipher(secret):
@@ -168,6 +170,16 @@ def register_gps(app, db, access, require, render, success, failure, now, actor)
         if request.method=='POST':
             try:
                 action=request.form.get('action')
+                if action=='display':
+                    selected={int(value) for value in request.form.getlist('display_unit_id')}
+                    db().execute('BEGIN IMMEDIATE')
+                    if not db().execute('SELECT 1 FROM bf_gps_config WHERE id=1').fetchone():
+                        raise ValueError('Connect Wialon before choosing vehicles.')
+                    known={row['unit_id'] for row in db().execute('SELECT unit_id FROM bf_gps_units')}
+                    if not selected<=known:
+                        raise ValueError('Choose vehicles from the connected Wialon account.')
+                    db().execute('UPDATE bf_gps_config SET display_unit_ids=? WHERE id=1',(json.dumps(sorted(selected)),))
+                    return success(f'Fleet display saved. {len(selected)} vehicles selected.','bf_gps_settings')
                 if action=='connect':
                     host=request.form.get('host','')
                     token=request.form.get('token','').strip()
@@ -213,7 +225,8 @@ def register_gps(app, db, access, require, render, success, failure, now, actor)
         units=db().execute('SELECT unit_id,name,available FROM bf_gps_units ORDER BY name').fetchall()
         locations=db().execute('''SELECT l.*,c.name AS client_name,f.latitude,f.longitude,f.radius_m FROM bf_locations l
             LEFT JOIN bf_clients c ON c.id=l.client_id LEFT JOIN bf_geofences f ON f.location_id=l.id ORDER BY l.state,l.kind,c.name,l.name''').fetchall()
-        return render('gps_settings',section='setup',config=config,hosts=HOSTS,trucks=trucks,units=units,locations=locations)
+        return render('gps_settings',section='setup',config=config,hosts=HOSTS,trucks=trucks,units=units,locations=locations,
+                      selected_units=visible_unit_ids(db()))
 
     @app.route('/binflow/locations/<int:location_id>/geofence',methods=['GET','POST'])
     @require('admin')
@@ -245,10 +258,12 @@ def register_gps(app, db, access, require, render, success, failure, now, actor)
     def bf_gps_status():
         refresh()
         config=db().execute('SELECT last_success,last_error FROM bf_gps_config WHERE id=1').fetchone()
-        rows=db().execute('''SELECT t.id,t.name,u.latitude,u.longitude,u.position_time,u.speed,u.available
+        rows=db().execute('''SELECT t.id,t.name,m.unit_id,u.latitude,u.longitude,u.position_time,u.speed,u.available
             FROM bf_trucks t LEFT JOIN bf_truck_gps m ON m.truck_id=t.id LEFT JOIN bf_gps_units u ON u.unit_id=m.unit_id ORDER BY t.state,t.name''').fetchall()
         trucks=[]
+        selected=visible_unit_ids(db())
         for row in rows:
+            if selected is not None and row['unit_id'] not in selected: continue
             t=dict(row)
             fresh=bool(config and not config['last_error'] and t['available'] and t['latitude'] is not None and t['position_time'] and -60<=time.time()-t['position_time']<=FRESH_SECONDS)
             places=db().execute('''SELECT l.name FROM bf_geofence_observations o JOIN bf_locations l ON l.id=o.location_id

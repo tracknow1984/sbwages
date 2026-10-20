@@ -1,8 +1,14 @@
 """Read-only map payloads. Wialon credentials never leave the server."""
 import math
 import time
+import json
 
 STATES = ('QLD','NSW','VIC','SA','WA','TAS','ACT','NT')
+
+
+def visible_unit_ids(conn):
+    config=conn.execute('SELECT display_unit_ids FROM bf_gps_config WHERE id=1').fetchone()
+    return None if not config or config['display_unit_ids'] is None else set(json.loads(config['display_unit_ids']))
 
 
 def tracking_snapshot(conn, state='', include_unlinked=False, epoch=None):
@@ -12,15 +18,18 @@ def tracking_snapshot(conn, state='', include_unlinked=False, epoch=None):
         stale_seconds=300,last_success=config['last_success'] if config else None,
         error=config['last_error'] if config else '',units=[],geofences=[],unlinked_count=0)
     if not config: return result
+    selected=visible_unit_ids(conn)
     rows=[dict(r) for r in conn.execute('''SELECT t.id AS truck_id,t.name,t.state,m.unit_id,u.name AS unit_name,
         u.latitude,u.longitude,u.position_time,u.speed,u.available FROM bf_trucks t
         LEFT JOIN bf_truck_gps m ON m.truck_id=t.id LEFT JOIN bf_gps_units u ON u.unit_id=m.unit_id '''+
         ('WHERE t.state=? ' if state else '')+'ORDER BY t.state,t.name',(state,) if state else ())]
+    if selected is not None: rows=[row for row in rows if row['unit_id'] in selected]
     if include_unlinked:
         # Admins can see the connected account immediately. Staff only see explicitly linked transport units.
         unlinked=[dict(r) for r in conn.execute('''SELECT NULL AS truck_id,name,NULL AS state,unit_id,name AS unit_name,
             latitude,longitude,position_time,speed,available FROM bf_gps_units u WHERE available=1
             AND NOT EXISTS(SELECT 1 FROM bf_truck_gps m WHERE m.unit_id=u.unit_id) ORDER BY name''')]
+        if selected is not None: unlinked=[row for row in unlinked if row['unit_id'] in selected]
         result['unlinked_count']=len(unlinked)
         if not state: rows+=unlinked
     for unit in rows:

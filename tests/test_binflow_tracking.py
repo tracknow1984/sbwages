@@ -114,5 +114,29 @@ class TrackingTests(unittest.TestCase):
             conn.execute('UPDATE bf_gps_units SET latitude=NULL,longitude=NULL,position_time=NULL,speed=NULL WHERE unit_id=1')
         self.assertEqual(self.payload('QLD')['units'][0]['status'],'unavailable')
 
+    def test_display_selection_survives_refresh_and_excludes_other_positions(self):
+        self.connect()
+        before=self.rows('SELECT host,token_cipher FROM bf_gps_config')
+        links=self.rows('SELECT * FROM bf_truck_gps')
+        self.post('/binflow/settings/gps',{'action':'display','display_unit_id':['1']})
+        self.assertEqual([u['unit_id'] for u in self.payload()['units']],[1])
+        self.assertEqual(self.payload()['unlinked_count'],0)
+        self.assertEqual(self.payload('NSW')['units'],[])
+        status=self.client.get('/binflow/gps/status').json['html']
+        self.assertIn('QLD transport',status);self.assertNotIn('NSW transport',status)
+        with sqlite3.connect(self.path) as conn:
+            conn.row_factory=sqlite3.Row
+            store_units(conn,self.units+[dict(self.units[2],unit_id=4,name='New unit')],'refresh')
+        self.assertEqual([u['unit_id'] for u in self.payload()['units']],[1])
+        self.assertEqual(self.rows('SELECT host,token_cipher FROM bf_gps_config'),before)
+        self.assertEqual(self.rows('SELECT * FROM bf_truck_gps'),links)
+        self.post('/binflow/settings/gps',{'action':'display','display_unit_id':['999']})
+        self.assertEqual([u['unit_id'] for u in self.payload()['units']],[1])
+        self.post('/binflow/settings/gps',{'action':'display'})
+        self.assertEqual(self.payload()['units'],[])
+        self.post('/binflow/settings/gps',{'action':'display','display_unit_id':['3']})
+        self.assertEqual([u['unit_id'] for u in self.payload()['units']],[3])
+        self.assertEqual(self.payload()['unlinked_count'],1)
+
 
 if __name__=='__main__': unittest.main()
