@@ -1,0 +1,1 @@
+{% for stamp in recording %}<div class="recording-stamp"><strong>{{ stamp.label }}</strong>{% if stamp.at %}<time datetime="{{ stamp.at }}">{{ stamp.text }}</time>{% else %}<span>{{ stamp.text }}</span>{% endif %}{% if stamp.by %}<small>{{ stamp.by }}</small>{% endif %}</div>{% else %}<span class="muted small">Not yet logged</span>{% endfor %}

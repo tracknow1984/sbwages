@@ -19,6 +19,7 @@ from flask import Flask, abort, flash, g, redirect, render_template, request, se
 from werkzeug.utils import secure_filename
 from werkzeug.security import check_password_hash, generate_password_hash
 from lunch import deduct_lunch, migrate_lunch
+from entry_recording import migrate_recording, stamp_entry, recording_details, recording_datetime
 from work_weeks import WORK_WEEKS, profile_end, profile_start, saved_period
 from binflow_workday import active_entry
 from binflow_permissions import is_driver, is_manager, has_binflow_access, BUSINESS_ROLES, WORKING_STATES
@@ -228,6 +229,7 @@ def create_app(test_config=None):
                 db().execute(f'ALTER TABLE entries ADD COLUMN {name} {definition}')
         db().execute("UPDATE entries SET committed_at=COALESCE((SELECT submitted_at FROM sheets WHERE id=entries.sheet_id), 'Previously submitted') WHERE committed_at IS NULL AND sheet_id IN (SELECT id FROM sheets WHERE status='submitted')")
         migrate_lunch(db())
+        migrate_recording(db())
         db().commit()
         if not db().execute("SELECT id FROM users WHERE role='admin'").fetchone():
             pw = app.config['ADMIN_PASSWORD']
@@ -320,7 +322,8 @@ def create_app(test_config=None):
     def amount(units, cents):
         return int((Decimal(units) * cents / 100).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
 
-    app.jinja_env.filters.update(money=money, hours=hours, display_date=display_date, display_datetime=display_datetime)
+    app.jinja_env.filters.update(money=money, hours=hours, display_date=display_date, display_datetime=display_datetime,
+                                recording_datetime=recording_datetime)
     app.context_processor(lambda: dict(csrf_token=csrf_token, current_user=g.user, today=today(), mail_ready=mail_ready(), work_weeks=WORK_WEEKS,
                                        business_roles=BUSINESS_ROLES, working_states=WORKING_STATES))
 
@@ -624,6 +627,7 @@ def create_app(test_config=None):
         booked = db().execute('SELECT e.work_date,s.week_end FROM entries e JOIN sheets s ON s.id=e.sheet_id WHERE e.user_id=? AND e.work_date BETWEEN ? AND ? AND s.week_end<>?',
             (person['id'], days[0].isoformat(), ending.isoformat(), ending.isoformat())).fetchall()
         return dict(sheet=sheet, days=days, entries=by_day, total_units=units, rate=rate, total_cents=total,
+                    entry_recordings={row['work_date']: recording_details(db(), row) for row in rows},
                     booked_days={row['work_date']: row['week_end'] for row in booked},
                     driver_dates={r['work_date'] for r in db().execute('''SELECT e.work_date FROM bf_workday_entries e JOIN bf_workdays d ON d.id=e.workday_id
                         WHERE d.user_id=? AND d.finished_at IS NULL''',(person['id'],))},
@@ -720,11 +724,13 @@ def create_app(test_config=None):
                         units=excluded.units,activity=excluded.activity,start_time=excluded.start_time,
                         finish_time=excluded.finish_time,committed_at=excluded.committed_at,lunch_units=excluded.lunch_units""",
                         (person['id'], day.isoformat(), sid, units, activity, start, finish, committed, lunch_units))
+                    saved_entry = stamp_entry(db(), person['id'], day.isoformat(), old, person['id'])
                 db().commit()
                 if request.accept_mimetypes.best == 'application/json' and action != 'submit':
                     return {'ok': True, 'work_date': day.isoformat(), 'units': units,
                             'start_time': start or '', 'finish_time': finish or '',
                             'activity': activity, 'lunch_units': lunch_units, 'committed': bool(committed),
+                            'recording': recording_details(db(), saved_entry),
                             'message': 'Day committed and locked.' if committed else 'Day saved.'}
                 flash({'save_day': 'Day saved.', 'commit_day': 'Day committed and locked.', 'submit': 'Timesheet submitted to admin.'}[action], 'success')
                 return redirect(url_for('employee_timesheet', week=ending.isoformat()))
@@ -741,7 +747,9 @@ def create_app(test_config=None):
     @app.get('/employee/history')
     @require('employee')
     def history():
-        sheets = db().execute("SELECT s.*,u.first_name,u.last_name,p.id AS payment_id FROM sheets s JOIN users u ON u.id=s.user_id LEFT JOIN payments p ON p.sheet_id=s.id WHERE s.user_id=? ORDER BY week_end DESC", (g.user['id'],)).fetchall()
+        sheets = db().execute("""SELECT s.*,u.first_name,u.last_name,p.id AS payment_id,
+            (SELECT MAX(COALESCE(e.last_updated_at,e.first_logged_at)) FROM entries e WHERE e.sheet_id=s.id) AS hours_logged_at
+            FROM sheets s JOIN users u ON u.id=s.user_id LEFT JOIN payments p ON p.sheet_id=s.id WHERE s.user_id=? ORDER BY week_end DESC""", (g.user['id'],)).fetchall()
         sheets = [dict(row) for row in sheets]
         for row in sheets:
             if row['status'] == 'draft':
@@ -755,6 +763,7 @@ def create_app(test_config=None):
     def admin_timesheets():
         archived = request.args.get('archived') == '1'
         sheets = db().execute("""SELECT s.id,s.user_id,s.week_end,s.week_start,s.work_week,s.status,s.submitted_at,s.archived_at,u.first_name,u.last_name,
+            (SELECT MAX(COALESCE(e.last_updated_at,e.first_logged_at)) FROM entries e WHERE e.sheet_id=s.id) AS hours_logged_at,
             CASE WHEN s.status='submitted' THEN s.total_units ELSE COALESCE((SELECT SUM(e.units) FROM entries e WHERE e.sheet_id=s.id),0) END total_units,
             CASE WHEN s.status='submitted' THEN s.rate_cents ELSE u.rate_cents END rate_cents,
             s.total_cents,p.id AS payment_id FROM sheets s JOIN users u ON u.id=s.user_id LEFT JOIN payments p ON p.sheet_id=s.id WHERE (s.archived_at IS NOT NULL)=? ORDER BY s.week_end DESC,u.first_name""", (int(archived),)).fetchall()
@@ -860,6 +869,7 @@ def create_app(test_config=None):
                     start, finish, units, activity, lunch_units = values
                     db().execute('UPDATE entries SET start_time=?,finish_time=?,units=?,activity=?,committed_at=?,lunch_units=? WHERE sheet_id=? AND work_date=?',
                         (start, finish, units, activity, now, lunch_units, sheet_id, work_date))
+                    stamp_entry(db(), person['id'], work_date, before, g.user['id'])
                     if current['status'] == 'submitted':
                         total = db().execute('SELECT COALESCE(SUM(units),0) AS units FROM entries WHERE sheet_id=?', (sheet_id,)).fetchone()['units']
                         db().execute('UPDATE sheets SET total_units=?,total_cents=? WHERE id=?', (total, amount(total, current['rate_cents']), sheet_id))
@@ -872,7 +882,8 @@ def create_app(test_config=None):
         audit = db().execute('SELECT a.*,u.first_name,u.last_name FROM entry_audit a JOIN users u ON u.id=a.admin_id WHERE a.user_id=? AND a.work_date=? ORDER BY a.id DESC', (person['id'], work_date)).fetchall()
         active_driverday=db().execute('''SELECT d.* FROM bf_workdays d JOIN bf_workday_entries e ON e.workday_id=d.id
             WHERE e.sheet_id=? AND e.work_date=? AND d.finished_at IS NULL''',(sheet_id,work_date)).fetchone()
-        return render_template('day_edit.html', sheet=sheet, entry=entry, person=person, audit=audit, active_driverday=active_driverday, tab='submissions')
+        return render_template('day_edit.html', sheet=sheet, entry=entry, person=person, audit=audit,
+                               recording=recording_details(db(), entry), active_driverday=active_driverday, tab='submissions')
 
     @app.route('/admin/timesheets/<int:sheet_id>/payment', methods=['GET','POST'])
     @require('admin')

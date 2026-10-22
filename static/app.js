@@ -73,6 +73,26 @@ if (summary) {
         if (result.work_date !== body.get('work_date')) throw new Error('Save could not be confirmed. Please try again.');
         row.dataset.units = String(result.units);
         row.querySelector('.day-hours').textContent = String(result.units / 100);
+        const recording = row.querySelector('.entry-recording');
+        if (recording && Array.isArray(result.recording)) {
+          recording.replaceChildren();
+          for (const stamp of result.recording) {
+            const block = document.createElement('div');
+            block.className = 'recording-stamp';
+            const label = document.createElement('strong');
+            label.textContent = stamp.label;
+            const value = document.createElement(stamp.at ? 'time' : 'span');
+            if (stamp.at) value.dateTime = stamp.at;
+            value.textContent = stamp.text;
+            block.append(label, value);
+            if (stamp.by) {
+              const actor = document.createElement('small');
+              actor.textContent = stamp.by;
+              block.appendChild(actor);
+            }
+            recording.appendChild(block);
+          }
+        }
         dirty.delete(form.id);
         if (result.committed) {
           fields.forEach(field => {

@@ -106,6 +106,21 @@ class DriverWorkdayTests(unittest.TestCase):
         self.assertEqual(self.rows('SELECT * FROM bf_workday_events'),history)
         self.assertIn(b'already finalised',self.choose().data)
 
+    def test_hours_logging_uses_server_receipt_time_instead_of_phone_work_time(self):
+        first = '2026-10-19T21:08:21+00:00'
+        changed = '2026-10-20T00:09:32+00:00'
+        with patch('entry_recording.recording_now', return_value=first):
+            self.start()
+        entry = self.rows('SELECT * FROM entries WHERE user_id=?', (self.uid,))[0]
+        self.assertEqual((entry['first_logged_at'], entry['first_logged_by']), (first, self.uid))
+        self.assertNotEqual(entry['first_logged_at'], self.rows('SELECT started_at FROM bf_workdays')[0]['started_at'])
+        self.time += timedelta(hours=3)
+        with patch('entry_recording.recording_now', return_value=changed):
+            self.finish(notes='Warehouse work')
+        entry = self.rows('SELECT * FROM entries WHERE user_id=?', (self.uid,))[0]
+        self.assertEqual((entry['first_logged_at'], entry['last_updated_at'], entry['last_updated_by']),
+                         (first, changed, self.uid))
+
     def test_vehicle_state_prestart_and_acceptance_cannot_be_bypassed(self):
         self.start()
         self.choose(truck=2,state='QLD')
@@ -183,6 +198,9 @@ class DriverWorkdayTests(unittest.TestCase):
         saved=self.rows('SELECT * FROM entries WHERE user_id=?',(self.uid,))[0]
         self.assertEqual((saved['finish_time'],saved['units']),('15:05',750))
         self.assertTrue(saved['committed_at'])
+        self.assertEqual(saved['first_logged_at'],entry['first_logged_at'])
+        self.assertTrue(saved['last_updated_at'])
+        self.assertEqual(saved['last_updated_by'],self.rows("SELECT id FROM users WHERE role='admin'")[0]['id'])
         event=self.rows("SELECT * FROM bf_workday_events WHERE action='Finish time reconciled by office'")[0]
         self.assertNotEqual(event['actor_id'],self.uid)
         self.assertIn('Supervisor confirmed',event['notes'])

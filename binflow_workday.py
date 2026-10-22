@@ -7,6 +7,7 @@ from binflow_permissions import selected_state, state_scope, require_state
 
 from flask import abort, g, redirect, request, url_for
 from lunch import deduct_lunch
+from entry_recording import stamp_entry
 from work_weeks import profile_end, profile_start, saved_period
 
 STATES=('QLD','NSW','VIC','SA','WA','TAS','ACT','NT')
@@ -114,11 +115,12 @@ def start_entry(conn,user,day,stamp):
     conn.execute('''INSERT INTO entries(user_id,work_date,sheet_id,units,activity,start_time,lunch_units)
         VALUES(?,?,?,0,?,?,0) ON CONFLICT(user_id,work_date) DO UPDATE SET start_time=excluded.start_time''',
         (user['id'],day['work_date'],sid,activity,stamp.strftime('%H:%M')))
+    stamp_entry(conn, user['id'], day['work_date'], old, user['id'])
     conn.execute('INSERT INTO bf_workday_entries(workday_id,work_date,sheet_id,start_time) VALUES(?,?,?,?)',
                  (day['id'],day['work_date'],sid,stamp.strftime('%H:%M')))
 
 
-def finish_entries(conn,user,day,finish,summary):
+def finish_entries(conn,user,day,finish,summary,actor_id=None):
     zone=ZoneInfo(day['timezone'])
     start=datetime.fromisoformat(day['started_at']).astimezone(zone).replace(second=0,microsecond=0)
     end=finish.astimezone(zone).replace(second=0,microsecond=0)
@@ -150,6 +152,7 @@ def finish_entries(conn,user,day,finish,summary):
             VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id,work_date) DO UPDATE SET units=excluded.units,activity=excluded.activity,
             start_time=excluded.start_time,finish_time=excluded.finish_time,committed_at=excluded.committed_at,lunch_units=excluded.lunch_units''',
             (user['id'],key,sid,units,activity,cursor.strftime('%H:%M'),finish_time,finish.isoformat(),lunch))
+        stamp_entry(conn, user['id'], key, old, actor_id if actor_id is not None else user['id'])
         if not linked: conn.execute('INSERT INTO bf_workday_entries(workday_id,work_date,sheet_id,start_time) VALUES(?,?,?,?)',
                                     (day['id'],key,sid,cursor.strftime('%H:%M')))
         if boundary==end: break
@@ -201,7 +204,7 @@ def register_workdays(app,db,access,require,render,success,failure,now):
             if finish>datetime.fromisoformat(now()): raise ValueError('A corrected finish time cannot be in the future.')
             user=db().execute('SELECT * FROM users WHERE id=?',(day['user_id'],)).fetchone()
             summary='BINFLOW · '+day['timezone']+' · office finish correction: '+reason
-            if user['role']=='employee': finish_entries(db(),user,day,finish,summary)
+            if user['role']=='employee': finish_entries(db(),user,day,finish,summary,actor_id=g.user['id'])
             db().execute('UPDATE bf_workdays SET finished_at=?,finish_received_at=?,notes=? WHERE id=?',
                          (finish.isoformat(),now(),summary,day_id))
             workday_event(db(),day_id,g.user['id'],'Finish time reconciled by office',now(),reason)
