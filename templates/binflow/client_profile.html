@@ -1,18 +1,22 @@
 {% extends 'binflow/layout.html' %}
-{% block title %}Client site profile{% endblock %}
-{% block subtitle %}{{ profile.customer_site }}{% endblock %}
+{% block title %}{{ "Add client" if creating else "Client site profile" }}{% endblock %}
+{% block subtitle %}{{ "Create a client and its first site, or add a site to an existing client." if creating else profile.customer_site }}{% endblock %}
 {% block body %}
-<section class="bf-panel bf-pad">
+<section class="bf-panel bf-pad bf-profile-editor">
 {% if error %}<p class="bf-note" role="alert">{{ error }}</p>{% endif %}
-{% if not profile.location_id %}<p class="bf-note">This profile is saved. Link it to the correct collection site before using it for allocations.</p>{% endif %}
-<form method="post" class="bf-form">
-<input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ profile.version }}">
+{% if not creating and not profile.location_id %}<p class="bf-note">This profile is saved. Link it to the correct collection site before using it for allocations.</p>{% endif %}
+<form method="post" class="bf-form bf-profile-form">
+<input type="hidden" name="csrf" value="{{ csrf_token() }}">{% if not creating %}<input type="hidden" name="version" value="{{ profile.version }}">{% endif %}
+{% if creating %}<fieldset><legend>Client account</legend><div class="bf-grid">
+<label>Client account<select name="client_id"><option value="new">Create a new client</option>{% for c in clients %}<option value="{{ c.id }}" {{ "selected" if values.client_id==c.id|string }}>{{ c.name }} — add another site</option>{% endfor %}</select></label>
+<label>New client / business name<input name="client_name" value="{{ values.client_name }}" maxlength="200" placeholder="Defaults to Customer Site below"></label>
+</div><p class="bf-muted">Group is a category; each business has its own client account.</p></fieldset>{% endif %}
 <fieldset><legend>Customer site</legend><div class="bf-grid">
 <label>Group<input name="group_name" maxlength="200" value="{{ values.group_name }}" placeholder="Business group or tier"></label>
 <label>Customer Site<input name="customer_site" maxlength="200" value="{{ values.customer_site }}" required></label>
-<label>Address<input name="address" maxlength="500" value="{{ values.address }}" autocomplete="street-address"></label>
+<label>Address<input name="address" maxlength="500" value="{{ values.address }}" autocomplete="street-address" {{ "required" if creating }}></label>
 <label>Suburb<input name="suburb" maxlength="200" value="{{ values.suburb }}" autocomplete="address-level2"></label>
-<label>State<select name="state"><option value="">Not confirmed</option>{% for s in states %}<option {{ 'selected' if values.state==s }}>{{ s }}</option>{% endfor %}</select></label>
+<label>State<select name="state" {{ "required" if creating }}><option value="">Not confirmed</option>{% for s in states %}<option {{ 'selected' if values.state==s }}>{{ s }}</option>{% endfor %}</select></label>
 <label>Post Code<input name="postcode" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" value="{{ values.postcode }}" autocomplete="postal-code"></label>
 </div></fieldset>
 <fieldset><legend>Site contacts</legend><div class="bf-grid">
@@ -25,10 +29,10 @@
 <label>Schedule<textarea name="schedule" maxlength="500" rows="2" placeholder="e.g. Weekly — Monday, Wednesday, Friday">{{ values.schedule }}</textarea></label>
 <label>ASIC Required<select name="asic_required">{% for value,label in [('unknown','Not confirmed'),('yes','Yes'),('no','No')] %}<option value="{{ value }}" {{ 'selected' if values.asic_required==value }}>{{ label }}</option>{% endfor %}</select></label>
 </div><p class="bf-muted">The schedule records the site's service agreement. Set dated collections in the collection calendar.</p></fieldset>
-{% if not profile.location_id %}<label>Link to an existing collection site (optional)<select name="location_id"><option value="">Keep as an unlinked profile</option>{% for l in locations %}<option value="{{ l.id }}">{{ l.client_name }} · {{ l.name }} · {{ l.state }} · {{ l.address }}</option>{% endfor %}</select></label><p class="bf-muted">Link only the same customer site. If it is new, add its client and site under Clients, sites & setup first.</p>{% else %}<p class="bf-muted">Saving updates this site's details for future work. Existing jobs and PODs keep their saved details.</p>{% endif %}
-<div class="bf-actions"><button class="primary">Save profile</button><a class="button secondary" href="{{ url_for('bf_client_profiles') }}">Cancel</a></div>
+{% if not creating and not profile.location_id %}<label>Link to an existing collection site (optional)<select name="location_id"><option value="">Keep as an unlinked profile</option>{% for l in locations %}<option value="{{ l.id }}">{{ l.client_name }} · {{ l.name }} · {{ l.state }} · {{ l.address }}</option>{% endfor %}</select></label><p class="bf-muted">Link only the same customer site. If it is new, add its client and site under Clients, sites & setup first.</p>{% elif not creating %}<p class="bf-muted">Saving updates this site's details for future work. Existing jobs and PODs keep their saved details.</p>{% endif %}
+<div class="bf-actions"><button class="primary">{{ "Add client & site" if creating else "Save profile" }}</button><a class="button secondary" href="{{ url_for('bf_client_profiles') }}">Cancel</a></div>
 </form>
-<p class="bf-muted">Last saved {{ profile.updated_at }} · {{ profile.updated_by }}{% if profile.source_label %}<br>Source: {{ profile.source_label }}{% endif %}</p>
+{% if not creating %}<p class="bf-muted">Last saved {{ profile.updated_at }} · {{ profile.updated_by }}{% if profile.source_label %}<br>Source: {{ profile.source_label }}{% endif %}</p>{% endif %}
 </section>
-{% if profile.location_id %}<div class="bf-actions"><a class="button secondary" href="{{ url_for('bf_edit_location',location_id=profile.location_id) }}">Location & bin requirements</a><a class="button secondary" href="{{ url_for('bf_collection_profile',location_id=profile.location_id) }}">Collection calendar settings</a></div>{% endif %}
+{% if not creating and profile.location_id %}<div class="bf-actions"><a class="button secondary" href="{{ url_for('bf_edit_location',location_id=profile.location_id) }}">Location & bin requirements</a><a class="button secondary" href="{{ url_for('bf_collection_profile',location_id=profile.location_id) }}">Collection calendar settings</a></div>{% endif %}
 {% endblock %}

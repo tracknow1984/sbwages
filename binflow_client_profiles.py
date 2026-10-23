@@ -195,14 +195,92 @@ def register_profiles(app, db, require, render, now, actor):
             LEFT JOIN bf_locations l ON l.id=p.location_id LEFT JOIN bf_clients c ON c.id=l.client_id
             ORDER BY p.group_name,p.customer_site,p.state,p.id''').fetchall()
         query = request.args.get('q', '').strip()[:200]
-        review = request.args.get('review', '') == '1'
+        filters = {name: request.args.get(name, '').strip()[:500]
+                   for name in ('group', 'state', 'schedule', 'asic', 'verified', 'status', 'sort')}
+        if request.args.get('review') == '1' and not filters['status']:
+            filters['status'] = 'review'
+        options = {name: sorted({r[column] for r in rows if r[column]}, key=str.casefold)
+                   for name, column in (('group', 'group_name'), ('schedule', 'schedule'))}
         total, unlinked = len(rows), sum(not r['location_id'] for r in rows)
         if query:
-            rows = [r for r in rows if query.casefold() in ' '.join(str(r[k]) for k in KEYS).casefold()]
-        if review:
-            rows = [r for r in rows if not r['location_id'] or not r['state'] or not r['address'] or r['contact_verified'] == 'no']
-        return render('client_profiles', section='profiles', profiles=rows, fields=FIELDS, query=query,
-                      review=review, total=total, unlinked=unlinked)
+            rows = [r for r in rows if query.casefold() in
+                    ' '.join(str(r[k] or '') for k in (*KEYS, 'client_name')).casefold()]
+        for name, column in (('group', 'group_name'), ('state', 'state'), ('schedule', 'schedule'),
+                             ('asic', 'asic_required'), ('verified', 'contact_verified')):
+            if filters[name]:
+                wanted = '' if filters[name] == '__blank__' else filters[name]
+                rows = [r for r in rows if r[column].casefold() == wanted.casefold()]
+        status = filters['status']
+        if status == 'linked':
+            rows = [r for r in rows if r['location_id']]
+        elif status == 'unlinked':
+            rows = [r for r in rows if not r['location_id']]
+        elif status == 'missing':
+            rows = [r for r in rows if not all(r[k] for k in ('address','suburb','state','postcode'))]
+        elif status == 'review':
+            rows = [r for r in rows if not r['location_id'] or not r['state'] or
+                    not r['address'] or r['contact_verified'] == 'no']
+        sort_key = {'group':'group_name', 'state':'state', 'suburb':'suburb'}.get(filters['sort'], 'customer_site')
+        rows = sorted(rows, key=lambda r: (r[sort_key].casefold(), r['customer_site'].casefold(), r['id']))
+        try:
+            per_page = int(request.args.get('per_page', '20'))
+            if per_page not in (10, 20, 50): per_page = 20
+            page = max(1, int(request.args.get('page', '1')))
+        except ValueError:
+            per_page, page = 20, 1
+        filtered = len(rows)
+        pages = max(1, (filtered + per_page - 1) // per_page)
+        page = min(page, pages)
+        offset = (page - 1) * per_page
+        page_args = {**filters, 'q':query, 'per_page':per_page}
+        return render('client_profiles', section='profiles', profiles=rows[offset:offset+per_page],
+                      fields=FIELDS, query=query, filters=filters, options=options, total=total, unlinked=unlinked,
+                      filtered=filtered, page=page, pages=pages, per_page=per_page,
+                      first=offset+1 if filtered else 0, last=min(offset+per_page,filtered),
+                      previous_url=url_for('bf_client_profiles',page=page-1,**page_args) if page>1 else None,
+                      next_url=url_for('bf_client_profiles',page=page+1,**page_args) if page<pages else None)
+
+    @app.route('/binflow/client-profiles/new', methods=['GET', 'POST'])
+    @require('admin')
+    def bf_new_client_profile():
+        values = {k:'' for k in KEYS}
+        values.update(asic_required='unknown', contact_verified='no', client_id='new', client_name='')
+        error = None
+        if request.method == 'POST':
+            values.update({k:request.form.get(k, '').strip() for k in (*KEYS, 'client_id', 'client_name')})
+            try:
+                details = validate(values)
+                if not details['state'] or not details['address']:
+                    raise ValueError('Enter the site address and choose its state so it is ready for collections.')
+                db().execute('BEGIN IMMEDIATE')
+                if values['client_id'] in ('', 'new'):
+                    name = values['client_name'] or details['customer_site']
+                    if len(name) > 200 or '\x00' in name:
+                        raise ValueError('Client / business name must be no more than 200 characters.')
+                    if db().execute('SELECT 1 FROM bf_clients WHERE name=?', (name,)).fetchone():
+                        raise ValueError('That client already exists. Select it under Client account to add another site.')
+                    cid = db().execute('INSERT INTO bf_clients(name,created_at) VALUES(?,?)', (name,now())).lastrowid
+                else:
+                    try:
+                        cid = int(values['client_id'])
+                    except ValueError:
+                        raise ValueError('Choose a valid client account.') from None
+                    if not db().execute('SELECT 1 FROM bf_clients WHERE id=?', (cid,)).fetchone():
+                        raise ValueError('Choose a valid client account.')
+                lid = db().execute("INSERT INTO bf_locations(kind,client_id,name,state,address,created_at) VALUES('client',?,?,?,?,?)",
+                                   (cid,details['customer_site'],details['state'],details['address'],now())).lastrowid
+                save_profile(db(), details, now(), actor(), location_id=lid)
+                db().commit()
+                flash('Client site profile added. It is ready for collections.', 'success')
+                return redirect(url_for('bf_client_profiles', q=details['customer_site']))
+            except sqlite3.IntegrityError:
+                error = 'This site already exists for that client. Open its profile to update the details.'
+            except ValueError as exc:
+                error = str(exc)
+            db().rollback()
+        clients = db().execute('SELECT id,name FROM bf_clients ORDER BY name').fetchall()
+        return render('client_profile', section='profiles', profile=None, values=values, creating=True,
+                      fields=FIELDS, clients=clients, locations=[], error=error), 400 if error else 200
 
     @app.route('/binflow/client-profiles/<int:profile_id>', methods=['GET', 'POST'])
     @require('admin')

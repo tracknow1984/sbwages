@@ -123,3 +123,67 @@ class ClientProfileTests(unittest.TestCase):
         self.assertEqual(value['contact_email'],row()['contact_email'])
         for key,value in [('asic_required','maybe'),('contact_verified','maybe'),('state','ZZ'),('postcode','123')]:
             with self.subTest(key=key),self.assertRaises(ValueError):validate(row(**{key:value}))
+
+    def test_add_client_creates_account_site_and_complete_profile_atomically(self):
+        page=self.client.get('/binflow/client-profiles/new')
+        self.assertEqual(page.status_code,200)
+        for k,_,_ in FIELDS:self.assertIn(f'name="{k}"'.encode(),page.data)
+        values={**row(customer_site='New South Site'), 'client_id':'new', 'client_name':'New Business'}
+        response=self.post('/binflow/client-profiles/new',values)
+        self.assertIn(b'Client site profile added.',response.data)
+        account=self.rows("SELECT id FROM bf_clients WHERE name='New Business'")[0]['id']
+        loc=self.rows('SELECT * FROM bf_locations WHERE client_id=?',(account,))[0]
+        profile=self.rows('SELECT * FROM bf_client_site_profiles WHERE location_id=?',(loc['id'],))[0]
+        for k,_,_ in FIELDS:self.assertEqual(profile[k],values[k])
+        self.assertEqual(loc['address'],values['address'])
+        self.assertEqual(profile['updated_by'],'SB Empire')
+        counts=[len(self.rows('SELECT * FROM '+t)) for t in ('bf_clients','bf_locations','bf_client_site_profiles')]
+        self.assertEqual(self.post('/binflow/client-profiles/new',values).status_code,400)
+        self.assertEqual(counts,[len(self.rows('SELECT * FROM '+t)) for t in ('bf_clients','bf_locations','bf_client_site_profiles')])
+
+    def test_add_existing_client_site_and_validate_before_saving(self):
+        start=len(self.rows('SELECT * FROM bf_clients'))
+        response=self.post('/binflow/client-profiles/new',{**row(customer_site='Alpha Second Site'),'client_id':'1'})
+        self.assertIn(b'Client site profile added.',response.data)
+        self.assertEqual(len(self.rows('SELECT * FROM bf_clients')),start)
+        self.assertEqual(self.rows("SELECT client_id FROM bf_locations WHERE name='Alpha Second Site'")[0]['client_id'],1)
+        for patch in ({'state':''},{'address':''},{'postcode':'123'},{'client_id':'9999'},{'client_id':'bad'}):
+            response=self.post('/binflow/client-profiles/new',{**row(customer_site='Invalid Site'),'client_name':'No orphan account','client_id':'new',**patch})
+            self.assertEqual(response.status_code,400)
+            self.assertFalse(self.rows("SELECT 1 FROM bf_clients WHERE name='No orphan account'"))
+            self.assertFalse(self.rows("SELECT 1 FROM bf_locations WHERE name='Invalid Site'"))
+        self.assertEqual(self.client.post('/binflow/client-profiles/new',data=row()).status_code,400)
+
+    def test_combined_filters_search_and_pagination_preserve_choices(self):
+        conn=self.connection()
+        import_profiles(conn,encoded([row(customer_site=f'Test Site {n:02d}',source_row=n+5,
+            group_name='Priority' if n<12 else 'Standard',asic_required='yes' if n<12 else 'unknown',
+            contact_verified='yes' if n<12 else 'no',schedule='Weekly' if n<12 else 'Adhoc') for n in range(15)]),'now')
+        url='/binflow/client-profiles?q=Test&group=Priority&state=QLD&schedule=Weekly&asic=yes&verified=yes&status=unlinked&per_page=10'
+        page=self.client.get(url)
+        self.assertEqual(page.status_code,200)
+        self.assertIn(b'of 12 matching',page.data)
+        self.assertIn(b'Test Site 00',page.data);self.assertNotIn(b'Test Site 10',page.data)
+        from html import unescape
+        import re
+        next_url=unescape(re.search(r'href="([^"]+)">Next',page.data.decode())[1])
+        for term in ('group=Priority','state=QLD','schedule=Weekly','asic=yes','verified=yes','status=unlinked','q=Test','per_page=10','page=2'):
+            self.assertIn(term,next_url)
+        next_page=self.client.get(next_url)
+        self.assertIn(b'Test Site 10',next_page.data);self.assertNotIn(b'Test Site 00',next_page.data)
+        self.assertIn(b'Page 2 of 2',next_page.data)
+        self.assertIn(b'No profiles match',self.client.get(url.replace('q=Test','q=does-not-exist')).data)
+        self.assertIn(b'Page 2 of 2',self.client.get(url+'&page=999').data)
+        self.assertEqual(self.client.get('/binflow/client-profiles?page=bad&per_page=oops').status_code,200)
+
+    def test_missing_and_linked_filters_and_new_route_access(self):
+        conn=self.connection()
+        import_profiles(conn,encoded([row(customer_site='Missing Site',state='',address='',postcode='',group_name='',schedule='')]),'now')
+        page=self.client.get('/binflow/client-profiles?state=__blank__&group=__blank__&schedule=__blank__&status=missing&asic=unknown')
+        self.assertIn(b'Missing Site',page.data);self.assertNotIn(b'Alpha QLD',page.data)
+        linked=self.client.get('/binflow/client-profiles?status=linked')
+        self.assertNotIn(b'Missing Site',linked.data);self.assertIn(b'Alpha QLD',linked.data)
+        conn.execute("INSERT INTO users(role,first_name,last_name,email,username,password_hash) VALUES('employee','Test','Driver','other@example.com','other',?)",(generate_password_hash('test-admin-password'),));conn.commit()
+        self.post('/logout');self.login('employee','other')
+        self.assertEqual(self.client.get('/binflow/client-profiles/new').status_code,403)
+        self.assertEqual(self.post('/binflow/client-profiles/new',row()).status_code,403)

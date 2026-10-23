@@ -108,15 +108,45 @@
 /* State and date selection before driver acceptance. */
 .bf-schedule-days{display:flex;gap:10px;overflow-x:auto;padding:5px 0 10px}.bf-schedule-days a{display:grid;gap:7px;min-width:145px;padding:14px;border:1px solid #dce4ee;border-radius:9px;background:white}.bf-schedule-days a.active{background:#225bc0;color:white;border-color:#225bc0}.bf-schedule-days small{opacity:.8}.bf-schedule-card{display:flex;flex-direction:column;margin-bottom:0}.bf-schedule-card>form,.bf-schedule-card>.bf-next{margin-top:auto}.bf-schedule-card .bf-next{text-align:center}.bf-schedule-card h2{margin-top:12px;font-size:23px}
 
-/* Complete site contact register; retain all column labels on mobile. */
-.bf .bf-client-profiles td {white-space:pre-line;min-width:130px;max-width:300px;overflow-wrap:anywhere;vertical-align:top}
-.bf .bf-client-profiles td:nth-child(2),.bf .bf-client-profiles td:nth-child(3),.bf .bf-client-profiles td:nth-child(8){min-width:230px}
-.bf-client-profiles small{display:block;margin-top:8px;color:var(--bf-muted)}
+/* Client profiles: fit the register to the viewport while keeping every field visible. */
+.bf-profile-page .bf-heading{margin-bottom:14px;gap:14px}.bf-profile-page h1{font-size:27px}.bf-profile-page .bf-heading p{margin-top:4px}.bf-profile-page .bf-nav{margin-bottom:14px}.bf-profile-page .bf-nav a{padding:8px 13px;font-size:12px}
+.bf-profile-toolbar{margin:8px 0 14px;flex-wrap:wrap}
+.bf-profile-filters{padding:14px 16px;margin-bottom:14px}
+.bf-profile-search{display:flex;align-items:end;gap:12px;margin-bottom:12px}
+.bf-profile-search>label{flex:1;min-width:0}
+.bf-profile-filter-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px 12px}
+.bf .bf-profile-filters label{margin:0;font-size:11px;gap:4px;min-width:0}
+.bf .bf-profile-filters input,.bf .bf-profile-filters select{min-height:36px;padding:7px 9px;font-size:12px}
+.bf .bf-profile-filters button,.bf .bf-profile-filters .button{min-height:36px;padding:8px 13px}
+.bf-profile-results{padding:14px 16px;font-size:12px}
+.bf-profile-table-wrap{width:100%;min-width:0}
+.bf .bf-client-profiles{table-layout:fixed;width:100%;font-size:12px;white-space:normal}
+.bf .bf-client-profiles th,.bf .bf-client-profiles td{white-space:normal;min-width:0;overflow-wrap:anywhere;vertical-align:top;padding:10px 8px;line-height:1.4}
+.bf .bf-client-profiles th{font-size:9px;letter-spacing:.25px}
+.bf-client-profiles th:nth-child(1){width:21%}.bf-client-profiles th:nth-child(2){width:22%}.bf-client-profiles th:nth-child(3){width:23%}.bf-client-profiles th:nth-child(4){width:13%}.bf-client-profiles th:nth-child(5){width:8%}.bf-client-profiles th:nth-child(6){width:7%}.bf-client-profiles th:nth-child(7){width:6%}
+.bf .bf-client-profiles strong{font-size:12px;line-height:1.4}
+.bf-client-profiles td>span{white-space:pre-line}
+.bf-client-profiles small{display:block;margin-top:3px;color:var(--bf-muted);white-space:pre-line}
+.bf .bf-client-profiles .bf-profile-review{color:#8b5a04}
+.bf .bf-client-profiles .button{font-size:11px;padding:7px 5px;min-height:32px;max-width:100%;white-space:normal}
+.bf-profile-pagination{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;border-top:1px solid var(--bf-line);font-size:12px}
+.bf-profile-sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+.bf-profile-editor{max-width:1200px;margin-inline:auto}
+.bf-profile-form{margin-top:0}.bf-profile-form fieldset{padding:12px 14px;margin:0 0 12px}
+.bf-profile-form .bf-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:10px 14px}
+.bf-profile-form label{margin-bottom:5px;gap:4px}.bf-profile-form input,.bf-profile-form select{min-height:38px;padding:8px 10px}
+.bf-profile-form p{margin:8px 0;font-size:12px}
+@media(max-width:1000px){.bf-profile-form .bf-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:760px){
+ .bf-profile-filter-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .bf-profile-search{align-items:stretch;flex-direction:column;gap:8px}
+ .bf .bf-profile-filters input,.bf .bf-profile-filters select{font-size:16px;min-height:42px}
  .bf .bf-client-profiles,.bf-client-profiles tbody{display:block;width:100%}
  .bf-client-profiles thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
- .bf-client-profiles tr{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;padding:20px;border-bottom:1px solid var(--bf-line)}
- .bf .bf-client-profiles td{min-width:0!important;max-width:none;padding:0;border:0}
- .bf-client-profiles td:nth-child(2),.bf-client-profiles td:nth-child(3),.bf-client-profiles td:nth-child(8),.bf-client-profiles td:last-child,.bf-client-profiles td[colspan]{grid-column:1/-1}
- .bf-client-profiles td[data-label]::before{content:attr(data-label);display:block;font-size:11px;font-weight:700;color:var(--bf-muted);margin-bottom:5px}
+ .bf-client-profiles tr{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding:16px;border-bottom:1px solid var(--bf-line)}
+ .bf .bf-client-profiles td{padding:0;border:0;min-width:0;font-size:13px}
+ .bf-client-profiles td:nth-child(1),.bf-client-profiles td:nth-child(2),.bf-client-profiles td:nth-child(3),.bf-client-profiles td:last-child,.bf-client-profiles td[colspan]{grid-column:1/-1}
+ .bf-client-profiles td[data-label]::before{content:attr(data-label);display:block;font-size:10px;font-weight:700;color:var(--bf-muted);margin-bottom:4px}
+ .bf .bf-client-profiles .button{min-height:40px;padding:10px 16px}
 }
+@media(max-width:540px){.bf-profile-form .bf-grid{grid-template-columns:1fr}.bf-profile-pagination{flex-wrap:wrap}}
