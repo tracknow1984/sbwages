@@ -1,0 +1,10 @@
+<div data-navigation-controls data-navigation-scope="{{ g.user.id }}:{{ workday.id if workday else '' }}">
+  <a class="button primary bf-next bf-navigate" data-navigation-link target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination={{ navigation_address|urlencode }}&travelmode=driving&dir_action=navigate">{{ icon('navigate') }} <span data-navigation-label>{{ navigation_label }}</span></a>
+  <p class="bf-navigation-note" data-navigation-note role="status">Opens Google Maps. Switch back to BinFlow when you arrive — your stop stays open.</p>
+  <form method="post" data-arrival-form action="{{ url_for('bf_run_action',truck_id=truck.id,action=arrival_action) }}">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+    <input type="hidden" name="date" value="{{ run_date }}">
+    <input type="hidden" name="{{ arrival_field }}" value="{{ arrival_id }}">
+    <button class="secondary bf-next">{{ icon('pin') }} {{ arrival_label }}</button>
+  </form>
+</div>
