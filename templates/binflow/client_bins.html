@@ -1,0 +1,18 @@
+<section id="client-bins" class="bf-panel bf-pad">
+<div class="bf-panel-head"><h2>Bins attached to this site</h2><a href="{{ url_for('bf_client_profiles') }}">Back to client profiles</a></div>
+{% if not profile.location_id %}<p class="bf-note">Link this profile to its collection site below to see its bins.</p>
+{% else %}
+<p class="bf-muted">Live bin records for {{ profile.customer_site }}. Counts update as bins are allocated, delivered or collected. Planned quantities without a specific bin ID are not included.</p>
+{% for key,title,empty in [('at_site','Currently at this site','No bins are currently recorded at this site.'),('allocated','Allocated for delivery','No specific bins are awaiting delivery to this site.')] %}
+{% set group=attached_bins|selectattr('relationship','equalto',key)|list %}
+<h3>{{ title }} · {{ group|length }}</h3>
+{% if group %}<div class="bf-client-bin-list">{% for b in group %}
+<article class="bf-client-bin-card">
+<strong><a data-bf-icon="bin" href="{{ url_for('bf_bin',bin_id=b.id) }}">{{ b.code }}</a> · {{ b.size_name }}</strong>
+<p>{{ statuses[b.status] }}<br><span class="bf-muted">Location: {{ b.location_name }}</span></p>
+{% if key=='allocated' %}<p>{{ 'Awaiting approval' if b.approval_status=='pending' else 'Approved for delivery' }} · {{ b.scheduled_date }}</p><a href="{{ url_for('bf_job',job_id=b.job_id) }}">{{ b.job_code }}</a>{% endif %}
+<div class="bf-actions"><a class="button secondary" href="{{ url_for('bf_bin',bin_id=b.id) }}">View bin & history</a></div>
+</article>{% endfor %}</div>{% else %}<p class="bf-muted">{{ empty }}</p>{% endif %}
+{% endfor %}
+{% endif %}
+</section>

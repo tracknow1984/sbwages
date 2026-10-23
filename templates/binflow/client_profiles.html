@@ -18,7 +18,7 @@
 <label>Rows per page<select name="per_page">{% for n in (10,20,50) %}<option {{ 'selected' if per_page==n }}>{{ n }}</option>{% endfor %}</select></label>
 </div></form></section>
 <section class="bf-panel"><div class="bf-panel-head bf-profile-results"><h2>Customer site register</h2><span role="status">{{ first }}–{{ last }} of {{ filtered }} matching · {{ total }} total</span></div>
-<div class="bf-profile-table-wrap"><table class="bf-client-profiles"><thead><tr><th scope="col">Customer Site / Group</th><th scope="col">Address / Suburb / State / Post Code</th><th scope="col">Contact Name / Email / Number</th><th scope="col">Schedule</th><th scope="col">ASIC Required</th><th scope="col">Contact Verified?</th><th scope="col"><span class="bf-profile-sr-only">Actions</span></th></tr></thead><tbody>
+<div class="bf-profile-table-wrap"><table class="bf-client-profiles"><thead><tr><th scope="col">Customer Site / Group</th><th scope="col">Address / Suburb / State / Post Code</th><th scope="col">Contact Name / Email / Number</th><th scope="col">Schedule</th><th scope="col">ASIC Required</th><th scope="col">Contact Verified?</th><th scope="col">Bins</th><th scope="col"><span class="bf-profile-sr-only">Actions</span></th></tr></thead><tbody>
 {% for p in profiles %}<tr>
 <td data-label="Customer Site / Group"><strong>{{ p.customer_site }}</strong><small>Group: {{ p.group_name or 'Not assigned' }}</small>{% if p.client_name and p.client_name!=p.customer_site %}<small>Client: {{ p.client_name }}</small>{% endif %}{% if not p.location_id %}<small class="bf-profile-review">Site link needed</small>{% endif %}</td>
 <td data-label="Address"><span>{{ p.address or 'Address not provided' }}</span><small>{{ p.suburb or 'Suburb not provided' }}{% if p.state %} · {{ p.state }}{% endif %}{% if p.postcode %} {{ p.postcode }}{% endif %}</small>{% if not p.state or not p.postcode %}<small>{{ 'State not confirmed' if not p.state }}{{ ' · ' if not p.state and not p.postcode }}{{ 'Post Code not provided' if not p.postcode }}</small>{% endif %}</td>
@@ -26,8 +26,9 @@
 <td data-label="Schedule">{{ p.schedule or 'Not provided' }}</td>
 <td data-label="ASIC Required">{{ {'yes':'Yes','no':'No','unknown':'Not confirmed'}[p.asic_required] }}</td>
 <td data-label="Contact Verified?">{{ 'Yes' if p.contact_verified=='yes' else 'No' }}</td>
+<td data-label="Bins">{% if p.location_id %}{% set counts=bin_counts.get(p.id, {'at_site':0,'allocated':0}) %}<a class="button secondary" data-bf-icon="bin" href="{{ url_for('bf_client_profile',profile_id=p.id,_anchor='client-bins') }}" aria-label="View bins for {{ p.customer_site }}">{{ counts.at_site }} at site</a><small>{{ counts.allocated }} allocated for delivery</small>{% else %}<span>Link site first</span>{% endif %}</td>
 <td data-label="Profile"><a class="button secondary" href="{{ url_for('bf_client_profile',profile_id=p.id) }}" aria-label="Edit profile for {{ p.customer_site }}">Edit</a></td>
-</tr>{% else %}<tr><td colspan="7" class="bf-empty">No profiles match these filters. <a href="{{ url_for('bf_client_profiles',view=view) }}">Clear filters</a></td></tr>{% endfor %}
+</tr>{% else %}<tr><td colspan="8" class="bf-empty">No profiles match these filters. <a href="{{ url_for('bf_client_profiles',view=view) }}">Clear filters</a></td></tr>{% endfor %}
 </tbody></table></div>
 <nav class="bf-profile-pagination" aria-label="Client profile pages"><span>Page {{ page }} of {{ pages }}</span><div class="bf-actions">{% if previous_url %}<a class="button secondary" href="{{ previous_url }}">Previous</a>{% endif %}{% if next_url %}<a class="button secondary" href="{{ next_url }}">Next</a>{% endif %}</div></nav>
 </section>

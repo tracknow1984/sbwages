@@ -196,6 +196,31 @@ def register_rows(conn):
         ORDER BY p.group_name,p.customer_site,p.state,p.id''').fetchall()
 
 
+
+def site_bins(conn, location_id=None):
+    """Current custody and active outbound reservations; never infer from history."""
+    where = ' AND p.location_id=?' if location_id is not None else ''
+    return conn.execute("""
+        SELECT p.id AS profile_id,b.id,b.code,s.name AS size_name,b.status,
+            COALESCE(t.name,l.name,'In transit') AS location_name,
+            CASE WHEN b.location_id=p.location_id THEN 'at_site' ELSE 'allocated' END AS relationship,
+            j.id AS job_id,j.code AS job_code,j.scheduled_date,j.approval_status
+        FROM bf_client_site_profiles p
+        JOIN bf_bins b ON b.location_id=p.location_id OR b.id IN (
+            SELECT i.bin_id FROM bf_job_bins i JOIN bf_jobs j ON j.id=i.job_id
+            WHERE j.site_id=p.location_id AND i.direction='deliver' AND i.active=1
+              AND j.status NOT IN ('cancelled','complete') AND j.approval_status IN ('pending','approved'))
+        JOIN bf_sizes s ON s.id=b.size_id
+        LEFT JOIN bf_locations l ON l.id=b.location_id
+        LEFT JOIN bf_trucks t ON t.id=b.truck_id
+        LEFT JOIN bf_job_bins i ON i.bin_id=b.id AND i.active=1 AND i.direction='deliver'
+        LEFT JOIN bf_jobs j ON j.id=i.job_id AND j.site_id=p.location_id
+            AND j.status NOT IN ('cancelled','complete') AND j.approval_status IN ('pending','approved')
+        WHERE p.location_id IS NOT NULL""" + where + """
+        ORDER BY relationship DESC,s.litres,b.code""",
+        (location_id,) if location_id is not None else ()).fetchall()
+
+
 def register_counts(conn):
     rows = register_rows(conn)
     return dict(total=len(rows),current=sum(not r['archived'] for r in rows),
@@ -211,6 +236,10 @@ def register_profiles(app, db, require, render, now, actor):
         seed_locations(db(), now())
         db().commit()
         rows = register_rows(db())
+        bin_counts = {}
+        for b in site_bins(db()):
+            counts = bin_counts.setdefault(b['profile_id'], dict(at_site=0, allocated=0))
+            counts[b['relationship']] += 1
         current_count = sum(not r['archived'] for r in rows)
         archived_count = sum(r['archived'] for r in rows)
         view = 'archived' if request.args.get('view')=='archived' else 'current'
@@ -255,7 +284,7 @@ def register_profiles(app, db, require, render, now, actor):
         offset = (page - 1) * per_page
         page_args = {**filters, 'q':query, 'per_page':per_page,'view':view}
         return render('client_profiles', section='profiles', profiles=rows[offset:offset+per_page],
-                      fields=FIELDS, query=query, filters=filters, options=options, total=total, unlinked=unlinked,
+                      bin_counts=bin_counts, fields=FIELDS, query=query, filters=filters, options=options, total=total, unlinked=unlinked,
                       filtered=filtered, page=page, pages=pages, per_page=per_page,
                       view=view,current_count=current_count,archived_count=archived_count,
                       first=offset+1 if filtered else 0, last=min(offset+per_page,filtered),
@@ -360,4 +389,5 @@ def register_profiles(app, db, require, render, now, actor):
             WHERE l.kind='client' AND (p.id IS NULL OR (p.source_key IS NULL AND p.version=1))
             ORDER BY c.name,l.state,l.name''').fetchall()
         return render('client_profile', section='profiles', profile=profile, values=values,
+                      attached_bins=site_bins(db(), profile['location_id']) if profile['location_id'] else [],
                       fields=FIELDS, locations=locations, error=error), 400 if error else 200

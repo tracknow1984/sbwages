@@ -123,7 +123,7 @@
 .bf .bf-client-profiles{table-layout:fixed;width:100%;font-size:12px;white-space:normal}
 .bf .bf-client-profiles th,.bf .bf-client-profiles td{white-space:normal;min-width:0;overflow-wrap:anywhere;vertical-align:top;padding:10px 8px;line-height:1.4}
 .bf .bf-client-profiles th{font-size:9px;letter-spacing:.25px}
-.bf-client-profiles th:nth-child(1){width:21%}.bf-client-profiles th:nth-child(2){width:22%}.bf-client-profiles th:nth-child(3){width:23%}.bf-client-profiles th:nth-child(4){width:13%}.bf-client-profiles th:nth-child(5){width:8%}.bf-client-profiles th:nth-child(6){width:7%}.bf-client-profiles th:nth-child(7){width:6%}
+.bf-client-profiles th:nth-child(1){width:17%}.bf-client-profiles th:nth-child(2){width:19%}.bf-client-profiles th:nth-child(3){width:19%}.bf-client-profiles th:nth-child(4){width:11%}.bf-client-profiles th:nth-child(5){width:7%}.bf-client-profiles th:nth-child(6){width:7%}.bf-client-profiles th:nth-child(7){width:14%}.bf-client-profiles th:nth-child(8){width:6%}
 .bf .bf-client-profiles strong{font-size:12px;line-height:1.4}
 .bf-client-profiles td>span{white-space:pre-line}
 .bf-client-profiles small{display:block;margin-top:3px;color:var(--bf-muted);white-space:pre-line}
@@ -219,3 +219,5 @@
 
 .bf-qr-thumbnail{display:block;width:64px;height:64px;margin-bottom:6px;background:#fff;border:1px solid #e2e8f0;border-radius:4px;overflow:hidden}.bf-qr-thumbnail img{display:block;width:64px;height:64px;image-rendering:pixelated}
 .bf-pod-actions,.bf-pod-actions form{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin:0}.bf-pod-actions{max-width:370px;min-width:240px}.bf .bf-pod-actions .button,.bf .bf-pod-actions button{min-height:36px;padding:7px 11px;font-size:12px}.bf .bf-delete-pod{color:#a93232;border-color:#e9c5c5}
+
+.bf-client-bin-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:12px;margin:14px 0}.bf-client-bin-card{border:1px solid var(--bf-line);border-radius:12px;padding:16px;min-width:0;overflow-wrap:anywhere}.bf-client-bin-card p{margin:8px 0}.bf-client-bin-card .bf-actions{margin-top:12px}#client-bins{scroll-margin-top:20px}

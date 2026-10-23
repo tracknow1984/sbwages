@@ -5,7 +5,7 @@ import sqlite3
 import unittest
 from werkzeug.security import generate_password_hash
 from test_binflow import BinFlowTests
-from binflow_client_profiles import FIELDS, import_profiles, for_location, seed_locations, validate
+from binflow_client_profiles import FIELDS, import_profiles, for_location, seed_locations, validate, site_bins
 
 
 def encoded(rows, ident='test-contacts-v1'):
@@ -187,3 +187,40 @@ class ClientProfileTests(unittest.TestCase):
         self.post('/logout');self.login('employee','other')
         self.assertEqual(self.client.get('/binflow/client-profiles/new').status_code,403)
         self.assertEqual(self.post('/binflow/client-profiles/new',row()).status_code,403)
+
+    def test_attached_bins_follow_custody_and_active_delivery_reservations(self):
+        self.client.get('/binflow/client-profiles')
+        conn=self.connection()
+        pid=for_location(conn,3)['id']
+        # An approved delivery is allocated but still physically at the depot.
+        self.job(deliver=(1,2))
+        rows=site_bins(conn,3)
+        self.assertEqual([(r['id'],r['relationship']) for r in rows],[(1,'allocated'),(2,'allocated')])
+        page=self.client.get(f'/binflow/client-profiles/{pid}')
+        self.assertEqual(page.status_code,200)
+        self.assertIn(b'Approved for delivery',page.data)
+        self.assertIn(b'2 allocated for delivery',self.client.get('/binflow/client-profiles').data)
+        # Delivered bins remain attached even after the delivery reservation is released.
+        BinFlowTests.exchange(self,1,(1,2))
+        self.assertEqual({r['relationship'] for r in site_bins(conn,3)},{'at_site'})
+        self.assertFalse(site_bins(conn,4))
+        self.assertFalse(site_bins(conn,5))  # Same client, different state/site.
+        self.job(collect=(1,),deliver=(3,))
+        self.assertEqual(len(site_bins(conn,3)),3)  # Collection reservation must not duplicate bin 1.
+        BinFlowTests.exchange(self,2,(1,3))
+        self.assertEqual({r['id'] for r in site_bins(conn,3)},{2,3})
+        self.assertNotIn(b'BF000001',self.client.get(f'/binflow/client-profiles/{pid}').data)
+        # Cancelled/rejected reservations must never attach a bin.
+        self.job(deliver=(4,))
+        conn.execute("UPDATE bf_jobs SET status='cancelled' WHERE id=3");conn.commit()
+        self.assertEqual({r['id'] for r in site_bins(conn,3)},{2,3})
+
+    def test_unlinked_profile_never_inherits_other_sites_bins(self):
+        conn=self.connection()
+        import_profiles(conn,encoded([row(customer_site='Unlinked customer')]),'now')
+        pid=conn.execute("SELECT id FROM bf_client_site_profiles WHERE location_id IS NULL").fetchone()[0]
+        self.job(deliver=(1,))
+        page=self.client.get(f'/binflow/client-profiles/{pid}')
+        self.assertEqual(page.status_code,200)
+        self.assertIn(b'Link this profile to its collection site',page.data)
+        self.assertNotIn(b'BF000001',page.data)

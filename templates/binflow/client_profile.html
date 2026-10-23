@@ -2,6 +2,7 @@
 {% block title %}{{ "Add client" if creating else "Client site profile" }}{% endblock %}
 {% block subtitle %}{{ "Create a client and its first site, or add a site to an existing client." if creating else profile.customer_site }}{% endblock %}
 {% block body %}
+{% if not creating %}{% include 'binflow/client_bins.html' %}{% endif %}
 <section class="bf-panel bf-pad bf-profile-editor">
 {% if error %}<p class="bf-note" role="alert">{{ error }}</p>{% endif %}
 {% if not creating and not profile.location_id %}<p class="bf-note">This profile is saved. Link it to the correct collection site before using it for allocations.</p>{% endif %}
