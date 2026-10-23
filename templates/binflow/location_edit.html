@@ -26,7 +26,7 @@
     <p class="bf-muted">Existing bin allocations stay linked to this location. Saved jobs and PODs keep their original details.</p>
     <div class="bf-actions">
       <button class="primary" type="submit">Save changes</button>
-      <a class="button secondary" href="{{ url_for('bf_setup', _anchor='clients-locations') }}">Cancel</a>
+      <a class="button secondary" href="{{ url_for('bf_client_profiles' if record.kind=='client' else 'bf_setup') }}">Cancel</a>
     </div>
   </form>
 </section>

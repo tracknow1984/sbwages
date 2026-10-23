@@ -328,7 +328,8 @@ def register_binflow(app, db, require):
                 db().execute('UPDATE bf_locations SET name=?,state=?,address=? WHERE id=?', (name, state, address, location_id))
                 if record['kind'] == 'client':
                     sync_client_profile(db(), dict(id=location_id,name=name,state=state,address=address), now(), actor())
-                return success('Warehouse updated.' if record['kind'] == 'warehouse' else 'Client site updated.', 'bf_setup', _anchor='clients-locations')
+                return success('Warehouse updated.' if record['kind'] == 'warehouse' else 'Client site updated.',
+                               'bf_setup' if record['kind'] == 'warehouse' else 'bf_client_profiles')
             except sqlite3.IntegrityError:
                 error = 'A location with this name already exists for this state or client. Please use a different name.'
             except ValueError as exc:

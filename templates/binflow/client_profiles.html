@@ -2,7 +2,7 @@
 {% block title %}Client profiles{% endblock %}
 {% block subtitle %}Site contacts, service schedules and access requirements in one register.{% endblock %}
 {% block body %}
-<div class="bf-toolbar bf-profile-toolbar"><div class="bf-actions"><a class="button primary" href="{{ url_for('bf_new_client_profile') }}">+ Add client</a><a href="{{ url_for('bf_setup') }}">Clients & site setup</a></div><span>{{ total }} site profiles{% if unlinked %} · <a href="{{ url_for('bf_client_profiles',status='unlinked') }}">{{ unlinked }} awaiting site link</a>{% endif %}</span></div>
+<div class="bf-toolbar bf-profile-toolbar"><div class="bf-actions"><a class="button primary" href="{{ url_for('bf_new_client_profile') }}">+ Add client</a><a href="{{ url_for('bf_setup') }}">Warehouse & bin setup</a></div><span>{{ total }} site profiles{% if unlinked %} · <a href="{{ url_for('bf_client_profiles',status='unlinked') }}">{{ unlinked }} awaiting site link</a>{% endif %}</span></div>
 <section class="bf-panel bf-profile-filters"><form method="get" aria-label="Filter client profiles">
 <div class="bf-profile-search"><label>Search<input type="search" name="q" value="{{ query }}" placeholder="Client, site, address, contact or postcode"></label><div class="bf-actions"><button class="primary">Apply filters</button><a class="button secondary" href="{{ url_for('bf_client_profiles') }}">Clear</a></div></div>
 <div class="bf-profile-filter-grid">
