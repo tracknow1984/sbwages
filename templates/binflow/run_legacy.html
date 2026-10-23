@@ -51,4 +51,5 @@
 {% endif %}
 {% if jobs %}<details class="bf-panel bf-pad"><summary>Today’s stops · {{ jobs|length }} clients</summary><ol class="bf-run-stops">{% for j in jobs %}<li><strong>{{ j.client_name }} · {{ j.site_name }}</strong><span>{{ '✓ Client completed' if j.collected_at else 'Current stop' if current and current.id==j.id and run.departed_at else 'Scheduled' }}{{ ' · '+j.scheduled_time if j.scheduled_time }}</span></li>{% endfor %}</ol><a href="{{ url_for('bf_load_list',truck_id=truck.id,date=run_date) }}">Full loading list</a></details>{% endif %}
 {% if acceptance_history %}<details class="bf-panel bf-pad"><summary>Schedule acceptance history</summary>{% for entry in acceptance_history %}<p><strong>{{ entry.action }}</strong> · {{ entry.actor }}<br>{{ entry.created_at|display_datetime }}{% if entry.notes %} · {{ entry.notes }}{% endif %}</p>{% endfor %}</details>{% endif %}
+{% include 'binflow/sample_entry.html' %}
 </div>{% endblock %}
