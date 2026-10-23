@@ -185,15 +185,36 @@ def sync_location(conn, location, timestamp, actor):
     save_profile(conn, values, timestamp, actor, existing, location['id'])
 
 
+def register_rows(conn):
+    """Keep retired allocation sites out of the current customer register."""
+    return conn.execute('''SELECT p.*,c.name AS client_name,
+        CASE WHEN sp.active=0 AND COALESCE(a.active,0)=0 THEN 1 ELSE 0 END AS archived
+        FROM bf_client_site_profiles p
+        LEFT JOIN bf_locations l ON l.id=p.location_id LEFT JOIN bf_clients c ON c.id=l.client_id
+        LEFT JOIN bf_site_profiles sp ON sp.location_id=p.location_id
+        LEFT JOIN bf_allocation_workbook_rows a ON a.profile_id=p.id
+        ORDER BY p.group_name,p.customer_site,p.state,p.id''').fetchall()
+
+
+def register_counts(conn):
+    rows = register_rows(conn)
+    return dict(total=len(rows),current=sum(not r['archived'] for r in rows),
+                archived=sum(r['archived'] for r in rows),
+                current_unlinked=sum(not r['archived'] and not r['location_id'] for r in rows),
+                workbook=conn.execute('SELECT COUNT(*) FROM bf_allocation_workbook_rows WHERE active=1').fetchone()[0])
+
+
 def register_profiles(app, db, require, render, now, actor):
     @app.get('/binflow/client-profiles')
     @require('admin')
     def bf_client_profiles():
         seed_locations(db(), now())
         db().commit()
-        rows = db().execute('''SELECT p.*,c.name AS client_name FROM bf_client_site_profiles p
-            LEFT JOIN bf_locations l ON l.id=p.location_id LEFT JOIN bf_clients c ON c.id=l.client_id
-            ORDER BY p.group_name,p.customer_site,p.state,p.id''').fetchall()
+        rows = register_rows(db())
+        current_count = sum(not r['archived'] for r in rows)
+        archived_count = sum(r['archived'] for r in rows)
+        view = 'archived' if request.args.get('view')=='archived' else 'current'
+        rows = [r for r in rows if bool(r['archived'])==(view=='archived')]
         query = request.args.get('q', '').strip()[:200]
         filters = {name: request.args.get(name, '').strip()[:500]
                    for name in ('group', 'state', 'schedule', 'asic', 'verified', 'status', 'sort')}
@@ -232,10 +253,11 @@ def register_profiles(app, db, require, render, now, actor):
         pages = max(1, (filtered + per_page - 1) // per_page)
         page = min(page, pages)
         offset = (page - 1) * per_page
-        page_args = {**filters, 'q':query, 'per_page':per_page}
+        page_args = {**filters, 'q':query, 'per_page':per_page,'view':view}
         return render('client_profiles', section='profiles', profiles=rows[offset:offset+per_page],
                       fields=FIELDS, query=query, filters=filters, options=options, total=total, unlinked=unlinked,
                       filtered=filtered, page=page, pages=pages, per_page=per_page,
+                      view=view,current_count=current_count,archived_count=archived_count,
                       first=offset+1 if filtered else 0, last=min(offset+per_page,filtered),
                       previous_url=url_for('bf_client_profiles',page=page-1,**page_args) if page>1 else None,
                       next_url=url_for('bf_client_profiles',page=page+1,**page_args) if page<pages else None)

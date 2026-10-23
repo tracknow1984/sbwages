@@ -5,7 +5,7 @@ import math
 from collections import Counter, defaultdict
 from datetime import date
 
-from flask import abort, g, request
+from flask import abort, g, request, url_for
 
 
 SCHEMA = '''
@@ -319,8 +319,8 @@ def register_requirements(app, db, require, access, location, render, success, a
         from binflow_allocation_import import equipment_text
         reset = db().execute('SELECT 1 FROM bf_allocation_imports LIMIT 1').fetchone()
         rows = db().execute('''SELECT l.*,c.name AS client_name,p.version,p.review_note,
-            cp.id AS contact_profile_id,a.equipment,
-            s.id AS size_id,s.name AS size_name,r.quantity
+            cp.id AS contact_profile_id,cp.group_name,cp.customer_site,cp.suburb,a.equipment,
+            s.id AS size_id,s.name AS size_name,s.litres AS size_litres,r.quantity
             FROM bf_locations l JOIN bf_clients c ON c.id=l.client_id
             LEFT JOIN bf_site_profiles p ON p.location_id=l.id
             LEFT JOIN bf_client_site_profiles cp ON cp.location_id=l.id
@@ -331,15 +331,22 @@ def register_requirements(app, db, require, access, location, render, success, a
             ORDER BY l.state,c.name,l.name,s.litres''', (bool(reset),)).fetchall()
         sites, needs, stock, review_counts = {},Counter(),Counter(),Counter()
         for r in rows:
-            item = sites.setdefault(r['id'],dict(id=r['id'],name=r['name'],client=r['client_name'],state=r['state'],profile=r['version'],review=r['review_note'],quantities=[],
+            item = sites.setdefault(r['id'],dict(id=r['id'],name=r['customer_site'] or r['name'],client=r['client_name'],
+                group=r['group_name'] or r['client_name'],suburb=r['suburb'] or '',address=r['address'],
+                state=r['state'],profile=r['version'],review=r['review_note'],quantities=[],
+                small=0 if r['version'] else None,large=0 if r['version'] else None,
                 contact_profile_id=r['contact_profile_id'], equipment=equipment_text(json.loads(r['equipment'])) if r['equipment'] else ''))
             if r['quantity']:
                 item['quantities'].append(dict(name=r['size_name'],quantity=r['quantity']))
                 needs[(r['state'],r['size_id'])] += r['quantity']
+                if r['size_litres'] in (240,1100):
+                    field = 'small' if r['size_litres']==240 else 'large'
+                    item[field] = (item[field] or 0) + r['quantity']
         for r in db().execute('''SELECT cp.*,a.equipment FROM bf_allocation_workbook_rows a
             JOIN bf_client_site_profiles cp ON cp.id=a.profile_id WHERE a.active=1 AND cp.location_id IS NULL
             ORDER BY cp.state,cp.group_name,cp.customer_site'''):
             sites['pending-'+str(r['id'])] = dict(id=None,name=r['customer_site'],client=r['group_name'],state=r['state'],
+                group=r['group_name'],suburb=r['suburb'],address=r['address'],small=None,large=None,
                 profile=None,review='Complete the site address/state or confirm its collection site link before allocating bins.',
                 quantities=[],contact_profile_id=r['id'],equipment=equipment_text(json.loads(r['equipment'])))
         for item in sites.values():
@@ -359,6 +366,40 @@ def register_requirements(app, db, require, access, location, render, success, a
                 target,registered = needs[(state,size['id'])],stock[(state,size['id'])]
                 rotation=rotations.get((state,size['id']),target)
                 pools.append(dict(state=state,size_id=size['id'],size=size['name'],target=target,rotation=rotation,total=target+rotation,registered=registered,gap=max(0,target+rotation-registered),reviews=review_counts[state]))
-        return render('allocations',section='allocations',selected=selected,pools=pools,
-            sites=[s for s in sites.values() if not selected or s['state']==selected],
+        listed = [s for s in sites.values() if not selected or s['state']==selected]
+        total_sites = len(listed)
+        groups = sorted({s['group'] for s in listed if s['group']},key=str.casefold)
+        status_labels = {'saved':'Profile saved','review':'Review needed','location':'Location to confirm','unprofiled':'No profile yet'}
+        for item in listed:
+            item['status'] = 'location' if not item['id'] else ('unprofiled' if not item['profile'] else ('review' if item['review'] else 'saved'))
+            item['status_label'] = status_labels[item['status']]
+        query = request.args.get('q','').strip()[:200]
+        group = request.args.get('group','').strip()[:200]
+        status = request.args.get('status','')
+        if status not in status_labels and status != 'needs_review':
+            status = ''
+        if query:
+            listed = [s for s in listed if query.casefold() in ' '.join(str(s[k] or '') for k in
+                      ('name','client','group','suburb','address','state','equipment','review')).casefold()]
+        if group:
+            listed = [s for s in listed if s['group']==group]
+        if status:
+            listed = [s for s in listed if (s['status']!='saved' if status=='needs_review' else s['status']==status)]
+        columns = [('group','Group'),('name','Customer site'),('suburb','Suburb'),('state','State'),
+                   ('small','240L'),('large','1100L'),('status_label','Status')]
+        sort = request.args.get('sort','name')
+        if sort not in dict(columns):
+            sort = 'name'
+        direction = 'desc' if request.args.get('direction')=='desc' else 'asc'
+        # Missing information stays at the bottom in either direction; counts sort numerically.
+        known = [s for s in listed if s[sort] is not None and s[sort]!='']
+        missing = [s for s in listed if s[sort] is None or s[sort]=='']
+        known.sort(key=lambda s:(s['name'].casefold(),s['state'],s['contact_profile_id'] or 0))
+        known.sort(key=lambda s:s[sort] if sort in ('small','large') else s[sort].casefold(),reverse=direction=='desc')
+        listed = known + sorted(missing,key=lambda s:s['name'].casefold())
+        sort_urls = {key:url_for('bf_allocations',state=selected,q=query,group=group,status=status,sort=key,
+                    direction='desc' if sort==key and direction=='asc' else 'asc',_anchor='client-allocations') for key,_ in columns}
+        return render('allocations',section='allocations',selected=selected,pools=pools,sites=listed,
+            total_sites=total_sites,groups=groups,query=query,group=group,status_filter=status,
+            status_labels=status_labels,columns=columns,sort=sort,direction=direction,sort_urls=sort_urls,
             review_count=sum(v for k,v in review_counts.items() if not selected or k==selected))

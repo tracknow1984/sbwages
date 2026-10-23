@@ -29,7 +29,7 @@ from binflow_collections import migrate_collections, populate_collection_profile
 from binflow_acceptance import migrate_acceptance, register_acceptance, ensure_run_unstarted, schedule_changed
 from binflow_requirements import migrate_requirements, populate_requirements, site_plan, register_requirements
 from binflow_allocation_import import migrate as migrate_allocation_import, replace_from_workbook
-from binflow_client_profiles import (migrate as migrate_client_profiles, import_profiles, seed_locations,
+from binflow_client_profiles import (migrate as migrate_client_profiles, import_profiles, seed_locations, register_counts,
     register_profiles, for_location as client_profile_for_location, sync_location as sync_client_profile)
 from binflow_import import SCHEMA as IMPORT_SCHEMA, IMPORT_ID, import_blocktexx, profiles as source_profiles
 
@@ -147,6 +147,7 @@ def register_binflow(app, db, require):
         if allocation_payload:
             allocation_summary, changed = replace_from_workbook(db(), allocation_payload, now())
             app.logger.warning('BinFlow workbook allocations %s: %s', 'replaced' if changed else 'already replaced', json.dumps(allocation_summary))
+            app.logger.warning('BinFlow client register reconciliation: %s', json.dumps(register_counts(db())))
     app.jinja_env.filters['bfkg'] = kg
 
     def allowed():

@@ -4,10 +4,13 @@ import json
 import sqlite3
 import unittest
 from html.parser import HTMLParser
+from urllib.parse import parse_qs, urlsplit
+
+from flask import template_rendered
 
 import test_binflow as legacy
 from binflow_allocation_import import replace_from_workbook
-from binflow_client_profiles import KEYS
+from binflow_client_profiles import KEYS, register_counts
 from binflow_requirements import site_plan
 
 
@@ -138,6 +141,72 @@ class AllocationWorkbookTests(unittest.TestCase):
         values.update(version=updated['version'], contact_name='Updated contact')
         self.assertEqual(self.post(f'/binflow/client-profiles/{profile["id"]}', values).status_code, 200)
         self.assertEqual(self.rows('SELECT quantity FROM bf_site_requirements WHERE location_id=? AND size_id=1', (lid,)), [{'quantity': 3}])
+
+    def test_table_numeric_sort_filters_and_state_totals(self):
+        self.replace()
+        lid = self.rows("SELECT location_id FROM bf_client_site_profiles WHERE source_key='contacts-test:6'")[0]['location_id']
+        self.save_target(lid, 10, 1, version=1)
+        with self.connection() as conn:
+            conn.execute("UPDATE bf_client_site_profiles SET group_name='Tier 1',suburb='Exampleville' WHERE location_id=?", (lid,))
+
+        def view(query=''):
+            contexts = []
+            def capture(sender, template, context, **extra):
+                contexts.append(context)
+            with template_rendered.connected_to(capture, self.app):
+                response = self.client.get('/binflow/allocations'+query)
+            self.assertEqual(response.status_code, 200)
+            return contexts[-1], response.data.decode()
+
+        before = self.rows('SELECT * FROM bf_site_requirements')
+        asc, html = view('?sort=small')
+        desc, _ = view('?sort=small&direction=desc')
+        self.assertEqual([s['small'] for s in asc['sites']], [2,10,None])
+        self.assertEqual([s['small'] for s in desc['sites']], [10,2,None])
+        filtered, _ = view('?q=EXAMPLEVILLE&group=Tier+1&status=saved&sort=large&direction=desc')
+        self.assertEqual([s['name'] for s in filtered['sites']], ['New Fabric Co'])
+        self.assertEqual(filtered['pools'], asc['pools'])
+        link = parse_qs(urlsplit(filtered['sort_urls']['large']).query)
+        self.assertEqual(link['direction'], ['asc'])
+        self.assertEqual(link['q'], ['EXAMPLEVILLE'])
+        self.assertEqual(link['group'], ['Tier 1'])
+        self.assertEqual(link['status'], ['saved'])
+        review, _ = view('?status=needs_review')
+        self.assertEqual([s['name'] for s in review['sites']], ['Missing Details Co'])
+        state, _ = view('?state=WA&sort=name')
+        self.assertEqual(len(state['sites']), 1)
+        empty, empty_html = view('?q=does-not-exist')
+        self.assertEqual(empty['sites'], [])
+        self.assertIn('No sites match these filters', empty_html)
+        fallback, _ = view('?sort=unsupported&direction=invalid')
+        self.assertEqual((fallback['sort'],fallback['direction']), ('name','asc'))
+        table = html.split('<section class="bf-panel bf-allocations-panel"',1)[1]
+        self.assertNotIn('/collection-profile', table)
+        self.assertNotIn('/pickups/new', table)
+        self.assertIn('Edit bins', table)
+        self.assertEqual(self.rows('SELECT * FROM bf_site_requirements'), before)
+
+    def test_client_register_separates_old_sites_and_keeps_new_clients_visible(self):
+        for lid in (3,4,5):
+            self.save_target(lid, 2, 3)
+        self.replace()
+        with self.connection() as conn:
+            self.assertEqual(register_counts(conn), dict(total=5,current=3,archived=2,current_unlinked=1,workbook=3))
+        current = self.client.get('/binflow/client-profiles').data
+        self.assertIn(b'3 current site profiles', current)
+        self.assertIn(b'Alpha QLD', current)
+        self.assertNotIn(b'Beta QLD', current)
+        archived = self.client.get('/binflow/client-profiles?view=archived').data
+        self.assertIn(b'2 archived site profiles', archived)
+        self.assertIn(b'Beta QLD', archived)
+        self.assertNotIn(b'Alpha QLD', archived)
+        self.assertIn(b'name="view" value="archived"', archived)
+        # Adding a legitimate site after the import must not hide it as historical.
+        result = self.post('/binflow/client-profiles/new', dict(customer_site='Newly Added Client',
+            state='QLD',address='5 New Road',asic_required='unknown',contact_verified='no',client_id='new'))
+        self.assertEqual(result.status_code, 200)
+        self.assertIn(b'Newly Added Client', self.client.get('/binflow/client-profiles').data)
+        self.assertEqual(len(self.rows('SELECT * FROM bf_client_site_profiles')),6)
 
 
 if __name__ == '__main__':

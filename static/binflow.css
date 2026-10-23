@@ -153,3 +153,44 @@
 
 /* Native disclosure keeps state planning compact and keyboard accessible. */
 .bf-stock-plan>summary{padding:20px 23px;position:relative}.bf-stock-plan>summary>span:first-child{font-size:17px;margin-left:6px}.bf-stock-plan>summary:focus-visible{outline:3px solid #789ccf;outline-offset:-3px}.bf-stock-plan>summary .bf-expand-label,.bf-stock-plan>summary .bf-collapse-label{float:right;color:#225bc0;font-size:12px}.bf-stock-plan>summary .bf-collapse-label,.bf-stock-plan[open]>summary .bf-expand-label{display:none}.bf-stock-plan[open]>summary .bf-collapse-label{display:inline}.bf details.bf-stock-plan[open]>summary{margin-bottom:0;border-bottom:1px solid #edf1f6}.bf-stock-plan>.bf-pad{padding-top:0;padding-bottom:0}.bf-stock-plan>.bf-pad p{font-size:12px;color:var(--bf-muted)}
+
+/* Compact allocation register with persistent headings and sortable columns. */
+.bf-allocations-panel{scroll-margin-top:16px}
+.bf-allocations-panel .bf-panel-head{padding:17px 18px}
+.bf-allocation-filters{display:flex;align-items:end;flex-wrap:wrap;gap:12px;padding:15px 18px;border-bottom:1px solid var(--bf-line);background:#fafcff}
+.bf .bf-allocation-filters label{margin:0;min-width:150px;flex:1;font-size:11px;gap:5px}
+.bf .bf-allocation-filters .bf-allocation-search{flex:2;min-width:230px}
+.bf .bf-allocation-filters input,.bf .bf-allocation-filters select{min-height:38px;font-size:13px;padding:8px 10px}
+.bf .bf-allocation-filters button{min-height:38px;padding:8px 16px}
+.bf-allocation-filters>a{font-size:12px;align-self:center;padding-top:18px}
+.bf-allocation-table-wrap{max-height:70vh;min-height:120px;overscroll-behavior:contain}
+.bf-allocation-table-wrap:focus-visible{outline:3px solid #789ccf;outline-offset:-3px}
+.bf .bf-allocation-table{width:100%;min-width:920px;table-layout:fixed;white-space:normal;border-collapse:separate;border-spacing:0}
+.bf .bf-allocation-table th{position:sticky;top:0;z-index:1;background:#edf3fa;padding:0;letter-spacing:.2px;text-transform:none;font-size:12px;box-shadow:0 1px 0 #dbe4ef}
+.bf .bf-allocation-table th>a{display:flex;gap:5px;align-items:center;justify-content:space-between;padding:13px 10px;color:#405773;text-decoration:none;min-height:44px}
+.bf .bf-allocation-table th>a:hover,.bf .bf-allocation-table th[aria-sort=ascending],.bf .bf-allocation-table th[aria-sort=descending]{background:#dfeafa;color:#174a9d}
+.bf-allocation-table th>a:focus-visible{outline:3px solid #789ccf;outline-offset:-3px}
+.bf-allocation-table th>a>span{color:#7890ad}
+.bf .bf-allocation-table td{padding:12px 10px;vertical-align:top;line-height:1.45;font-size:12px;overflow-wrap:anywhere}
+.bf .bf-allocation-table td strong{font-size:13px;line-height:1.4}
+.bf-allocation-table tbody tr:nth-child(even)>td{background:#f8fafd}
+.bf-allocation-table tbody tr:hover>td{background:#eff5ff}
+.bf-allocation-col-group{width:11%}.bf-allocation-col-name{width:33%}.bf-allocation-col-suburb{width:12%}.bf-allocation-col-state{width:7%}.bf-allocation-col-small,.bf-allocation-col-large{width:6%}.bf-allocation-col-status_label{width:14%}.bf-allocation-col-actions{width:11%}
+.bf .bf-allocation-table th.bf-allocation-col-actions{padding:13px 10px}
+.bf .bf-allocation-table .bf-allocation-number{text-align:center;font-size:16px;font-weight:700;font-variant-numeric:tabular-nums;color:#244f84}
+.bf-allocation-state{font-weight:650;font-size:11px}
+.bf-allocation-status{display:inline-block;padding:4px 7px;border-radius:5px;font-size:10px;font-weight:700;background:#fff2dd;color:#855407;white-space:normal}
+.bf-allocation-status.saved{background:#e7f4ec;color:#246842}
+.bf-allocation-status.location,.bf-allocation-status.unprofiled{background:#eef0f4;color:#647186}
+.bf-allocation-actions{display:flex;align-items:flex-start;flex-direction:column;gap:7px;font-size:11px}
+.bf .bf-allocation-actions .button{min-height:30px;font-size:11px;padding:6px 9px;line-height:1.4;white-space:normal}
+.bf-allocation-detail{margin-top:6px}
+.bf .bf-allocation-detail>summary{font-weight:500;font-size:11px;color:#426898}
+.bf .bf-allocation-detail[open]>summary{margin-bottom:5px}
+.bf-allocation-detail p{font-size:11px;margin:6px 0;color:#61718a;line-height:1.5}
+.bf-allocation-detail .bf-allocation-review{color:#855407}
+.bf-allocation-footnote{margin:0;padding:11px 18px;border-top:1px solid var(--bf-line);font-size:11px;color:var(--bf-muted)}
+@media(max-width:650px){.bf .bf-allocation-filters .bf-allocation-search{flex-basis:100%}.bf .bf-allocation-filters input,.bf .bf-allocation-filters select{font-size:16px}.bf-allocation-table-wrap{max-height:65vh}.bf-allocation-filters>a{padding-top:0}.bf-allocation-filters{padding:12px;gap:10px}}
+@media print{.bf-allocation-filters,.bf-allocation-footnote{display:none}.bf-allocation-table-wrap{max-height:none;overflow:visible}.bf .bf-allocation-table{min-width:0}.bf .bf-allocation-table th{position:static}}
+
+.bf-profile-register-tabs{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}.bf-profile-register-tabs a{padding:9px 13px;border:1px solid #dce4ee;border-radius:7px;font-size:12px;color:#566a82}.bf-profile-register-tabs a.active{background:#eaf2ff;border-color:#9bb8df;color:#225bc0;font-weight:700}.bf-profile-register-tabs span{margin-left:5px;font-variant-numeric:tabular-nums}
