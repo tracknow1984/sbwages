@@ -25,7 +25,7 @@ from binflow_qr import migrate_qr, register_qr, link_request, reopen_requests, p
 from binflow_workday import migrate_workdays, register_workdays, driver_today
 from binflow_tares import STANDARD_TARES, apply_standard_tares
 from binflow_approvals import migrate_approvals, register_approvals, ensure_approved, allocation_history
-from binflow_collections import migrate_collections, populate_collection_profiles, register_collections
+from binflow_collections import migrate_collections, populate_collection_profiles, register_collections, planning_resources
 from binflow_acceptance import migrate_acceptance, register_acceptance, ensure_run_unstarted, schedule_changed
 from binflow_requirements import migrate_requirements, populate_requirements, site_plan, register_requirements
 from binflow_allocation_import import migrate as migrate_allocation_import, replace_from_workbook
@@ -148,6 +148,9 @@ def register_binflow(app, db, require):
             allocation_summary, changed = replace_from_workbook(db(), allocation_payload, now())
             app.logger.warning('BinFlow workbook allocations %s: %s', 'replaced' if changed else 'already replaced', json.dumps(allocation_summary))
             app.logger.warning('BinFlow client register reconciliation: %s', json.dumps(register_counts(db())))
+            app.logger.warning('BinFlow calendar operating settings: %s', json.dumps(planning_resources(db())))
+            app.logger.warning('BinFlow future calendar jobs: %s', json.dumps([dict(r) for r in db().execute(
+                "SELECT state,status,approval_status,COUNT(*) count FROM bf_jobs WHERE scheduled_date>='2026-10-26' AND status!='cancelled' GROUP BY state,status,approval_status")]))
     app.jinja_env.filters['bfkg'] = kg
 
     def allowed():

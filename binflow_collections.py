@@ -15,6 +15,19 @@ CADENCES = {'weekly':'Weekly','fortnightly':'Fortnightly','four_weekly':'Every 4
 INTERVALS = {'weekly':1,'fortnightly':2,'four_weekly':4,'eight_weekly':8}
 
 
+def planning_resources(conn):
+    """Read saved operating constraints without reusing the old customer schedule."""
+    saved = conn.execute('SELECT data FROM blocktexx_model WHERE id=1').fetchone()
+    model = json.loads(saved['data']) if saved else {}
+    result = {}
+    for state, values in model.get('states', {}).items():
+        result[state] = {k: values.get(k) for k in
+                         ('depot', 'depot_status', 'available_weekly_hours', 'truck')}
+        result[state]['warehouses'] = [dict(r) for r in conn.execute(
+            "SELECT id,name,address FROM bf_locations WHERE kind='warehouse' AND state=?", (state,))]
+    return result
+
+
 def migrate_collections(conn):
     conn.executescript('''
     CREATE TABLE IF NOT EXISTS bf_collection_profiles (
