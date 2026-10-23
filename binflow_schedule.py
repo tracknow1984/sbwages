@@ -191,7 +191,7 @@ def ensure_job_editable(conn, job):
     ensure_run_unstarted(conn,job['truck_id'],job['scheduled_date'])
 
 
-def sync_jobs(conn, old, plan, row, driver_id, publish, uid, actor, stamp, review, scope=None, extra_jobs=()):
+def sync_jobs(conn, old, plan, row, driver_id, publish, uid, actor, stamp, review, scope=None, extra_jobs=(), deferred_runs=None):
     previous=job_positions(old);positions=job_positions(plan)
     assigned=conn.execute('SELECT * FROM bf_jobs WHERE schedule_week_id=?',(row['id'],)).fetchall()
     records={j['id']:j for j in assigned}
@@ -223,6 +223,13 @@ def sync_jobs(conn, old, plan, row, driver_id, publish, uid, actor, stamp, revie
         else:
             conn.execute('''UPDATE bf_jobs SET schedule_week_id=NULL,schedule_live=0,driver_id=NULL,
                 truck_id=NULL,vehicle='' WHERE id=?''',(jid,))
+    if deferred_runs is not None:
+        deferred_runs.update(changed_runs)
+        return
+    refresh_runs(conn, changed_runs, records, uid, actor, stamp)
+
+
+def refresh_runs(conn, changed_runs, records, uid, actor, stamp):
     for tid,day in changed_runs:
         jobs=conn.execute("""SELECT driver_id FROM bf_jobs WHERE truck_id=? AND scheduled_date=?
             AND schedule_live=1 AND approval_status='approved' AND status!='cancelled'""",(tid,day)).fetchall()
@@ -305,6 +312,9 @@ def clear_preview(conn, state, period, chosen):
 
 
 def register(app,db,access,require,render,now,actor):
+    from binflow_calendar_edit import register_calendar_edit
+    register_calendar_edit(app, db, require, now, actor)
+
     def selection():
         from binflow_route_calendar import START
         state=request.args.get('state') or state_scope(g.user) or 'QLD'

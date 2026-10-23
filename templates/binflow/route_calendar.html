@@ -3,12 +3,13 @@
 {% block subtitle %}Collections, depot runs and baling days at a glance.{% endblock %}
 {% block body %}
 <link rel="stylesheet" href="{{ url_for('static',filename='binflow-schedule.css') }}">
+{% if current_user.role=='admin' %}<link rel="stylesheet" href="{{ url_for('static',filename='binflow-calendar-edit.css') }}"><script src="{{ url_for('static',filename='binflow-calendar-edit.js') }}" defer></script>{% endif %}
 {% for week in route_weeks %}<div class="bf-calendar-week-link"><strong>Week of {{ week.start.strftime('%d %B') }}</strong><form method="get" action="{{ url_for('bf_week_schedule') }}" class="bf-actions"><input type="hidden" name="date" value="{{ week.start.isoformat() }}"><select name="state" aria-label="State for week of {{ week.start.isoformat() }}">{% for s in states %}<option {{ 'selected' if s==(selected or 'QLD') }}>{{ s }}</option>{% endfor %}</select><button type="submit" class="primary">{{ 'Manage / approve week' if current_user.role=='admin' else 'View saved week' }}</button></form></div>{% endfor %}
 <nav class="bf-state-tabs bf-calendar-state-tabs" aria-label="Collection calendar state">
   <a class="{{ 'active' if not selected }}" href="{{ url_for('bf_collection_calendar',date=chosen.isoformat(),view=view) }}">All states <small>{{ route_counts.values()|sum }}</small></a>
   {% for s in states %}<a class="{{ 'active' if selected==s }}" data-state="{{ s }}" href="{{ url_for('bf_collection_calendar',state=s,date=chosen.isoformat(),view=view) }}"><i class="bf-state-dot" aria-hidden="true"></i>{{ s }} <small>{{ route_counts.get(s,0) }}</small></a>{% endfor %}
 </nav>
-<section class="bf-calendar-shell" aria-label="Collection planning calendar">
+<section class="bf-calendar-shell" aria-label="Collection planning calendar" {% if current_user.role=='admin' %}data-calendar-editor data-state="{{ selected }}" data-first="{{ calendar_weeks[0][0].isoformat() }}" data-last="{{ calendar_weeks[-1][-1].isoformat() }}" data-load-url="{{ url_for('bf_calendar_edit_data') }}" data-save-url="{{ url_for('bf_calendar_edit_save') }}"{% endif %}>
   <header class="bf-calendar-toolbar">
     <div class="bf-calendar-heading"><div class="bf-calendar-arrows">
       <a class="button secondary" aria-label="Previous {{ view }}" href="{{ url_for('bf_collection_calendar',state=selected,date=previous,view=view) }}">‹</a>
@@ -20,15 +21,21 @@
       <nav class="bf-calendar-switch" aria-label="Calendar view">{% for mode in ['month','week'] %}<a href="{{ url_for('bf_collection_calendar',state=selected,date=chosen.isoformat(),view=mode) }}" class="{{ 'active' if view==mode }}" {{ 'aria-current=page' if view==mode }}>{{ mode|capitalize }}</a>{% endfor %}</nav>
     </div>
   </header>
+  {% if current_user.role=='admin' %}
+  <div class="bf-calendar-edit-tools"><div><strong>Arrange your calendar</strong><p>Drag a day handle to swap its full run with another date. Expand a day to drag or reorder individual stops.</p></div><div class="bf-actions"><button type="button" class="secondary" data-calendar-undo disabled>Undo move</button><button type="button" class="primary" data-calendar-save disabled>Save changes</button></div></div>
+  <p class="bf-calendar-edit-message" data-calendar-message role="status" aria-live="polite"></p>
+  <input type="hidden" data-calendar-csrf value="{{ csrf_token() }}">
+  {% endif %}
   <div class="bf-calendar-caption"><span><i class="bf-cal-key collection" aria-hidden="true"></i>Collection runs</span><span><i class="bf-cal-key baling" aria-hidden="true"></i>Baling</span><span><i class="bf-cal-key attention" aria-hidden="true"></i>Needs arrangement</span><span class="bf-calendar-caption-end">Admin planning · local state time · select a card for details</span></div>
   <div class="bf-calendar-grid-wrap">
     <table class="bf-date-grid {{ 'bf-date-grid-week' if view=='week' }}" aria-label="{{ title }} collection calendar">
       <thead><tr>{% for name in ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'] %}<th scope="col"><abbr title="{{ name }}">{{ name[:3] }}</abbr></th>{% endfor %}</tr></thead>
       <tbody>{% for week in calendar_weeks %}<tr>{% for date in week %}{% set key=date.isoformat() %}
         <td class="{{ 'outside' if view=='month' and date.month!=chosen.month }} {{ 'today' if key==today }} {{ 'weekend' if date.weekday()>4 }}" data-date="{{ key }}" aria-label="{{ date.strftime('%A %d %B %Y') }}">
-          <div class="bf-date-heading"><time datetime="{{ key }}">{{ date.day }}</time>{% if date.day==1 or view=='week' %}<span>{{ date.strftime('%b') }}</span>{% endif %}{% if key==today %}<span class="bf-date-today">Today</span>{% endif %}</div>
+          <div class="bf-date-heading"><time datetime="{{ key }}">{{ date.day }}</time>{% if date.day==1 or view=='week' %}<span>{{ date.strftime('%b') }}</span>{% endif %}{% if key==today %}<span class="bf-date-today">Today</span>{% endif %}{% if current_user.role=='admin' and date>=route_start %}<button type="button" class="bf-day-expand" data-expand-date="{{ key }}" aria-label="Expand {{ date.strftime('%A %d %B') }}">↗</button>{% endif %}</div>
           <div class="bf-date-events">{% for event in calendar_events.get(key,[]) %}{% set group=event.group %}{% set day=event.day %}
-            <button type="button" class="bf-cal-event {{ 'is-baling' if day.baling and not day.trips else '' }} {{ 'needs-attention' if day.over_limit or day.exceptions }}" data-state="{{ group.state }}" data-calendar-open="{{ event.dialog_id }}" aria-haspopup="dialog" aria-controls="{{ event.dialog_id }}" aria-label="{{ group.state }} {{ date.strftime('%A %d %B') }}: {{ 'baling' if day.baling else 'collection runs' }}, {{ day.profiles|length }} sites{% if day.exceptions %}, needs arrangement{% endif %}">
+            {% if current_user.role=='admin' %}<button type="button" class="bf-day-grip" draggable="true" data-drag-state="{{ group.state }}" data-drag-date="{{ key }}" aria-label="Move whole {{ group.state }} day {{ key }}">⠿ Move {{ group.state }} day</button>{% endif %}
+            <button type="button" class="bf-cal-event {{ 'is-baling' if day.baling and not day.trips else '' }} {{ 'needs-attention' if day.over_limit or day.exceptions }}" data-state="{{ group.state }}" {% if current_user.role=='admin' %}data-expand-state="{{ group.state }}" data-expand-date="{{ key }}" aria-controls="calendar-expanded-day"{% else %}data-calendar-open="{{ event.dialog_id }}" aria-haspopup="dialog" aria-controls="{{ event.dialog_id }}"{% endif %} aria-label="{{ group.state }} {{ date.strftime('%A %d %B') }}: {{ 'baling' if day.baling else 'collection runs' }}, {{ day.profiles|length }} sites{% if day.exceptions %}, needs arrangement{% endif %}">
               <span class="bf-cal-event-top"><strong>{{ group.state }}</strong><span class="bf-cal-event-hours">{% if day.saved_status %}{{ day.saved_status|capitalize }}{% elif day.minutes %}{{ '%.1f'|format(day.minutes/60) }}h{% if day.over_limit %} !{% endif %}{% else %}Booked{% endif %}</span></span>
               <span class="bf-cal-event-title">{% if day.saved_status %}{{ day.saved_items|length }} scheduled {{ 'item' if day.saved_items|length==1 else 'items' }}{% elif day.baling %}Baling{% if day.trips %} + collections{% endif %}{% elif day.trips %}{{ day.profiles|length }} {{ 'site' if day.profiles|length==1 else 'sites' }} · {{ day.trips|length }} {{ 'load' if day.trips|length==1 else 'loads' }}{% elif day.exceptions %}Needs arrangement{% else %}{{ day.jobs|length }} booked {{ 'job' if day.jobs|length==1 else 'jobs' }}{% endif %}</span>
               {% if day.saved_status and view=='week' %}<span class="bf-cal-event-sites">{% for item in day.saved_items %}{{ item.title }}{{ ' · ' if not loop.last }}{% endfor %}</span>{% endif %}{% if view=='week' and day.profiles %}<span class="bf-cal-event-sites">{% for p in day.profiles %}{{ p.name }}{{ ' · ' if not loop.last }}{% endfor %}</span>{% endif %}
@@ -42,6 +49,18 @@
   </div>
   <footer class="bf-calendar-foot"><span>06:30–15:30 working window · depot returns included</span><span>Plan begins 26 October 2026</span></footer>
 </section>
+{% if current_user.role=='admin' %}
+<aside class="bf-expanded-day" id="calendar-expanded-day" aria-labelledby="calendar-expanded-title" hidden>
+  <header class="bf-expanded-head"><div><span data-expanded-state class="bf-kicker"></span><h2 id="calendar-expanded-title">Day details</h2></div><div class="bf-actions"><button type="button" class="secondary" data-expanded-wide aria-label="Enlarge day view" aria-pressed="false">Expand</button><button type="button" class="secondary" data-expanded-close aria-label="Close expanded day">✕</button></div></header>
+  <div class="bf-expanded-body"><p data-expanded-status></p><div class="bf-expanded-navigation"><button type="button" class="secondary" data-expanded-previous aria-label="Previous day">‹</button><label>State<select data-expanded-region>{% for s in states %}<option>{{ s }}</option>{% endfor %}</select></label><button type="button" class="secondary" data-expanded-next aria-label="Next day">›</button></div>
+    <form data-whole-day-move class="bf-calendar-date-move"><label>Move / swap whole day with<input type="date" data-whole-day-target min="2026-10-26" max="2100-12-31" required></label><button class="secondary">Move day</button></form>
+    <p class="bf-muted">Drop a stop onto any calendar date, or drag it above another stop here to change the order. Moving a whole day swaps any existing work.</p>
+    <div data-expanded-stops></div><div data-expanded-loads></div>
+    <p data-expanded-notes></p><a class="button secondary" data-expanded-week>Manage / approve this week →</a>
+  </div><p data-expanded-error role="alert" class="bf-calendar-edit-message is-error" hidden></p><footer><button type="button" class="primary" data-calendar-save disabled>Save changes</button><span>Draft weeks need weekly approval. Published weeks update when saved.</span></footer>
+</aside>
+<dialog class="bf-calendar-dialog" id="calendar-stop-move" aria-labelledby="calendar-stop-move-title"><header class="bf-calendar-dialog-head"><h2 id="calendar-stop-move-title">Move stop</h2><button type="button" class="secondary" data-calendar-close aria-label="Close move stop">✕</button></header><form data-stop-move-form><div class="bf-calendar-dialog-body"><p data-move-title></p><label>Destination date<input type="date" data-stop-target min="2026-10-26" max="2100-12-31" required></label><p data-move-error role="alert"></p></div><footer><button type="submit" class="primary">Move stop</button></footer></form></dialog>
+{% endif %}
 <noscript><p class="bf-note">Enable JavaScript to open run details from the calendar cards.</p></noscript>
 {% if not route_weeks %}<p class="bf-note">The rebuilt plan starts Monday 26 October 2026. <a href="{{ url_for('bf_collection_calendar',date=route_start.isoformat(),view='week',state=selected) }}">Open the first week →</a></p>{% endif %}
 {% if calendar_backlog %}

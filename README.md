@@ -362,6 +362,23 @@ python -m unittest discover -s tests -p 'test_binflow*.py' -v
 
 ### State collection profiles and calendar
 
+Administrators can arrange work directly on the month/week collection calendar.
+Drag a **Move day** handle onto another date to swap the complete day, including
+its notes; an empty destination simply receives the run. Expand a day to reorder
+stops or drag individual stops onto calendar dates. **Move…** date controls support
+phones and keyboards. **Undo move** reverses staged moves. **Save changes** applies
+the affected weeks together, with stale-edit checks, recorded revisions and the
+existing started-job protections. Published weeks update for their assigned driver;
+draft weeks still require weekly approval. Cross-week transfers retain the docket,
+bin reservations and truck, and use the destination week's publication and driver
+assignment. Route estimates are invalidated for edited days. Drivers cannot use
+these editing endpoints; managers retain read-only calendar access.
+
+Calendar checks: `python -m unittest discover -s tests -p 'test_binflow_calendar_edit.py'`.
+The isolated browser fixture `tests/browser_calendar_fixture.py` and
+`tests/test_calendar_browser.cjs` exercise desktop dragging, expanded-day reorder,
+cross-week moves, undo, persistence, network retry and mobile date controls.
+
 **Collection calendar** (`/binflow/collection-calendar`) shows dated week/month
 views, state tabs, proposed visits, linked allocations and operational job status.
 The profile register includes each client location's frequency, weekdays, first
