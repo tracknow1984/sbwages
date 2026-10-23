@@ -2,12 +2,12 @@
 {% block title %}State collection calendar{% endblock %}
 {% block subtitle %}Collections, depot runs and baling days at a glance.{% endblock %}
 {% block body %}
-{% if current_user.role=='admin' %}<link rel="stylesheet" href="{{ url_for('static',filename='binflow-calendar-edit.css') }}"><script src="{{ url_for('static',filename='binflow-calendar-edit.js') }}" defer></script><script src="{{ url_for('static',filename='binflow-calendar-actions.js') }}" defer></script>{% endif %}
+{% if current_user.role=='admin' %}<link rel="stylesheet" href="{{ url_for('static',filename='binflow-calendar-edit.css') }}"><script src="{{ url_for('static',filename='binflow-calendar-edit.js') }}" defer></script><script src="{{ url_for('static',filename='binflow-calendar-actions.js') }}" defer></script><script src="{{ url_for('static',filename='binflow-calendar-progress.js') }}" defer></script>{% endif %}
 <nav class="bf-state-tabs bf-calendar-state-tabs" aria-label="Collection calendar state">
   <a class="{{ 'active' if not selected }}" href="{{ url_for('bf_collection_calendar',date=chosen.isoformat(),view=view) }}">All states <small>{{ route_counts.values()|sum }}</small></a>
   {% for s in states %}<a class="{{ 'active' if selected==s }}" data-state="{{ s }}" href="{{ url_for('bf_collection_calendar',state=s,date=chosen.isoformat(),view=view) }}"><i class="bf-state-dot" aria-hidden="true"></i>{{ s }} <small>{{ route_counts.get(s,0) }}</small></a>{% endfor %}
 </nav>
-<section class="bf-calendar-shell" aria-label="Collection planning calendar" {% if current_user.role=='admin' %}data-calendar-editor data-chosen="{{ chosen.isoformat() }}" data-state="{{ selected }}" data-first="{{ calendar_weeks[0][0].isoformat() }}" data-last="{{ calendar_weeks[-1][-1].isoformat() }}" data-load-url="{{ url_for('bf_calendar_edit_data') }}" data-save-url="{{ url_for('bf_calendar_edit_save') }}"{% endif %}>
+<section class="bf-calendar-shell" aria-label="Collection planning calendar" {% if current_user.role=='admin' %}data-calendar-editor data-progress-url="{{ url_for('bf_calendar_progress') }}" data-chosen="{{ chosen.isoformat() }}" data-state="{{ selected }}" data-first="{{ calendar_weeks[0][0].isoformat() }}" data-last="{{ calendar_weeks[-1][-1].isoformat() }}" data-load-url="{{ url_for('bf_calendar_edit_data') }}" data-save-url="{{ url_for('bf_calendar_edit_save') }}"{% endif %}>
   <header class="bf-calendar-toolbar">
     <div class="bf-calendar-heading"><div class="bf-calendar-arrows">
       <a class="button secondary" aria-label="Previous {{ view }}" href="{{ url_for('bf_collection_calendar',state=selected,date=previous,view=view) }}">‹</a>
@@ -21,6 +21,7 @@
   </header>
   {% if current_user.role=='admin' %}
   <div class="bf-calendar-edit-tools"><div><strong>Arrange your calendar</strong><p>Drag a day handle to swap its full run with another date. Expand a day to drag or reorder individual stops.</p></div><div class="bf-actions"><button type="button" class="secondary" data-calendar-action="options">Calendar options</button><button type="button" class="secondary" data-calendar-undo disabled>Undo move</button><button type="button" class="primary" data-calendar-save disabled>Save changes</button><button type="button" class="primary" data-calendar-action="approve">APPROVE WEEK</button></div></div>
+  <div class="bf-progress-legend"><span>Pickup progress</span><span>○ Booked</span><span>➜ On route</span><span>✓ Completed</span><span>× Cancelled</span><small data-progress-updated>Loading live progress…</small></div>
   <p class="bf-calendar-edit-message" data-calendar-message role="status" aria-live="polite"></p>
   <input type="hidden" data-calendar-csrf value="{{ csrf_token() }}">
   {% endif %}

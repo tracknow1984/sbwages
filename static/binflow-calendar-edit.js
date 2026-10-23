@@ -133,6 +133,7 @@
       if(day.items.length)list.append(grip(week.state,day.date));list.append(card);
     }
     if(expanded)drawPanel();changed();
+    root.dispatchEvent(new Event('calendar-progress-redraw'));
   }
   async function openDay(state,day) {
     if(saving || actionPending)return;

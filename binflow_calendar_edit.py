@@ -79,6 +79,22 @@ def register_calendar_edit(app, db, require, now, actor):
     from binflow_schedule import (STATES, monday, get_plan, clean_plan, drivers,
                                   job_positions, ensure_job_editable, sync_jobs, refresh_runs)
 
+    @app.get('/binflow/schedule/calendar-progress')
+    @require('admin')
+    def bf_calendar_progress():
+        from binflow_calendar_progress import progress
+        try:
+            first = date.fromisoformat(request.args.get('first',''))
+            last = date.fromisoformat(request.args.get('last',''))
+            state = request.args.get('state','')
+            if not 0 <= (last-first).days <= 41 or state not in ('',*STATES):
+                raise ValueError('Choose one calendar month and a valid state.')
+            response = jsonify(days=progress(db(),first,last,state))
+            response.headers['Cache-Control'] = 'no-store'
+            return response
+        except (ValueError,TypeError) as exc:
+            return jsonify(error=str(exc)),400
+
     @app.get('/binflow/schedule/calendar-data')
     @require('admin')
     def bf_calendar_edit_data():
