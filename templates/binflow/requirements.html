@@ -6,6 +6,8 @@
 <section class="bf-panel bf-pad">
 <div class="bf-panel-head"><div><h2>Bins normally kept at this site</h2><p>Set the quantity of each size the client needs. The run planner works out replacements and top-ups from this target.</p></div>{% if profile %}<span class="bf-count">{{ 'Review needed' if profile.review_note else 'Saved profile' }}</span>{% endif %}</div>
 {% if error %}<p class="notice error" role="alert">{{ error }}</p>{% endif %}
+{% if workbook %}<p class="bf-note"><strong>Workbook equipment:</strong> {{ workbook.equipment_text }}<br>{{ workbook.source_label }} · Equipment row {{ workbook.source_row }}</p>{% endif %}
+{% if profile and not profile.active %}<p class="bf-note">This site's previous allocation was cleared during the workbook reset. Save new requirements to add it back to the allocation plan.</p>{% endif %}
 {% if profile and profile.review_note %}<p class="bf-note"><strong>Check this allocation:</strong> {{ profile.review_note }} Review the quantities below and save to confirm.</p>{% elif suggested and not profile %}<p class="bf-note">These starting quantities come from the imported equipment listing. Review and save them before using them as a loading target.</p>{% endif %}
 <form method="post" class="bf-form"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ version }}">
 <div class="bf-requirement-grid">{% for s in sizes %}<label><strong>{{ s.name }}</strong><span>Normal on-site quantity</span><input type="number" name="quantity_{{ s.id }}" min="0" max="10000" step="1" value="{{ values[s.id] }}" required aria-label="{{ s.name }} quantity"></label>{% endfor %}</div>

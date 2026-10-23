@@ -131,6 +131,8 @@ def populate_requirements(conn, timestamp):
 
 def migrate_requirements(conn):
     conn.executescript(SCHEMA)
+    if 'active' not in {r['name'] for r in conn.execute('PRAGMA table_info(bf_site_profiles)')}:
+        conn.execute('ALTER TABLE bf_site_profiles ADD COLUMN active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1))')
     if 'bin_plan' not in {r['name'] for r in conn.execute('PRAGMA table_info(bf_jobs)')}:
         conn.execute("ALTER TABLE bf_jobs ADD COLUMN bin_plan TEXT NOT NULL DEFAULT '[]'")
 
@@ -141,7 +143,7 @@ def site_plan(conn, site_id, warehouse_id, collections=None, run_date=None):
     Profile targets are quantities to keep on site. A normal visit swaps up to that
     quantity; changing the actual collection quantity changes the recommended load.
     """
-    profile = conn.execute('SELECT * FROM bf_site_profiles WHERE location_id=?', (site_id,)).fetchone()
+    profile = conn.execute('SELECT * FROM bf_site_profiles WHERE location_id=? AND active=1', (site_id,)).fetchone()
     if not profile:
         return None, []
     rows = conn.execute('''SELECT r.*,s.name,s.litres FROM bf_site_requirements r
@@ -224,7 +226,7 @@ def register_requirements(app, db, require, access, location, render, success, a
         quantities = {r['size_id']:r['quantity'] for r in db().execute('SELECT * FROM bf_site_requirements WHERE location_id=?', (location_id,))}
         sources = source_profiles(db(),location_id)
         suggested = False
-        if not profile and len(sources)==1:
+        if not profile and len(sources)==1 and not db().execute('SELECT 1 FROM bf_allocation_imports LIMIT 1').fetchone():
             for size in sizes:
                 value = sources[0]['source'].get('containers',{}).get('bin'+str(size['litres']))
                 if type(value) is int and 0<=value<=10000 and sum(s['litres']==size['litres'] for s in sizes)==1:
@@ -246,11 +248,11 @@ def register_requirements(app, db, require, access, location, render, success, a
                     if not raw.isascii() or not raw.isdigit() or not 0<=int(raw)<=10000:
                         raise ValueError('Enter a whole quantity from 0 to 10,000 for each bin size.')
                     parsed[size['id']] = int(raw)
-                if profile and not profile['review_note'] and parsed==quantities and notes==profile['notes']:
+                if profile and profile['active'] and not profile['review_note'] and parsed==quantities and notes==profile['notes']:
                     return success('Bin requirements are already saved.','bf_requirements',location_id=location_id)
                 stamp, person = now(), actor()
                 db().execute('''INSERT INTO bf_site_profiles(location_id,version,notes,updated_at,updated_by) VALUES(?,?,?,?,?)
-                    ON CONFLICT(location_id) DO UPDATE SET version=excluded.version,notes=excluded.notes,updated_at=excluded.updated_at,updated_by=excluded.updated_by,review_note='' ''',
+                    ON CONFLICT(location_id) DO UPDATE SET version=excluded.version,notes=excluded.notes,updated_at=excluded.updated_at,updated_by=excluded.updated_by,review_note='',active=1 ''',
                     (location_id,version+1,notes,stamp,person))
                 db().execute('DELETE FROM bf_site_requirements WHERE location_id=?',(location_id,))
                 db().executemany('INSERT INTO bf_site_requirements(location_id,size_id,quantity) VALUES(?,?,?)',[(location_id,sid,qty) for sid,qty in parsed.items()])
@@ -262,8 +264,14 @@ def register_requirements(app, db, require, access, location, render, success, a
                 db().rollback()
                 error = str(exc)
         history = db().execute('SELECT version,created_at,actor FROM bf_profile_history WHERE location_id=? ORDER BY version DESC LIMIT 10',(location_id,)).fetchall()
+        workbook = db().execute('''SELECT a.* FROM bf_allocation_workbook_rows a
+            JOIN bf_client_site_profiles cp ON cp.id=a.profile_id WHERE cp.location_id=? AND a.active=1''', (location_id,)).fetchone()
+        if workbook:
+            from binflow_allocation_import import equipment_text
+            sources = []
+            workbook = dict(workbook, equipment_text=equipment_text(json.loads(workbook['equipment'])))
         return render('requirements',section='setup',record=record,sizes=sizes,values=values,notes=notes,
-            version=version,profile=profile,suggested=suggested,source_profiles=sources,history=history,error=error), 400 if error else 200
+            version=version,profile=profile,suggested=suggested,source_profiles=sources,history=history,error=error,workbook=workbook), 400 if error else 200
 
     @app.get('/binflow/driver/<int:truck_id>/load-list')
     @access
@@ -308,19 +316,32 @@ def register_requirements(app, db, require, access, location, render, success, a
             except (ValueError,TypeError):
                 db().rollback()
                 abort(400,'Enter a whole rotation quantity from 0 to 10,000 for each state and size.')
+        from binflow_allocation_import import equipment_text
+        reset = db().execute('SELECT 1 FROM bf_allocation_imports LIMIT 1').fetchone()
         rows = db().execute('''SELECT l.*,c.name AS client_name,p.version,p.review_note,
+            cp.id AS contact_profile_id,a.equipment,
             s.id AS size_id,s.name AS size_name,r.quantity
             FROM bf_locations l JOIN bf_clients c ON c.id=l.client_id
             LEFT JOIN bf_site_profiles p ON p.location_id=l.id
+            LEFT JOIN bf_client_site_profiles cp ON cp.location_id=l.id
+            LEFT JOIN bf_allocation_workbook_rows a ON a.profile_id=cp.id AND a.active=1
             LEFT JOIN bf_site_requirements r ON r.location_id=l.id
             LEFT JOIN bf_sizes s ON s.id=r.size_id
-            WHERE l.kind='client' ORDER BY l.state,c.name,l.name,s.litres''').fetchall()
+            WHERE l.kind='client' AND (?=0 OR p.active=1)
+            ORDER BY l.state,c.name,l.name,s.litres''', (bool(reset),)).fetchall()
         sites, needs, stock, review_counts = {},Counter(),Counter(),Counter()
         for r in rows:
-            item = sites.setdefault(r['id'],dict(id=r['id'],name=r['name'],client=r['client_name'],state=r['state'],profile=r['version'],review=r['review_note'],quantities=[]))
+            item = sites.setdefault(r['id'],dict(id=r['id'],name=r['name'],client=r['client_name'],state=r['state'],profile=r['version'],review=r['review_note'],quantities=[],
+                contact_profile_id=r['contact_profile_id'], equipment=equipment_text(json.loads(r['equipment'])) if r['equipment'] else ''))
             if r['quantity']:
                 item['quantities'].append(dict(name=r['size_name'],quantity=r['quantity']))
                 needs[(r['state'],r['size_id'])] += r['quantity']
+        for r in db().execute('''SELECT cp.*,a.equipment FROM bf_allocation_workbook_rows a
+            JOIN bf_client_site_profiles cp ON cp.id=a.profile_id WHERE a.active=1 AND cp.location_id IS NULL
+            ORDER BY cp.state,cp.group_name,cp.customer_site'''):
+            sites['pending-'+str(r['id'])] = dict(id=None,name=r['customer_site'],client=r['group_name'],state=r['state'],
+                profile=None,review='Complete the site address/state or confirm its collection site link before allocating bins.',
+                quantities=[],contact_profile_id=r['id'],equipment=equipment_text(json.loads(r['equipment'])))
         for item in sites.values():
             if item['review'] or not item['profile']:
                 review_counts[item['state']] += 1

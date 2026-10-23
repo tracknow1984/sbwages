@@ -323,6 +323,8 @@ def register_profiles(app, db, require, render, now, actor):
                     db().execute('UPDATE bf_locations SET name=?,state=?,address=? WHERE id=?',
                                  (values['customer_site'], values['state'], values['address'], lid))
                 save_profile(db(), values, now(), actor(), profile, lid)
+                from binflow_allocation_import import activate_pending
+                activate_pending(db(), profile_id, now(), actor())
                 db().commit()
                 flash('Client profile saved.', 'success')
                 return redirect(url_for('bf_client_profiles'))

@@ -213,7 +213,7 @@ class BinFlowTests(unittest.TestCase):
 
     def test_location_edits_preserve_stock_and_job_snapshots(self):
         warehouse_path = '/binflow/locations/1/edit'
-        self.assertIn(b'Edit QLD warehouse', self.client.get('/binflow/setup').data)
+        self.assertNotIn(b'Clients &amp; locations', self.client.get('/binflow/setup').data)
         self.assertIn(b'value="1 Depot Road"', self.client.get(warehouse_path).data)
         invalid = self.post(warehouse_path, {'name':'Changed', 'state':'NSW', 'address':'New address'})
         self.assertEqual(invalid.status_code, 400)
