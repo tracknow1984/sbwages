@@ -267,5 +267,5 @@
   const saved=sessionStorage.getItem('bf-calendar-saved');if(saved){say(saved);sessionStorage.removeItem('bf-calendar-saved');}
   const restore=sessionStorage.getItem('bf-calendar-expanded');sessionStorage.removeItem('bf-calendar-expanded');
   if(restore){try{const value=JSON.parse(restore);openDay(value.state,value.day).then(()=>{if(saved)say(saved);});}catch(_){/* Ignore an obsolete view preference. */}}
-  else if(root.dataset.state)ensure(root.dataset.state,root.dataset.last).then(draw).catch(error=>say(error.message,true));
+  else if(root.dataset.state&&root.dataset.last>='2026-10-26')ensure(root.dataset.state,root.dataset.last).then(draw).catch(error=>say(error.message,true));
 })();

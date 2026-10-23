@@ -68,6 +68,72 @@ class StaffRoleTests(unittest.TestCase):
         self.assertIn(b'CONTRACTOR',result.data);self.assertIn(b'<dd>SA</dd>',result.data)
         self.assertEqual(self.post(route,self.profile()).status_code,403)
 
+    def test_assignment_save_does_not_require_or_change_contact_pay_or_password(self):
+        uid=self.ids['unprofiled'];route=f'/admin/staff/{uid}/edit'
+        before=self.rows('SELECT * FROM users WHERE id=?',(uid,))[0]
+        self.assertEqual(before['emergency_email'],'')
+        result=self.post(route,dict(action='save_assignment',business_role='driver',working_state='QLD',
+            hourly_rate='999',email='changed@example.com',password='ignored-password-value'))
+        self.assertIn(b'Role and working state saved.',result.data)
+        self.assertIn(b'value="QLD" selected',self.client.get(route).data)
+        after=self.rows('SELECT * FROM users WHERE id=?',(uid,))[0]
+        self.assertEqual((after['business_role'],after['working_state']),('driver','QLD'))
+        self.assertEqual(after['auth_version'],before['auth_version']+1)
+        for key in before:
+            if key not in ('business_role','working_state','auth_version'):self.assertEqual(after[key],before[key],key)
+        options=self.client.get('/binflow/schedule/options?state=QLD&date=2026-10-26').json
+        self.assertIn(uid,[d['id'] for d in options['drivers']])
+        self.assertEqual(self.client.post(route,data=dict(action='save_assignment',business_role='driver',working_state='NSW')).status_code,400)
+        self.sign_in('unprofiled')
+        self.assertEqual(self.post(route,dict(action='save_assignment',business_role='manager',working_state='NSW')).status_code,403)
+
+    def test_assignment_validation_preserves_existing_staff_fields(self):
+        uid=self.ids['qlddriver'];route=f'/admin/staff/{uid}/edit'
+        before=self.rows('SELECT * FROM users WHERE id=?',(uid,))[0]
+        result=self.post(route,dict(action='save_assignment',business_role='driver',working_state='BAD'))
+        self.assertIn(b'Choose a business role and working state',result.data)
+        self.assertIn(before['email'].encode(),result.data)
+        self.assertEqual(before,self.rows('SELECT * FROM users WHERE id=?',(uid,))[0])
+
+    def test_contact_form_error_keeps_saved_role_and_state_visible(self):
+        route=f'/admin/staff/{self.ids["qlddriver"]}/edit'
+        values=self.profile();values.pop('business_role');values.pop('working_state');values['email']='invalid'
+        result=self.post(route,values)
+        self.assertIn(b'Enter valid contact',result.data)
+        self.assertIn(b'value="driver" selected',result.data)
+        self.assertIn(b'value="QLD" selected',result.data)
+
+    def test_initial_state_can_match_legacy_active_day_without_changing_clock_or_vehicle(self):
+        uid=self.ids['qlddriver'];route=f'/admin/staff/{uid}/edit'
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("UPDATE users SET working_state='' WHERE id=?",(uid,))
+            truck=conn.execute("INSERT INTO bf_trucks(name,state,created_at) VALUES('Legacy truck','QLD','2026-10-19')").lastrowid
+            conn.execute("""INSERT INTO bf_workdays(user_id,work_date,timezone,state,truck_id,started_at,start_received_at)
+                VALUES(?,'2026-10-19','Australia/Brisbane','QLD',?,'2026-10-19T08:00:00+10:00','2026-10-19T08:00:00+10:00')""",(uid,truck))
+        before=self.rows('SELECT * FROM bf_workdays');entries=self.rows('SELECT * FROM entries')
+        rejected=self.post(route,dict(action='save_assignment',business_role='driver',working_state='NSW'))
+        self.assertIn(b'active driver day',rejected.data)
+        self.assertEqual(self.rows('SELECT working_state FROM users WHERE id=?',(uid,))[0]['working_state'],'')
+        result=self.post(route,dict(action='save_assignment',business_role='driver',working_state='QLD'))
+        self.assertIn(b'Role and working state saved.',result.data)
+        self.assertEqual(before,self.rows('SELECT * FROM bf_workdays'));self.assertEqual(entries,self.rows('SELECT * FROM entries'))
+        self.assertEqual(self.rows('SELECT working_state FROM users WHERE id=?',(uid,))[0]['working_state'],'QLD')
+        self.assertEqual(self.rows('SELECT action FROM bf_workday_events')[-1]['action'],'Working state allocated')
+        self.sign_in('qlddriver');self.assertEqual(self.client.get('/binflow/driver/my-day?summary=1').status_code,200)
+
+    def test_initial_state_can_complete_unassigned_legacy_day_but_cannot_switch_roles(self):
+        uid=self.ids['qlddriver'];route=f'/admin/staff/{uid}/edit'
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("UPDATE users SET working_state='' WHERE id=?",(uid,))
+            conn.execute("""INSERT INTO bf_workdays(user_id,work_date,timezone,started_at,start_received_at)
+                VALUES(?,'2026-10-19','Australia/Brisbane','2026-10-19T08:00:00+10:00','2026-10-19T08:00:00+10:00')""",(uid,))
+        result=self.post(route,dict(action='save_assignment',business_role='manager',working_state='QLD'))
+        self.assertIn(b'active driver day',result.data)
+        result=self.post(route,dict(action='save_assignment',business_role='driver',working_state='QLD'))
+        self.assertIn(b'Role and working state saved.',result.data)
+        day=self.rows('SELECT * FROM bf_workdays')[0]
+        self.assertEqual(day['state'],'QLD');self.assertIsNone(day['finished_at']);self.assertIsNone(day['truck_id'])
+
     def test_driver_and_contractor_cannot_read_or_operate_other_state(self):
         self.prepare_runs()
         for name, own, other, other_job in (('qlddriver','QLD','NSW',2),('nswcontractor','NSW','QLD',1)):

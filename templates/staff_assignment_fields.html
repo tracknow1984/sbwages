@@ -1,0 +1,4 @@
+<section><h2>Business role & working state</h2><div class="form-grid">
+<label>Business role<select name="business_role" required><option value="">Choose role</option>{% for key,label in business_roles.items() %}<option value="{{ key }}" {{ 'selected' if person and person.business_role==key }}>{{ label }}</option>{% endfor %}</select></label>
+<label>Working state<select name="working_state" required><option value="">Choose state</option>{% for state in working_states %}<option value="{{ state }}" {{ 'selected' if person and person.working_state==state }}>{{ state }}</option>{% endfor %}</select></label>
+</div><p class="hint">DRIVER and CONTRACTOR: BINFLOW driver tools for their allocated state only. LABOUR: no BINFLOW access. MANAGER: national BINFLOW operations. Business role does not grant payroll or staff administration. Role and state changes apply on the employee’s next sign-in.</p></section>

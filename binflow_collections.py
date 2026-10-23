@@ -238,11 +238,11 @@ def register_collections(app,db,access,require,render,success,now,actor):
     @app.get('/binflow/collection-calendar')
     @access
     def bf_collection_calendar():
-        from binflow_route_calendar import enabled, view_data, START
+        from binflow_route_calendar import enabled, view_data
         rebuilt=enabled(db())
-        state=request.args.get('state','');view=request.args.get('view','month')
+        state=request.args.get('state','');view=request.args.get('view','week')
         if state not in ('',)+STATES or view not in ('month','week'): abort(400)
-        try: chosen=dated(request.args.get('date') or (max(START.isoformat(),now()[:10]) if rebuilt else now()[:10]))
+        try: chosen=dated(request.args.get('date') or now()[:10])
         except ValueError: abort(400,'Choose a valid calendar date.')
         if view=='month':
             first=chosen.replace(day=1);last=chosen.replace(day=calendar.monthrange(chosen.year,chosen.month)[1])

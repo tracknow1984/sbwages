@@ -390,6 +390,12 @@ def create_app(test_config=None):
         session.clear()
         return redirect(url_for('index'))
 
+    def parse_staff_assignment():
+        values = {key: request.form.get(key, '').strip() for key in ('business_role', 'working_state')}
+        if values['business_role'] not in BUSINESS_ROLES or values['working_state'] not in WORKING_STATES:
+            raise ValueError('Choose a business role and working state for this employee.')
+        return values
+
     def parse_details(admin=False):
         fields = ['first_name', 'last_name', 'email', 'mobile', 'emergency_name', 'emergency_email']
         values = {k: request.form.get(k, '').strip() for k in fields}
@@ -420,10 +426,7 @@ def create_app(test_config=None):
                 raise ValueError('Enter a valid licence expiry date.')
         if admin:
             if 'business_role' in request.form or 'working_state' in request.form:
-                values['business_role'] = request.form.get('business_role', '')
-                values['working_state'] = request.form.get('working_state', '')
-                if values['business_role'] not in BUSINESS_ROLES or values['working_state'] not in WORKING_STATES:
-                    raise ValueError('Choose a business role and working state for this employee.')
+                values.update(parse_staff_assignment())
             values['username'] = request.form.get('username', '').strip().lower()
             if not re.fullmatch(r'[a-z0-9._@+-]{3,80}', values['username']):
                 raise ValueError('Username must be 3–80 letters, numbers, or . _ @ + - characters.')
@@ -453,34 +456,50 @@ def create_app(test_config=None):
     @require('admin')
     def edit_staff(user_id):
         person = staff(user_id) if user_id else None
+        assignment_only = bool(person and request.form.get('action') == 'save_assignment')
         if request.method == 'POST':
             try:
-                values = parse_details(admin=True)
-                password = request.form.get('password', '')
+                values = parse_staff_assignment() if assignment_only else parse_details(admin=True)
+                password = '' if assignment_only else request.form.get('password', '')
                 if password and len(password) < 12:
                     raise ValueError('Passwords must have at least 12 characters.')
                 db().execute('BEGIN IMMEDIATE')
                 if person:
                     profile_changed = any(key in values and values[key] != person[key] for key in ('business_role', 'working_state'))
-                    if profile_changed and db().execute('SELECT 1 FROM bf_workdays WHERE user_id=? AND finished_at IS NULL', (user_id,)).fetchone():
-                        raise ValueError('Finish or reconcile this employee’s active driver day before changing their role or working state.')
+                    active_day = db().execute('''SELECT d.*,t.state AS truck_state FROM bf_workdays d
+                        LEFT JOIN bf_trucks t ON t.id=d.truck_id WHERE d.user_id=? AND d.finished_at IS NULL''', (user_id,)).fetchone() if profile_changed else None
+                    if active_day:
+                        # Legacy drivers may have started a day before working states were introduced.
+                        # Assigning their existing state must not leave them locked out of finishing it.
+                        initial_state = (not person['working_state'] and
+                            person['business_role'] in ('driver', 'contractor') and
+                            values['business_role'] == person['business_role'] and
+                            active_day['state'] in ('', values['working_state']) and
+                            (not active_day['truck_id'] or active_day['truck_state'] == values['working_state']))
+                        if not initial_state:
+                            raise ValueError('Finish or reconcile this employee’s active driver day before changing their role or working state.')
+                        if not active_day['state']:
+                            db().execute('UPDATE bf_workdays SET state=? WHERE id=?', (values['working_state'], active_day['id']))
+                        from binflow_workday import workday_event
+                        workday_event(db(),active_day['id'],g.user['id'],'Working state allocated',
+                            datetime.now(ZoneInfo('Australia/Brisbane')).isoformat(),values['working_state'])
                     db().execute('UPDATE users SET ' + ','.join(f'{k}=?' for k in values) + ' WHERE id=?', (*values.values(), user_id))
-                    if profile_changed or person['status'] != values['status'] or person['username'] != values['username']:
+                    if profile_changed or person['status'] != values.get('status',person['status']) or person['username'] != values.get('username',person['username']):
                         db().execute('UPDATE users SET auth_version=auth_version+1 WHERE id=?', (user_id,))
                 else:
                     cursor = db().execute("INSERT INTO users(role," + ','.join(values) + ") VALUES('employee'," + ','.join('?' for _ in values) + ')', tuple(values.values()))
                     user_id = cursor.lastrowid
                 if password:
                     db().execute('UPDATE users SET password_hash=?,auth_version=auth_version+1 WHERE id=?', (generate_password_hash(password), user_id))
-                if password or (person and (person['email'] != values['email'] or person['status'] != values['status'])):
+                if password or (person and (person['email'] != values.get('email',person['email']) or person['status'] != values.get('status',person['status']))):
                     db().execute('DELETE FROM invitations WHERE user_id=?', (user_id,))
                 db().commit()
-                flash('Staff details saved.', 'success')
-                return redirect(url_for('admin_staff'))
+                flash('Role and working state saved.' if assignment_only else 'Staff details saved.', 'success')
+                return redirect(url_for('edit_staff',user_id=user_id) if assignment_only else url_for('admin_staff'))
             except (ValueError, sqlite3.IntegrityError) as error:
                 db().rollback()
                 flash(str(error) if isinstance(error, ValueError) else 'That username or email is already in use.', 'error')
-                person = dict(request.form)
+                person = {**dict(person), **{key: request.form.get(key,'') for key in ('business_role','working_state')}} if assignment_only else {**dict(person or {}), **dict(request.form)}
         return render_template('staff_form.html', person=person, editing=bool(user_id), tab='staff', licence_user_id=user_id, licence_photos=licence_photo_rows(user_id))
 
     @app.post('/admin/staff/<int:user_id>/invite')

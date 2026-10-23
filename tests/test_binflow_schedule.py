@@ -187,7 +187,7 @@ class WeeklyScheduleTests(unittest.TestCase):
             data=view_data(conn,date(2026,10,26),date(2026,11,1),'QLD')
             self.assertFalse(data['calendar_events']['2026-10-26'])
             self.assertEqual(data['calendar_events']['2026-10-30'][0]['day']['saved_items'][0]['title'],'Alpha QLD')
-        page=self.client.get('/binflow/collection-calendar?date=2026-10-26&state=QLD').data
+        page=self.client.get('/binflow/collection-calendar?date=2026-10-26&state=QLD&view=month').data
         self.assertIn(b'Calendar options',page);self.assertNotIn(b'Manage / approve week',page)
 
     def test_second_week_cannot_take_a_linked_allocation(self):

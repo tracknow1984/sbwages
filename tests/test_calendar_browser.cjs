@@ -14,7 +14,7 @@ const screenshots = process.env.SBWAGES_SCREENSHOT_DIR || require('node:os').tmp
     await page.goto(base+'/admin/login');
     await page.locator('[name=username]').fill('admin');await page.locator('[name=password]').fill('test-admin-password');
     await page.getByRole('button',{name:'Sign in',exact:true}).click();
-    await page.goto(base+'/binflow/collection-calendar?state=QLD&date=2026-11-02');
+    await page.goto(base+'/binflow/collection-calendar?state=QLD&date=2026-11-02&view=month');
     const root=page.locator('[data-calendar-editor]'),panel=page.locator('#calendar-expanded-day');
     const cell=date=>root.locator('td[data-date="'+date+'"]');
     await cell('2026-10-26').getByRole('button',{name:'Expand QLD Monday 26 Oct'}).waitFor();
