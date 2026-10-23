@@ -1,5 +1,5 @@
 <section class="bf-panel" data-loading-plan>
-<div class="bf-panel-head"><div><h2>Client requirements & suggested load</h2><p>{{ site.client_name }} · {{ site.name }}</p></div>{% if current_user.role=='admin' %}<a href="{{ url_for('bf_requirements',location_id=site.id) }}">{{ 'Edit bin requirements' if profile else 'Set bin requirements' }} →</a>{% endif %}</div>
+<div class="bf-panel-head"><div><h2>Client requirements & suggested load</h2><p>{{ site.client_name }} · {{ site.name }}</p></div>{% if current_user.role=='admin' %}<a href="{{ url_for('bf_requirements',location_id=site.id) }}">{{ 'Edit bin requirements' if profile else 'Set bin requirements' }}</a>{% endif %}</div>
 {% if profile %}
 {% if profile.review_note %}<p class="bf-note bf-pad"><strong>Provisional quantities — review needed.</strong> {{ profile.review_note }}</p>{% endif %}
 <div class="bf-table-wrap"><table class="bf-plan-table"><thead><tr><th>Bin size</th><th>Site target</th><th>On site now</th><th>Other jobs due in / out</th><th>Collect this visit</th><th>Empties needed</th><th>Selected to load</th><th>Still short</th></tr></thead><tbody>

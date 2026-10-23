@@ -11,7 +11,7 @@
   {% else %}<p class="bf-note">An administrator needs to approve or disapprove this allocation.</p>{% endif %}
 </section>
 {% elif job.approval_status=='rejected' %}
-<section class="bf-panel bf-pad"><span class="bf-status rejected">Disapproved</span><h2>Bins released for other allocations</h2><p>{{ job.review_note }}</p><p class="bf-muted">{{ job.reviewed_by }} · {{ job.reviewed_at|bfstamp }}</p><a class="button secondary" href="{{ url_for('bf_new_job',site=job.site_id,warehouse=job.warehouse_id) }}">Create revised allocation →</a></section>
+<section class="bf-panel bf-pad"><span class="bf-status rejected">Disapproved</span><h2>Bins released for other allocations</h2><p>{{ job.review_note }}</p><p class="bf-muted">{{ job.reviewed_by }} · {{ job.reviewed_at|bfstamp }}</p><a class="button secondary" href="{{ url_for('bf_new_job',site=job.site_id,warehouse=job.warehouse_id) }}">Create revised allocation</a></section>
 {% elif job.reviewed_at %}
 <p class="bf-note">Approved by <strong>{{ job.reviewed_by }}</strong> · {{ job.reviewed_at|bfstamp }}{% if job.review_note %}<br>{{ job.review_note }}{% endif %}</p>
 {% endif %}

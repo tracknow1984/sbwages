@@ -7,7 +7,7 @@
   {% if current_user.role=='admin' and not driver_demo %}<label>View<select name="view" data-autosubmit>{% for key,label in [('active','Active PODs'),('archived','Archived PODs'),('deleted','Deleted PODs')] %}<option value="{{ key }}" {{ 'selected' if view==key }}>{{ label }}</option>{% endfor %}</select></label>{% endif %}
   <button class="primary">Show PODs</button>
   <a href="{{ url_for('bf_workday',date=run_date,summary='1') if binflow_driver or driver_demo else url_for('bf_collection_calendar',date=run_date) }}">{{ 'Driver day' if binflow_driver or driver_demo else 'Collection calendar' }}</a>
-</form>{% if current_user.role=='admin' and not driver_demo %}<div class="bf-actions"><a class="button secondary" href="{{ url_for('bf_pods_export',date=run_date,view=view) }}">Export list CSV</a><a href="{{ url_for('bf_client_accounts') }}">Manage client access →</a></div>{% endif %}</div>
+</form>{% if current_user.role=='admin' and not driver_demo %}<div class="bf-actions"><a class="button secondary" href="{{ url_for('bf_pods_export',date=run_date,view=view) }}">Export list CSV</a><a href="{{ url_for('bf_client_accounts') }}">Manage client access</a></div>{% endif %}</div>
 {% if view=='deleted' %}<p class="bf-note">Deleted PODs are hidden from the active list and client portal. Restore a POD to view, email or export it again. Bin movements remain recorded.</p>{% endif %}
 <section class="bf-panel"><div class="bf-table-wrap"><table class="bf-plan-table"><thead><tr><th>Client / site</th><th>Docket</th><th>POD status</th><th>Net weight</th><th>Actions</th></tr></thead><tbody>
 {% for j in jobs %}<tr>

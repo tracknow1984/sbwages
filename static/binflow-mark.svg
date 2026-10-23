@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="BinFlow">
+  <rect width="128" height="128" rx="29" fill="#102c4c"/>
+  <path d="M37 46h48l-5 48H42z" fill="#fff"/>
+  <path d="M34 40h54M52 39v-9h20v9" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M54 57v24m15-24v24" stroke="#2563eb" stroke-width="6" stroke-linecap="round"/>
+  <path d="M91 64a34 34 0 0 1-55 35" fill="none" stroke="#32d4c2" stroke-width="7" stroke-linecap="round"/>
+  <path d="m81 69 10-10 10 10" fill="none" stroke="#32d4c2" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

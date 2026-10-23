@@ -239,7 +239,13 @@ def register_binflow(app, db, require):
             FROM bf_bins b JOIN bf_sizes s ON s.id=b.size_id LEFT JOIN bf_locations l ON l.id=b.location_id
             LEFT JOIN bf_clients c ON c.id=l.client_id LEFT JOIN bf_trucks t ON t.id=b.truck_id WHERE ''' + where + ' ORDER BY b.id', args).fetchall()
 
+    from binflow_guides import GUIDES
+    app.context_processor(lambda: dict(bf_public_guide=GUIDES.get({
+        "bf_client_login":"client_login", "bf_client_pods":"client_pods",
+        "bf_qr_open":"qr_actions", "bf_qr_collection":"qr_collection"}.get(request.endpoint))))
+
     def render(name, **values):
+        values.setdefault("bf_page_guide", GUIDES.get(name))
         if getattr(g,'bf_demo_token',None):
             values.setdefault('driver_mode',True)
             values.setdefault('journey_mode',True)

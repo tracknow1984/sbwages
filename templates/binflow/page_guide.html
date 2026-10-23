@@ -1,0 +1,6 @@
+{% if bf_page_guide and not journey_mode %}
+<details class="bf-page-guide no-print">
+  <summary><span class="bf-guide-symbol" aria-hidden="true">?</span><span>Quick guide <small>{{ bf_page_guide[0] }}</small></span><span class="bf-guide-chevron" aria-hidden="true">⌄</span></summary>
+  <ol>{% for tip in bf_page_guide[1:] %}<li>{{ tip }}</li>{% endfor %}</ol>
+</details>
+{% endif %}

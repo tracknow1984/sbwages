@@ -10,7 +10,7 @@
     <span class="bf-status {{ b.status }}">{{ statuses[b.status] }}</span>
     <p class="bf-muted">Bin ID {{ b.code }} and its QR code stay the same. Each location change is recorded in the movement history.</p>
     {% if b.reserved_job %}<p><a class="button primary" href="{{ url_for('bf_job', job_id=b.reserved_job) }}">Open docket BF-{{ '%06d'|format(b.reserved_job) }}</a></p>{% endif %}
-    <a href="{{ url_for('bf_inventory') }}">← Back to physical bin register</a>
+    <a href="{{ url_for('bf_inventory') }}">Back to physical bin register</a>
   </section>
   <section class="bf-panel bf-pad">
     <h2>Update location</h2>

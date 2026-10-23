@@ -16,7 +16,7 @@
 {% elif workday.finished_at %}
 <section class="bf-panel bf-pad bf-return-complete"><span class="bf-kicker">DAY COMPLETE</span><h2>Your work is saved</h2><p>Started {{ workday.started_at|bfclock }}<br>Finished {{ workday.finished_at|bfclock }}</p>{% if driver_demo %}<p>Sample run complete. No real stock or wages were changed.</p><a class="button primary bf-next" href="{{ url_for('bf_demo_inbound') }}">View sample warehouse inbound</a>{% elif clock_entries %}<a class="button primary bf-next" href="{{ url_for('employee_timesheet',week=clock_entries[0].week_end) }}">View my timesheet</a>{% endif %}</section>
 {% elif workday.truck_id %}
-<section class="bf-panel bf-pad"><h2>Your day is in progress</h2><a class="button primary bf-next" href="{{ url_for('bf_run',truck_id=workday.truck_id,date=workday.work_date) }}">Continue my run →</a></section>
+<section class="bf-panel bf-pad"><h2>Your day is in progress</h2><a class="button primary bf-next" href="{{ url_for('bf_run',truck_id=workday.truck_id,date=workday.work_date) }}">Continue my run</a></section>
 {% if not blockers %}{% include 'binflow/workday_finish.html' %}{% endif %}
 {% elif not overview_valid %}
 <section class="bf-panel bf-pad" data-overview-state="{{ url_for('bf_overview_state',state=selected_state) }}" data-overview-version="{{ daily_overview.version }}"><span class="bf-kicker">STEP 2 · TODAY’S WORK</span><h2>Your daily overview</h2>

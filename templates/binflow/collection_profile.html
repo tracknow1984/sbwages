@@ -2,7 +2,7 @@
 {% block title %}Collection frequency{% endblock %}
 {% block subtitle %}{{ location.client_name }} · {{ location.name }} · {{ location.state }}{% endblock %}
 {% block body %}
-<div class="bf-toolbar"><a href="{{ url_for('bf_collection_calendar',state=location.state) }}">← {{ location.state }} collection calendar</a><a href="{{ url_for('bf_requirements',location_id=location.id) }}">Edit bin requirements →</a></div>
+<div class="bf-toolbar"><a href="{{ url_for('bf_collection_calendar',state=location.state) }}">{{ location.state }} collection calendar</a><a href="{{ url_for('bf_requirements',location_id=location.id) }}">Edit bin requirements</a></div>
 {% if error %}<p class="notice error" role="alert">{{ error }}</p>{% endif %}
 {% if values.source_frequency %}<section class="bf-panel bf-pad"><h2>Imported collection reference</h2><p><strong>{{ values.source_frequency }}</strong> · Saved model revision {{ values.source_revision }}</p>{% if values.review_note %}<p class="bf-note">{{ values.review_note }}</p>{% endif %}<p class="bf-muted">Weekdays can come from the source or its saved route plan. Numbered route weeks need a first calendar date before they are confirmed.</p></section>{% endif %}
 <form method="post" class="bf-panel bf-pad bf-form">
