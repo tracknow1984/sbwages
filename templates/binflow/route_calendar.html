@@ -20,7 +20,7 @@
     </div>
   </header>
   {% if current_user.role=='admin' %}
-  <div class="bf-calendar-edit-tools"><div><strong>Arrange your calendar</strong><p>Drag a day handle to swap its full run with another date. Expand a day to drag or reorder individual stops.</p></div><div class="bf-actions"><button type="button" class="secondary" data-calendar-action="options">Calendar options</button><button type="button" class="secondary" data-calendar-undo disabled>Undo move</button><button type="button" class="primary" data-calendar-save disabled>Save changes</button></div></div>
+  <div class="bf-calendar-edit-tools"><div><strong>Arrange your calendar</strong><p>Drag a day handle to swap its full run with another date. Expand a day to drag or reorder individual stops.</p></div><div class="bf-actions"><button type="button" class="secondary" data-calendar-action="options">Calendar options</button><button type="button" class="secondary" data-calendar-undo disabled>Undo move</button><button type="button" class="primary" data-calendar-save disabled>Save changes</button><button type="button" class="primary" data-calendar-action="approve">APPROVE WEEK</button></div></div>
   <p class="bf-calendar-edit-message" data-calendar-message role="status" aria-live="polite"></p>
   <input type="hidden" data-calendar-csrf value="{{ csrf_token() }}">
   {% endif %}

@@ -35,17 +35,19 @@
   async function drawOptions(){
     const current=sequence;
     const state=field('State','select');choices(state,['QLD','NSW','VIC','SA','WA','TAS','ACT','NT'].map(s=>[s,s]));state.value=context.state;
-    const date=field('Date within the week / month','date',context.date);date.min='2026-10-26';date.max='2100-12-31';date.required=true;
+    const date=field(context.approvalOnly?'Week containing':'Date within the week / month','date',context.date);date.min='2026-10-26';date.max='2100-12-31';date.required=true;
     state.onchange=()=>{context.state=state.value;loadOptions();};date.onchange=()=>{if(date.validity.valid){context.date=date.value;loadOptions();}};
-    const select=field('Action','select');choices(select,[['approve','Approve schedule'],['template','Save reusable schedule'],['load','Load saved schedule'],['clear','Clear dates']]);select.value=action;
-    select.onchange=()=>{action=select.value;loadOptions();};
+    if(!context.approvalOnly){
+      const select=field('Action','select');choices(select,[['approve','Approve schedule'],['template','Save reusable schedule'],['load','Load saved schedule'],['clear','Clear dates']]);select.value=action;
+      select.onchange=()=>{action=select.value;loadOptions();};
+    }
     note(options.state+' · Week of '+options.start+' · '+(options.status==='published'?'Published':'Draft'));
     if(action==='approve'){
       const driver=field('Driver','select');choices(driver,[['','Select driver'],...options.drivers.map(d=>[d.id,d.first_name+' '+d.last_name])]);driver.value=options.driver_id||'';driver.required=true;
       if(!options.drivers.length)note('No active driver or contractor is allocated to '+options.state+'. Set their working state in their staff profile.');
       note('Includes every day in this week. Pending bin allocations are approved subject to stock checks. Visits need bin allocations before loading.');
       const checked=field('I have checked the dates, working hours, depot loads and client access.','checkbox');checked.required=true;
-      submit.textContent='Approve schedule';submit.disabled=!options.drivers.length;
+      submit.textContent=context.approvalOnly?'Approve week':'Approve schedule';submit.disabled=!options.drivers.length;
       commit=()=>save({action:'approve',driver_id:driver.value,reviewed:checked.checked?'yes':''});
     }else if(action==='template'){
       const name=field('Schedule name','text');name.maxLength=80;name.required=true;
@@ -104,10 +106,10 @@
     if(busy||dialog.open)return;
     if(!document.dispatchEvent(new CustomEvent('bf-calendar-before-action',{cancelable:true})))return;
     context={...detail,state:detail.state||root.dataset.state||'QLD',date:detail.date||root.dataset.chosen};action='approve';
-    dialog.querySelector('h2').textContent={options:'Calendar options',add:'Add work',edit:'Edit stop',notes:'Day notes'}[context.action];
+    dialog.querySelector('h2').textContent=context.approvalOnly?'Approve week':{options:'Calendar options',add:'Add work',edit:'Edit stop',notes:'Day notes'}[context.action];
     dialog.showModal();await loadOptions();
   }
-  root.querySelector('[data-calendar-action]').addEventListener('click',()=>open({action:'options'}));
+  root.querySelectorAll('[data-calendar-action]').forEach(button=>button.addEventListener('click',()=>open({action:'options',approvalOnly:button.dataset.calendarAction==='approve'})));
   document.addEventListener('bf-calendar-action',event=>open(event.detail));
   form.addEventListener('submit',async event=>{
     event.preventDefault();if(busy||submit.disabled||!commit)return;
