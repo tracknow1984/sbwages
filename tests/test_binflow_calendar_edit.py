@@ -65,8 +65,8 @@ class CalendarEditTests(unittest.TestCase):
         self.assertEqual((job['scheduled_date'],job['driver_id'],job['truck_id'],job['schedule_live']),('2026-11-03',bob,1,1))
         self.assertEqual(before,self.rows('SELECT * FROM bf_job_bins'));self.assertEqual(bins,self.rows('SELECT * FROM bf_bins'))
         self.assertEqual([r['status'] for r in self.rows('SELECT status FROM bf_schedule_weeks')],['published','published'])
-        self.as_user(alice);self.assertNotIn(b'Job / allocation',self.client.get('/binflow/calendar?date=2026-10-27').data)
-        self.as_user(bob);self.assertIn(b'Job / allocation',self.client.get('/binflow/calendar?date=2026-11-03').data)
+        self.as_user(alice);self.assertNotIn(b'Job / allocation',self.client.get('/binflow/driver/my-day?summary=1&date=2026-10-27').data)
+        self.as_user(bob);self.assertIn(b'Job / allocation',self.client.get('/binflow/driver/my-day?summary=1&date=2026-11-03').data)
 
     def test_transfer_into_draft_needs_approval_and_preserves_assigned_truck(self):
         driver=self.user();p=self.prepare_job();self.save(p,action='approve',driver=driver)
@@ -74,7 +74,7 @@ class CalendarEditTests(unittest.TestCase):
         self.assertEqual(result.status_code,200,result.json)
         self.assertEqual(self.rows('SELECT truck_id,schedule_live FROM bf_jobs'),[dict(truck_id=1,schedule_live=0)])
         self.assertEqual(self.rows("SELECT status,driver_id FROM bf_schedule_weeks WHERE week_start='2026-11-02'"),[dict(status='draft',driver_id=None)])
-        self.as_user(driver);self.assertNotIn(b'Job / allocation',self.client.get('/binflow/calendar?date=2026-11-03').data)
+        self.as_user(driver);self.assertNotIn(b'Job / allocation',self.client.get('/binflow/driver/my-day?summary=1&date=2026-11-03').data)
 
     def test_started_job_and_stale_tokens_roll_back_both_weeks(self):
         driver=self.user();p=self.prepare_job();self.save(p,action='approve',driver=driver)
@@ -108,18 +108,21 @@ class CalendarEditTests(unittest.TestCase):
     def test_removed_screens_redirect_and_are_absent_from_navigation(self):
         with self.connection() as conn:conn.execute("INSERT INTO bf_calendar_rebuilds VALUES(?,?,'[]','{}','2026-10-23')",(RESET_ID,'2026-10-26'))
         before=self.rows('SELECT * FROM bf_schedule_weeks')
-        for path in ('/binflow/schedule?state=QLD&date=2026-10-26','/binflow/pickups?state=QLD'):
+        for path in ('/binflow/schedule?state=QLD&date=2026-10-26','/binflow/pickups?state=QLD',
+                     '/binflow/calendar?state=QLD&date=2026-10-26', '/binflow/allocation-approvals?state=QLD'):
             result=self.client.get(path)
             self.assertEqual(result.status_code,302)
             self.assertIn('/binflow/collection-calendar',result.location)
         page=self.client.get('/binflow/collection-calendar?state=QLD&date=2026-10-26').data
-        for text in (b'Weekly dispatch',b'Pickups &amp; deliveries',b'Pickups & deliveries',b'Manage / approve week',b'/binflow/schedule?',b'binflow-schedule.js'):
+        for text in (b'Weekly dispatch',b'Pickups &amp; deliveries',b'Pickups & deliveries',b'Manage / approve week',b'/binflow/schedule?',b'binflow-schedule.js',b'Daily schedule',b'Allocation approvals',b'/binflow/allocation-approvals'):
             self.assertNotIn(text,page)
         self.assertIn(b'Calendar options',page)
         self.assertEqual(before,self.rows('SELECT * FROM bf_schedule_weeks'))
         driver=self.user();self.as_user(driver)
         result=self.client.get('/binflow/schedule?date=2026-10-26')
-        self.assertEqual(result.status_code,302);self.assertIn('/binflow/calendar?',result.location)
+        self.assertEqual(result.status_code,302);self.assertIn('/binflow/driver/my-day?',result.location)
+        legacy=self.client.get('/binflow/calendar?date=2026-10-26')
+        self.assertEqual(legacy.status_code,302);self.assertIn('/binflow/driver/my-day?',legacy.location)
         page=self.client.get(result.location).data
         self.assertNotIn(b'My weekly schedule',page);self.assertNotIn(b'My week</a>',page)
 

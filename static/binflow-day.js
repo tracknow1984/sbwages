@@ -6,19 +6,19 @@
     select.addEventListener('change',update);update();
   });
   const day=document.querySelector('[data-run-state]');
-  const calendar=document.querySelector('[data-calendar-state]');
+  const plan=document.querySelector('[data-driver-plan]');
   const gps=document.querySelector('[data-gps-url]');
-  calendar?.addEventListener('input',event=>{if(event.target.form)event.target.form.dataset.dirty='true';});
+  plan?.addEventListener('input',event=>{if(event.target.form)event.target.form.dataset.dirty='true';});
   let polling=false;
   async function poll() {
     if (polling || document.hidden) return;
     polling=true;
     try {
-      if (calendar && !calendar.contains(document.activeElement) && !calendar.querySelector('[data-dirty]')) {
-        const response=await fetch(calendar.dataset.calendarState,{headers:{Accept:'application/json'}});
+      if (plan && !plan.contains(document.activeElement) && !plan.querySelector('[data-dirty]')) {
+        const response=await fetch(plan.dataset.driverPlan,{headers:{Accept:'application/json'}});
         if(response.ok && response.headers.get('content-type')?.includes('application/json')) {
-          calendar.innerHTML=(await response.json()).html;
-          document.querySelector('[data-calendar-updated]').textContent='Updated '+new Date().toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit'});
+          plan.innerHTML=(await response.json()).html;
+          document.querySelector('[data-plan-updated]').textContent='Updated '+new Date().toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit'});
         }
       }
       if (day && ['acceptance','assigned','hold','weighing','done','planned','empty'].includes(day.dataset.runStage)) {
@@ -33,7 +33,7 @@
         if(response.ok && response.headers.get('content-type')?.includes('application/json')) gps.innerHTML=(await response.json()).html;
       }
     } catch (_) {
-      const note=document.querySelector('[data-calendar-updated]');
+      const note=document.querySelector('[data-plan-updated]');
       if(note) note.textContent='Connection interrupted — showing last saved update';
     } finally {polling=false;}
   }

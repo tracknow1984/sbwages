@@ -116,7 +116,7 @@ class CollectionCalendarTests(unittest.TestCase):
         key=secrets.token_urlsafe(24)
         self.post('/binflow/pickups/new',dict(request_key=key,site_id=3,warehouse_id=1,scheduled_date='2026-10-19',collect=[1]))
         data=self.data();self.assertEqual(data['counts']['proposed'],0);self.assertEqual(data['counts']['pending'],1)
-        self.assertNotIn(b'BF-000002',self.client.get('/binflow/calendar?date=2026-10-19').data)
+        self.assertNotIn(b'BF-000002',self.client.get('/binflow/driver/my-day?summary=1&date=2026-10-19').data)
         self.post('/binflow/pickups/2/review',dict(decision='reject',notes='Reschedule'))
         data=self.data();self.assertEqual(data['counts']['proposed'],1);self.assertEqual(data['counts']['pending'],0)
         self.assertFalse(any(e['job'] and e['job']['id']==2 for e in data['events']['2026-10-19']))
@@ -131,10 +131,10 @@ class CollectionCalendarTests(unittest.TestCase):
     def test_permissions_csrf_and_live_day_state_filter(self):
         from werkzeug.security import generate_password_hash
         self.profile();self.job(deliver=[1])
-        self.assertIn(b'Alpha QLD',self.client.get('/binflow/calendar?state=QLD&date=2026-10-19').data)
-        self.assertNotIn(b'Alpha QLD',self.client.get('/binflow/calendar?state=NSW&date=2026-10-19').data)
-        self.assertNotIn('Alpha QLD',self.client.get('/binflow/calendar/state?state=NSW&date=2026-10-19').json['html'])
-        self.assertEqual(self.client.get('/binflow/calendar/state?state=BOGUS').status_code,400)
+        self.assertIn(b'Alpha QLD',self.client.get('/binflow/driver/my-day?summary=1&state=QLD&date=2026-10-19').data)
+        self.assertNotIn(b'Alpha QLD',self.client.get('/binflow/driver/my-day?summary=1&state=NSW&date=2026-10-19').data)
+        self.assertNotIn('Alpha QLD',self.client.get('/binflow/driver/my-day/plan-state?state=NSW&date=2026-10-19').json['html'])
+        self.assertEqual(self.client.get('/binflow/driver/my-day/plan-state?state=BOGUS').status_code,400)
         self.assertEqual(self.client.post('/binflow/locations/3/collection-profile',data={}).status_code,400)
         with sqlite3.connect(self.path) as conn:
             uid=conn.execute("INSERT INTO users(role,first_name,last_name,email,username,password_hash) VALUES('employee','Transport','Worker','worker@example.com','planner',?)",(generate_password_hash('test-admin-password'),)).lastrowid

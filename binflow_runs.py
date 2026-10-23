@@ -2,7 +2,7 @@
 import json
 import re
 import secrets
-from datetime import date, timedelta
+from datetime import date
 from urllib.parse import urlparse
 
 from flask import abort, g, jsonify, redirect, request, url_for
@@ -13,7 +13,7 @@ from binflow_requirements import load_plan
 from binflow_approvals import ensure_approved
 from binflow_acceptance import acceptance_ok, manifest, schedule_changed
 from binflow_workday import run_workday, driver_today
-from binflow_permissions import can_view_job, is_office, require_state, selected_state, eligible_driver, available_drivers
+from binflow_permissions import can_view_job, is_office, require_state, selected_state, eligible_driver
 
 CHECKS = VEHICLE_CHECKS + [('lift', 'Tail lift / bin lifter and controls (if fitted)', True)]
 
@@ -169,6 +169,51 @@ def mark_returned(conn, truck_id, run_date, timestamp):
     conn.execute('UPDATE bf_runs SET returned_at=COALESCE(returned_at,?) WHERE truck_id=? AND run_date=?', (timestamp,truck_id,run_date))
 
 
+def driver_plan_data(conn,user,run_date,state=''):
+    jobs=conn.execute('''SELECT j.*,t.name AS truck_name,u.first_name||' '||u.last_name AS driver_name,
+        r.departed_at,r.returned_at,r.accepted_at,r.accepted_name,r.acceptance_required,
+        (SELECT COUNT(*) FROM bf_job_bins i WHERE i.job_id=j.id AND i.direction='collect' AND i.weighed_at IS NULL) AS unweighed,
+        (SELECT COUNT(*) FROM bf_job_bins i WHERE i.job_id=j.id AND (i.loaded_at IS NOT NULL OR i.picked_up_at IS NOT NULL)) AS moved
+        FROM bf_jobs j LEFT JOIN bf_trucks t ON t.id=j.truck_id
+        LEFT JOIN bf_runs r ON r.truck_id=j.truck_id AND r.run_date=j.scheduled_date
+        LEFT JOIN users u ON u.id=COALESCE(r.driver_id,j.driver_id)
+        WHERE j.scheduled_date=? AND j.schedule_live=1 AND j.approval_status='approved' AND j.status!='cancelled' '''+
+        ('AND j.state=? ' if state else '')+'ORDER BY t.state,t.name,j.run_order,j.id',
+        (run_date,state) if state else (run_date,)).fetchall()
+    groups={}
+    for row in jobs:
+        if not can_view_job(conn,user,row):
+            continue
+        j=dict(row)
+        if j['received_at'] or (j['returned_at'] and j['collected_at']):
+            j.update(colour='orange',phase='Back at warehouse',detail='POD closed' if j['status']=='complete' else f'{j["unweighed"]} bins to weigh')
+        elif j['collected_at']:
+            j.update(colour='green',phase='Client completed',detail='POD closed' if j['status']=='complete' else 'Returning full bins')
+        else:
+            active=(j['departed_at'] and not any(k['status']=='scheduled' for k in groups.get(j['truck_id'],{}).get('jobs',[]))) or j['moved']
+            j.update(colour='blue' if active else 'queued',phase='In progress' if active else 'Scheduled',detail='')
+        groups.setdefault(j['truck_id'],dict(truck_id=j['truck_id'],name=j['truck_name'] or 'Truck unassigned',driver=j['driver_name'],
+            accepted_at=j['accepted_at'],accepted_name=j['accepted_name'],acceptance_required=j['acceptance_required'],jobs=[]))['jobs'].append(j)
+    holds=conn.execute('''SELECT i.*,t.name,p.employee_name,p.checks_json,p.notes FROM bf_run_inspections i
+        JOIN bf_trucks t ON t.id=i.truck_id JOIN prestarts p ON p.id=i.prestart_id
+        WHERE i.passed=0 AND i.resolved_at IS NULL '''+('AND t.state=? ' if state else '')+
+        'ORDER BY i.id DESC',(state,) if state else ()).fetchall()
+    if not is_office(user):
+        holds=[h for h in holds if h['driver_id']==user['id']]
+    from binflow_schedule import monday
+    clauses=["w.week_start=?", "w.status='published'"];params=[monday(run_date)]
+    if state: clauses.append('w.state=?');params.append(state)
+    if not is_office(user): clauses.append('w.driver_id=?');params.append(user['id'])
+    plans=[]
+    for row in conn.execute("""SELECT w.*,u.first_name||' '||u.last_name AS driver_name
+            FROM bf_schedule_weeks w JOIN users u ON u.id=w.driver_id WHERE """+' AND '.join(clauses),params):
+        plan=json.loads(row['plan_json'])
+        day=next((d for d in plan['days'] if d['date']==run_date),None)
+        if day and (day['items'] or day.get('notes')):
+            plans.append(dict(day=day,state=row['state'],driver=row['driver_name'],resource=plan['resource']))
+    return dict(groups=list(groups.values()),holds=[dict(h,checks=json.loads(h['checks_json'])) for h in holds],plans=plans)
+
+
 def register_runs(app, db, access, require, render, success, failure, now, actor):
     today = lambda: driver_today(db(),g.user,now())
 
@@ -249,18 +294,18 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
     @app.post('/binflow/prestarts/<int:inspection_id>/resolve')
     @require('admin')
     def bf_resolve_prestart(inspection_id):
+        row=db().execute('SELECT * FROM bf_run_inspections WHERE id=?',(inspection_id,)).fetchone()
+        if not row: abort(404)
         try:
             note=request.form.get('resolution','').strip()
             if not note or len(note)>2000:
                 raise ValueError('Record the repair / resolution before requesting a fresh prestart.')
             db().execute('BEGIN IMMEDIATE')
-            row=db().execute('SELECT * FROM bf_run_inspections WHERE id=?',(inspection_id,)).fetchone()
-            if not row: abort(404)
             db().execute('UPDATE bf_run_inspections SET resolved_at=?,resolved_by=?,resolution=? WHERE id=? AND passed=0 AND resolved_at IS NULL',
                          (now(),actor(),note,inspection_id))
-            return success('Resolution recorded. The driver must pass a new prestart.','bf_calendar')
+            return success('Resolution recorded. The driver must pass a new prestart.','admin_prestart_detail',prestart_id=row['prestart_id'])
         except ValueError as error:
-            return failure(error,'bf_calendar')
+            return failure(error,'admin_prestart_detail',prestart_id=row['prestart_id'])
 
     @app.post('/binflow/driver/<int:truck_id>/day/<action>')
     @access
@@ -324,50 +369,6 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
         except ValueError as error:
             return jsonify(error=str(error)),400
 
-    def calendar_data(run_date,state=''):
-        jobs=db().execute('''SELECT j.*,t.name AS truck_name,u.first_name||' '||u.last_name AS driver_name,
-            r.departed_at,r.returned_at,r.accepted_at,r.accepted_name,r.acceptance_required,
-            (SELECT COUNT(*) FROM bf_job_bins i WHERE i.job_id=j.id AND i.direction='collect' AND i.weighed_at IS NULL) AS unweighed,
-            (SELECT COUNT(*) FROM bf_job_bins i WHERE i.job_id=j.id AND (i.loaded_at IS NOT NULL OR i.picked_up_at IS NOT NULL)) AS moved
-            FROM bf_jobs j LEFT JOIN bf_trucks t ON t.id=j.truck_id
-            LEFT JOIN bf_runs r ON r.truck_id=j.truck_id AND r.run_date=j.scheduled_date
-            LEFT JOIN users u ON u.id=COALESCE(r.driver_id,j.driver_id)
-            WHERE j.scheduled_date=? AND j.schedule_live=1 AND j.approval_status='approved' AND j.status!='cancelled' '''+
-            ('AND j.state=? ' if state else '')+'ORDER BY t.state,t.name,j.run_order,j.id',
-            (run_date,state) if state else (run_date,)).fetchall()
-        groups={}
-        for row in jobs:
-            if not can_view_job(db(),g.user,row):
-                continue
-            j=dict(row)
-            if j['received_at'] or (j['returned_at'] and j['collected_at']):
-                j.update(colour='orange',phase='Back at warehouse',detail='POD closed' if j['status']=='complete' else f'{j["unweighed"]} bins to weigh')
-            elif j['collected_at']:
-                j.update(colour='green',phase='Client completed',detail='POD closed' if j['status']=='complete' else 'Returning full bins')
-            else:
-                active=(j['departed_at'] and not any(k['status']=='scheduled' for k in groups.get(j['truck_id'],{}).get('jobs',[]))) or j['moved']
-                j.update(colour='blue' if active else 'queued',phase='In progress' if active else 'Scheduled',detail='')
-            groups.setdefault(j['truck_id'],dict(truck_id=j['truck_id'],name=j['truck_name'] or 'Truck unassigned',driver=j['driver_name'],
-                accepted_at=j['accepted_at'],accepted_name=j['accepted_name'],acceptance_required=j['acceptance_required'],jobs=[]))['jobs'].append(j)
-        holds=db().execute('''SELECT i.*,t.name,p.employee_name,p.checks_json,p.notes FROM bf_run_inspections i
-            JOIN bf_trucks t ON t.id=i.truck_id JOIN prestarts p ON p.id=i.prestart_id
-            WHERE i.passed=0 AND i.resolved_at IS NULL '''+('AND t.state=? ' if state else '')+
-            'ORDER BY i.id DESC',(state,) if state else ()).fetchall()
-        if not is_office(g.user):
-            holds=[h for h in holds if h['driver_id']==g.user['id']]
-        from binflow_schedule import monday
-        clauses=["w.week_start=?", "w.status='published'"];params=[monday(run_date)]
-        if state: clauses.append('w.state=?');params.append(state)
-        if not is_office(g.user): clauses.append('w.driver_id=?');params.append(g.user['id'])
-        plans=[]
-        for row in db().execute("""SELECT w.*,u.first_name||' '||u.last_name AS driver_name
-                FROM bf_schedule_weeks w JOIN users u ON u.id=w.driver_id WHERE """+' AND '.join(clauses),params):
-            plan=json.loads(row['plan_json'])
-            day=next((d for d in plan['days'] if d['date']==run_date),None)
-            if day and (day['items'] or day.get('notes')):
-                plans.append(dict(day=day,state=row['state'],driver=row['driver_name'],resource=plan['resource']))
-        return dict(groups=list(groups.values()),holds=[dict(h,checks=json.loads(h['checks_json'])) for h in holds],plans=plans)
-
     @app.get('/binflow/calendar')
     @access
     def bf_calendar():
@@ -375,20 +376,20 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
         if state not in ('','QLD','NSW','VIC','SA','WA','TAS','ACT','NT'): abort(400)
         try: run_date=valid_date(request.args.get('date',today()))
         except ValueError as error: abort(400,str(error))
-        day=date.fromisoformat(run_date)
-        week=[(day+timedelta(days=n)).isoformat() for n in range(-3,4)]
-        employees=available_drivers(db(),state) if g.user['role']=='admin' else []
-        return render('calendar',section='calendar',run_date=run_date,week=week,employees=employees,selected_state=state,**calendar_data(run_date,state))
+        return redirect(url_for('bf_collection_calendar',state=state,date=run_date) if is_office(g.user)
+                        else url_for('bf_workday',state=state,date=run_date,summary='1'))
 
     @app.get('/binflow/calendar/state')
+    @app.get('/binflow/driver/my-day/plan-state')
     @access
-    def bf_calendar_state():
+    def bf_workday_plan_state():
         from flask import render_template
         state=selected_state(g.user,request.args.get('state',''))
         if state not in ('','QLD','NSW','VIC','SA','WA','TAS','ACT','NT'): abort(400)
         try: run_date=valid_date(request.args.get('date',today()))
         except ValueError as error: abort(400,str(error))
-        return jsonify(html=render_template('binflow/calendar_cards.html',run_date=run_date,**calendar_data(run_date,state)))
+        return jsonify(html=render_template('binflow/driver_plan_cards.html',run_date=run_date,
+                       **driver_plan_data(db(),g.user,run_date,state)))
 
     @app.post('/binflow/driver/<int:truck_id>/schedule')
     @require('admin')
@@ -422,6 +423,6 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
             if before!=manifest(db(),truck_id,run_date)[2]:
                 schedule_changed(db(),truck_id,run_date,g.user['id'],actor(),now(),'Office updated driver or stop order.')
             db().execute('INSERT INTO bf_runs(truck_id,run_date,driver_id) VALUES(?,?,?) ON CONFLICT(truck_id,run_date) DO UPDATE SET driver_id=excluded.driver_id',(truck_id,run_date,uid))
-            return success('Driver and stop order saved.','bf_calendar',date=run_date)
+            return success('Driver and stop order saved.','bf_collection_calendar',date=run_date)
         except (ValueError,TypeError) as error:
-            return failure(error if str(error) else ValueError('Check the schedule fields.'),'bf_calendar',date=run_date or today())
+            return failure(error if str(error) else ValueError('Check the schedule fields.'),'bf_collection_calendar',date=run_date or today())

@@ -340,7 +340,7 @@ def register(app,db,access,require,render,now,actor):
     def bf_week_schedule():
         try: state,start=selection()
         except ValueError as exc: abort(400,str(exc))
-        return redirect(url_for('bf_collection_calendar' if is_office(g.user) else 'bf_calendar',
+        return redirect(url_for('bf_collection_calendar' if is_office(g.user) else 'bf_workday',
                                 state=state,date=request.args.get('date') or start))
 
     @app.get('/binflow/schedule/options')

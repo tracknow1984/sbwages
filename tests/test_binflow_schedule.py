@@ -53,7 +53,7 @@ class WeeklyScheduleTests(unittest.TestCase):
         saved=self.save(plan);self.assertEqual(saved.status_code,200,saved.json)
         self.assertEqual(self.rows('SELECT status,revision FROM bf_schedule_weeks'),[dict(status='draft',revision=1)])
         self.as_user(driver)
-        page=self.client.get('/binflow/calendar?date=2026-10-26').data
+        page=self.client.get('/binflow/driver/my-day?summary=1&date=2026-10-26').data
         self.assertNotIn(b'Alpha QLD',page);self.assertNotIn(b'week-editor-data',page)
         self.assertIn(b'No jobs scheduled',page)
         self.assertEqual(self.client.get('/binflow/schedule/options?date=2026-10-26&state=QLD').status_code,403)
@@ -78,22 +78,22 @@ class WeeklyScheduleTests(unittest.TestCase):
         self.assertTrue(row['approved_at']);self.assertEqual(row['approved_by'],1)
         self.assertEqual(before,self.rows('SELECT * FROM bf_bins'))
         self.as_user(driver)
-        page=self.client.get('/binflow/calendar?date=2026-10-26').data
+        page=self.client.get('/binflow/driver/my-day?summary=1&date=2026-10-26').data
         self.assertIn(b'Alpha QLD',page);self.assertIn(b'Front gate',page)
         self.assertNotIn(b'data-week-save',page);self.assertNotIn(b'draggable=',page)
-        self.assertIn('Front gate',self.client.get('/binflow/calendar/state?date=2026-10-26').json['html'])
-        self.as_user(other);self.assertNotIn(b'Alpha QLD',self.client.get('/binflow/calendar?date=2026-10-26').data)
+        self.assertIn('Front gate',self.client.get('/binflow/driver/my-day/plan-state?date=2026-10-26').json['html'])
+        self.as_user(other);self.assertNotIn(b'Alpha QLD',self.client.get('/binflow/driver/my-day?summary=1&date=2026-10-26').data)
         self.as_user(1);plan=self.plan()['plan']
         plan['days'][3]['items']=plan['days'][0]['items'];plan['days'][0]['items']=[]
         plan['days'][3]['notes']='Updated by admin'
         self.assertEqual(self.save(plan,1).status_code,200)
         self.as_user(driver)
         self.assertEqual(self.client.get('/binflow/schedule/version?date=2026-10-26').json,dict(revision=2))
-        page=self.client.get('/binflow/calendar?date=2026-10-29').data
+        page=self.client.get('/binflow/driver/my-day?summary=1&date=2026-10-29').data
         self.assertRegex(page,rb'data-date="2026-10-29".*?Alpha QLD');self.assertIn(b'Updated by admin',page)
         self.as_user(1);self.assertEqual(self.save(plan,2,'approve',other).status_code,200)
         self.as_user(driver);self.assertEqual(self.client.get('/binflow/schedule/version?date=2026-10-26').json,dict(revision=0))
-        self.as_user(other);self.assertIn(b'Alpha QLD',self.client.get('/binflow/calendar?date=2026-10-29').data)
+        self.as_user(other);self.assertIn(b'Alpha QLD',self.client.get('/binflow/driver/my-day?summary=1&date=2026-10-29').data)
         history=self.rows('SELECT revision,actor_id,action FROM bf_schedule_history ORDER BY revision')
         self.assertEqual([h['revision'] for h in history],[1,2,3]);self.assertEqual({h['actor_id'] for h in history},{1})
 
@@ -227,7 +227,7 @@ class WeeklyScheduleTests(unittest.TestCase):
         self.as_user(driver)
         self.assertEqual(self.template(plan,revision=1).status_code,403)
         self.assertEqual(self.client.get('/binflow/schedule/load?state=QLD&week=2026-11-02&template=1').status_code,403)
-        self.assertNotIn(b'Standard week A',self.client.get('/binflow/calendar?date=2026-11-02').data)
+        self.assertNotIn(b'Standard week A',self.client.get('/binflow/driver/my-day?summary=1&date=2026-11-02').data)
 
     def test_saved_week_restore_is_preview_until_explicit_save_and_retains_history(self):
         driver=self.user();plan=self.visit_plan()
@@ -276,7 +276,7 @@ class WeeklyScheduleTests(unittest.TestCase):
         self.assertEqual(job['schedule_live'],0);self.assertIsNone(job['truck_id']);self.assertIsNone(job['driver_id'])
         self.assertEqual(bins,self.rows('SELECT * FROM bf_bins'));self.assertEqual(reserved,self.rows('SELECT * FROM bf_job_bins'))
         self.as_user(driver)
-        page=self.client.get('/binflow/calendar?date=2026-10-26').data
+        page=self.client.get('/binflow/driver/my-day?summary=1&date=2026-10-26').data
         self.assertNotIn(b'Alpha QLD',page);self.assertIn(b'No jobs scheduled',page)
         self.assertEqual(self.clear(token=preview['token']).status_code,403)
         self.assertEqual(self.preview_clear().status_code,403)

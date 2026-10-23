@@ -43,9 +43,10 @@ class AllocationApprovalTests(unittest.TestCase):
         self.assertEqual(len(self.rows('SELECT * FROM bf_allocation_history')),1)
         self.assertIn(b'already allocated',self.allocate(deliver=[1]).data)
         self.assertEqual(len(self.rows('SELECT * FROM bf_jobs')),1)
-        queue=self.client.get('/binflow/allocation-approvals').data
-        self.assertIn(b'BF-000001',queue);self.assertIn(b'2',queue)
-        for route in ('/binflow/driver','/binflow/calendar?date=2026-10-19','/binflow/pods?date=2026-10-19'):
+        removed=self.client.get('/binflow/allocation-approvals')
+        self.assertEqual(removed.status_code,302)
+        self.assertIn('/binflow/collection-calendar',removed.location)
+        for route in ('/binflow/driver','/binflow/driver/my-day?summary=1&date=2026-10-19','/binflow/pods?date=2026-10-19'):
             self.assertNotIn(b'href="/binflow/pickups/1"',self.client.get(route).data)
         self.post('/binflow/driver',dict(name='Review truck',state='QLD'))
         self.assertIn(b'must be approved',self.post('/binflow/pickups/1/truck',dict(truck_id=1)).data)
@@ -69,7 +70,7 @@ class AllocationApprovalTests(unittest.TestCase):
         self.assertEqual(self.rows('SELECT * FROM bf_events'),events)
         self.assertEqual(self.rows('SELECT approval_status,reviewed_at,reviewed_by,review_note FROM bf_jobs')[0],first)
         self.assertIn(b'already been reviewed',self.review(decision='reject',notes='Cannot undo approval').data)
-        self.assertIn(b'href="/binflow/pickups/1"',self.client.get('/binflow/calendar?date=2026-10-19').data)
+        self.assertIn(b'href="/binflow/pickups/1"',self.client.get('/binflow/driver/my-day?summary=1&date=2026-10-19').data)
         self.post('/binflow/pickups/1/truck',dict(truck_id=1))
         self.assertEqual(self.rows('SELECT truck_id FROM bf_jobs')[0]['truck_id'],1)
         result=self.post('/binflow/driver/1/scan',dict(job_id=1,action='load',code='BF000001'))
@@ -93,8 +94,7 @@ class AllocationApprovalTests(unittest.TestCase):
         self.review(decision='approve')
         self.assertEqual(self.rows('SELECT * FROM bf_jobs')[0],original)
         self.assertEqual(self.rows('SELECT * FROM bf_allocation_history'),history)
-        self.assertNotIn(b'BF-000001',self.client.get('/binflow/allocation-approvals').data)
-        self.assertIn(b'BF-000001',self.client.get('/binflow/allocation-approvals?status=rejected').data)
+        self.assertIn(b'BF-000001',self.client.get('/binflow/pickups/1').data)
         self.allocate()
         self.assertEqual(len(self.rows('SELECT * FROM bf_jobs')),2)
         self.assertEqual(self.rows('SELECT approval_status FROM bf_jobs WHERE id=2')[0]['approval_status'],'pending')

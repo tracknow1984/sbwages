@@ -1,5 +1,5 @@
 """Review bin allocations before they can enter a driver schedule."""
-from flask import abort, g, request
+from flask import abort, g, redirect, request, url_for
 
 
 def migrate_approvals(conn):
@@ -42,23 +42,8 @@ def register_approvals(app,db,access,require,allowed,render,job,items,bins,event
     @access
     def bf_allocation_approvals():
         state=request.args.get('state','')
-        status=request.args.get('status','pending')
-        if state not in ('','QLD','NSW','VIC','SA','WA','TAS','ACT','NT') or status not in ('pending','approved','rejected','all'):
-            abort(400)
-        clauses=['j.submitted_at IS NOT NULL'];args=[]
-        for column,value in (('state',state),('approval_status',status if status!='all' else '')):
-            if value: clauses.append('j.'+column+'=?');args.append(value)
-        rows=db().execute('''SELECT j.*,u.first_name||' '||u.last_name AS submitted_by
-            FROM bf_jobs j JOIN users u ON u.id=j.created_by WHERE '''+' AND '.join(clauses)+
-            ' ORDER BY j.submitted_at DESC,j.id DESC',args).fetchall()
-        groups={}
-        for r in db().execute('''SELECT i.job_id,i.direction,i.size_name,COUNT(*) AS quantity FROM bf_job_bins i
-            JOIN bf_jobs j ON j.id=i.job_id WHERE '''+' AND '.join(clauses)+
-            ' GROUP BY i.job_id,i.direction,i.size_name ORDER BY i.direction,i.size_name',args):
-            groups.setdefault(r['job_id'],[]).append(r)
-        counts={r['approval_status']:r['n'] for r in db().execute('''SELECT approval_status,COUNT(*) AS n FROM bf_jobs
-            WHERE submitted_at IS NOT NULL'''+(' AND state=?' if state else '')+' GROUP BY approval_status',(state,) if state else ())}
-        return render('allocation_approvals',section='approvals',allocations=rows,groups=groups,counts=counts,state=state,selected=status)
+        if state not in ('','QLD','NSW','VIC','SA','WA','TAS','ACT','NT'): abort(400)
+        return redirect(url_for('bf_collection_calendar',state=state))
 
     def apply_review(job_id,decision,notes=''):
         # Caller owns the transaction; both review paths use the same stock checks.
@@ -114,6 +99,3 @@ def register_approvals(app,db,access,require,allowed,render,job,items,bins,event
                 'Allocation rejected. Bins are available again; the reason is saved.','bf_job',job_id=job_id)
         except ValueError as error:
             return failure(error,'bf_job',job_id=job_id)
-
-    app.context_processor(lambda: dict(bf_pending_allocations=db().execute(
-        "SELECT COUNT(*) FROM bf_jobs WHERE approval_status='pending'").fetchone()[0] if allowed() else 0))

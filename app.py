@@ -1190,8 +1190,9 @@ def create_app(test_config=None):
         row = db().execute('SELECT * FROM prestarts WHERE id=?', (prestart_id,)).fetchone()
         if not row or (not admin_view and row['user_id'] != g.user['id']):
             abort(404)
+        inspection = db().execute('SELECT * FROM bf_run_inspections WHERE prestart_id=? AND passed=0', (prestart_id,)).fetchone() if admin_view else None
         return render_template('prestart_detail.html', tab='prestart', admin_view=admin_view,
-                               record=row, checks=json.loads(row['checks_json']),
+                               record=row, inspection=inspection, checks=json.loads(row['checks_json']),
                                photo_keys={p['check_key'] for p in db().execute('SELECT check_key FROM prestart_photos WHERE prestart_id=?', (prestart_id,))})
 
     @app.get('/prestart/<int:prestart_id>/media/<key>')

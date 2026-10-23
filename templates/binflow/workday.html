@@ -3,6 +3,7 @@
 <link rel="stylesheet" href="{{ url_for('static',filename='binflow-mobile.css') }}">
 <script src="{{ url_for('static',filename='binflow.js') }}" defer></script>
 <script src="{{ url_for('static',filename='binflow-clock.js') }}" defer></script>
+<script src="{{ url_for('static',filename='binflow-day.js') }}" defer></script>
 <div class="bf bf-day bf-mobile-day">
 {% if not binflow_driver %}<nav class="bf-mobile-nav"><a href="{{ url_for('bf_dashboard') }}">BINFLOW</a><a href="{{ url_for('employee_timesheet') if current_user.role=='employee' else url_for('bf_drivers') }}">{{ 'My timesheet' if current_user.role=='employee' else 'Office schedules' }}</a></nav>{% endif %}
 <header class="bf-heading"><div><span class="bf-kicker">MY DRIVER DAY</span><h1>{{ 'Day complete' if workday and workday.finished_at else 'Hello, '+current_user.first_name }}</h1><p>{{ workday.work_date|display_date if workday else 'One step at a time. Start when you are ready for work.' }}</p></div></header>
@@ -17,4 +18,9 @@
 {% if selected_state %}{% if trucks %}<form method="post" action="{{ url_for('bf_workday_vehicle',day_id=workday.id) }}" class="bf-form"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="state" value="{{ selected_state }}"><label>Vehicle allocated to {{ selected_state }}<select name="truck_id" required><option value="">Choose vehicle</option>{% for t in trucks %}<option value="{{ t.id }}" {{ 'selected' if workday.truck_id==t.id }}>{{ t.name }}</option>{% endfor %}</select></label><button class="primary bf-next">Continue to prestart →</button></form>{% else %}<p class="bf-note">No available vehicles in {{ selected_state }}. Ask the office to check the vehicle allocation.</p>{% endif %}{% endif %}</section>{% endif %}
 {% if workday.truck_id %}<a class="button primary bf-next" href="{{ url_for('bf_run',truck_id=workday.truck_id,date=workday.work_date) }}">Continue my run →</a>{% endif %}
 {% if blockers %}<section class="bf-panel bf-pad"><h2>Before you finish</h2>{% for reason in blockers %}<p>{{ reason }}</p>{% endfor %}</section>{% else %}{% include 'binflow/workday_finish.html' %}{% endif %}
-{% endif %}</div>{% endblock %}
+{% endif %}
+<section class="bf-panel bf-pad" aria-labelledby="driver-plan-title"><h2 id="driver-plan-title">Approved work</h2>
+<form class="bf-filters" method="get"><input type="hidden" name="summary" value="1"><label>State<select name="state">{% if not binflow_state %}<option value="">All states</option>{% endif %}{% for s in states %}<option {{ 'selected' if selected_state==s }}>{{ s }}</option>{% endfor %}</select></label><label>Date<input type="date" name="date" value="{{ run_date }}" required></label><button class="secondary">Show work</button></form>
+<p class="bf-muted" data-plan-updated>Updates every 20 seconds while open</p>
+<div data-driver-plan="{{ url_for('bf_workday_plan_state',date=run_date,state=selected_state) }}">{% include 'binflow/driver_plan_cards.html' %}</div></section>
+</div>{% endblock %}

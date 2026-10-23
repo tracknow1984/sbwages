@@ -221,7 +221,7 @@ def register_workdays(app,db,access,require,render,success,failure,now):
             latest=db().execute('SELECT * FROM bf_workdays WHERE user_id=? ORDER BY id DESC LIMIT 1',(g.user['id'],)).fetchone()
             if latest and latest['work_date']==datetime.fromisoformat(now()).astimezone(ZoneInfo(latest['timezone'])).date().isoformat(): day=latest
         if day and day['state']: require_state(g.user,day['state'])
-        if day and day['truck_id'] and not day['finished_at'] and request.args.get('summary')!='1':
+        if day and day['truck_id'] and not day['finished_at'] and request.args.get('summary')!='1' and not request.args.get('date'):
             return redirect(url_for('bf_run',truck_id=day['truck_id'],date=day['work_date']))
         state=selected_state(g.user,request.args.get('state',day['state'] if day else ''))
         if state not in ('',)+STATES: abort(400)
@@ -243,7 +243,11 @@ def register_workdays(app,db,access,require,render,success,failure,now):
             except ValueError: can_change_vehicle=False
             if db().execute('SELECT 1 FROM bf_runs WHERE truck_id=? AND run_date=? AND accepted_at IS NOT NULL',
                             (day['truck_id'],day['work_date'])).fetchone(): can_change_vehicle=False
+        from binflow_runs import driver_plan_data, valid_date
+        try: plan_date=valid_date(request.args.get('date') or (day['work_date'] if day else driver_today(db(),g.user,now())))
+        except ValueError as error: abort(400,str(error))
         return render('workday',section='driver',driver_mode=True,workday=day,selected_state=state,trucks=trucks,
+                      run_date=plan_date,**driver_plan_data(db(),g.user,plan_date,state),
                       blockers=finish_blockers(db(),day) if day and not day['finished_at'] else [],clock_entries=entries,
                       can_change_vehicle=can_change_vehicle)
 

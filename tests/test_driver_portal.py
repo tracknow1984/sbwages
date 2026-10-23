@@ -32,7 +32,7 @@ class DriverPortalTests(unittest.TestCase):
     def test_exact_menu_and_all_requested_pages_with_driver_landing(self):
         response = self.driver()
         self.assertEqual(response.request.path, '/binflow/driver/my-day')
-        expected = ['/binflow/driver/my-day', '/binflow/calendar', '/binflow/pods',
+        expected = ['/binflow/driver/my-day', '/binflow/pods',
                     '/employee/hit-me', '/employee/timesheet', '/employee/prestart',
                     '/employee/details', '/employee/payslips', '/employee/history',
                     '/employee/documents', '/employee/leave']
@@ -42,7 +42,8 @@ class DriverPortalTests(unittest.TestCase):
             menu = re.search(r'<nav aria-label="Driver menu">(.*?)</nav>', page.text, re.S).group(1)
             self.assertEqual(re.findall(r'href="([^"]+)"', menu), expected, path)
             for forbidden in ('National overview', 'New allocation', 'Collection calendar',
-                              'Collection requests', 'State allocations', 'GPS & geofences', 'Truck locations'):
+                              'Collection requests', 'State allocations', 'GPS & geofences', 'Truck locations',
+                              'Daily schedule', 'Allocation approvals'):
                 self.assertNotIn(forbidden, page.text, path)
         for path in ('/', '/employee/dashboard', '/admin/bin-management', '/binflow/sign-in', '/binflow/driver'):
             self.assertEqual(self.client.get(path).location, '/binflow/driver/my-day')
@@ -74,7 +75,7 @@ class DriverPortalTests(unittest.TestCase):
                 conn.execute('UPDATE bf_jobs SET driver_id=?,status=\'complete\',collected_at=created_at,completed_at=created_at WHERE id=?', (uid, jid))
                 conn.execute('INSERT INTO bf_runs(truck_id,run_date,driver_id) VALUES(?,\'2026-10-19\',?)', (jid, uid))
         self.driver()
-        for path in ('/binflow/calendar?date=2026-10-19', '/binflow/calendar/state?date=2026-10-19'):
+        for path in ('/binflow/driver/my-day?summary=1&date=2026-10-19', '/binflow/driver/my-day/plan-state?date=2026-10-19'):
             page = self.client.get(path)
             content = page.json['html'] if page.is_json else page.text
             self.assertIn('My truck', content)
@@ -98,6 +99,7 @@ class DriverPortalTests(unittest.TestCase):
     def test_admin_and_non_transport_staff_keep_existing_navigation(self):
         admin = self.client.get('/admin/bin-management').text
         self.assertIn('National overview', admin)
+        self.assertNotIn('>Driver day</a>', admin)
         self.assertIn('New allocation', admin)
         self.assertNotIn('aria-label="Driver menu"', admin)
         with sqlite3.connect(self.path) as conn:

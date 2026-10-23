@@ -37,7 +37,7 @@
 {% endif %}</nav>{% endif %}
 <main class="{{ 'auth-main' if not current_user else 'main' }}">
 {% if binflow_driver and tab == 'binflow' %}<nav class="driver-quick-nav no-print" aria-label="BINFLOW navigation">
-{% for key,label,endpoint in [('driver','Driver day','bf_workday'),('calendar','Daily schedule','bf_calendar'),('pods','Daily PODs','bf_daily_pods')] %}<a href="{{ url_for(endpoint) }}" class="{{ 'active' if section==key }}"{% if section==key %} aria-current="page"{% endif %}>{{ label }}</a>{% endfor %}
+{% for key,label,endpoint in [('driver','Driver day','bf_workday'),('pods','Daily PODs','bf_daily_pods')] %}<a href="{{ url_for(endpoint) }}" class="{{ 'active' if section==key }}"{% if section==key %} aria-current="page"{% endif %}>{{ label }}</a>{% endfor %}
 </nav>{% endif %}
 {% with messages = get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="notice {{ category }}" role="alert">{{ message }}</div>{% endfor %}{% endwith %}
 {% block content %}{% endblock %}

@@ -4,14 +4,14 @@ from flask import abort
 BUSINESS_ROLES = {'driver': 'DRIVER', 'labour': 'LABOUR', 'manager': 'MANAGER', 'contractor': 'CONTRACTOR'}
 WORKING_STATES = ('QLD', 'NSW', 'VIC', 'SA', 'WA', 'ACT')
 
-# Supporting routes belong to Driver day, Daily schedule or Daily PODs.
+# Supporting routes belong to Driver day or Daily PODs.
 # New operations routes remain office-only until explicitly reviewed here.
 DRIVER_ENDPOINTS = frozenset({
     'bf_week_schedule', 'bf_week_schedule_version',
     'bf_workday', 'bf_start_workday', 'bf_workday_vehicle', 'bf_finish_workday',
     'bf_drivers', 'bf_truck', 'bf_truck_scan', 'bf_run', 'bf_run_prestart',
     'bf_run_action', 'bf_run_scan', 'bf_run_state', 'bf_accept_run', 'bf_load_list',
-    'bf_calendar', 'bf_calendar_state', 'bf_daily_pods', 'bf_job', 'bf_job_action',
+    'bf_calendar', 'bf_workday_plan_state', 'bf_daily_pods', 'bf_job', 'bf_job_action',
     'bf_pod', 'bf_pod_pdf', 'bf_evidence', 'bf_qr_staff', 'bf_qr_driver',
 })
 

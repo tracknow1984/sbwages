@@ -99,7 +99,7 @@ class DashboardReviewTests(unittest.TestCase):
         self.assertIn(b'Collection schedule approved',page.data)
         self.assertEqual(self.rows('SELECT status,job_id FROM bf_collection_requests')[0],dict(status='scheduled',job_id=2))
         self.assertEqual(self.rows('SELECT approval_status FROM bf_jobs WHERE id=2')[0]['approval_status'],'approved')
-        self.assertIn(b'href="/binflow/pickups/2"',self.client.get('/binflow/calendar?date='+RUN_DATE).data)
+        self.assertIn(b'href="/binflow/pickups/2"',self.client.get('/binflow/driver/my-day?summary=1&date='+RUN_DATE).data)
         self.assertEqual(self.rows('SELECT * FROM bf_bins'),before)
         history=self.rows('SELECT * FROM bf_collection_request_history')
         self.allocate(approve=True,request_key=key)

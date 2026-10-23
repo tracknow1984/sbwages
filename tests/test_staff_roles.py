@@ -139,14 +139,14 @@ class StaffRoleTests(unittest.TestCase):
         for name, own, other, other_job in (('qlddriver','QLD','NSW',2),('nswcontractor','NSW','QLD',1)):
             with self.subTest(role=name):
                 self.sign_in(name)
-                for route in ('/binflow/calendar?date=2026-10-19','/binflow/calendar/state?date=2026-10-19'):
+                for route in ('/binflow/driver/my-day?summary=1&date=2026-10-19','/binflow/driver/my-day/plan-state?date=2026-10-19'):
                     response=self.client.get(route)
                     html=response.json['html'] if response.is_json else response.text
                     self.assertIn(own+' only truck',html)
                     self.assertNotIn(other+' only truck',html)
                 pods=self.client.get('/binflow/pods?date=2026-10-19').text
                 self.assertNotIn(f'BF-{other_job:06d}',pods)
-                for path in (f'/binflow/calendar?state={other}', f'/binflow/calendar/state?state={other}',
+                for path in (f'/binflow/driver/my-day?summary=1&state={other}', f'/binflow/driver/my-day/plan-state?state={other}',
                              f'/binflow/driver/my-day?state={other}', f'/binflow/driver/{other_job}',
                              f'/binflow/driver/{other_job}/day?date=2026-10-19',
                              f'/binflow/driver/{other_job}/day/state?date=2026-10-19',
@@ -178,7 +178,7 @@ class StaffRoleTests(unittest.TestCase):
         for state in WORKING_STATES:
             with sqlite3.connect(self.path) as conn:
                 conn.execute('UPDATE users SET working_state=? WHERE id=?',(state,self.ids['qlddriver']))
-            response=self.client.get('/binflow/calendar')
+            response=self.client.get('/binflow/driver/my-day?summary=1')
             self.assertEqual(response.status_code,200)
             picker=re.search(r'<select name="state".*?</select>',response.text,re.S).group()
             self.assertNotIn('All states',picker)
@@ -186,7 +186,7 @@ class StaffRoleTests(unittest.TestCase):
                 if other==state: self.assertIn(other,picker)
                 else:
                     self.assertNotIn(other,picker)
-                    self.assertEqual(self.client.get('/binflow/calendar/state?state='+other).status_code,403)
+                    self.assertEqual(self.client.get('/binflow/driver/my-day/plan-state?state='+other).status_code,403)
 
     def test_labour_and_unprofiled_accounts_have_no_binflow_even_with_old_access_checkbox(self):
         with sqlite3.connect(self.path) as conn:
@@ -197,7 +197,7 @@ class StaffRoleTests(unittest.TestCase):
             self.assertEqual(page.request.path,'/employee/dashboard')
             self.assertNotIn('>BINFLOW</a>',page.text)
             self.assertNotIn('aria-label="Driver menu"',page.text)
-            for path in ('/admin/bin-management','/binflow/driver/my-day','/binflow/calendar','/binflow/pods','/binflow/gps/map'):
+            for path in ('/admin/bin-management','/binflow/driver/my-day','/binflow/driver/my-day?summary=1','/binflow/pods','/binflow/gps/map'):
                 self.assertEqual(self.client.get(path).status_code,403,path)
             for path in ('/employee/timesheet','/employee/prestart','/employee/details','/employee/documents','/employee/leave'):
                 self.assertEqual(self.client.get(path).status_code,200,path)
@@ -207,7 +207,7 @@ class StaffRoleTests(unittest.TestCase):
         page=self.sign_in('manager')
         self.assertEqual(page.request.path,'/admin/bin-management')
         self.assertIn('National overview',page.text)
-        calendar=self.client.get('/binflow/calendar?date=2026-10-19').text
+        calendar=self.client.get('/binflow/driver/my-day?summary=1&date=2026-10-19').text
         for value in ('QLD only truck','NSW only truck'): self.assertIn(value,calendar)
         for path in ('/binflow/bins','/binflow/pickups/1','/binflow/pickups/2','/binflow/warehouse',
                      '/binflow/collection-calendar','/binflow/allocations','/binflow/gps/map'):
@@ -228,9 +228,9 @@ class StaffRoleTests(unittest.TestCase):
         self.client=self.app.test_client();self.login()
         response=self.post(f'/admin/staff/{self.ids["qlddriver"]}/edit',self.profile(working_state='NSW'))
         self.assertIn(b'Staff details saved',response.data)
-        self.assertEqual(old_client.get('/binflow/calendar').status_code,302)
+        self.assertEqual(old_client.get('/binflow/driver/my-day?summary=1').status_code,302)
         self.sign_in('qlddriver')
-        page=self.client.get('/binflow/calendar?date=2026-10-19').text
+        page=self.client.get('/binflow/driver/my-day?summary=1&date=2026-10-19').text
         self.assertIn('NSW only truck',page);self.assertNotIn('QLD only truck',page)
 
     def test_invalid_profiles_and_active_day_changes_are_rejected(self):
