@@ -110,6 +110,8 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
             db().execute('BEGIN IMMEDIATE')
             j, t = job(job_id), truck(integer('truck_id'))
             ensure_approved(j)
+            if not j['schedule_live']:
+                raise ValueError('Add this allocation to a week and approve its schedule before assigning a truck.')
             run = db().execute('SELECT departed_at,returned_at FROM bf_runs WHERE truck_id=? AND run_date=?',(t['id'],j['scheduled_date'])).fetchone()
             if j['truck_id'] != t['id'] and run and (run['departed_at'] or run['returned_at']):
                 raise ValueError('This truck has already started its run for this date. Choose an unstarted run.')
@@ -117,6 +119,13 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
                 raise ValueError('Choose a truck before completing the client handover.')
             if j['state'] != t['state']:
                 raise ValueError('Choose a truck from the same state as this job.')
+            if j['schedule_week_id']:
+                if db().execute('''SELECT 1 FROM bf_jobs WHERE truck_id=? AND scheduled_date=? AND id!=?
+                    AND schedule_live=1 AND status!='cancelled' AND (driver_id IS NULL OR driver_id!=?)''',
+                    (t['id'],j['scheduled_date'],j['id'],j['driver_id'])).fetchone() or db().execute('''SELECT 1 FROM bf_workdays
+                    WHERE truck_id=? AND work_date=? AND finished_at IS NULL AND user_id!=?''',
+                    (t['id'],j['scheduled_date'],j['driver_id'])).fetchone():
+                    raise ValueError('This truck is assigned to another driver. Choose a compatible truck for the published week.')
             if j['truck_id'] != t['id'] and any(i['loaded_at'] or i['delivered_at'] or i['picked_up_at'] for i in items(job_id)):
                 raise ValueError('This job has bins in movement. Unload any unused empties before changing trucks.')
             if j['truck_id'] != t['id']:
@@ -127,6 +136,10 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
                 db().execute('UPDATE bf_jobs SET truck_id=?,scan_mode=1,vehicle=? WHERE id=?', (t['id'],t['name'],job_id))
                 for i in items(job_id):
                     event(i['bin_id'], 'Truck assigned', job_id, notes=t['name'])
+            if j['schedule_week_id']:
+                db().execute('''INSERT INTO bf_runs(truck_id,run_date,driver_id) VALUES(?,?,?)
+                    ON CONFLICT(truck_id,run_date) DO UPDATE SET driver_id=excluded.driver_id''',
+                    (t['id'],j['scheduled_date'],j['driver_id']))
             return success('Ready to scan.', 'bf_truck', truck_id=t['id'], job=job_id)
         except ValueError as error:
             return failure(error, 'bf_job', job_id=job_id)

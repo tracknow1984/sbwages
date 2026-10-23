@@ -48,7 +48,7 @@ def valid_date(value):
 
 
 def run_jobs(conn, truck_id, run_date):
-    return conn.execute("SELECT * FROM bf_jobs WHERE truck_id=? AND scheduled_date=? AND approval_status='approved' AND status!='cancelled' ORDER BY run_order,id",
+    return conn.execute("SELECT * FROM bf_jobs WHERE truck_id=? AND scheduled_date=? AND schedule_live=1 AND approval_status='approved' AND status!='cancelled' ORDER BY run_order,id",
                         (truck_id, run_date)).fetchall()
 
 
@@ -67,7 +67,7 @@ def run_data(conn, truck_id, run_date, driver_id, today):
     clock_ready=bool((workday and not workday['finished_at']) or (not clock_required and not workday))
     rows = conn.execute('''SELECT i.*,j.client_name,j.site_name,j.warehouse_name,j.warehouse_id,j.site_id
         FROM bf_job_bins i JOIN bf_jobs j ON j.id=i.job_id
-        WHERE j.truck_id=? AND j.scheduled_date=? AND j.approval_status='approved' AND j.status!='cancelled'
+        WHERE j.truck_id=? AND j.scheduled_date=? AND j.schedule_live=1 AND j.approval_status='approved' AND j.status!='cancelled'
         ORDER BY j.run_order,j.id,i.direction,i.bin_code''', (truck_id, run_date)).fetchall()
     current = next((j for j in jobs if j['status']=='scheduled'), None)
     hold = conn.execute('''SELECT i.*,p.checks_json,p.notes,p.employee_name,p.submitted_at FROM bf_run_inspections i
@@ -138,6 +138,8 @@ def check_owner(conn, truck_id, run_date, user):
 
 def guard_movement(conn, j, action, user, today):
     ensure_approved(j)
+    if not j['schedule_live']:
+        raise ValueError('This job is not in a published schedule. Ask the administrator to publish it first.')
     check_owner(conn,j['truck_id'],j['scheduled_date'],user)
     data = run_data(conn,j['truck_id'],j['scheduled_date'],user['id'],today)
     if not data['clock_ready']:
@@ -159,10 +161,10 @@ def guard_movement(conn, j, action, user, today):
 
 
 def mark_returned(conn, truck_id, run_date, timestamp):
-    if conn.execute("SELECT 1 FROM bf_jobs WHERE truck_id=? AND scheduled_date=? AND status='scheduled'", (truck_id,run_date)).fetchone():
+    if conn.execute("SELECT 1 FROM bf_jobs WHERE truck_id=? AND scheduled_date=? AND schedule_live=1 AND status='scheduled'", (truck_id,run_date)).fetchone():
         return
     if conn.execute('''SELECT 1 FROM bf_job_bins i JOIN bf_jobs j ON j.id=i.job_id WHERE j.truck_id=? AND j.scheduled_date=?
-        AND j.status!='cancelled' AND i.direction='collect' AND i.returned_at IS NULL''', (truck_id,run_date)).fetchone():
+        AND j.schedule_live=1 AND j.status!='cancelled' AND i.direction='collect' AND i.returned_at IS NULL''', (truck_id,run_date)).fetchone():
         return
     conn.execute('UPDATE bf_runs SET returned_at=COALESCE(returned_at,?) WHERE truck_id=? AND run_date=?', (timestamp,truck_id,run_date))
 
@@ -330,7 +332,7 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
             FROM bf_jobs j LEFT JOIN bf_trucks t ON t.id=j.truck_id
             LEFT JOIN bf_runs r ON r.truck_id=j.truck_id AND r.run_date=j.scheduled_date
             LEFT JOIN users u ON u.id=COALESCE(r.driver_id,j.driver_id)
-            WHERE j.scheduled_date=? AND j.approval_status='approved' AND j.status!='cancelled' '''+
+            WHERE j.scheduled_date=? AND j.schedule_live=1 AND j.approval_status='approved' AND j.status!='cancelled' '''+
             ('AND j.state=? ' if state else '')+'ORDER BY t.state,t.name,j.run_order,j.id',
             (run_date,state) if state else (run_date,)).fetchall()
         groups={}
@@ -386,6 +388,8 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
             db().execute('BEGIN IMMEDIATE')
             jobs=run_jobs(db(),truck_id,run_date)
             if not jobs: raise ValueError('Assign client jobs to this truck first.')
+            if any(j['schedule_week_id'] for j in jobs):
+                raise ValueError('Manage this driver and stop order in the weekly calendar, then save to republish.')
             existing=db().execute('SELECT departed_at,returned_at FROM bf_runs WHERE truck_id=? AND run_date=?',(truck_id,run_date)).fetchone()
             if (existing and (existing['departed_at'] or existing['returned_at'])) or any(j['status']!='scheduled' for j in jobs) or db().execute('''SELECT 1 FROM bf_job_bins i JOIN bf_jobs j ON j.id=i.job_id
                 WHERE j.truck_id=? AND j.scheduled_date=? AND (i.loaded_at IS NOT NULL OR i.picked_up_at IS NOT NULL)''',(truck_id,run_date)).fetchone():

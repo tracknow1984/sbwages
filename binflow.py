@@ -30,6 +30,7 @@ from binflow_acceptance import migrate_acceptance, register_acceptance, ensure_r
 from binflow_requirements import migrate_requirements, populate_requirements, site_plan, register_requirements
 from binflow_allocation_import import migrate as migrate_allocation_import, replace_from_workbook, replace_pallecons
 from binflow_route_calendar import migrate as migrate_route_calendar, rebuild as rebuild_calendar
+from binflow_schedule import migrate as migrate_schedule, register as register_schedule
 from binflow_client_profiles import (migrate as migrate_client_profiles, import_profiles, seed_locations, register_counts,
     register_profiles, for_location as client_profile_for_location, sync_location as sync_client_profile)
 from binflow_import import SCHEMA as IMPORT_SCHEMA, IMPORT_ID, import_blocktexx, profiles as source_profiles
@@ -120,6 +121,7 @@ def register_binflow(app, db, require):
         migrate_client_profiles(db())
         migrate_allocation_import(db())
         migrate_route_calendar(db())
+        migrate_schedule(db())
         for litres, tare in STANDARD_TARES.items():
             db().execute('INSERT OR IGNORE INTO bf_sizes(name,litres,default_tare_g) VALUES(?,?,?)', (f'{litres} L', litres, tare))
         db().commit()
@@ -666,6 +668,8 @@ def register_binflow(app, db, require):
     @app.post('/binflow/pickups/<int:job_id>/<action>')
     @access
     def bf_job_action(job_id, action):
+        if action == 'cancel' and g.user['role'] != 'admin':
+            abort(403, 'Only an administrator can cancel scheduled work.')
         if action not in ('exchange','receive','cancel'):
             abort(404)
         if not is_office(g.user):
@@ -685,6 +689,8 @@ def register_binflow(app, db, require):
             j = job(job_id); rows = items(job_id)
             ensure_approved(j)
             if action == 'cancel':
+                if j['schedule_week_id']:
+                    raise ValueError('Remove this job from its weekly calendar and save before cancelling it.')
                 if j['status'] == 'cancelled':
                     return success('Job already cancelled.', 'bf_job', job_id=job_id)
                 if j['status'] != 'scheduled':
@@ -921,3 +927,5 @@ def register_binflow(app, db, require):
     register_acceptance(app,db,access,success,failure,now,actor)
     register_workdays(app,db,access,require,render,success,failure,now)
     register_profiles(app,db,require,render,now,actor)
+
+    register_schedule(app,db,access,require,render,now,actor)

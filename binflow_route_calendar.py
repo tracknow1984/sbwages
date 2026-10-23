@@ -412,6 +412,23 @@ def view_data(conn, start, end, state):
         if monday >= START:
             weeks.append(dict(start=monday, states=week_plan(conn, monday, state, geo, people)))
         monday += timedelta(weeks=1)
+    # Saved state weeks are authoritative. Never regenerate over an admin's edits.
+    from binflow_schedule import saved_week
+    for week in weeks:
+        for region in ((state,) if state else ('QLD','NSW','VIC','SA','WA','TAS','ACT','NT')):
+            saved = saved_week(conn, region, week['start'].isoformat())
+            if not saved:
+                continue
+            plan = json.loads(saved['plan_json'])
+            days = [dict(date=d['date'], name=date.fromisoformat(d['date']).strftime('%A'),
+                profiles=[], trips=[], jobs=[], exceptions=[], baling=any(i['kind']=='baling' for i in d['items']),
+                minutes=d['estimate_minutes'] if d['estimate_valid'] else 0, over_limit=False,
+                saved_items=d['items'], saved_notes=d['notes'], saved_status=saved['status']) for d in plan['days']]
+            group = dict(state=region, resource=plan['resource'], days=days,
+                minutes=sum(d['minutes'] for d in days), staff_shortfall=False, baling_day='',
+                issues=['Saved weekly plan. Check edited routes and working hours in Weekly dispatch.'],
+                saved_status=saved['status'], driver_name=saved['driver_name'], saved_start=week['start'].isoformat())
+            week['states'] = [g for g in week['states'] if g['state']!=region] + [group]
     filtered = [p for p in people if not state or p['state']==state]
     events = defaultdict(list)
     backlog = []
@@ -421,7 +438,7 @@ def view_data(conn, start, end, state):
             for day in group['days']:
                 fixed = [item for item in day['exceptions'] if item['fixed']]
                 awaiting.extend(dict(item, state=group['state']) for item in day['exceptions'] if not item['fixed'])
-                if day['trips'] or day['baling'] or day['jobs'] or fixed:
+                if day.get('saved_items') or day['trips'] or day['baling'] or day['jobs'] or fixed:
                     events[day['date']].append(dict(group=group, day=dict(day, exceptions=fixed),
                         dialog_id='route-'+group['state']+'-'+day['date']))
         if awaiting:

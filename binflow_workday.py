@@ -164,7 +164,7 @@ def finish_blockers(conn,day):
     reasons=[]
     if conn.execute('SELECT 1 FROM bf_bins WHERE truck_id=?',(day['truck_id'],)).fetchone():
         reasons.append('Scan every bin off the truck before finishing your day.')
-    jobs=conn.execute("SELECT * FROM bf_jobs WHERE truck_id=? AND scheduled_date=? AND approval_status='approved' AND status!='cancelled'",
+    jobs=conn.execute("SELECT * FROM bf_jobs WHERE truck_id=? AND scheduled_date=? AND schedule_live=1 AND approval_status='approved' AND status!='cancelled'",
                       (day['truck_id'],day['work_date'])).fetchall()
     if any(j['status'] in ('scheduled','collected') for j in jobs):
         reasons.append('Complete every client stop and warehouse return first. Ask the office to resolve any cancelled work.')
@@ -280,7 +280,7 @@ def register_workdays(app,db,access,require,render,success,failure,now):
             check_owner(db(),tid,day['work_date'],g.user)
             run=db().execute('SELECT driver_id FROM bf_runs WHERE truck_id=? AND run_date=?',(tid,day['work_date'])).fetchone()
             if run and run['driver_id'] and run['driver_id']!=g.user['id']: raise ValueError('This vehicle is assigned to another driver.')
-            if db().execute("SELECT 1 FROM bf_jobs WHERE truck_id=? AND scheduled_date=? AND status!='cancelled' AND driver_id IS NOT NULL AND driver_id!=?",
+            if db().execute("SELECT 1 FROM bf_jobs WHERE truck_id=? AND scheduled_date=? AND schedule_live=1 AND status!='cancelled' AND driver_id IS NOT NULL AND driver_id!=?",
                             (tid,day['work_date'],g.user['id'])).fetchone():
                 raise ValueError('This vehicle has work assigned to another driver. Ask the office to check its schedule.')
             if day['truck_id'] and day['truck_id']!=tid:

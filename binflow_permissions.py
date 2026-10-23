@@ -7,6 +7,7 @@ WORKING_STATES = ('QLD', 'NSW', 'VIC', 'SA', 'WA', 'ACT')
 # Supporting routes belong to Driver day, Daily schedule or Daily PODs.
 # New operations routes remain office-only until explicitly reviewed here.
 DRIVER_ENDPOINTS = frozenset({
+    'bf_week_schedule', 'bf_week_schedule_version',
     'bf_workday', 'bf_start_workday', 'bf_workday_vehicle', 'bf_finish_workday',
     'bf_drivers', 'bf_truck', 'bf_truck_scan', 'bf_run', 'bf_run_prestart',
     'bf_run_action', 'bf_run_scan', 'bf_run_state', 'bf_accept_run', 'bf_load_list',
@@ -73,7 +74,7 @@ def can_view_run(conn, user, truck_id, run_date, include_available=True):
                        (truck_id, run_date)).fetchone()
     assigned = {r['driver_id'] for r in conn.execute('''SELECT driver_id FROM bf_jobs
         WHERE truck_id=? AND scheduled_date=? AND approval_status='approved' AND status!='cancelled'
-        AND driver_id IS NOT NULL''', (truck_id, run_date))}
+        AND schedule_live=1 AND driver_id IS NOT NULL''', (truck_id, run_date))}
     if run and run['driver_id']:
         assigned.add(run['driver_id'])
     return assigned == {user['id']} or (not assigned and include_available)
@@ -87,7 +88,7 @@ def can_view_job(conn, user, job):
         return False
     if is_office(user):
         return True
-    if job['approval_status'] != 'approved' or job['status'] == 'cancelled':
+    if not job['schedule_live'] or job['approval_status'] != 'approved' or job['status'] == 'cancelled':
         return False
     if job['driver_id'] and job['driver_id'] != user['id']:
         return False

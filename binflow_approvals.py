@@ -35,6 +35,7 @@ def register_approvals(app,db,access,require,allowed,render,job,items,bins,event
     app.jinja_env.globals['bf_job_label'] = lambda j: (
         'Awaiting approval' if j['approval_status']=='pending' else
         'Disapproved' if j['approval_status']=='rejected' else
+        ('Draft week' if j['schedule_week_id'] else 'Unscheduled') if not j['schedule_live'] else
         {'scheduled':'Scheduled','collected':'On the road','received':'Weighing','complete':'Complete','cancelled':'Cancelled'}[j['status']])
 
     @app.get('/binflow/allocation-approvals')

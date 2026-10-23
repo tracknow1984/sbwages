@@ -30,7 +30,7 @@ def migrate_acceptance(conn):
 def manifest(conn,truck_id,run_date):
     jobs=[dict(r) for r in conn.execute('''SELECT id,code,site_id,warehouse_id,state,client_name,site_name,
         warehouse_name,scheduled_date,scheduled_time,run_order,driver_id,notes FROM bf_jobs
-        WHERE truck_id=? AND scheduled_date=? AND approval_status='approved' AND status!='cancelled' ORDER BY run_order,id''',(truck_id,run_date))]
+        WHERE truck_id=? AND scheduled_date=? AND schedule_live=1 AND approval_status='approved' AND status!='cancelled' ORDER BY run_order,id''',(truck_id,run_date))]
     for j in jobs:
         j['bins']=[dict(r) for r in conn.execute('''SELECT bin_id,bin_code,direction,size_name
             FROM bf_job_bins WHERE job_id=? ORDER BY direction,bin_id''',(j['id'],))]
@@ -71,7 +71,7 @@ def schedule_cards(conn,state,run_date,today,user):
         FROM bf_jobs j JOIN bf_trucks t ON t.id=j.truck_id
         LEFT JOIN bf_runs r ON r.truck_id=j.truck_id AND r.run_date=j.scheduled_date
         LEFT JOIN users u ON u.id=COALESCE(r.driver_id,j.driver_id)
-        WHERE j.approval_status='approved' AND j.status!='cancelled' AND j.scheduled_date BETWEEN ? AND ?
+        WHERE j.schedule_live=1 AND j.approval_status='approved' AND j.status!='cancelled' AND j.scheduled_date BETWEEN ? AND ?
         ORDER BY j.scheduled_date,t.name,j.run_order,j.id''',(first,last)).fetchall()
     grouped=defaultdict(list)
     for j in jobs: grouped[(j['truck_id'],j['scheduled_date'])].append(j)
@@ -147,7 +147,7 @@ def register_acceptance(app,db,access,success,failure,now,actor):
             stamp=now();person=actor()
             db().execute('INSERT INTO bf_runs(truck_id,run_date,driver_id) VALUES(?,?,?) ON CONFLICT(truck_id,run_date) DO UPDATE SET driver_id=excluded.driver_id',
                 (truck_id,run_date,g.user['id']))
-            db().execute("UPDATE bf_jobs SET driver_id=? WHERE truck_id=? AND scheduled_date=? AND approval_status='approved' AND status!='cancelled'",(g.user['id'],truck_id,run_date))
+            db().execute("UPDATE bf_jobs SET driver_id=? WHERE truck_id=? AND scheduled_date=? AND schedule_live=1 AND approval_status='approved' AND status!='cancelled'",(g.user['id'],truck_id,run_date))
             values,snapshot,version=manifest(db(),truck_id,run_date)
             db().execute('''UPDATE bf_runs SET acceptance_required=1,accepted_at=?,accepted_by=?,accepted_name=?,accepted_manifest=?
                 WHERE truck_id=? AND run_date=?''',(stamp,g.user['id'],person,version,truck_id,run_date))
