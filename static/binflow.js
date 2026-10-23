@@ -2,6 +2,18 @@
 (() => {
   const root = document.querySelector('.bf');
   if (!root) return;
+  root.querySelectorAll('[data-calendar-open]').forEach(button => button.addEventListener('click', () => {
+    const dialog = document.getElementById(button.dataset.calendarOpen);
+    if (dialog instanceof HTMLDialogElement) dialog.showModal();
+  }));
+  root.querySelectorAll('.bf-calendar-dialog').forEach(dialog => {
+    dialog.querySelectorAll('[data-calendar-close]').forEach(button => button.addEventListener('click', () => dialog.close()));
+    dialog.addEventListener('click', event => {
+      if (event.target !== dialog) return;
+      const rect = dialog.getBoundingClientRect();
+      if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) dialog.close();
+    });
+  });
   root.querySelectorAll('[data-print]').forEach(button => button.addEventListener('click', () => window.print()));
   root.querySelectorAll('[data-autosubmit]').forEach(select => select.addEventListener('change', () => select.form.requestSubmit()));
   root.querySelectorAll('[data-select-all]').forEach(control => control.addEventListener('change', () => {

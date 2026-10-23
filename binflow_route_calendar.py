@@ -413,7 +413,23 @@ def view_data(conn, start, end, state):
             weeks.append(dict(start=monday, states=week_plan(conn, monday, state, geo, people)))
         monday += timedelta(weeks=1)
     filtered = [p for p in people if not state or p['state']==state]
+    events = defaultdict(list)
+    backlog = []
+    for week in weeks:
+        awaiting = []
+        for group in week['states']:
+            for day in group['days']:
+                fixed = [item for item in day['exceptions'] if item['fixed']]
+                awaiting.extend(dict(item, state=group['state']) for item in day['exceptions'] if not item['fixed'])
+                if day['trips'] or day['baling'] or day['jobs'] or fixed:
+                    events[day['date']].append(dict(group=group, day=dict(day, exceptions=fixed),
+                        dialog_id='route-'+group['state']+'-'+day['date']))
+        if awaiting:
+            backlog.append(dict(start=week['start'], items=awaiting))
+    grid = [[start+timedelta(days=n+d) for d in range(7)] for n in range(0,(end-start).days+1,7)]
     return dict(route_weeks=weeks, route_clients=filtered, route_start=START,
+                calendar_weeks=grid, calendar_events=events, calendar_backlog=backlog,
+                calendar_unassigned=sum(len(w['items']) for w in backlog),
                 route_pending=[p for p in people if not p['id'] or not p['state']],
                 route_undated=[p for p in filtered if p['cadence'] in ('adhoc','unconfirmed','paused')],
                 route_counts=dict(Counter(p['state'] for p in people)))

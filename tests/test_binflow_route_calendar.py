@@ -9,7 +9,7 @@ from test_binflow_allocation_import import AllocationWorkbookTests
 from binflow_allocation_import import replace_pallecons
 from binflow_collections import occurs, parse_frequency, populate_collection_profiles
 from binflow_route_calendar import (START, clients, due, geography, leg, pack, rebuild,
-                                    resources, split_loads, week_plan)
+                                    resources, split_loads, week_plan, view_data)
 
 
 class RecurrenceTests(unittest.TestCase):
@@ -152,3 +152,20 @@ class CurrentCalendarTests(unittest.TestCase):
             self.assertTrue(any('No staff hours' in s for s in plan['issues']))
             self.assertTrue(any('reconciliation' in s for s in plan['issues']))
             self.assertTrue(any('Weekly plan requires' in s for s in plan['issues']))
+
+    def test_calendar_separates_unassigned_weekly_demand_from_fixed_dates(self):
+        self.prepare()
+        with self.connection() as conn:
+            conn.execute("UPDATE bf_client_site_profiles SET suburb='Paget',schedule='Weekly' WHERE location_id=3")
+            data=view_data(conn,START,START+timedelta(days=6),'QLD')
+            self.assertEqual(len(data['calendar_weeks']),1)
+            self.assertEqual(len(data['calendar_weeks'][0]),7)
+            self.assertEqual(data['calendar_unassigned'],1)
+            self.assertNotIn(START.isoformat(),data['calendar_events'])
+            self.assertEqual(data['calendar_backlog'][0]['items'][0]['profile']['id'],3)
+            conn.execute("UPDATE bf_client_site_profiles SET schedule='Mon - Weekly' WHERE location_id=3")
+            fixed=view_data(conn,START,START+timedelta(days=6),'QLD')
+            self.assertEqual(fixed['calendar_unassigned'],0)
+            event=fixed['calendar_events'][START.isoformat()][0]
+            self.assertEqual(event['day']['exceptions'][0]['profile']['id'],3)
+            self.assertEqual(event['dialog_id'],'route-QLD-2026-10-26')
