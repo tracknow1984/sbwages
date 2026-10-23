@@ -63,7 +63,7 @@ def ensure_location(conn, profile, timestamp, actor):
 
 
 def write_target(conn, lid, counts, source_row, timestamp, actor):
-    quantities, review, _ = converted_requirements({'containers': counts})
+    quantities, review, _ = converted_requirements({'containers': counts}, replace_pallecons=True)
     if counts.get('bulkbag'):
         review = (review + f' {counts["bulkbag"]} bulk bags listed; confirm whether these remain or need a bin replacement.').strip()
     sizes = {r['litres']: r for r in conn.execute("SELECT * FROM bf_sizes WHERE name IN ('240 L','1100 L')")}
@@ -73,7 +73,7 @@ def write_target(conn, lid, counts, source_row, timestamp, actor):
     version = old['version'] + 1 if old else 1
     notes = (f'Workbook Equipment row {source_row}: {equipment_text(counts)}. '
              'Proposed targets: cages → 1100L one-for-one; 660L → 1100L by capacity, rounded up per site; '
-             '240L retained. Pallecons and bulk bags require a separate decision.')
+             '240L retained; pallecons → 1100L one-for-one. Bulk bags require a separate decision.')
     conn.execute('''INSERT INTO bf_site_profiles(location_id,version,notes,updated_at,updated_by,review_note,active)
         VALUES(?,?,?,?,?,?,1) ON CONFLICT(location_id) DO UPDATE SET version=excluded.version,
         notes=excluded.notes,updated_at=excluded.updated_at,updated_by=excluded.updated_by,
@@ -85,6 +85,48 @@ def write_target(conn, lid, counts, source_row, timestamp, actor):
                  (lid, version, json.dumps(dict(quantities=rows, notes=notes, review_note=review,
                                                workbook_row=source_row, source_counts=counts, active=True)), timestamp, actor))
     return quantities, review
+
+
+def replace_pallecons(conn, timestamp):
+    """One-time approved change to current targets, retaining original equipment evidence."""
+    change_id = 'pallecons-to-1100-2026-10-23-v1'
+    done = conn.execute('SELECT summary FROM bf_requirements_imports WHERE id=?', (change_id,)).fetchone()
+    if done:
+        return json.loads(done['summary']), False
+    rows = conn.execute('''SELECT a.*,p.location_id,l.state,s.version,s.notes,s.review_note
+        FROM bf_allocation_workbook_rows a JOIN bf_client_site_profiles p ON p.id=a.profile_id
+        JOIN bf_locations l ON l.id=p.location_id JOIN bf_site_profiles s ON s.location_id=l.id
+        WHERE a.active=1 AND s.active=1''').fetchall()
+    if not rows:
+        return None, False
+    size = conn.execute("SELECT id FROM bf_sizes WHERE name='1100 L'").fetchone()['id']
+    summary = dict(sites=0, replaced=0, states={})
+    conn.execute('BEGIN IMMEDIATE')
+    try:
+        for row in rows:
+            count = json.loads(row['equipment']).get('pallecon', 0)
+            if not count or 'pallecons → 1100L one-for-one' in row['notes']:
+                continue
+            before = [dict(r) for r in conn.execute('SELECT * FROM bf_site_requirements WHERE location_id=?', (row['location_id'],))]
+            conn.execute('''INSERT INTO bf_site_requirements(location_id,size_id,quantity) VALUES(?,?,?)
+                ON CONFLICT(location_id,size_id) DO UPDATE SET quantity=quantity+excluded.quantity''', (row['location_id'],size,count))
+            note = row['notes'].replace('Pallecons and bulk bags require a separate decision.', 'Bulk bags require a separate decision.')
+            note += f' Approved 23 October: {count} pallecons → 1100L one-for-one.'
+            review = re.sub(r'\d+ pallecons listed; confirm whether these remain or need a bin replacement\.\s*', '', row['review_note'])
+            review = review.replace('No confirmed 240L / 1100L bin quantity in the source. Confirm this site before allocating stock.', '').strip()
+            version = row['version']+1
+            conn.execute('UPDATE bf_site_profiles SET version=?,notes=?,review_note=?,updated_at=?,updated_by=? WHERE location_id=?',
+                         (version,note,review,timestamp,'Pallecon replacement',row['location_id']))
+            after = [dict(r) for r in conn.execute('SELECT r.*,s.name FROM bf_site_requirements r JOIN bf_sizes s ON s.id=r.size_id WHERE location_id=?', (row['location_id'],))]
+            conn.execute('INSERT INTO bf_profile_history(location_id,version,snapshot,created_at,actor) VALUES(?,?,?,?,?)',
+                         (row['location_id'],version,json.dumps(dict(quantities=after,previous_quantities=before,notes=note,review_note=review,change=change_id)),timestamp,'Pallecon replacement'))
+            summary['sites']+=1;summary['replaced']+=count
+            summary['states'][row['state']]=summary['states'].get(row['state'],0)+count
+        conn.execute('INSERT INTO bf_requirements_imports VALUES(?,?,?)',(change_id,json.dumps(summary),timestamp))
+        conn.commit()
+        return summary,True
+    except Exception:
+        conn.rollback();raise
 
 
 def activate_pending(conn, profile_id, timestamp, actor):

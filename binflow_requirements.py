@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS bf_state_bin_pools (
 PLAN_IMPORT = 'national-240-1100-2026-10-19-v1'
 
 
-def converted_requirements(source):
+def converted_requirements(source, replace_pallecons=False):
     """A proposed site holding, not a sum of repeated service visits.
 
     Multiple service lines of one type are explicitly unverified in the source.
@@ -65,7 +65,9 @@ def converted_requirements(source):
         raise ValueError('Source bin quantity exceeds the supported planning range.')
     large = counts.get('bin1100',0)+counts.get('cage',0)+math.ceil(counts.get('bin660',0)*660/1100)
     small = counts.get('bin240',0)+math.ceil(counts.get('bin120',0)*120/240)
-    if counts.get('pallecon'):
+    if replace_pallecons:
+        large += counts.get('pallecon',0)
+    elif counts.get('pallecon'):
         review.append(f'{counts["pallecon"]} pallecons listed; confirm whether these remain or need a bin replacement.')
     if not large and not small:
         review.append('No confirmed 240L / 1100L bin quantity in the source. Confirm this site before allocating stock.')

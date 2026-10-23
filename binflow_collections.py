@@ -59,6 +59,8 @@ def parse_frequency(source):
         return 'adhoc',[],None
     if value in ('monthly','calendar monthly'):
         return 'monthly',[],None
+    if re.search(r'\blast\b.*\bmonth', value) and days:
+        return 'monthly',days,None
     # The saved model's visit demand may have been edited since the original spreadsheet.
     visits=source.get('visits_4w')
     if visits is None:
@@ -125,6 +127,8 @@ def record_profile(conn, profile, person, stamp):
 
 def populate_collection_profiles(conn, stamp):
     """Seed existing imported identities from the current saved model once per site."""
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE name='bf_calendar_rebuilds'").fetchone() and conn.execute('SELECT 1 FROM bf_calendar_rebuilds').fetchone():
+        return {}
     saved=conn.execute('SELECT * FROM blocktexx_model WHERE id=1').fetchone()
     model=json.loads(saved['data']) if saved else {}
     current={kind+':'+s['id']:s for key,kind in (('sites','collection'),('partners','decomm')) for s in model.get(key,[])}
@@ -184,6 +188,9 @@ def occurs(profile, day):
     start=date.fromisoformat(profile['start_date'])
     if day<start or (profile.get('end_date') and day>date.fromisoformat(profile['end_date'])): return False
     if profile['cadence']=='monthly':
+        if profile.get('monthly_rule') == 'last_weekday':
+            days=profile.get('days',json.loads(profile.get('service_days') or '[]'))
+            return day.weekday() in days and (day+timedelta(days=7)).month!=day.month
         return day.day==min(start.day,calendar.monthrange(day.year,day.month)[1])
     interval=INTERVALS.get(profile['cadence'])
     if not interval: return False
@@ -231,9 +238,11 @@ def register_collections(app,db,access,require,render,success,now,actor):
     @app.get('/binflow/collection-calendar')
     @access
     def bf_collection_calendar():
-        state=request.args.get('state','');view=request.args.get('view','month')
+        from binflow_route_calendar import enabled, view_data, START
+        rebuilt=enabled(db())
+        state=request.args.get('state','');view=request.args.get('view','week' if rebuilt else 'month')
         if state not in ('',)+STATES or view not in ('month','week'): abort(400)
-        try: chosen=dated(request.args.get('date') or now()[:10])
+        try: chosen=dated(request.args.get('date') or (max(START.isoformat(),now()[:10]) if rebuilt else now()[:10]))
         except ValueError: abort(400,'Choose a valid calendar date.')
         if view=='month':
             first=chosen.replace(day=1);last=chosen.replace(day=calendar.monthrange(chosen.year,chosen.month)[1])
@@ -243,6 +252,10 @@ def register_collections(app,db,access,require,render,success,now,actor):
             start=chosen-timedelta(days=chosen.weekday());end=start+timedelta(days=6)
             previous=start-timedelta(days=7);following=start+timedelta(days=7);title=start.strftime('%d %b')+' – '+end.strftime('%d %b %Y')
         weeks=[[start+timedelta(days=n+d) for d in range(7)] for n in range(0,(end-start).days+1,7)]
+        if rebuilt:
+            return render('route_calendar',section='collection_calendar',selected=state,view=view,chosen=chosen,
+                title=title,previous=previous.isoformat(),following=following.isoformat(),today=now()[:10],
+                **view_data(db(),start,end,state))
         data=calendar_data(db(),start,end,state)
         state_counts={r['state']:r['n'] for r in db().execute("SELECT state,COUNT(*) n FROM bf_locations WHERE kind='client' GROUP BY state")}
         return render('collection_calendar',section='collection_calendar',selected=state,view=view,chosen=chosen,

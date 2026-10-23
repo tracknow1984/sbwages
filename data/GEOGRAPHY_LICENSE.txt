@@ -1,0 +1,8 @@
+Australian place coordinates: GeoNames postal code dataset.
+Source: https://download.geonames.org/export/zip/AU.zip
+Downloaded: 23 October 2026. License: Creative Commons Attribution 4.0.
+https://creativecommons.org/licenses/by/4.0/
+All 17,522 named Australian place/state records are included; this is not a customer extract.
+The source's estimated place coordinates are converted to a JSON mapping, gzip-compressed
+and base64-encoded in au_places.json.gz.b64. Client records are matched locally at runtime.
+Coordinates may be approximated from neighbouring postal codes; no warranty of accuracy.

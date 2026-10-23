@@ -28,7 +28,8 @@ from binflow_approvals import migrate_approvals, register_approvals, ensure_appr
 from binflow_collections import migrate_collections, populate_collection_profiles, register_collections, planning_resources
 from binflow_acceptance import migrate_acceptance, register_acceptance, ensure_run_unstarted, schedule_changed
 from binflow_requirements import migrate_requirements, populate_requirements, site_plan, register_requirements
-from binflow_allocation_import import migrate as migrate_allocation_import, replace_from_workbook
+from binflow_allocation_import import migrate as migrate_allocation_import, replace_from_workbook, replace_pallecons
+from binflow_route_calendar import migrate as migrate_route_calendar, rebuild as rebuild_calendar
 from binflow_client_profiles import (migrate as migrate_client_profiles, import_profiles, seed_locations, register_counts,
     register_profiles, for_location as client_profile_for_location, sync_location as sync_client_profile)
 from binflow_import import SCHEMA as IMPORT_SCHEMA, IMPORT_ID, import_blocktexx, profiles as source_profiles
@@ -118,6 +119,7 @@ def register_binflow(app, db, require):
         migrate_collections(db())
         migrate_client_profiles(db())
         migrate_allocation_import(db())
+        migrate_route_calendar(db())
         for litres, tare in STANDARD_TARES.items():
             db().execute('INSERT OR IGNORE INTO bf_sizes(name,litres,default_tare_g) VALUES(?,?,?)', (f'{litres} L', litres, tare))
         db().commit()
@@ -151,6 +153,10 @@ def register_binflow(app, db, require):
             app.logger.warning('BinFlow calendar operating settings: %s', json.dumps(planning_resources(db())))
             app.logger.warning('BinFlow future calendar jobs: %s', json.dumps([dict(r) for r in db().execute(
                 "SELECT state,status,approval_status,COUNT(*) count FROM bf_jobs WHERE scheduled_date>='2026-10-26' AND status!='cancelled' GROUP BY state,status,approval_status")]))
+            replacement, changed = replace_pallecons(db(), now())
+            app.logger.warning('BinFlow pallecon replacement %s: %s', 'applied' if changed else 'already applied', json.dumps(replacement))
+            calendar_summary, changed = rebuild_calendar(db(), now())
+            app.logger.warning('BinFlow current client calendar %s: %s', 'rebuilt' if changed else 'already rebuilt', json.dumps(calendar_summary))
     app.jinja_env.filters['bfkg'] = kg
 
     def allowed():
