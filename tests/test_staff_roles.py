@@ -143,7 +143,7 @@ class StaffRoleTests(unittest.TestCase):
         self.assertIn('National overview',page.text)
         calendar=self.client.get('/binflow/calendar?date=2026-10-19').text
         for value in ('QLD only truck','NSW only truck'): self.assertIn(value,calendar)
-        for path in ('/binflow/bins','/binflow/pickups','/binflow/pickups/1','/binflow/pickups/2','/binflow/warehouse',
+        for path in ('/binflow/bins','/binflow/pickups/1','/binflow/pickups/2','/binflow/warehouse',
                      '/binflow/collection-calendar','/binflow/allocations','/binflow/gps/map'):
             self.assertEqual(self.client.get(path).status_code,200,path)
         for path in ('/admin/staff','/admin/timesheets','/admin/settings','/binflow/settings/gps','/binflow/settings/client-access'):

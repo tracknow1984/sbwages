@@ -1,4 +1,4 @@
-"""Admin-owned, versioned weekly dispatch plans and read-only driver publication."""
+"""Calendar plan persistence, approval and read-only driver publication."""
 import json
 import calendar
 import hashlib
@@ -7,7 +7,7 @@ import sqlite3
 import uuid
 from datetime import date, timedelta
 
-from flask import abort, g, jsonify, request
+from flask import abort, g, jsonify, request, redirect, url_for
 from binflow_permissions import is_office, state_scope
 from binflow_acceptance import ensure_run_unstarted, schedule_changed
 
@@ -340,33 +340,28 @@ def register(app,db,access,require,render,now,actor):
     def bf_week_schedule():
         try: state,start=selection()
         except ValueError as exc: abort(400,str(exc))
-        office=is_office(g.user);admin=g.user['role']=='admin';row=visible(state,start)
-        plan=json.loads(row['plan_json']) if row else initial_plan(db(),state,start) if office else None
-        candidates=[];people=[]
-        if admin:
-            from binflow_route_calendar import clients
-            people=[visit_item(p,'') for p in clients(db()) if p['id'] and p['state']==state]
-            candidates=[job_item(j) for j in db().execute("""SELECT * FROM bf_jobs WHERE state=? AND status='scheduled'
-                AND approval_status!='rejected' AND (schedule_week_id IS NULL OR schedule_week_id=?) ORDER BY scheduled_date,id""",(state,row['id'] if row else 0))]
-        if plan:
-            for day in plan['days']:
-                for item in day['items']:
-                    if item['kind']=='job':
-                        j=db().execute('SELECT status,truck_id,approval_status FROM bf_jobs WHERE id=?',(item['job_id'],)).fetchone()
-                        if j: item.update(status=j['status'],truck_id=j['truck_id'],approval_status=j['approval_status'])
+        return redirect(url_for('bf_collection_calendar' if is_office(g.user) else 'bf_calendar',
+                                state=state,date=request.args.get('date') or start))
+
+    @app.get('/binflow/schedule/options')
+    @require('admin')
+    def bf_calendar_options():
+        try: state,start=selection()
+        except ValueError as exc: abort(400,str(exc))
+        row,plan=get_plan(db(),state,start)
+        from binflow_route_calendar import clients
+        people=[visit_item(p,'') for p in clients(db()) if p['id'] and p['state']==state]
+        candidates=[job_item(j) for j in db().execute("""SELECT * FROM bf_jobs WHERE state=? AND status='scheduled'
+            AND approval_status!='rejected' AND (schedule_week_id IS NULL OR schedule_week_id=?) ORDER BY scheduled_date,id""",(state,row['id'] if row else 0))]
         history=db().execute('''SELECT h.revision,h.action,h.created_at,u.first_name||' '||u.last_name actor
             FROM bf_schedule_history h JOIN users u ON u.id=h.actor_id WHERE week_id=? ORDER BY h.revision DESC''',
-            (row['id'],)).fetchall() if row and office else []
+            (row['id'],)).fetchall() if row else []
         templates=db().execute('''SELECT id,name,version,source_week,created_at FROM bf_schedule_templates
-            WHERE state=? ORDER BY name,version DESC''',(state,)).fetchall() if admin else []
-        saved_weeks=db().execute('''SELECT week_start,status,revision FROM bf_schedule_weeks
-            WHERE state=? ORDER BY week_start DESC LIMIT 156''',(state,)).fetchall() if office else []
-        return render('week_schedule',section='week_schedule',admin_schedule=admin,office_schedule=office,
-            selected=state,start=start,end=(date.fromisoformat(start)+timedelta(days=6)).isoformat(),
-            previous=(date.fromisoformat(start)-timedelta(days=7)).isoformat(),following=(date.fromisoformat(start)+timedelta(days=7)).isoformat(),
-            schedule=row,plan=plan,drivers=drivers(db(),state) if admin else [],history=history,
-            saved_templates=templates,saved_weeks=saved_weeks,
-            editor_data=dict(plan=plan,revision=row['revision'] if row else 0,sites=people,jobs=candidates) if admin else None)
+            WHERE state=? ORDER BY name,version DESC''',(state,)).fetchall()
+        return jsonify(state=state,start=start,plan=plan,revision=row['revision'] if row else 0,
+            driver_id=row['driver_id'] if row else None,status=row['status'] if row else 'draft',
+            sites=people,jobs=candidates,drivers=[dict(d) for d in drivers(db(),state)],
+            history=[dict(h) for h in history],templates=[dict(t) for t in templates])
 
     @app.get('/binflow/schedule/version')
     @access

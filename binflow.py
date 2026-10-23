@@ -262,7 +262,6 @@ def register_binflow(app, db, require):
         where, args = ('b.state=?', (state,)) if state else ('1=1', ())
         stock = bins(where, args)
         counts = {key: sum(b['status'] == key for b in stock) for key in STATUSES}
-        jobs = db().execute("SELECT * FROM bf_jobs WHERE approval_status='approved' AND status NOT IN ('complete','cancelled')" + (' AND state=?' if state else '') + ' ORDER BY scheduled_date,id LIMIT 30', args).fetchall()
         sizes = db().execute('SELECT * FROM bf_sizes ORDER BY litres').fetchall()
         state_rows=[]
         for area in STATES:
@@ -277,7 +276,7 @@ def register_binflow(app, db, require):
                     warehouse_full=sum(b['status'] in ('received','weighed') for b in group)))
         by_size = [dict(name=s['name'], total=sum(b['size_id'] == s['id'] for b in stock), available=sum(b['size_id'] == s['id'] and b['status'] == 'empty' and not b['reserved_job'] for b in stock), at_client=sum(b['size_id'] == s['id'] and b['status'] in ('at_client','full') for b in stock)) for s in sizes]
         net = db().execute('SELECT COALESCE(SUM(i.net_g),0) FROM bf_job_bins i JOIN bf_jobs j ON j.id=i.job_id WHERE i.weighed_at IS NOT NULL' + (' AND j.state=?' if state else ''), args).fetchone()[0]
-        return render('dashboard', section='overview', state=state, stock=stock, counts=counts, jobs=jobs, state_rows=state_rows, by_size=by_size, net=net,
+        return render('dashboard', section='overview', state=state, stock=stock, counts=counts, state_rows=state_rows, by_size=by_size, net=net,
                       request_dashboard=True,**request_queue(db(),state,request.args.get('requests','all'),limit=12),
                       client_count=db().execute('SELECT COUNT(*) FROM bf_clients').fetchone()[0], warehouse_count=db().execute("SELECT COUNT(*) FROM bf_locations WHERE kind='warehouse'").fetchone()[0])
 
@@ -533,17 +532,7 @@ def register_binflow(app, db, require):
     @app.get('/binflow/pickups')
     @access
     def bf_jobs():
-        state, status = request.args.get('state',''), request.args.get('status','')
-        clauses, args = [], []
-        for key, value in (('state',state),('status',status)):
-            if value:
-                clauses.append('j.' + key + '=?'); args.append(value)
-        jobs = db().execute('''SELECT j.*,u.first_name||' '||u.last_name AS driver_name,
-            (SELECT COUNT(*) FROM bf_job_bins i WHERE i.job_id=j.id AND direction='collect') AS collections,
-            (SELECT COUNT(*) FROM bf_job_bins i WHERE i.job_id=j.id AND direction='deliver') AS deliveries,
-            (SELECT SUM(net_g) FROM bf_job_bins i WHERE i.job_id=j.id) AS net_g
-            FROM bf_jobs j LEFT JOIN users u ON u.id=j.driver_id''' + (' WHERE ' + ' AND '.join(clauses) if clauses else '') + ' ORDER BY j.scheduled_date DESC,j.id DESC', args).fetchall()
-        return render('jobs', section='pickups', jobs=jobs, state=state, status=status)
+        return redirect(url_for('bf_collection_calendar',state=request.args.get('state','')))
 
     @app.route('/binflow/pickups/new', methods=['GET','POST'])
     @access

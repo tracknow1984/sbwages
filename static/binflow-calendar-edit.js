@@ -84,7 +84,7 @@
       if (i.kind === 'job') jobs.add(i.site_id);
       if (i.kind === 'baling' && ++baling > 1) throw Error('That day already has a baling block. Swap the whole days instead.');
     }
-    if (day.items.some(i => i.kind === 'visit' && jobs.has(i.site_id))) throw Error('That date already has a job for this client. Review its allocation in Weekly dispatch.');
+    if (day.items.some(i => i.kind === 'visit' && jobs.has(i.site_id))) throw Error('That date already has a job for this client. Expand that day to review its existing stop.');
     if (day.items.length > 100) throw Error('A day can contain at most 100 stops.');
   }
   function rebuild() {
@@ -153,7 +153,6 @@
     panel.querySelector('[data-expanded-status]').textContent=(week.status==='published'?'Published to '+week.driver:'Draft · approval required')+' · '+(day.estimate_valid&&day.estimate_minutes?(day.estimate_minutes/60).toFixed(1)+'h original estimate':'Review route and working hours after changes');
     panel.querySelector('[data-whole-day-target]').value=date;
     panel.querySelector('[data-expanded-notes]').textContent=day.notes||'';
-    panel.querySelector('[data-expanded-week]').href='/binflow/schedule?state='+state+'&date='+date;
     const list=panel.querySelector('[data-expanded-stops]');list.replaceChildren();
     day.items.forEach((item,n)=>{
       const card=el('article',undefined,'bf-expanded-stop');card.dataset.stopId=item.id;
@@ -164,9 +163,9 @@
       up.disabled=n===0;up.setAttribute('aria-label','Move '+item.title+' earlier');
       const down=button('↓',()=>stage({kind:'item',state,source:date,target:date,item_id:item.id,before:day.items[n+2]?.id||null}));
       down.disabled=n===day.items.length-1;down.setAttribute('aria-label','Move '+item.title+' later');
-      actions.append(up,down,button('Move…',()=>openMove(state,date,item.id)));card.append(actions);list.append(card);
+      actions.append(up,down,button('Move…',()=>openMove(state,date,item.id)),button('Edit',()=>requestAction('edit',item.id)));card.append(actions);list.append(card);
     });
-    if(!day.items.length)list.append(el('p','No work scheduled. Drop a stop here or add work in Weekly dispatch.','bf-muted'));
+    if(!day.items.length)list.append(el('p','No work scheduled. Drop a stop here or choose Add work.','bf-muted'));
     const loads=panel.querySelector('[data-expanded-loads]');loads.replaceChildren();
     if(day.estimate_valid&&day.loads?.length){
       const details=el('details',undefined,'bf-week-loads');details.append(el('summary','Depot loads · '+day.loads.length));
@@ -181,6 +180,13 @@
     moveDialog.querySelector('[data-stop-target]').value=source;
     moveDialog.querySelector('[data-move-error]').textContent='';moveDialog.showModal();
   }
+  function requestAction(action,item) {
+    document.dispatchEvent(new CustomEvent('bf-calendar-action',{detail:{action,item,state:expanded.state,date:expanded.day,fromDay:true}}));
+  }
+  panel.querySelectorAll('[data-day-action]').forEach(b=>b.addEventListener('click',()=>requestAction(b.dataset.dayAction)));
+  document.addEventListener('bf-calendar-before-action',event=>{
+    if(saving||actionPending||moves.length){event.preventDefault();say('Save or undo your calendar moves before editing work or using Calendar options.',true);}
+  });
   document.addEventListener('dragstart',event=>{
     const handle=event.target.closest('[data-drag-state]');
     if(!handle||saving||actionPending){if(handle)event.preventDefault();return;}

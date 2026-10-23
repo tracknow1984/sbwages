@@ -139,7 +139,7 @@ class BinFlowTests(unittest.TestCase):
         self.assertIn(b'Bin location updated.',self.move_bin(1,4).data)
 
     def test_all_pages_and_empty_setup_render(self):
-        for route in ('/admin/bin-management','/binflow/setup','/binflow/bins','/binflow/pickups','/binflow/pickups/new','/binflow/pickups/new?site=3&warehouse=1','/binflow/warehouse','/binflow/scan','/binflow/bins/1','/binflow/labels?bin=1&bin=2'):
+        for route in ('/admin/bin-management','/binflow/setup','/binflow/bins','/binflow/pickups/new','/binflow/pickups/new?site=3&warehouse=1','/binflow/warehouse','/binflow/scan','/binflow/bins/1','/binflow/labels?bin=1&bin=2'):
             with self.subTest(route=route):
                 result=self.client.get(route)
                 self.assertEqual(result.status_code,200,result.data[:300])

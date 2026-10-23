@@ -355,7 +355,18 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
             'ORDER BY i.id DESC',(state,) if state else ()).fetchall()
         if not is_office(g.user):
             holds=[h for h in holds if h['driver_id']==g.user['id']]
-        return dict(groups=list(groups.values()),holds=[dict(h,checks=json.loads(h['checks_json'])) for h in holds])
+        from binflow_schedule import monday
+        clauses=["w.week_start=?", "w.status='published'"];params=[monday(run_date)]
+        if state: clauses.append('w.state=?');params.append(state)
+        if not is_office(g.user): clauses.append('w.driver_id=?');params.append(g.user['id'])
+        plans=[]
+        for row in db().execute("""SELECT w.*,u.first_name||' '||u.last_name AS driver_name
+                FROM bf_schedule_weeks w JOIN users u ON u.id=w.driver_id WHERE """+' AND '.join(clauses),params):
+            plan=json.loads(row['plan_json'])
+            day=next((d for d in plan['days'] if d['date']==run_date),None)
+            if day and (day['items'] or day.get('notes')):
+                plans.append(dict(day=day,state=row['state'],driver=row['driver_name'],resource=plan['resource']))
+        return dict(groups=list(groups.values()),holds=[dict(h,checks=json.loads(h['checks_json'])) for h in holds],plans=plans)
 
     @app.get('/binflow/calendar')
     @access
@@ -389,7 +400,7 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
             jobs=run_jobs(db(),truck_id,run_date)
             if not jobs: raise ValueError('Assign client jobs to this truck first.')
             if any(j['schedule_week_id'] for j in jobs):
-                raise ValueError('Manage this driver and stop order in the weekly calendar, then save to republish.')
+                raise ValueError('Manage this driver and stop order in Collection calendar, then save to republish.')
             existing=db().execute('SELECT departed_at,returned_at FROM bf_runs WHERE truck_id=? AND run_date=?',(truck_id,run_date)).fetchone()
             if (existing and (existing['departed_at'] or existing['returned_at'])) or any(j['status']!='scheduled' for j in jobs) or db().execute('''SELECT 1 FROM bf_job_bins i JOIN bf_jobs j ON j.id=i.job_id
                 WHERE j.truck_id=? AND j.scheduled_date=? AND (i.loaded_at IS NOT NULL OR i.picked_up_at IS NOT NULL)''',(truck_id,run_date)).fetchone():

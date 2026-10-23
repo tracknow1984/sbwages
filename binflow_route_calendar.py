@@ -426,7 +426,7 @@ def view_data(conn, start, end, state):
                 saved_items=d['items'], saved_notes=d['notes'], saved_status=saved['status']) for d in plan['days']]
             group = dict(state=region, resource=plan['resource'], days=days,
                 minutes=sum(d['minutes'] for d in days), staff_shortfall=False, baling_day='',
-                issues=['Saved weekly plan. Check edited routes and working hours in Weekly dispatch.'],
+                issues=['Saved calendar plan. Expand each day to check edited routes and working hours.'],
                 saved_status=saved['status'], driver_name=saved['driver_name'], saved_start=week['start'].isoformat())
             week['states'] = [g for g in week['states'] if g['state']!=region] + [group]
     filtered = [p for p in people if not state or p['state']==state]

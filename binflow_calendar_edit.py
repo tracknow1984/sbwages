@@ -163,7 +163,7 @@ def register_calendar_edit(app, db, require, now, actor):
                 plans[identity] = clean_plan(conn, plans[identity], original[identity], state, start,
                                              row['id'] if row else None)
                 if row and row['status'] == 'published' and row['driver_id'] not in {u['id'] for u in drivers(conn, state)}:
-                    raise ValueError(f'Update the assigned {state} driver in Weekly dispatch before saving this published week.')
+                    raise ValueError(f'Open Calendar options in the calendar to update the assigned {state} driver before saving.')
 
             stamp, uid = now(), g.user['id']
             for identity in sorted(affected):
