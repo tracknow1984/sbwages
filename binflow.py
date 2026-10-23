@@ -28,6 +28,8 @@ from binflow_approvals import migrate_approvals, register_approvals, ensure_appr
 from binflow_collections import migrate_collections, populate_collection_profiles, register_collections
 from binflow_acceptance import migrate_acceptance, register_acceptance, ensure_run_unstarted, schedule_changed
 from binflow_requirements import migrate_requirements, populate_requirements, site_plan, register_requirements
+from binflow_client_profiles import (migrate as migrate_client_profiles, import_profiles, seed_locations,
+    register_profiles, for_location as client_profile_for_location, sync_location as sync_client_profile)
 from binflow_import import SCHEMA as IMPORT_SCHEMA, IMPORT_ID, import_blocktexx, profiles as source_profiles
 
 STATES = ('QLD', 'NSW', 'VIC', 'SA', 'WA', 'TAS', 'ACT', 'NT')
@@ -113,6 +115,7 @@ def register_binflow(app, db, require):
         migrate_qr(db())
         migrate_approvals(db())
         migrate_collections(db())
+        migrate_client_profiles(db())
         for litres, tare in STANDARD_TARES.items():
             db().execute('INSERT OR IGNORE INTO bf_sizes(name,litres,default_tare_g) VALUES(?,?,?)', (f'{litres} L', litres, tare))
         db().commit()
@@ -128,6 +131,10 @@ def register_binflow(app, db, require):
             plan_summary, changed = populate_requirements(db(), now())
             if plan_summary:
                 app.logger.warning('BinFlow national bin allocation profiles %s: %s', 'populated' if changed else 'already populated', json.dumps(plan_summary, sort_keys=True))
+        profile_payload = os.environ.get('BINFLOW_CLIENT_PROFILES_GZIP_B64', '')
+        if profile_payload:
+            profile_summary, changed = import_profiles(db(), profile_payload, now())
+            app.logger.warning('BinFlow client site profiles %s: %s', 'imported' if changed else 'already imported', json.dumps(profile_summary))
         collection_summary=populate_collection_profiles(db(),now())
         if collection_summary:
             frequency_counts=[dict(r) for r in db().execute('''SELECT l.state,p.cadence,COUNT(*) AS sites,
@@ -287,9 +294,12 @@ def register_binflow(app, db, require):
                 return failure(ValueError('This record already exists. Please use a different name.'), 'bf_setup')
             except ValueError as error:
                 return failure(error, 'bf_setup')
+        seed_locations(db(), now())
+        db().commit()
         imported = db().execute('SELECT * FROM bf_import_runs WHERE id=?', (IMPORT_ID,)).fetchone()
         return render('setup', section='setup', import_summary=json.loads(imported['summary']) if imported else None,
                       source_locations={row['location_id']: row['kind'] for row in db().execute('SELECT location_id,kind FROM bf_location_sources')},
+                      client_profiles={r['location_id']: r['id'] for r in db().execute('SELECT id,location_id FROM bf_client_site_profiles WHERE location_id IS NOT NULL')},
                       clients=db().execute('SELECT * FROM bf_clients ORDER BY name').fetchall(),
                       locations=db().execute('SELECT l.*,c.name AS client_name FROM bf_locations l LEFT JOIN bf_clients c ON c.id=l.client_id ORDER BY l.kind DESC,l.state,l.name').fetchall(),
                       sizes=db().execute('SELECT * FROM bf_sizes ORDER BY litres').fetchall(),
@@ -316,6 +326,8 @@ def register_binflow(app, db, require):
                 if state != record['state'] and state_locked:
                     raise ValueError('This location has linked bins or jobs, so its state cannot be changed. Add a new location for another state.')
                 db().execute('UPDATE bf_locations SET name=?,state=?,address=? WHERE id=?', (name, state, address, location_id))
+                if record['kind'] == 'client':
+                    sync_client_profile(db(), dict(id=location_id,name=name,state=state,address=address), now(), actor())
                 return success('Warehouse updated.' if record['kind'] == 'warehouse' else 'Client site updated.', 'bf_setup', _anchor='clients-locations')
             except sqlite3.IntegrityError:
                 error = 'A location with this name already exists for this state or client. Please use a different name.'
@@ -323,6 +335,7 @@ def register_binflow(app, db, require):
                 error = str(exc)
             db().rollback()
         return render('location_edit', section='setup', record=record, values=values, state_locked=state_locked, error=error,
+                      client_profile=client_profile_for_location(db(),location_id),
                       source_profiles=source_profiles(db(), location_id)), 400 if error else 200
 
     @app.route('/binflow/bins', methods=['GET', 'POST'])
@@ -890,3 +903,4 @@ def register_binflow(app, db, require):
     register_collections(app,db,access,require,render,success,now,actor)
     register_acceptance(app,db,access,success,failure,now,actor)
     register_workdays(app,db,access,require,render,success,failure,now)
+    register_profiles(app,db,require,render,now,actor)

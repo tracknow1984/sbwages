@@ -1,0 +1,12 @@
+{% extends 'binflow/layout.html' %}
+{% block title %}Client profiles{% endblock %}
+{% block subtitle %}Site contacts, service schedules and access requirements in one register.{% endblock %}
+{% block body %}
+<div class="bf-toolbar"><a class="button secondary" href="{{ url_for('bf_setup') }}">Add a client or site</a><span>{{ total }} site profiles{% if unlinked %} · {{ unlinked }} awaiting a collection site link{% endif %}</span></div>
+<section class="bf-panel bf-pad"><form method="get" class="bf-form"><div class="bf-grid"><label>Search profiles<input type="search" name="q" value="{{ query }}" placeholder="Client, site, suburb, contact or state"></label><label>Show<select name="review"><option value="">All profiles</option><option value="1" {{ 'selected' if review }}>Needs details, verification or site link</option></select></label></div><button class="secondary">Search</button></form></section>
+<section class="bf-panel"><div class="bf-panel-head"><h2>Customer site register</h2><span>{{ profiles|length }} shown</span></div>
+<div class="bf-table-wrap" tabindex="0" aria-label="Client profiles; scroll horizontally for all fields"><table class="bf-client-profiles"><thead><tr>{% for key,label,length in fields %}<th scope="col">{{ label }}</th>{% endfor %}<th scope="col">Profile</th></tr></thead><tbody>
+{% for p in profiles %}<tr>{% for key,label,length in fields %}<td data-label="{{ label }}">{% if key=='asic_required' %}{{ {'yes':'Yes','no':'No','unknown':'Not confirmed'}[p[key]] }}{% elif key=='contact_verified' %}{{ 'Yes' if p[key]=='yes' else 'No' }}{% else %}{{ p[key] or 'Not provided' }}{% endif %}</td>{% endfor %}<td data-label="Profile"><a class="button secondary" href="{{ url_for('bf_client_profile',profile_id=p.id) }}" aria-label="Edit profile for {{ p.customer_site }}">Edit profile</a>{% if not p.location_id %}<small>Collection site link needed</small>{% endif %}</td></tr>
+{% else %}<tr><td colspan="13">No profiles match this search.</td></tr>{% endfor %}
+</tbody></table></div></section>
+{% endblock %}

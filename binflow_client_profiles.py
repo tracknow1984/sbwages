@@ -1,0 +1,261 @@
+"""Site-specific client contacts and private, repeat-safe workbook imports."""
+import base64
+import gzip
+import json
+import re
+import sqlite3
+import unicodedata
+
+from flask import abort, flash, g, redirect, request, url_for
+
+FIELDS = (
+    ('group_name', 'Group', 200), ('customer_site', 'Customer Site', 200),
+    ('address', 'Address', 500), ('suburb', 'Suburb', 200), ('state', 'State', 3),
+    ('postcode', 'Post Code', 4), ('contact_name', 'Contact Name', 500),
+    ('contact_email', 'Contact Email', 1500), ('contact_number', 'Contact Number', 500),
+    ('schedule', 'Schedule', 500), ('asic_required', 'ASIC Required', 7),
+    ('contact_verified', 'Contact Verified?', 3),
+)
+KEYS = tuple(f[0] for f in FIELDS)
+STATES = ('QLD', 'NSW', 'VIC', 'SA', 'WA', 'TAS', 'ACT', 'NT')
+SCHEMA = '''
+CREATE TABLE IF NOT EXISTS bf_client_site_profiles (
+ id INTEGER PRIMARY KEY, location_id INTEGER UNIQUE REFERENCES bf_locations(id),
+ group_name TEXT NOT NULL DEFAULT '', customer_site TEXT NOT NULL,
+ address TEXT NOT NULL DEFAULT '', suburb TEXT NOT NULL DEFAULT '', state TEXT NOT NULL DEFAULT '',
+ postcode TEXT NOT NULL DEFAULT '', contact_name TEXT NOT NULL DEFAULT '',
+ contact_email TEXT NOT NULL DEFAULT '', contact_number TEXT NOT NULL DEFAULT '', schedule TEXT NOT NULL DEFAULT '',
+ asic_required TEXT NOT NULL DEFAULT 'unknown' CHECK(asic_required IN ('unknown','yes','no')),
+ contact_verified TEXT NOT NULL DEFAULT 'no' CHECK(contact_verified IN ('yes','no')),
+ source_key TEXT UNIQUE, source_label TEXT NOT NULL DEFAULT '',
+ version INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL, updated_by TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS bf_client_profile_history (
+ id INTEGER PRIMARY KEY, profile_id INTEGER NOT NULL REFERENCES bf_client_site_profiles(id),
+ snapshot TEXT NOT NULL, changed_at TEXT NOT NULL, changed_by TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS bf_client_profile_imports (
+ id TEXT PRIMARY KEY, summary TEXT NOT NULL, imported_at TEXT NOT NULL
+);
+'''
+
+
+def migrate(conn):
+    conn.executescript(SCHEMA)
+
+
+def validate(values):
+    result = {}
+    for key, label, maximum in FIELDS:
+        value = str(values.get(key, '') or '').strip()
+        if len(value) > maximum or '\x00' in value:
+            raise ValueError(f'{label} must be no more than {maximum} characters.')
+        result[key] = value
+    if not result['customer_site']:
+        raise ValueError('Customer Site is required.')
+    if result['state'] and result['state'] not in STATES:
+        raise ValueError('Choose an Australian state or territory, or Not confirmed.')
+    if result['postcode'] and not re.fullmatch(r'[0-9]{4}', result['postcode']):
+        raise ValueError('Post Code must contain four digits, including any leading zero.')
+    result['asic_required'] = result['asic_required'] or 'unknown'
+    result['contact_verified'] = result['contact_verified'] or 'no'
+    if result['asic_required'] not in ('unknown', 'yes', 'no'):
+        raise ValueError('Choose Yes, No or Not confirmed for ASIC Required.')
+    if result['contact_verified'] not in ('yes', 'no'):
+        raise ValueError('Choose Yes or No for Contact Verified?.')
+    # A site may have several names, emails or numbers. Preserve their pairing and separators.
+    return result
+
+
+def seed_locations(conn, timestamp):
+    conn.execute('''INSERT INTO bf_client_site_profiles(location_id,customer_site,address,state,updated_at,updated_by)
+        SELECT l.id,l.name,l.address,l.state,?,'Existing site'
+        FROM bf_locations l WHERE l.kind='client' AND NOT EXISTS
+        (SELECT 1 FROM bf_client_site_profiles p WHERE p.location_id=l.id)''', (timestamp,))
+
+
+def save_profile(conn, values, timestamp, actor, profile=None, location_id=None, source_key=None, source_label=''):
+    values = validate(values)
+    if profile:
+        conn.execute('INSERT INTO bf_client_profile_history(profile_id,snapshot,changed_at,changed_by) VALUES(?,?,?,?)',
+                     (profile['id'], json.dumps(dict(profile)), timestamp, actor))
+        conn.execute('UPDATE bf_client_site_profiles SET ' + ','.join(k+'=?' for k in KEYS) +
+                     ',location_id=?,version=version+1,updated_at=?,updated_by=?,source_key=?,source_label=? WHERE id=?',
+                     (*[values[k] for k in KEYS], location_id, timestamp, actor,
+                      source_key or profile['source_key'], source_label or profile['source_label'], profile['id']))
+        return profile['id']
+    return conn.execute('INSERT INTO bf_client_site_profiles (' + ','.join(KEYS) +
+                        ',location_id,updated_at,updated_by,source_key,source_label) VALUES ('+
+                        ','.join('?' for _ in range(len(KEYS)+5))+')',
+                        (*[values[k] for k in KEYS], location_id, timestamp, actor, source_key, source_label)).lastrowid
+
+
+def key(value):
+    value = re.sub(r'^blocktexx\s*[-–—:]\s*', '', value, flags=re.I)
+    return ''.join(c for c in unicodedata.normalize('NFKC', value).casefold() if c.isalnum())
+
+
+def matches(conn, row):
+    """Exact site identity within a state; never match on a shared address alone."""
+    if not row['state']:
+        return []
+    wanted = {key(row['customer_site'])}
+    if row['group_name'] and not re.fullmatch(r'tier\s*\d+', row['group_name'], re.I):
+        wanted.add(key(row['group_name'] + ' ' + row['customer_site']))
+    result = []
+    for loc in conn.execute("SELECT l.*,c.name AS client_name FROM bf_locations l JOIN bf_clients c ON c.id=l.client_id WHERE l.kind='client' AND l.state=?", (row['state'],)):
+        names = {key(loc['name']), key(loc['client_name'] + ' ' + loc['name'])}
+        for source in conn.execute('SELECT payload FROM bf_location_sources WHERE location_id=?', (loc['id'],)):
+            names.add(key(json.loads(source['payload']).get('source', {}).get('name', '')))
+        if wanted & names:
+            result.append(loc)
+    if len(result) > 1 and row['address']:
+        exact = [l for l in result if key(l['address']) == key(row['address'])]
+        if len(exact) == 1:
+            return exact
+    return result
+
+
+def import_profiles(conn, encoded, timestamp):
+    payload = json.loads(gzip.decompress(base64.b64decode(encoded, validate=True)))
+    import_id = payload['id']
+    if not isinstance(import_id, str) or not import_id or len(import_id) > 100:
+        raise ValueError('Invalid client profile import ID.')
+    rows = payload['rows']
+    if not isinstance(rows, list) or not 1 <= len(rows) <= 1000:
+        raise ValueError('Invalid client profile import rows.')
+    conn.execute('BEGIN IMMEDIATE')
+    try:
+        done = conn.execute('SELECT summary FROM bf_client_profile_imports WHERE id=?', (import_id,)).fetchone()
+        if done:
+            conn.rollback()
+            return json.loads(done['summary']), False
+        seed_locations(conn, timestamp)
+        summary = dict(profiles=len(rows), linked=0, awaiting_link=0, missing_address=0, missing_state=0,
+                       unverified=0, asic_not_confirmed=0, review_rows=[])
+        seen = set()
+        for number, raw in enumerate(rows, 1):
+            row = validate(raw)
+            source_key = import_id + ':' + str(raw['source_row'])
+            if source_key in seen:
+                raise ValueError('Duplicate source row in client profile import.')
+            seen.add(source_key)
+            candidates = matches(conn, row)
+            loc = candidates[0] if len(candidates) == 1 else None
+            profile = conn.execute('SELECT * FROM bf_client_site_profiles WHERE location_id=?', (loc['id'],)).fetchone() if loc else None
+            # Never overwrite an already imported or subsequently edited site profile.
+            if profile and (profile['source_key'] or profile['version'] != 1):
+                loc = profile = None
+            if loc and conn.execute("SELECT 1 FROM bf_locations WHERE kind='client' AND client_id=? AND name=? AND id!=?",
+                                    (loc['client_id'], row['customer_site'], loc['id'])).fetchone():
+                loc = profile = None
+            if loc:
+                row['address'] = row['address'] or loc['address']
+                conn.execute('UPDATE bf_locations SET name=?,address=? WHERE id=?',
+                             (row['customer_site'], row['address'], loc['id']))
+                summary['linked'] += 1
+            else:
+                summary['awaiting_link'] += 1
+                summary['review_rows'].append(raw['source_row'])
+            pid = save_profile(conn, row, timestamp, 'Workbook import', profile,
+                               loc['id'] if loc else None, source_key, payload.get('source_label', 'Contacts workbook'))
+            conn.execute('INSERT INTO bf_client_profile_history(profile_id,snapshot,changed_at,changed_by) VALUES(?,?,?,?)',
+                         (pid, json.dumps({'workbook_row': raw}), timestamp, 'Workbook source'))
+            summary['missing_address'] += not bool(raw.get('address'))
+            summary['missing_state'] += not bool(raw.get('state'))
+            summary['unverified'] += row['contact_verified'] == 'no'
+            summary['asic_not_confirmed'] += row['asic_required'] == 'unknown'
+        conn.execute('INSERT INTO bf_client_profile_imports VALUES(?,?,?)', (import_id, json.dumps(summary), timestamp))
+        conn.commit()
+        return summary, True
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def for_location(conn, location_id):
+    return conn.execute('SELECT * FROM bf_client_site_profiles WHERE location_id=?', (location_id,)).fetchone()
+
+
+def sync_location(conn, location, timestamp, actor):
+    """Keep the three shared location fields in sync after the existing location editor."""
+    existing = for_location(conn, location['id'])
+    values = dict(existing) if existing else {}
+    values.update(customer_site=location['name'], state=location['state'], address=location['address'])
+    save_profile(conn, values, timestamp, actor, existing, location['id'])
+
+
+def register_profiles(app, db, require, render, now, actor):
+    @app.get('/binflow/client-profiles')
+    @require('admin')
+    def bf_client_profiles():
+        seed_locations(db(), now())
+        db().commit()
+        rows = db().execute('''SELECT p.*,c.name AS client_name FROM bf_client_site_profiles p
+            LEFT JOIN bf_locations l ON l.id=p.location_id LEFT JOIN bf_clients c ON c.id=l.client_id
+            ORDER BY p.group_name,p.customer_site,p.state,p.id''').fetchall()
+        query = request.args.get('q', '').strip()[:200]
+        review = request.args.get('review', '') == '1'
+        total, unlinked = len(rows), sum(not r['location_id'] for r in rows)
+        if query:
+            rows = [r for r in rows if query.casefold() in ' '.join(str(r[k]) for k in KEYS).casefold()]
+        if review:
+            rows = [r for r in rows if not r['location_id'] or not r['state'] or not r['address'] or r['contact_verified'] == 'no']
+        return render('client_profiles', section='profiles', profiles=rows, fields=FIELDS, query=query,
+                      review=review, total=total, unlinked=unlinked)
+
+    @app.route('/binflow/client-profiles/<int:profile_id>', methods=['GET', 'POST'])
+    @require('admin')
+    def bf_client_profile(profile_id):
+        if request.method == 'POST':
+            db().execute('BEGIN IMMEDIATE')
+        profile = db().execute('SELECT * FROM bf_client_site_profiles WHERE id=?', (profile_id,)).fetchone()
+        if not profile:
+            abort(404)
+        values, error = dict(profile), None
+        if request.method == 'POST':
+            values.update({k: request.form.get(k, '').strip() for k in KEYS})
+            try:
+                if str(profile['version']) != request.form.get('version'):
+                    raise ValueError('This profile changed while you were editing. Reload it before saving.')
+                values = {**values, **validate(values)}
+                lid = profile['location_id']
+                if not lid and request.form.get('location_id'):
+                    lid = int(request.form['location_id'])
+                    target = for_location(db(), lid)
+                    if target and (target['source_key'] or target['version'] != 1):
+                        raise ValueError('That collection site already has a maintained profile. Choose another site.')
+                    # Only unedited placeholders may be absorbed; preserve their audit snapshot.
+                    if target:
+                        db().execute('INSERT INTO bf_client_profile_history(profile_id,snapshot,changed_at,changed_by) VALUES(?,?,?,?)',
+                                     (profile_id, json.dumps(dict(target)), now(), actor()))
+                        db().execute('DELETE FROM bf_client_site_profiles WHERE id=?', (target['id'],))
+                if lid:
+                    location = db().execute("SELECT * FROM bf_locations WHERE id=? AND kind='client'", (lid,)).fetchone()
+                    if not location:
+                        raise ValueError('Choose a valid collection site.')
+                    if not values['state'] or not values['address']:
+                        raise ValueError('A linked collection site needs its state and street address.')
+                    if not profile['location_id'] and location['state'] != values['state']:
+                        raise ValueError('The selected collection site must be in the same state as this profile.')
+                    locked = db().execute('''SELECT EXISTS(SELECT 1 FROM bf_bins WHERE location_id=?)
+                        OR EXISTS(SELECT 1 FROM bf_jobs WHERE site_id=? OR warehouse_id=?)''', (lid,lid,lid)).fetchone()[0]
+                    if locked and values['state'] != location['state']:
+                        raise ValueError('State is fixed once bins or jobs are linked. Add a new location for another state.')
+                    db().execute('UPDATE bf_locations SET name=?,state=?,address=? WHERE id=?',
+                                 (values['customer_site'], values['state'], values['address'], lid))
+                save_profile(db(), values, now(), actor(), profile, lid)
+                db().commit()
+                flash('Client profile saved.', 'success')
+                return redirect(url_for('bf_client_profiles'))
+            except sqlite3.IntegrityError:
+                error = 'A site with this name already exists for that client. Check the collection site link.'
+            except (ValueError, TypeError) as exc:
+                error = str(exc) or 'Check the profile details.'
+            db().rollback()
+        locations = db().execute('''SELECT l.*,c.name AS client_name FROM bf_locations l
+            JOIN bf_clients c ON c.id=l.client_id LEFT JOIN bf_client_site_profiles p ON p.location_id=l.id
+            WHERE l.kind='client' AND (p.id IS NULL OR (p.source_key IS NULL AND p.version=1))
+            ORDER BY c.name,l.state,l.name''').fetchall()
+        return render('client_profile', section='profiles', profile=profile, values=values,
+                      fields=FIELDS, locations=locations, error=error), 400 if error else 200
