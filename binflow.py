@@ -38,7 +38,7 @@ from binflow_import import SCHEMA as IMPORT_SCHEMA, IMPORT_ID, import_blocktexx,
 
 STATES = ('QLD', 'NSW', 'VIC', 'SA', 'WA', 'TAS', 'ACT', 'NT')
 STATUSES = {'empty': 'Empty at warehouse', 'at_client': 'At client', 'full': 'Full / pickup requested',
-            'transit': 'On truck / in transit', 'received': 'Awaiting weight', 'weighed': 'Full stock in warehouse'}
+            'transit': 'On truck / in transit', 'received': 'TO BE WEIGHED', 'weighed': 'Full stock in warehouse'}
 JOB_STATUSES = {'scheduled': 'Scheduled', 'collected': 'On the road', 'received': 'Weighing', 'complete': 'Complete', 'cancelled': 'Cancelled'}
 SCHEMA = '''
 CREATE TABLE IF NOT EXISTS bf_clients (
@@ -106,6 +106,8 @@ def grams(raw, label='Weight'):
 
 
 def register_binflow(app, db, require):
+    from binflow_demo import install_demo_database
+    db = install_demo_database(app, db, now)
     with app.app_context():
         db().executescript(SCHEMA)
         migrate_driver(db())
@@ -123,6 +125,8 @@ def register_binflow(app, db, require):
         migrate_allocation_import(db())
         migrate_route_calendar(db())
         migrate_schedule(db())
+        from binflow_journey import migrate_journey
+        migrate_journey(db())
         for litres, tare in STANDARD_TARES.items():
             db().execute('INSERT OR IGNORE INTO bf_sizes(name,litres,default_tare_g) VALUES(?,?,?)', (f'{litres} L', litres, tare))
         db().commit()
@@ -165,7 +169,7 @@ def register_binflow(app, db, require):
     def allowed():
         return has_binflow_access(g.user)
 
-    app.context_processor(lambda: dict(binflow_allowed=allowed(), binflow_driver=is_driver(db(), g.user),
+    app.context_processor(lambda: dict(driver_demo=getattr(g, 'bf_demo_token', ''), driver_server_now=now(), binflow_allowed=allowed(), binflow_driver=is_driver(db(), g.user),
                                       binflow_manager=is_manager(g.user), binflow_state=state_scope(g.user)))
 
     def access(fn):
@@ -234,6 +238,9 @@ def register_binflow(app, db, require):
             LEFT JOIN bf_clients c ON c.id=l.client_id LEFT JOIN bf_trucks t ON t.id=b.truck_id WHERE ''' + where + ' ORDER BY b.id', args).fetchall()
 
     def render(name, **values):
+        if getattr(g,'bf_demo_token',None):
+            values.setdefault('driver_mode',True)
+            values.setdefault('journey_mode',True)
         scope = state_scope(g.user)
         return render_template('binflow/' + name + '.html', tab='binflow', states=(scope,) if scope else STATES, statuses=STATUSES,
                                job_statuses=JOB_STATUSES, **values)
@@ -646,7 +653,7 @@ def register_binflow(app, db, require):
     def bf_job(job_id):
         j = job(job_id)
         rows = items(job_id)
-        if not is_office(g.user):
+        if not is_office(g.user) or getattr(g,'bf_demo_token',None):
             return render('driver_job', section='pods' if j['collected_at'] else 'calendar',
                           job=j, items=rows, net=sum(i['net_g'] or 0 for i in rows))
         return render('job', section='pickups', job=j, items=rows, net=sum(i['net_g'] or 0 for i in rows), remaining=sum(i['direction']=='collect' and i['weighed_at'] is None for i in rows),
@@ -876,7 +883,7 @@ def register_binflow(app, db, require):
         story += [t,Spacer(1,5*mm),p(f'Recorded net weight: {kg(sum(i["net_g"] or 0 for i in rows))} kg','Heading2')]
         if j['status'] != 'complete':
             story.append(p('Warehouse weighing is incomplete. This is a provisional collection / delivery record.'))
-        story += [p('Recipient: ' + (j['receiver_name'] or 'Not present / not recorded')),p('Confirmation: ' + {'signed':'Recipient signed','not_present':'Recipient not present; driver recorded','declined':'Recipient declined signature; driver recorded'}.get(j['confirmation'],j['confirmation']))]
+        story += [p('Recipient: ' + (j['receiver_name'] or 'Not present / not recorded')),p('Confirmation: ' + {'signed':'Recipient signed','not_present':'Recipient not present; driver recorded','declined':'Recipient declined signature; driver recorded','driver_scanned':'Driver QR scans completed; no client signature'}.get(j['confirmation'],j['confirmation']))]
         if j['confirmation_note']:
             story.append(p(j['confirmation_note']))
         if j['signature']:
@@ -918,6 +925,10 @@ def register_binflow(app, db, require):
     register_collections(app,db,access,require,render,success,now,actor)
     register_acceptance(app,db,access,success,failure,now,actor)
     register_workdays(app,db,access,require,render,success,failure,now)
+    from binflow_journey import register_journey
+    register_journey(app,db,access,render,success,failure,now)
+    from binflow_demo import register_demo
+    register_demo(app,db,access,render,now)
     register_profiles(app,db,require,render,now,actor)
 
     register_schedule(app,db,access,require,render,now,actor)

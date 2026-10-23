@@ -121,7 +121,7 @@ def register_acceptance(app,db,access,success,failure,now,actor):
             day=run_workday(db(),g.user['id'],truck_id,run_date)
             if g.user['role']=='employee' or day:
                 data=run_data(db(),truck_id,run_date,g.user['id'],driver_today(db(),g.user,now()))
-                if not day or day['finished_at'] or not data['passed'] or data['hold']:
+                if not day or day['finished_at'] or (not data['simple_flow'] and not data['passed']) or data['hold']:
                     raise ValueError('Start your driver day, select this vehicle and pass the prestart before accepting the schedule.')
             jobs=run_jobs(db(),truck_id,run_date)
             if not jobs: raise ValueError('There are no approved jobs on this truck for the selected day.')

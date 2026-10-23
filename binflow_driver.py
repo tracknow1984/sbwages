@@ -166,7 +166,7 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
     @access
     def bf_truck_scan(truck_id, guided_job=None, guided_action=None, guided_date=None, scanned_code=None, qr_token=None):
         jid = guided_job or request.form.get('job_id', type=int)
-        wants_json = request.headers.get('Accept') == 'application/json'
+        wants_json = bool(guided_job) or request.headers.get('Accept') == 'application/json'
         try:
             db().execute('BEGIN IMMEDIATE')
             t, j = truck(truck_id), job(jid or integer('job_id'))
@@ -246,6 +246,9 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
                     db().execute("UPDATE bf_jobs SET status='received',received_at=? WHERE id=?", (now(),j['id']))
                 if action == 'collect':
                     pickup_requests(db(),j['id'],b['id'],(g.user['first_name']+' '+g.user['last_name']).strip(),now())
+                if action in ('deliver','collect'):
+                    from binflow_journey import complete_scanned_client
+                    complete_scanned_client(db(),j,g.user,now())
                 if action == 'return':
                     mark_returned(db(),truck_id,j['scheduled_date'],now())
                 message = f'{b["code"]} — {label.lower()}.'
@@ -254,7 +257,7 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
                 return success(message,'bf_qr_driver',token=qr_token,movement={'load':'load','collect':'pickup','deliver':'delivery'}[action],job=j['id'])
             if guided_job:
                 data=run_data(db(),truck_id,guided_date,g.user['id'],driver_today(db(),g.user,now()))
-                return jsonify(ok=True,message=message,duplicate=duplicate,stage=data['stage'],remaining=data['remaining'],
+                return jsonify(ok=True,message=message,duplicate=duplicate,stage=data['stage'],step_key=data['step_key'],remaining=data['remaining'],
                                redirect=url_for('bf_run',truck_id=truck_id,date=guided_date),html=render_template('binflow/run_bins.html',**data))
             if wants_json:
                 return jsonify(ok=True, message=message, duplicate=duplicate,

@@ -8,7 +8,8 @@
   {% if binflow_driver %}<link rel="stylesheet" href="{{ url_for('static', filename='driver-portal.css') }}">{% endif %}
   <script src="{{ url_for('static', filename='app.js') }}" defer></script>
 <script src="{{ url_for('static',filename='client-wording.js') }}" defer></script></head>
-<body class="{{ 'employee-app' if current_user and current_user.role == 'employee' else 'admin-app' }}{{ ' binflow-app' if current_user and tab == 'binflow' else '' }}{{ ' driver-mode' if driver_mode else '' }}{{ ' driver-account' if binflow_driver else '' }}">
+<body class="{{ 'employee-app' if current_user and current_user.role == 'employee' else 'admin-app' }}{{ ' binflow-app' if current_user and tab == 'binflow' else '' }}{{ ' driver-mode' if driver_mode else '' }}{{ ' driver-journey' if journey_mode else '' }}{{ ' driver-account' if binflow_driver else '' }}">
+{% if journey_mode %}<header class="driver-appbar"><a class="brand" href="{{ url_for('bf_workday') }}"><img src="{{ url_for('static',filename='sb-empire-header.webp') }}" alt="SB Empire" width="154" height="27"></a><div class="driver-appbar-menu"><details><summary aria-label="Open driver menu">Menu <span aria-hidden="true">☰</span></summary><nav aria-label="Driver menu"><a href="{{ url_for('bf_workday') }}">Driver day</a><a href="{{ url_for('bf_daily_pods') }}">Daily PODs</a>{% if binflow_driver %}{% for label,endpoint in [('Empire Wire','employee_hit_me'),('My timesheet','employee_timesheet'),('Prestart','employee_prestart'),('My details','employee_details'),('Pay slips','employee_payslips'),('History','history'),('Documents','employee_documents'),('Annual leave','employee_leave')] %}<a href="{{ url_for(endpoint) }}">{{ label }}</a>{% endfor %}{% else %}<a href="{{ url_for('bf_dashboard',demo=None) }}">Back to office</a>{% endif %}<form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="secondary">Sign out</button></form></nav></details></div></header>{% else %}
 <header class="topbar"><a class="brand" href="{{ url_for('index') }}"><img class="brand-logo" src="{{ url_for('static', filename='sb-empire-header.webp') }}" alt="SB Empire — Building Opportunities and Delivering Solutions" width="320" height="56"></a>
 {% if current_user %}<div class="user-menu"><span>{{ current_user.first_name }}<small>{{ 'Administrator' if current_user.role == 'admin' else business_roles.get(current_user.business_role, 'Employee') }}</small></span><form action="{{ url_for('logout') }}" method="post"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="ghost" type="submit">Sign out</button></form></div>{% endif %}</header>
 {% if binflow_driver %}{% include 'binflow/driver_menu.html' %}
@@ -35,11 +36,12 @@
 <a class="{{ 'selected' if tab == 'documents' }}" href="{{ url_for('employee_documents') }}">DOCUMENTS</a>
 <a class="{{ 'selected' if tab == 'leave' }}" href="{{ url_for('employee_leave') }}">ANNUAL LEAVE</a>
 {% endif %}</nav>{% endif %}
+{% endif %}
 <main class="{{ 'auth-main' if not current_user else 'main' }}">
-{% if binflow_driver and tab == 'binflow' %}<nav class="driver-quick-nav no-print" aria-label="BINFLOW navigation">
+{% if binflow_driver and tab == 'binflow' and not journey_mode %}<nav class="driver-quick-nav no-print" aria-label="BINFLOW navigation">
 {% for key,label,endpoint in [('driver','Driver day','bf_workday'),('pods','Daily PODs','bf_daily_pods')] %}<a href="{{ url_for(endpoint) }}" class="{{ 'active' if section==key }}"{% if section==key %} aria-current="page"{% endif %}>{{ label }}</a>{% endfor %}
 </nav>{% endif %}
-{% with messages = get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="notice {{ category }}" role="alert">{{ message }}</div>{% endfor %}{% endwith %}
+{% with messages = get_flashed_messages(with_categories=true) %}{% for category,message in messages if not journey_mode or category!='success' %}<div class="notice {{ category }}" role="alert">{{ message }}</div>{% endfor %}{% endwith %}
 {% block content %}{% endblock %}
 </main><footer>SB EMPIRE <span>Staff, Timesheets & Operations · Australia / Brisbane</span></footer>
 </body></html>

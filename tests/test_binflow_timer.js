@@ -1,0 +1,16 @@
+'use strict';
+const assert=require('node:assert/strict');
+const {shiftTimer}=require('../static/binflow-timer.js');
+const start='2026-10-22T21:00:00Z';
+const now=offset=>Date.parse(start)+offset*1000;
+assert.equal(shiftTimer(start,'','',now(14399)).due,false);
+assert.equal(shiftTimer(start,'','',now(14400)).due,true);
+assert.equal(shiftTimer(start,'','',now(14400)).elapsed,'04:00:00');
+const breakStart=new Date(now(14400)).toISOString();
+assert.equal(shiftTimer(start,breakStart,'',now(14400)).breakTime,'30:00');
+assert.equal(shiftTimer(start,breakStart,'',now(16199)).remaining,1);
+assert.equal(shiftTimer(start,breakStart,'',now(16200)).remaining,0);
+assert.equal(shiftTimer(start,breakStart,new Date(now(16200)).toISOString(),now(36000)).due,false);
+assert.equal(shiftTimer(start,'','',now(-60)).elapsed,'00:00:00');
+assert.equal(shiftTimer(start,'','',now(90000)).elapsed,'25:00:00');
+console.log('Shift timer: four-hour threshold, break countdown, resume and clock skew passed.');

@@ -246,7 +246,13 @@ def register_workdays(app,db,access,require,render,success,failure,now):
         from binflow_runs import driver_plan_data, valid_date
         try: plan_date=valid_date(request.args.get('date') or (day['work_date'] if day else driver_today(db(),g.user,now())))
         except ValueError as error: abort(400,str(error))
-        return render('workday',section='driver',driver_mode=True,workday=day,selected_state=state,trucks=trucks,
+        from binflow_journey import overview
+        daily_overview=overview(db(),g.user,plan_date,state) if day and day['flow_version']==2 else None
+        overview_valid=bool(daily_overview and day['overview_hash']==daily_overview['version'])
+        if daily_overview and daily_overview['runs'] and not day['truck_id']:
+            available={r['truck_id'] for r in daily_overview['runs']}
+            trucks=[t for t in trucks if t['id'] in available]
+        return render('workday',journey_mode=not day or day['flow_version']==2,daily_overview=daily_overview,overview_valid=overview_valid,section='driver',driver_mode=True,workday=day,selected_state=state,trucks=trucks,
                       run_date=plan_date,**driver_plan_data(db(),g.user,plan_date,state),
                       blockers=finish_blockers(db(),day) if day and not day['finished_at'] else [],clock_entries=entries,
                       can_change_vehicle=can_change_vehicle)
@@ -263,10 +269,13 @@ def register_workdays(app,db,access,require,render,success,failure,now):
                 return success('This driver day has already been finalised.','bf_workday')
             wid=db().execute('''INSERT INTO bf_workdays(user_id,work_date,timezone,started_at,start_received_at,phone_started_at,state)
                 VALUES(?,?,?,?,?,?,?)''',(g.user['id'],key,zone,stamp.isoformat(),received,phone,state_scope(g.user) or '')).lastrowid
+            db().execute('UPDATE bf_workdays SET flow_version=? WHERE id=?',(2 if request.form.get('flow_version')=='2' else 0,wid))
+            if getattr(g,'bf_demo_token',None):
+                db().execute('UPDATE bf_jobs SET scheduled_date=?',(key,))
             day=owned(wid)
-            if g.user['role']=='employee': start_entry(db(),g.user,day,stamp)
+            if g.user['role']=='employee' and not getattr(g,'bf_demo_token',None): start_entry(db(),g.user,day,stamp)
             workday_event(db(),wid,g.user['id'],'Day started',received,source)
-            return success('Day started. Choose your state and vehicle.','bf_workday')
+            return success('Day started. Review your daily overview.','bf_workday')
         except (ValueError,sqlite3.IntegrityError) as error:
             return failure(error if isinstance(error,ValueError) else ValueError('Your driver day changed. Refresh and continue.'),'bf_workday')
 
@@ -281,6 +290,13 @@ def register_workdays(app,db,access,require,render,success,failure,now):
             tid=request.form.get('truck_id',type=int);state=selected_state(g.user,request.form.get('state',''))
             truck=db().execute('SELECT * FROM bf_trucks WHERE id=? AND state=?',(tid,state)).fetchone()
             if not truck or state not in STATES: raise ValueError('Choose a vehicle allocated to your selected state.')
+            if day['flow_version']==2:
+                from binflow_journey import overview
+                plan=overview(db(),g.user,day['work_date'],state)
+                if not day['overview_accepted_at'] or day['overview_hash']!=plan['version'] or day['state']!=state:
+                    raise ValueError('Review and accept the current daily overview before selecting your vehicle.')
+                if plan['runs'] and tid not in {r['truck_id'] for r in plan['runs']}:
+                    raise ValueError('Choose a vehicle with work in your accepted daily overview.')
             check_owner(db(),tid,day['work_date'],g.user)
             run=db().execute('SELECT driver_id FROM bf_runs WHERE truck_id=? AND run_date=?',(tid,day['work_date'])).fetchone()
             if run and run['driver_id'] and run['driver_id']!=g.user['id']: raise ValueError('This vehicle is assigned to another driver.')
@@ -296,6 +312,9 @@ def register_workdays(app,db,access,require,render,success,failure,now):
             db().execute('UPDATE bf_workdays SET truck_id=?,state=? WHERE id=?',(tid,state,day_id))
             db().execute('INSERT OR IGNORE INTO bf_runs(truck_id,run_date,driver_id) VALUES(?,?,?)',(tid,day['work_date'],g.user['id']))
             db().execute('UPDATE bf_runs SET driver_id=? WHERE truck_id=? AND run_date=?',(g.user['id'],tid,day['work_date']))
+            if day['flow_version']==2 and not day['truck_id']:
+                from binflow_journey import accept_vehicle_run
+                accept_vehicle_run(db(),g.user,day,truck,now())
             if tid!=day['truck_id']: workday_event(db(),day_id,g.user['id'],'Vehicle selected',now(),truck['name']+' · '+state)
             return success('Vehicle selected. Complete your prestart.','bf_run',truck_id=tid,date=day['work_date'])
         except (ValueError,sqlite3.IntegrityError) as error:
@@ -319,10 +338,12 @@ def register_workdays(app,db,access,require,render,success,failure,now):
             truck=db().execute('SELECT name FROM bf_trucks WHERE id=?',(day['truck_id'],)).fetchone() if day['truck_id'] else None
             summary=f'BINFLOW · {truck["name"] if truck else "No vehicle selected"} · {count} client stops · {day["timezone"]}'
             if notes: summary+='\n'+notes
-            if g.user['role']=='employee': finish_entries(db(),g.user,day,finish,summary)
+            if day['break_started_at'] and not day['break_finished_at']:
+                raise ValueError('Finish your recorded break before finishing the day.')
+            if g.user['role']=='employee' and not getattr(g,'bf_demo_token',None): finish_entries(db(),g.user,day,finish,summary)
             db().execute('UPDATE bf_workdays SET finished_at=?,finish_received_at=?,phone_finished_at=?,notes=? WHERE id=?',
                          (finish.isoformat(),received,phone,notes,day_id))
             workday_event(db(),day_id,g.user['id'],'Day finalised',received,source)
-            return success('Day finalised. Your daily timesheet is committed.' if g.user['role']=='employee' else 'Driver day finalised. Admin accounts do not create wage entries.','bf_workday',day=day_id,summary='1')
+            return success('Sample day finished. No wages were changed.' if getattr(g,'bf_demo_token',None) else 'Day finalised. Your daily timesheet is committed.' if g.user['role']=='employee' else 'Driver day finalised. Admin accounts do not create wage entries.','bf_workday',day=day_id,summary='1')
         except ValueError as error:
             return failure(error,'bf_workday',summary='1')

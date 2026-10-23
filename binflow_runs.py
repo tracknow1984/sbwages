@@ -76,8 +76,19 @@ def run_data(conn, truck_id, run_date, driver_id, today):
     passed = conn.execute('''SELECT i.* FROM bf_run_inspections i WHERE truck_id=? AND inspection_date=? AND driver_id=?
         AND passed=1 AND id>COALESCE((SELECT MAX(id) FROM bf_run_inspections WHERE truck_id=? AND passed=0),0)
         ORDER BY id DESC LIMIT 1''', (truck_id,today,driver_id,truck_id)).fetchone()
+    simple_flow = bool(workday and workday['flow_version']==2)
+    last_fail = conn.execute('SELECT MAX(id) FROM bf_run_inspections WHERE truck_id=? AND passed=0', (truck_id,)).fetchone()[0]
+    # A test acknowledgement never clears a real defect, even after office resolution.
+    test_prestart_allowed = not last_fail
+    if simple_flow and test_prestart_allowed and run.get('test_prestart_by')==driver_id and run.get('test_prestart_date')==today:
+        passed = dict(testing=True, submitted_at=run['test_prestart_at'])
     waiting = [r for r in rows if r['direction']=='deliver' and not r['loaded_at'] and not r['delivered_at']]
     returns = [r for r in rows if r['direction']=='collect' and not r['returned_at']]
+    loading_job = next((j for j in jobs if waiting and j['id']==waiting[0]['job_id']), None)
+    depot_id = returns[0]['warehouse_id'] if returns else jobs[-1]['warehouse_id'] if jobs else None
+    depot = conn.execute('SELECT * FROM bf_locations WHERE id=?',(depot_id,)).fetchone() if depot_id else None
+    depot_arrived = bool(depot and conn.execute('SELECT 1 FROM bf_run_depot_arrivals WHERE truck_id=? AND run_date=? AND warehouse_id=?',
+                                              (truck_id,run_date,depot_id)).fetchone())
     current_rows = [r for r in rows if current and r['job_id']==current['id']]
     action, scan_rows = None, []
     if workday and workday['finished_at']:
@@ -88,6 +99,10 @@ def run_data(conn, truck_id, run_date, driver_id, today):
         stage='planned'
     elif workday and hold:
         stage='hold'
+    elif simple_flow and workday['break_started_at'] and not workday['break_finished_at']:
+        stage='break'
+    elif simple_flow and jobs and not accepted:
+        stage='acceptance'
     elif workday and not passed:
         stage='prestart'
     elif not jobs:
@@ -107,17 +122,31 @@ def run_data(conn, truck_id, run_date, driver_id, today):
     elif not run['departed_at']:
         stage = 'load' if waiting else 'ready'
         action, scan_rows = ('load',waiting) if waiting else (None,[])
+        if simple_flow and waiting:
+            scan_rows = [r for r in waiting if r['job_id']==loading_job['id']]
     elif current:
         deliver = [r for r in current_rows if r['direction']=='deliver' and not r['delivered_at']]
         collect = [r for r in current_rows if r['direction']=='collect' and not r['picked_up_at']]
         stage = 'deliver' if deliver else 'collect' if collect else 'handover'
         action = stage if stage != 'handover' else None
         scan_rows = deliver if deliver else collect
+        if simple_flow and not current['driver_arrived_at']:
+            stage,action,scan_rows = 'navigate',None,[]
+    elif simple_flow and depot and not depot_arrived:
+        stage = 'navigate_depot'
     elif returns:
         stage, action, scan_rows = 'return', 'return', returns
+        if simple_flow:
+            scan_rows = [r for r in returns if r['warehouse_id']==depot_id]
     else:
         stage = 'arrive'
+    onboard = conn.execute('''SELECT b.code,b.truck_load,s.name AS size_name,j.client_name,j.site_name FROM bf_bins b
+        JOIN bf_sizes s ON s.id=b.size_id LEFT JOIN bf_job_bins i ON i.bin_id=b.id AND i.active=1
+        LEFT JOIN bf_jobs j ON j.id=i.job_id WHERE b.truck_id=? ORDER BY b.code''',(truck_id,)).fetchall()
+    step_key = stage+':'+str(loading_job['id'] if stage=='load' and loading_job else depot_id if stage=='return' else current['id'] if current else '')
     return dict(truck=truck,run=run,jobs=jobs,rows=rows,current=current,current_rows=current_rows,
+                simple_flow=simple_flow,test_prestart_allowed=test_prestart_allowed,loading_job=loading_job,
+                depot=depot,onboard=onboard,step_key=step_key,
                 hold=hold,passed=passed,stage=stage,action=action,scan_rows=scan_rows,
                 remaining=len(scan_rows),stop_number=next((n for n,j in enumerate(jobs,1) if current and j['id']==current['id']),0),
                 completed_stops=sum(bool(j['collected_at']) for j in jobs),acceptance_ok=accepted,
@@ -144,7 +173,7 @@ def guard_movement(conn, j, action, user, today):
     data = run_data(conn,j['truck_id'],j['scheduled_date'],user['id'],today)
     if not data['clock_ready']:
         raise ValueError('Start your driver day and select this vehicle before scanning. A finalised day cannot record more movements.')
-    if action=='unload' and data['acceptance_ok'] and (not data['run']['accepted_by'] or data['run']['accepted_by']==user['id']) and data['passed'] and not data['hold'] and not data['run']['departed_at']:
+    if action=='unload' and data['acceptance_ok'] and (not data['run']['accepted_by'] or data['run']['accepted_by']==user['id']) and data['passed'] and not data['hold'] and data['stage']!='break' and not data['run']['departed_at']:
         return
     expected = 'handover' if action=='exchange' else action
     if data['stage'] != expected:
@@ -158,6 +187,10 @@ def guard_movement(conn, j, action, user, today):
         raise ValueError(labels.get(data['stage'],'This movement is closed for this run.'))
     if action in ('deliver','collect','exchange') and (not data['current'] or data['current']['id']!=j['id']):
         raise ValueError('This is not your current client. Follow the next stop on your driver screen.')
+    if data['simple_flow'] and action=='load' and (not data['loading_job'] or data['loading_job']['id']!=j['id']):
+        raise ValueError('Load the bins for the client shown on screen first.')
+    if data['simple_flow'] and action=='return' and (not data['depot'] or data['depot']['id']!=j['warehouse_id']):
+        raise ValueError('This bin belongs to a different receiving warehouse. Follow the next depot shown on screen.')
 
 
 def mark_returned(conn, truck_id, run_date, timestamp):
@@ -237,7 +270,7 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
         assigned={j['driver_id'] for j in data['jobs'] if j['driver_id']}
         if data['run']['driver_id']: assigned.add(data['run']['driver_id'])
         can_accept=not assigned or assigned=={g.user['id']}
-        return render('run',section='driver',driver_mode=True,run_date=run_date,today=today(),checks=CHECKS,declaration=DECLARATION,
+        return render('run',journey_mode=data['simple_flow'],section='driver',driver_mode=True,run_date=run_date,today=today(),checks=CHECKS,declaration=DECLARATION,
                       submission_token=session_key,loading=load_plan(db(),truck_id,run_date),can_accept=can_accept,
                       manifest_version=manifest(db(),truck_id,run_date)[2],
                       acceptance_history=db().execute('SELECT * FROM bf_run_acceptance_history WHERE truck_id=? AND run_date=? ORDER BY id',(truck_id,run_date)).fetchall(),**data)
@@ -323,8 +356,27 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
                     JOIN bf_jobs j ON j.id=i.job_id WHERE b.truck_id=? AND j.scheduled_date!=?''',(truck_id,run_date)).fetchone()
                 if other:
                     raise ValueError('Finish and unload the previous run before starting this one.')
+                if data['simple_flow']:
+                    expected={r['bin_code'] for r in data['rows'] if r['direction']=='deliver' and not r['delivered_at']}
+                    if expected!={r['code'] for r in data['onboard']}:
+                        raise ValueError('The truck contains bins outside this manifest. Contact the office before leaving.')
+                    db().execute('UPDATE bf_runs SET manifest_confirmed_at=?,onboard_manifest=? WHERE truck_id=? AND run_date=?',
+                                 (now(),json.dumps([dict(r) for r in data['onboard']]),truck_id,run_date))
                 db().execute('UPDATE bf_runs SET departed_at=? WHERE truck_id=? AND run_date=?',(now(),truck_id,run_date))
                 message='Run started. Follow your first client stop.'
+            elif action=='client-arrival':
+                if data['stage']!='navigate' or request.form.get('job_id',type=int)!=data['current']['id']:
+                    raise ValueError('Refresh and follow your current stop.')
+                db().execute('UPDATE bf_jobs SET driver_arrived_at=COALESCE(driver_arrived_at,?) WHERE id=?',
+                             (now(),data['current']['id']))
+                message='Arrival saved. Scan the bins for this client.'
+            elif action=='depot-arrival':
+                if data['stage']!='navigate_depot' or request.form.get('warehouse_id',type=int)!=data['depot']['id']:
+                    raise ValueError('Refresh and follow your current receiving depot.')
+                db().execute('INSERT OR IGNORE INTO bf_run_depot_arrivals VALUES(?,?,?,?,?)',
+                             (truck_id,run_date,data['depot']['id'],now(),g.user['id']))
+                mark_returned(db(),truck_id,run_date,now())
+                message='Depot arrival saved. Scan each full bin off the truck.'
             elif action=='arrive':
                 if data['stage'] not in ('arrive','done','weighing'):
                     raise ValueError('Finish all client stops and scan every returning bin first.')
@@ -343,6 +395,9 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
         try:
             run_date=valid_date(request.form.get('date',''))
             data=data_for(truck_id,run_date)
+            requested_action=request.form.get('action') or data['action']
+            if requested_action not in ('load','deliver','collect','return'):
+                raise ValueError('Refresh and follow the current scan step.')
             value=request.form.get('code','').strip()[:1000]
             if value.startswith(('http://','https://')):
                 value=urlparse(value).path.rstrip('/').split('/')[-1]
@@ -350,13 +405,13 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
                 JOIN bf_jobs j ON j.id=i.job_id WHERE (b.code=? COLLATE NOCASE OR b.token=?)
                 AND j.truck_id=? AND j.scheduled_date=? AND j.status!='cancelled'
                 AND i.direction=? ORDER BY i.active DESC,j.id DESC LIMIT 1''',
-                (value,value,truck_id,run_date,'deliver' if data['action'] in ('load','deliver') else 'collect')).fetchone()
+                (value,value,truck_id,run_date,'deliver' if requested_action in ('load','deliver') else 'collect')).fetchone()
             if data['stage']=='acceptance':
                 raise ValueError('Accept this schedule before scanning bins.')
-            if not row or not data['action']:
+            if not row:
                 raise ValueError('This bin is not expected for the current step. Check the bin ID and the list below.')
             # Use the same transactional scan implementation as the detailed manifest.
-            return app.extensions['bf_scan'](truck_id, guided_job=row['job_id'], guided_action=data['action'], guided_date=run_date)
+            return app.extensions['bf_scan'](truck_id, guided_job=row['job_id'], guided_action=requested_action, guided_date=run_date)
         except ValueError as error:
             return jsonify(ok=False,message=str(error)),409
 
@@ -365,7 +420,8 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
     def bf_run_state(truck_id):
         try:
             data=data_for(truck_id,request.args.get('date',today()))
-            return jsonify(stage=data['stage'],remaining=data['remaining'],current=data['current']['id'] if data['current'] else None)
+            return jsonify(stage=data['stage'],step_key=data['step_key'],remaining=data['remaining'],current=data['current']['id'] if data['current'] else None,
+                           version=manifest(db(),truck_id,request.args.get('date',today()))[2])
         except ValueError as error:
             return jsonify(error=str(error)),400
 

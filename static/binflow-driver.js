@@ -63,7 +63,7 @@
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.message || 'Scan could not be saved. Try again.');
       if (result.html) stock.innerHTML = result.html;
-      if (form.dataset.guided && result.stage !== form.dataset.guided) { stopCamera(); location.assign(result.redirect); return; }
+      if (form.dataset.guided && (form.dataset.guided.includes(':') ? result.step_key : result.stage) !== form.dataset.guided) { stopCamera(); location.assign(result.redirect); return; }
       say(result.message);
       input.value = '';
       if (!result.duplicate && navigator.vibrate) navigator.vibrate(80);
@@ -72,9 +72,13 @@
     } finally {
       busy = false;
       buttons.forEach(b => { b.disabled = false; });
-      if (!stream) input.focus();
+      if (!stream && input.closest('details')?.open !== false) input.focus();
     }
   }
+  stock?.addEventListener('click', event => {
+    const button=event.target.closest('[data-demo-code]');
+    if(button) scan(button.dataset.demoCode);
+  });
   form.addEventListener('submit', event => { event.preventDefault(); scan(input.value); });
   function frame() {
     if (!stream) return;
