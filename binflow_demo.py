@@ -47,6 +47,9 @@ def install_demo_database(app, real_db, now):
         conn = sqlite3.connect(path, timeout=15)
         conn.row_factory = sqlite3.Row
         conn.execute('PRAGMA foreign_keys=ON')
+        from binflow_reports import migrate_timings
+        migrate_timings(conn)
+        conn.commit()
         g.bf_demo_db = conn
         g.bf_demo_token = token
 

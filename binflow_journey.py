@@ -185,6 +185,8 @@ def register_journey(app, db, access, render, success, failure, now):
                          (now(), driver_today(db(), g.user, now()), g.user['id'], truck_id, run_date))
             workday_event(db(), data['workday']['id'], g.user['id'], 'Testing prestart OK', now(),
                           'Temporary test acknowledgement only; no signed vehicle inspection created.')
+            from binflow_reports import begin_current
+            begin_current(db(),g.user,truck_id,run_date,now())
             return success('Testing prestart OK. Load your bins.', 'bf_run', truck_id=truck_id, date=run_date)
         except ValueError as error:
             return failure(error, 'bf_run', truck_id=truck_id, date=run_date or now()[:10])

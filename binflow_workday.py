@@ -316,6 +316,8 @@ def register_workdays(app,db,access,require,render,success,failure,now):
                 from binflow_journey import accept_vehicle_run
                 accept_vehicle_run(db(),g.user,day,truck,now())
             if tid!=day['truck_id']: workday_event(db(),day_id,g.user['id'],'Vehicle selected',now(),truck['name']+' · '+state)
+            from binflow_reports import begin_current
+            begin_current(db(),g.user,tid,day['work_date'],now())
             return success('Vehicle selected. Complete your prestart.','bf_run',truck_id=tid,date=day['work_date'])
         except (ValueError,sqlite3.IntegrityError) as error:
             return failure(error if isinstance(error,ValueError) else ValueError('This vehicle is in use by another driver. Choose another vehicle.'),'bf_workday',summary='1')

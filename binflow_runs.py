@@ -319,6 +319,8 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
                          (truck_id,today(),g.user['id'],pid,int(passed)))
             db().execute('INSERT OR IGNORE INTO bf_runs(truck_id,run_date,driver_id) VALUES(?,?,?)',(truck_id,run_date,g.user['id']))
             db().execute('UPDATE bf_runs SET driver_id=COALESCE(driver_id,?) WHERE truck_id=? AND run_date=?',(g.user['id'],truck_id,run_date))
+            from binflow_reports import begin_current
+            begin_current(db(),g.user,truck_id,run_date,now())
             return success(('Prestart passed. Review and accept today’s schedule.' if data['workday'] else 'Prestart passed. Load your scheduled bins.') if passed else 'Prestart saved. Truck on hold — contact the office.',
                            'bf_run',truck_id=truck_id,date=run_date)
         except ValueError as error:
@@ -384,6 +386,8 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
                 message='Warehouse return recorded. The office can finalise any remaining weights.'
             else:
                 abort(404)
+            from binflow_reports import begin_current
+            begin_current(db(),g.user,truck_id,run_date,now())
             return success(message,'bf_run',truck_id=truck_id,date=run_date)
         except ValueError as error:
             return failure(error,'bf_run',truck_id=truck_id,date=run_date or today())

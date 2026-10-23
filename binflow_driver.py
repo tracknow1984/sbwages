@@ -237,6 +237,9 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
                     status, load, target_truck = 'empty', None, None
                     target, from_truck = j['warehouse_id'], truck_id
                     label = 'Unused empty bin unloaded at warehouse'
+                from binflow_reports import begin_current, finish_scan
+                timing_stamp = now()
+                begin_current(db(),g.user,truck_id,j['scheduled_date'],timing_stamp,basis='partial')
                 db().execute('UPDATE bf_bins SET location_id=?,truck_id=?,truck_load=?,status=? WHERE id=?',
                              (target,target_truck,load,status,b['id']))
                 column = columns.get(action, 'loaded_at')
@@ -251,6 +254,7 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
                     complete_scanned_client(db(),j,g.user,now())
                 if action == 'return':
                     mark_returned(db(),truck_id,j['scheduled_date'],now())
+                finish_scan(db(),g.user,j,action,timing_stamp)
                 message = f'{b["code"]} — {label.lower()}.'
             db().commit()
             if qr_token:

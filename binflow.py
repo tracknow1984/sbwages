@@ -127,6 +127,8 @@ def register_binflow(app, db, require):
         migrate_schedule(db())
         from binflow_journey import migrate_journey
         migrate_journey(db())
+        from binflow_reports import migrate_timings
+        migrate_timings(db())
         for litres, tare in STANDARD_TARES.items():
             db().execute('INSERT OR IGNORE INTO bf_sizes(name,litres,default_tare_g) VALUES(?,?,?)', (f'{litres} L', litres, tare))
         db().commit()
@@ -927,6 +929,8 @@ def register_binflow(app, db, require):
     register_workdays(app,db,access,require,render,success,failure,now)
     from binflow_journey import register_journey
     register_journey(app,db,access,render,success,failure,now)
+    from binflow_reports import register_reports
+    register_reports(app,db,require,render,now)
     from binflow_demo import register_demo
     register_demo(app,db,access,render,now)
     register_profiles(app,db,require,render,now,actor)

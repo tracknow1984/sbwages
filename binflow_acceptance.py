@@ -153,6 +153,8 @@ def register_acceptance(app,db,access,success,failure,now,actor):
                 WHERE truck_id=? AND run_date=?''',(stamp,g.user['id'],person,version,truck_id,run_date))
             db().execute('''INSERT INTO bf_run_acceptance_history(truck_id,run_date,action,user_id,actor,manifest,created_at)
                 VALUES(?,?,'Schedule accepted',?,?,?,?)''',(truck_id,run_date,g.user['id'],person,snapshot,stamp))
+            from binflow_reports import begin_current
+            begin_current(db(),g.user,truck_id,run_date,stamp)
             return success('Schedule accepted. Scan the allocated empty bins onto your truck.' if day else 'Schedule accepted. Complete today’s prestart, then scan your allocated empty bins onto the truck.',
                 'bf_run',truck_id=truck_id,date=run_date)
         except ValueError as error:

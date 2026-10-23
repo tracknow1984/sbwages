@@ -160,7 +160,7 @@ class DriverJourneyTests(unittest.TestCase):
         self.assertEqual(self.client.get('/binflow/pods/1/email'+suffix).status_code,403)
 
     def test_today_sample_uses_same_flow_without_changing_real_stock_or_payroll(self):
-        before={table:self.rows('SELECT * FROM '+table) for table in ('bf_bins','bf_jobs','bf_job_bins','bf_workdays','bf_events','entries','sheets')}
+        before={table:self.rows('SELECT * FROM '+table) for table in ('bf_bins','bf_jobs','bf_job_bins','bf_workdays','bf_events','entries','sheets','bf_step_timings')}
         opened=self.post('/binflow/driver/demo',dict(state='QLD'),follow=False)
         self.assertEqual(opened.status_code,302)
         token=parse_qs(urlsplit(opened.location).query)['demo'][0]

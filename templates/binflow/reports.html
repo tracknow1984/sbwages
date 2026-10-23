@@ -1,0 +1,47 @@
+{% extends 'binflow/layout.html' %}
+{% block title %}Driver step timings{% endblock %}
+{% block subtitle %}See where time goes, from loading the truck to the warehouse handover. Admin only.{% endblock %}
+{% block body %}
+<link rel="stylesheet" href="{{ url_for('static',filename='binflow-reports.css') }}">
+<form class="bf-panel bf-pad bf-filters bf-report-filters" method="get">
+  <label>From<input type="date" name="start" value="{{ filters.start }}" required></label>
+  <label>To<input type="date" name="end" value="{{ filters.end }}" required></label>
+  <label>State<select name="state"><option value="">All states</option>{% for state in states %}<option value="{{ state }}" {{ 'selected' if filters.state==state }}>{{ state }}</option>{% endfor %}</select></label>
+  <label>Driver<select name="driver"><option value="">All drivers</option>{% for driver in drivers %}<option value="{{ driver.id }}" {{ 'selected' if filters.driver==driver.id }}>{{ driver.name }}</option>{% endfor %}</select></label>
+  <label>Truck<select name="truck"><option value="">All trucks</option>{% for truck in trucks %}<option value="{{ truck.id }}" {{ 'selected' if filters.truck==truck.id }}>{{ truck.name }}</option>{% endfor %}</select></label>
+  <button class="primary">Apply filters</button>
+  <a class="button secondary" href="{{ url_for('bf_reports',export='csv',**filters) }}">Export CSV</a>
+</form>
+<div class="bf-timing-summary">
+{% for item in summaries %}
+  <section class="bf-panel bf-pad"><span class="bf-kicker">{{ item.label }}</span><strong>{{ item.average|bf_duration }}</strong><p>Average per completed stage</p><div><span>{{ item.count }} complete · {{ item.bins }} bins</span><span>{{ item.per_bin|bf_duration }} / bin</span></div></section>
+{% endfor %}
+</div>
+<details class="bf-panel bf-pad bf-timing-method"><summary>How timings are measured</summary>
+  <ul>
+    <li><strong>Load truck:</strong> loading becomes available after prestart and schedule acceptance → final empty bin loaded. Covers the whole truck load.</li>
+    <li><strong>Unload at client:</strong> “I’ve arrived” → final empty bin delivered.</li>
+    <li><strong>Reload at client:</strong> final empty delivery → final full bin collected. For pickup-only stops, timing starts at “I’ve arrived”.</li>
+    <li><strong>Unload at depot:</strong> “I’m at the warehouse” → final full bin unloaded at that depot.</li>
+  </ul>
+  <p>Times include waiting within each stage and exclude recorded breaks. They are workflow durations, not a measure of continuous physical work. Driving and warehouse weighing are not included.</p>
+  <p>Recording starts with this update. Older work is not backfilled. Stages already underway are marked <strong>Partial</strong> and measured from the first subsequent scan. Partial, incomplete and in-progress stages are excluded from averages. Sample runs stay separate from this report.</p>
+  <p>Times use the driver’s recorded timezone. Per-bin averages use total completed-stage time divided by total bins; compare the bin mix as well as the time. In-progress figures update when this page is refreshed.</p>
+</details>
+<section class="bf-panel">
+  <div class="bf-panel-head"><div><h2>Recorded stages</h2><p>{{ rows|length }} stages · newest first</p></div></div>
+  <div class="bf-timing-table" tabindex="0" role="region" aria-label="Driver stage timings; scroll horizontally for all columns">
+    <table><thead><tr><th>Run / state</th><th>Driver / truck</th><th>Stage / location</th><th>Bins</th><th>Started / finished</th><th>Duration</th><th>Status</th></tr></thead><tbody>
+    {% for row in rows %}<tr>
+      <td>{{ row.work_date|display_date }}<small>{{ row.state }}</small></td>
+      <td><strong>{{ row.driver_name }}</strong><small>{{ row.truck_name }}</small></td>
+      <td><strong>{{ row.label }}</strong><small>{{ row.location_name }}</small></td>
+      <td>{{ row.scanned_count }} / {{ row.bin_count }} scanned<small>{{ row.bin_mix }}</small></td>
+      <td>{{ row.start_local }}<small>{{ row.end_local }}</small></td>
+      <td><strong>{{ row.seconds|bf_duration }}</strong>{% if row.break_seconds %}<small>{{ row.break_seconds|bf_duration }} break excluded</small>{% endif %}{% if row.basis=='partial' %}<small>Partial window only</small>{% endif %}</td>
+      <td><span class="bf-timing-status {{ 'complete' if row.eligible }}">{{ row.status }}</span></td>
+    </tr>{% else %}<tr><td colspan="7" class="bf-timing-empty"><strong>No timings recorded for these filters yet.</strong><p>New driver runs will appear here automatically as loading and unloading stages begin. No extra driver buttons are needed.</p></td></tr>{% endfor %}
+    </tbody></table>
+  </div>
+</section>
+{% endblock %}
