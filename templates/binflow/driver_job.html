@@ -6,7 +6,8 @@
   <span class="bf-status {{ job.status }}">{{ bf_job_label(job) }}</span>
   <p>{{ job.scheduled_date|display_date }} · {{ job.vehicle or 'Vehicle awaiting allocation' }}</p>
   <p>{{ job.site_address }}</p>
-  {% if job.collected_at %}<a class="button primary" href="{{ url_for('bf_pod',job_id=job.id) }}">View {{ 'final POD' if job.status=='complete' else 'provisional docket' }}</a>
+  {% if job.pod_deleted_at %}<p>This POD has been deleted by the office.</p>
+  {% elif job.collected_at %}<a class="button primary" href="{{ url_for('bf_pod',job_id=job.id) }}">View {{ 'final POD' if job.status=='complete' else 'provisional docket' }}</a>
   {% elif job.truck_id %}<a class="button primary" href="{{ url_for('bf_run',truck_id=job.truck_id,date=job.scheduled_date) }}">Continue driver day →</a>
   {% else %}<p>The office will assign a vehicle before this job can start.</p>{% endif %}
 </section>

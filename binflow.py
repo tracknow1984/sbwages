@@ -21,6 +21,7 @@ from binflow_permissions import (DRIVER_ENDPOINTS, is_driver, is_manager, is_off
 from binflow_runs import migrate_runs, register_runs, guard_movement, check_owner
 from binflow_gps import migrate_gps, register_gps
 from binflow_portal import migrate_portal, register_portal
+from binflow_pods import ensure_pod_available
 from binflow_qr import migrate_qr, register_qr, link_request, reopen_requests, pickup_requests, approve_requests, request_queue
 from binflow_workday import migrate_workdays, register_workdays, driver_today
 from binflow_tares import STANDARD_TARES, apply_standard_tares
@@ -815,6 +816,7 @@ def register_binflow(app, db, require):
     @access
     def bf_pod(job_id):
         j = job(job_id)
+        ensure_pod_available(j)
         if j['status'] in ('scheduled','cancelled'):
             abort(400, 'Confirm the physical handover before creating a POD.')
         rows = items(job_id)
@@ -840,6 +842,7 @@ def register_binflow(app, db, require):
         from reportlab.pdfbase.ttfonts import TTFont
         from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
         j = job(job_id)
+        ensure_pod_available(j)
         if j['status'] in ('scheduled','cancelled'):
             abort(400, 'Confirm the physical handover before creating a POD.')
         rows = items(job_id); output = io.BytesIO(); styles = getSampleStyleSheet()

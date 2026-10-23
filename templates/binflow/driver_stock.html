@@ -1,7 +1,7 @@
 {% if job %}
 {% if handover_ready and job.status=='scheduled' %}<div class="bf-driver-next"><div><h2>Client scans complete</h2><p>Finish the client handover, then scan the full bins back into the warehouse.</p></div><a class="button primary" href="{{ url_for('bf_job',job_id=job.id,_anchor='handover') }}">Finish client handover →</a></div>
 {% elif job.status=='received' %}<div class="bf-driver-next"><div><h2>All full bins returned</h2><p>The truck stock is updated. These bins are ready for weighing.</p></div><a class="button primary" href="{{ url_for('bf_job',job_id=job.id) }}">Weigh bins & view POD →</a></div>
-{% elif job.status=='complete' %}<div class="bf-driver-next"><h2>Client stop complete</h2><a class="button primary" href="{{ url_for('bf_pod',job_id=job.id) }}">View client POD →</a></div>
+{% elif job.status=='complete' and not job.pod_deleted_at %}<div class="bf-driver-next"><h2>Client stop complete</h2><a class="button primary" href="{{ url_for('bf_pod',job_id=job.id) }}">View client POD →</a></div>
 {% elif job.collected_at %}<p class="bf-note">Client handover saved. Scan each full bin into {{ job.warehouse_name }} on return. <a href="{{ url_for('bf_job',job_id=job.id) }}">Weigh received bins →</a></p>{% endif %}
 {% endif %}
 <div class="bf-columns equal">

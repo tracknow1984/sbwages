@@ -10,7 +10,7 @@ from flask import abort, flash, g, redirect, render_template, request, session, 
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from binflow_runs import valid_date
-from binflow_permissions import can_view_job
+from binflow_pods import migrate_pods, register_pods
 
 
 def migrate_portal(conn):
@@ -29,6 +29,7 @@ def migrate_portal(conn):
     if 'pod_client_id' not in {r['name'] for r in conn.execute('PRAGMA table_info(bf_jobs)')}:
         conn.execute('ALTER TABLE bf_jobs ADD COLUMN pod_client_id INTEGER REFERENCES bf_clients(id)')
         conn.execute('UPDATE bf_jobs SET pod_client_id=(SELECT client_id FROM bf_locations WHERE id=bf_jobs.site_id)')
+    migrate_pods(conn)
 
 
 def register_portal(app, db, access, require, render, success, failure, now, actor, pdf):
@@ -85,31 +86,21 @@ def register_portal(app, db, access, require, render, success, failure, now, act
         except ValueError as error: abort(400,str(error))
         jobs=db().execute('''SELECT j.*,(SELECT SUM(net_g) FROM bf_job_bins i WHERE i.job_id=j.id AND i.direction='collect') AS net
             FROM bf_jobs j JOIN bf_client_account_scope s ON s.client_id=j.pod_client_id
-            WHERE s.account_id=? AND j.status='complete' AND j.scheduled_date=? ORDER BY j.client_name,j.site_name,j.id''',
+            WHERE s.account_id=? AND j.status='complete' AND j.pod_deleted_at IS NULL AND j.scheduled_date=? ORDER BY j.client_name,j.site_name,j.id''',
             (g.bf_client['id'],run_date)).fetchall()
         dates=db().execute('''SELECT DISTINCT j.scheduled_date FROM bf_jobs j JOIN bf_client_account_scope s ON s.client_id=j.pod_client_id
-            WHERE s.account_id=? AND j.status='complete' ORDER BY j.scheduled_date DESC LIMIT 60''',(g.bf_client['id'],)).fetchall()
+            WHERE s.account_id=? AND j.status='complete' AND j.pod_deleted_at IS NULL ORDER BY j.scheduled_date DESC LIMIT 60''',(g.bf_client['id'],)).fetchall()
         return render_template('binflow/client_pods.html',account=g.bf_client,jobs=jobs,dates=dates,run_date=run_date)
 
     @app.get('/binflow/client/pods/<int:job_id>.pdf')
     @client_access
     def bf_client_pdf(job_id):
         permitted=db().execute('''SELECT 1 FROM bf_jobs j JOIN bf_client_account_scope s ON s.client_id=j.pod_client_id
-            WHERE j.id=? AND s.account_id=? AND j.status='complete' ''',(job_id,g.bf_client['id'])).fetchone()
+            WHERE j.id=? AND s.account_id=? AND j.status='complete' AND j.pod_deleted_at IS NULL ''',(job_id,g.bf_client['id'])).fetchone()
         if not permitted: abort(404)
         return pdf(job_id)
 
-    @app.get('/binflow/pods')
-    @access
-    def bf_daily_pods():
-        run_date=request.args.get('date',now()[:10])
-        try: valid_date(run_date)
-        except ValueError as error: abort(400,str(error))
-        jobs=db().execute('''SELECT j.*,(SELECT SUM(net_g) FROM bf_job_bins i WHERE i.job_id=j.id AND i.direction='collect') AS net,
-            (SELECT COUNT(*) FROM bf_job_bins i WHERE i.job_id=j.id AND i.direction='collect' AND i.weighed_at IS NULL) AS unweighed
-            FROM bf_jobs j WHERE j.scheduled_date=? AND j.approval_status='approved' AND j.status!='cancelled' ORDER BY j.client_name,j.site_name,j.id''',(run_date,)).fetchall()
-        jobs=[j for j in jobs if can_view_job(db(),g.user,j)]
-        return render('daily_pods',section='pods',run_date=run_date,jobs=jobs,closed=sum(j['status']=='complete' for j in jobs))
+    register_pods(app, db, access, require, render, success, failure, now, pdf)
 
     @app.route('/binflow/settings/client-access',methods=['GET','POST'])
     @require('admin')

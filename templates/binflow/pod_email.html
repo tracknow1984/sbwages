@@ -1,0 +1,14 @@
+{% extends 'binflow/layout.html' %}
+{% block title %}Email POD · {{ job.code }}{% endblock %}
+{% block subtitle %}{{ job.client_name }} · {{ job.site_name }} · {{ job.scheduled_date|display_date }}{% endblock %}
+{% block body %}
+<p><a href="{{ url_for('bf_daily_pods',date=job.scheduled_date,view='archived' if job.pod_archived_at else 'active') }}">← Daily PODs</a></p>
+{% if not email_ready %}<p class="bf-note">Email is not connected. <a href="{{ url_for('admin_settings') }}">Open Settings</a> to connect it. You can still <a href="{{ url_for('bf_pod_pdf',job_id=job.id) }}">export the PDF</a>.</p>{% endif %}
+<form method="post" class="bf-panel bf-pad bf-form">
+  <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="request_key" value="{{ request_key }}"><input type="hidden" name="version" value="{{ job.pod_version }}">
+  <div class="bf-grid"><label>Recipient email<input type="email" name="recipient" maxlength="200" value="{{ request.form.get('recipient',recipient) }}" required></label><div><label>Attachment</label><a href="{{ url_for('bf_pod_pdf',job_id=job.id) }}">{{ job.code }}-POD.pdf</a></div></div>
+  <label>Message (optional)<textarea name="message" rows="4" maxlength="2000">{{ request.form.get('message','') }}</textarea></label>
+  <p class="bf-muted">The final POD PDF will be attached to the email.</p><button class="primary" {{ 'disabled' if not email_ready }}>Send email</button>
+</form>
+{% if sent %}<section class="bf-panel"><div class="bf-panel-head"><h2>Email history</h2></div><div class="bf-table-wrap"><table><thead><tr><th>Recipient</th><th>Status</th><th>Time</th></tr></thead><tbody>{% for item in sent %}<tr><td>{{ item.recipient }}</td><td>{{ {'sending':'Sending','sent':'Sent','failed':'Not sent'}[item.status] }}</td><td>{{ (item.sent_at or item.created_at)|display_datetime }}</td></tr>{% endfor %}</tbody></table></div></section>{% endif %}
+{% endblock %}
