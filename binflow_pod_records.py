@@ -202,8 +202,8 @@ def register(app,db,access,require,render,job,items,success,failure,now,actor):
             if not account or account['auth_version']!=session.get('bf_client_version'):
                 session['binflow_next']=url_for('bf_pod_record',token=token)
                 return j,None,False
-            if not j['pod_signed_at'] or not db().execute('SELECT 1 FROM bf_client_account_scope WHERE account_id=? AND client_id=?',
-                (account['id'],j['pod_client_id'])).fetchone():abort(404)
+            from binflow_management import permitted_pod
+            if not j['pod_signed_at'] or not permitted_pod(db(),account,j):abort(404)
         ensure_pod_available(j)
         if not j['collected_at']:abort(404)
         return j,account,True

@@ -168,6 +168,11 @@ def register_binflow(app, db, require):
             app.logger.warning('BinFlow pallecon replacement %s: %s', 'applied' if changed else 'already applied', json.dumps(replacement))
             calendar_summary, changed = rebuild_calendar(db(), now())
             app.logger.warning('BinFlow current client calendar %s: %s', 'rebuilt' if changed else 'already rebuilt', json.dumps(calendar_summary))
+        from binflow_management import migrate as migrate_management, bootstrap
+        migrate_management(db())
+        db().commit()
+        if not app.testing:
+            bootstrap(db(), now())
     app.jinja_env.filters['bfkg'] = kg
 
     def allowed():
