@@ -244,10 +244,17 @@ def register_binflow(app, db, require):
         if scope is not None:
             where, args = '(' + where + ') AND b.state=?', (*args, scope)
         return db().execute('''SELECT b.*,s.name AS size_name,COALESCE(t.name,l.name) AS location_name,l.kind,c.name AS client_name,
-            t.name AS truck_name,
+            t.name AS truck_name,COALESCE(ac.name,c.name) AS allocated_client_name,
+            COALESCE(al.name,CASE WHEN l.kind='client' THEN l.name END) AS allocated_site_name,
+            aj.approval_status AS allocation_approval,
             (SELECT i.job_id FROM bf_job_bins i WHERE i.bin_id=b.id AND i.active=1) AS reserved_job
             FROM bf_bins b JOIN bf_sizes s ON s.id=b.size_id LEFT JOIN bf_locations l ON l.id=b.location_id
-            LEFT JOIN bf_clients c ON c.id=l.client_id LEFT JOIN bf_trucks t ON t.id=b.truck_id WHERE ''' + where + ' ORDER BY b.id', args).fetchall()
+            LEFT JOIN bf_clients c ON c.id=l.client_id LEFT JOIN bf_trucks t ON t.id=b.truck_id
+            LEFT JOIN bf_job_bins ai ON ai.bin_id=b.id AND ai.active=1 AND ai.direction='deliver'
+            LEFT JOIN bf_jobs aj ON aj.id=ai.job_id AND aj.status NOT IN ('cancelled','complete')
+                AND aj.approval_status IN ('pending','approved')
+            LEFT JOIN bf_locations al ON al.id=aj.site_id
+            LEFT JOIN bf_clients ac ON ac.id=al.client_id WHERE ''' + where + ' ORDER BY b.id', args).fetchall()
 
     from binflow_guides import GUIDES
     app.context_processor(lambda: dict(bf_public_guide=GUIDES.get({
@@ -420,11 +427,11 @@ def register_binflow(app, db, require):
         if status:
             clauses.append('b.status=?'); args.append(status)
         if client:
-            clauses.append('l.client_id=?'); args.append(client)
+            clauses.append('COALESCE(al.client_id,l.client_id)=CAST(? AS INTEGER)'); args.append(client)
         if size_id:
             clauses.append('b.size_id=?'); args.append(size_id)
         if query:
-            clauses.append('(b.code LIKE ? OR l.name LIKE ? OR c.name LIKE ?)'); args.extend(['%' + query[:100] + '%'] * 3)
+            clauses.append('(b.code LIKE ? OR l.name LIKE ? OR c.name LIKE ? OR al.name LIKE ? OR ac.name LIKE ?)'); args.extend(['%' + query[:100] + '%'] * 5)
         stock = bins(' AND '.join(clauses) or '1=1', args)
         return render('inventory', section='bins', stock=stock, state=state, status=status, client=client, size_id=size_id, query=query, request_key=secrets.token_urlsafe(24),
                       sizes=db().execute('SELECT * FROM bf_sizes ORDER BY litres').fetchall(), clients=db().execute('SELECT * FROM bf_clients ORDER BY name').fetchall(),

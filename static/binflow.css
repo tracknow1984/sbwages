@@ -33,12 +33,13 @@
   .bf .bf-inventory-table { table-layout: fixed; white-space: normal; }
   .bf-inventory-table th:nth-child(1) { width: 4%; }
   .bf-inventory-table th:nth-child(2) { width: 12%; }
-  .bf-inventory-table th:nth-child(3) { width: 9%; }
-  .bf-inventory-table th:nth-child(4) { width: 7%; }
-  .bf-inventory-table th:nth-child(5) { width: 30%; }
+  .bf-inventory-table th:nth-child(3) { width: 7%; }
+  .bf-inventory-table th:nth-child(4) { width: 6%; }
+  .bf-inventory-table th:nth-child(5) { width: 22%; }
   .bf-inventory-table th:nth-child(6) { width: 20%; }
-  .bf-inventory-table th:nth-child(7) { width: 8%; }
-  .bf-inventory-table th:nth-child(8) { width: 10%; }
+  .bf-inventory-table th:nth-child(7) { width: 14%; }
+  .bf-inventory-table th:nth-child(8) { width: 6%; }
+  .bf-inventory-table th:nth-child(9) { width: 9%; }
   .bf .bf-inventory-table th,
   .bf .bf-inventory-table td { white-space: normal; overflow-wrap: anywhere; padding-inline: 14px; }
   .bf .bf-inventory-table th:first-child,
