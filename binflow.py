@@ -131,6 +131,8 @@ def register_binflow(app, db, require):
         migrate_timings(db())
         from binflow_pod_records import migrate as migrate_pod_records
         migrate_pod_records(db())
+        from binflow_bales import migrate as migrate_bales
+        migrate_bales(db())
         for litres, tare in STANDARD_TARES.items():
             db().execute('INSERT OR IGNORE INTO bf_sizes(name,litres,default_tare_g) VALUES(?,?,?)', (f'{litres} L', litres, tare))
         db().commit()
@@ -280,6 +282,8 @@ def register_binflow(app, db, require):
     @app.get('/admin/bin-management')
     @access
     def bf_dashboard():
+        if is_manager(g.user) and db().execute('SELECT 1 FROM bf_bale_managers WHERE user_id=?',(g.user['id'],)).fetchone():
+            return redirect(url_for('bf_bales'))
         state = request.args.get('state', '')
         if state and state not in STATES:
             abort(400)
@@ -957,6 +961,8 @@ def register_binflow(app, db, require):
 
     register_gps(app, db, access, require, render, success, failure, now, actor)
     register_portal(app, db, access, require, render, success, failure, now, actor, bf_pod_pdf.__wrapped__)
+    from binflow_bales import register as register_bales
+    register_bales(app,db,access,require,render,success,failure,now,actor)
 
     register_qr(app, db, access, require, allowed, render, success, failure, now, actor)
     register_approvals(app,db,access,require,allowed,render,job,items,bins,event,success,failure,now,actor,reopen_requests,approve_requests)
