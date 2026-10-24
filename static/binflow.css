@@ -31,15 +31,16 @@
   .bf .bf-locations-table td { white-space: normal; overflow-wrap: anywhere; padding-inline: 14px; }
   .bf-locations-table .bf-actions { justify-content: flex-start; }
   .bf .bf-inventory-table { table-layout: fixed; white-space: normal; }
-  .bf-inventory-table th:nth-child(1) { width: 4%; }
-  .bf-inventory-table th:nth-child(2) { width: 12%; }
-  .bf-inventory-table th:nth-child(3) { width: 7%; }
-  .bf-inventory-table th:nth-child(4) { width: 6%; }
-  .bf-inventory-table th:nth-child(5) { width: 22%; }
-  .bf-inventory-table th:nth-child(6) { width: 20%; }
-  .bf-inventory-table th:nth-child(7) { width: 14%; }
-  .bf-inventory-table th:nth-child(8) { width: 6%; }
-  .bf-inventory-table th:nth-child(9) { width: 9%; }
+  .bf-inventory-table th:nth-child(1) { width: 3%; }
+  .bf-inventory-table th:nth-child(2) { width: 10%; }
+  .bf-inventory-table th:nth-child(3) { width: 6%; }
+  .bf-inventory-table th:nth-child(4) { width: 5%; }
+  .bf-inventory-table th:nth-child(5) { width: 18%; }
+  .bf-inventory-table th:nth-child(6) { width: 17%; }
+  .bf-inventory-table th:nth-child(7) { width: 12%; }
+  .bf-inventory-table th:nth-child(8) { width: 15%; }
+  .bf-inventory-table th:nth-child(9) { width: 6%; }
+  .bf-inventory-table th:nth-child(10) { width: 8%; }
   .bf .bf-inventory-table th,
   .bf .bf-inventory-table td { white-space: normal; overflow-wrap: anywhere; padding-inline: 14px; }
   .bf .bf-inventory-table th:first-child,
@@ -222,3 +223,5 @@
 .bf-pod-actions,.bf-pod-actions form{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin:0}.bf-pod-actions{max-width:370px;min-width:240px}.bf .bf-pod-actions .button,.bf .bf-pod-actions button{min-height:36px;padding:7px 11px;font-size:12px}.bf .bf-delete-pod{color:#a93232;border-color:#e9c5c5}
 
 .bf-client-bin-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:12px;margin:14px 0}.bf-client-bin-card{border:1px solid var(--bf-line);border-radius:12px;padding:16px;min-width:0;overflow-wrap:anywhere}.bf-client-bin-card p{margin:8px 0}.bf-client-bin-card .bf-actions{margin-top:12px}#client-bins{scroll-margin-top:20px}
+
+.bf .bf-bin-condition{width:100%;min-width:110px;font-size:12px;font-weight:700;padding:10px 4px;border-radius:8px}.bf .bf-bin-condition.in_service{background:#e5f5ed;color:#176345}.bf .bf-bin-condition.damaged{background:#fff2d7;color:#805300}.bf .bf-bin-condition.lost{background:#ffe8eb;color:#9b233a}

@@ -111,6 +111,8 @@ def register_binflow(app, db, require):
     with app.app_context():
         db().executescript(SCHEMA)
         migrate_driver(db())
+        from binflow_bin_condition import migrate as migrate_bin_condition
+        migrate_bin_condition(db())
         db().executescript(IMPORT_SCHEMA)
         migrate_requirements(db())
         migrate_runs(db())
@@ -422,6 +424,9 @@ def register_binflow(app, db, require):
                 return failure(error, 'bf_inventory')
         clauses, args = [], []
         state, status, client, size_id, query = [request.args.get(k, '').strip() for k in ('state','status','client','size','q')]
+        condition=request.args.get('condition','').strip()
+        if condition:
+            clauses.append('b.service_status=?');args.append(condition)
         if state:
             clauses.append('b.state=?'); args.append(state)
         if status:
@@ -433,7 +438,7 @@ def register_binflow(app, db, require):
         if query:
             clauses.append('(b.code LIKE ? OR l.name LIKE ? OR c.name LIKE ? OR al.name LIKE ? OR ac.name LIKE ?)'); args.extend(['%' + query[:100] + '%'] * 5)
         stock = bins(' AND '.join(clauses) or '1=1', args)
-        return render('inventory', section='bins', stock=stock, state=state, status=status, client=client, size_id=size_id, query=query, request_key=secrets.token_urlsafe(24),
+        return render('inventory', section='bins', stock=stock, state=state, status=status, client=client, size_id=size_id, condition=condition, query=query, request_key=secrets.token_urlsafe(24),
                       sizes=db().execute('SELECT * FROM bf_sizes ORDER BY litres').fetchall(), clients=db().execute('SELECT * FROM bf_clients ORDER BY name').fetchall(),
                       warehouses=db().execute("SELECT * FROM bf_locations WHERE kind='warehouse' ORDER BY state,name").fetchall())
 
@@ -964,6 +969,8 @@ def register_binflow(app, db, require):
 
     register_requirements(app, db, require, access, location, render, success, actor, now, source_profiles)
 
+    from binflow_bin_condition import register as register_bin_condition
+    register_bin_condition(app,db,require,success,failure,event)
     register_runs(app, db, access, require, render, success, failure, now, actor)
 
     register_gps(app, db, access, require, render, success, failure, now, actor)
