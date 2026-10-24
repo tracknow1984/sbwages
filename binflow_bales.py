@@ -14,6 +14,13 @@ from prestart_media import signature_png
 
 def migrate(conn):
     conn.executescript('''
+    CREATE TABLE IF NOT EXISTS bf_bale_sources (
+      bale_id INTEGER NOT NULL REFERENCES bf_bales(id),
+      item_id INTEGER NOT NULL UNIQUE REFERENCES bf_job_bins(id),
+      bin_id INTEGER NOT NULL REFERENCES bf_bins(id), bin_code TEXT NOT NULL,
+      material_id INTEGER NOT NULL, material_name TEXT NOT NULL, net_g INTEGER NOT NULL,
+      scanned_at TEXT NOT NULL, scanned_by TEXT NOT NULL,
+      PRIMARY KEY(bale_id,bin_id));
     CREATE TABLE IF NOT EXISTS bf_bale_settings (
       warehouse_id INTEGER PRIMARY KEY REFERENCES bf_locations(id),
       max_bales INTEGER, max_g INTEGER, target_g INTEGER, warning_percent INTEGER NOT NULL DEFAULT 90,
@@ -156,6 +163,33 @@ def register(app,db,access,require,render,success,failure,now,actor):
         rows=[b for b in db().execute('SELECT * FROM bf_bales ORDER BY id DESC') if b['warehouse_id'] in ids and b['status'] in ('stored','loading','received')]
         return view('bales',cards=cards,totals=totals,warehouses=ws,selected=selected,state=state,transfers=transfers,bales=rows)
 
+    def source_bin(code,wid,mid):
+        code=str(code).strip()
+        if '/binflow/qr/' in code:code=urlparse(code).path.rstrip('/').split('/')[-1]
+        b=db().execute('SELECT * FROM bf_bins WHERE code=? OR token=?',(code.upper(),code)).fetchone()
+        if not b:raise ValueError('Bin QR code not recognised. Scan a physical bin label.')
+        if b['location_id']!=wid or b['truck_id'] or b['status']!='weighed':
+            raise ValueError(f"{b['code']}: receive and weigh this bin at the selected warehouse first.")
+        if db().execute('SELECT 1 FROM bf_job_bins WHERE bin_id=? AND active=1',(b['id'],)).fetchone():
+            raise ValueError(f"{b['code']}: this bin is reserved for another job.")
+        i=db().execute("SELECT * FROM bf_job_bins WHERE bin_id=? AND direction='collect' ORDER BY id DESC LIMIT 1",(b['id'],)).fetchone()
+        if not i or not i['weighed_at'] or not i['material_id'] or not i['net_g']:
+            raise ValueError(f"{b['code']}: weigh and classify its collected material on the POD first.")
+        if i['material_id']!=mid:
+            raise ValueError(f"{b['code']}: material is {i['material_name']}. Only bins matching the selected classification can be added.")
+        if db().execute('SELECT 1 FROM bf_bale_sources WHERE item_id=?',(i['id'],)).fetchone():
+            raise ValueError(f"{b['code']}: these contents have already been used in a bale.")
+        return b,i
+
+    @app.post('/binflow/bales/source-scan')
+    @manager
+    def bf_bale_source_scan():
+        try:
+            wid=int(request.form.get('warehouse_id','0'));allowed(wid);m=material()
+            b,i=source_bin(request.form.get('code',''),wid,m['id'])
+            return jsonify(ok=True,code=b['code'],item_id=i['id'],material=i['material_name'],net_g=i['net_g'])
+        except ValueError as error:return jsonify(ok=False,message=str(error)),409
+
     @app.route('/binflow/bales/new',methods=['GET','POST'])
     @manager
     def bf_bale_new():
@@ -169,9 +203,23 @@ def register(app,db,access,require,render,success,failure,now,actor):
                 if old:
                     allowed(old['origin_id']);return success('This bale was already created.','bf_bale',bid=old['id'])
                 m=material();grams=weight(request.form.get('weight',''))
+                if request.form.get('confirm_sources')!='yes':raise ValueError('Confirm that all scanned bins have been emptied into this bale.')
+                codes=request.form.getlist('source_code');versions=request.form.getlist('source_item')
+                if not codes or len(codes)>200 or len(codes)!=len(versions):
+                    raise ValueError('Scan between 1 and 200 source bins before creating the bale.')
+                sources=[source_bin(code,wid,m['id']) for code in codes]
+                if len({b['id'] for b,i in sources})!=len(sources):raise ValueError('Each source bin can only be scanned once.')
+                if any(str(i['id'])!=v for (b,i),v in zip(sources,versions)):
+                    raise ValueError('A source bin changed since scanning. Scan the bins again.')
                 bid=db().execute('''INSERT INTO bf_bales(token,request_key,origin_id,warehouse_id,material_id,material_name,net_g,created_at,created_by)
                   VALUES(?,?,?,?,?,?,?,?,?)''',(secrets.token_hex(24),key,wid,wid,m['id'],m['name'],grams,now(),actor())).lastrowid
                 db().execute('UPDATE bf_bales SET code=? WHERE id=?',(f'BA{bid:07d}',bid))
+                for b,i in sources:
+                    db().execute('INSERT INTO bf_bale_sources VALUES(?,?,?,?,?,?,?,?,?)',
+                      (bid,i['id'],b['id'],b['code'],i['material_id'],i['material_name'],i['net_g'],now(),actor()))
+                    db().execute("UPDATE bf_bins SET status='empty' WHERE id=?",(b['id'],))
+                    db().execute('INSERT INTO bf_events(bin_id,job_id,event,from_location,to_location,actor,notes,created_at) VALUES(?,?,?,?,?,?,?,?)',
+                      (b['id'],i['job_id'],'Contents processed into bale',wid,wid,actor(),f'BA{bid:07d} · '+m['name'],now()))
                 event('Bale created and weighed',bid,wid=wid,details=json.dumps(dict(net_g=grams,material=m['name'])))
                 readiness(db(),wid,now())
                 return success('Bale created. Print and attach its label.','bf_bale',bid=bid)
@@ -193,6 +241,7 @@ def register(app,db,access,require,render,success,failure,now,actor):
     def bf_bale(bid):
         b=bale(bid)
         return view('bale',bale=b,warehouse=db().execute('SELECT * FROM bf_locations WHERE id=?',(b['warehouse_id'],)).fetchone(),
+          sources=db().execute('SELECT s.*,i.job_id FROM bf_bale_sources s JOIN bf_job_bins i ON i.id=s.item_id WHERE s.bale_id=? ORDER BY s.bin_code',(bid,)).fetchall(),
           history=db().execute('SELECT * FROM bf_bale_events WHERE bale_id=? ORDER BY id',(bid,)).fetchall(),
           materials=db().execute('SELECT * FROM bf_material_classes WHERE active=1 ORDER BY name').fetchall())
 
@@ -209,6 +258,8 @@ def register(app,db,access,require,render,success,failure,now,actor):
                 event('Bale voided',bid,wid=b['warehouse_id'],details=reason)
             else:
                 m=material();grams=weight(request.form.get('weight',''))
+                if m['id']!=b['material_id'] and db().execute('SELECT 1 FROM bf_bale_sources WHERE bale_id=?',(bid,)).fetchone():
+                    raise ValueError('Material is locked to the scanned source bins. It cannot be changed.')
                 db().execute('UPDATE bf_bales SET net_g=?,material_id=?,material_name=?,version=version+1 WHERE id=?',(grams,m['id'],m['name'],bid))
                 event('Bale corrected; label reprint required',bid,wid=b['warehouse_id'],details=json.dumps(dict(reason=reason,old_g=b['net_g'],new_g=grams,old_material=b['material_name'],material=m['name'])))
             readiness(db(),b['warehouse_id'],now())

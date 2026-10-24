@@ -25,8 +25,50 @@ class BaleTests(unittest.TestCase):
 
     def create(self,grams='400',wid=2,**data):
         key=data.pop('request_key',secrets.token_urlsafe(24))
-        response=self.post('/binflow/bales/new',dict(warehouse_id=wid,material_id=1,weight=grams,request_key=key,**data))
+        code,item=self.source(wid)
+        response=self.post('/binflow/bales/new',dict(warehouse_id=wid,material_id=1,weight=grams,request_key=key,source_code=[code],source_item=[item],confirm_sources='yes',**data))
         return response
+
+    def source(self,wid=2,mid=1):
+        token=secrets.token_hex(24)
+        with sqlite3.connect(self.path) as c:
+            uid=c.execute("SELECT id FROM users WHERE role='admin'").fetchone()[0]
+            state=c.execute('SELECT state FROM bf_locations WHERE id=?',(wid,)).fetchone()[0]
+            bid=c.execute("INSERT INTO bf_bins(code,token,size_id,state,location_id,status,tare_g,created_at) VALUES(?,?,1,?,?,'weighed',5000,'now')",('SRC'+token,token,state,wid)).lastrowid
+            code=f'BF{bid:06d}';c.execute('UPDATE bf_bins SET code=? WHERE id=?',(code,bid))
+            jid=c.execute("INSERT INTO bf_jobs(code,request_key,site_id,warehouse_id,scheduled_date,status,client_name,site_name,site_address,warehouse_name,state,created_at,created_by) VALUES(?,?,3,?,'2026-10-19','complete','Client','Site','Address','Depot',?,'now',?)",('J'+token,token,wid,state,uid)).lastrowid
+            name=c.execute('SELECT name FROM bf_material_classes WHERE id=?',(mid,)).fetchone()[0]
+            item=c.execute("INSERT INTO bf_job_bins(job_id,bin_id,direction,bin_code,size_name,tare_g,gross_g,net_g,weighed_at,active,material_id,material_name) VALUES(?,?,'collect',?,'1100 L',5000,505000,500000,'now',0,?,?)",(jid,bid,code,mid,name)).lastrowid
+        return code,item
+
+    def test_source_scan_matching_mixed_unweighed_wrong_depot_and_reuse(self):
+        self.prepare();self.post('/binflow/setup/materials',dict(name='PEF',active='yes'))
+        code,item=self.source();other,other_item=self.source(mid=2)
+        def scan(code,wid=2):return self.post('/binflow/bales/source-scan',dict(warehouse_id=wid,material_id=1,code=code),follow=False)
+        self.assertTrue(scan(code).json['ok']);self.assertEqual(scan(other).status_code,409)
+        self.assertEqual(scan(code,1).status_code,409)
+        payload=dict(warehouse_id=2,material_id=1,weight=400,request_key=secrets.token_urlsafe(24),confirm_sources='yes',source_code=[code,other],source_item=[item,other_item])
+        self.post('/binflow/bales/new',payload);self.assertEqual(self.rows('SELECT * FROM bf_bales'),[])
+        payload.update(source_code=[code],source_item=[item]);self.post('/binflow/bales/new',payload)
+        self.assertEqual(len(self.rows('SELECT * FROM bf_bale_sources')),1)
+        self.assertEqual(scan(code).status_code,409)
+        self.assertEqual(self.rows('SELECT status FROM bf_bins WHERE code=?',(code,))[0]['status'],'empty')
+        self.assertIn(code,self.client.get('/binflow/bales/1').text)
+        self.post('/binflow/bales/1/correct',dict(version=1,action='correct',material_id=2,weight=400,reason='Attempt'))
+        self.assertEqual(self.rows('SELECT material_id FROM bf_bales')[0]['material_id'],1)
+        with sqlite3.connect(self.path) as c:c.execute("UPDATE bf_job_bins SET material_id=NULL WHERE id=?",(other_item,))
+        self.assertEqual(scan(other).status_code,409)
+        with sqlite3.connect(self.path) as c:c.execute("UPDATE bf_bins SET status='received' WHERE code=?",(other,))
+        self.assertEqual(scan(other).status_code,409)
+
+    def test_source_required_duplicate_and_stale_collection_rejected(self):
+        self.prepare();code,item=self.source()
+        payload=dict(warehouse_id=2,material_id=1,weight=400,request_key=secrets.token_urlsafe(24),confirm_sources='yes')
+        self.post('/binflow/bales/new',payload)
+        payload.update(source_code=[code,code],source_item=[item,item]);self.post('/binflow/bales/new',payload)
+        payload.update(source_code=[code],source_item=[item+1]);self.post('/binflow/bales/new',payload)
+        self.assertEqual(self.rows('SELECT * FROM bf_bales'),[])
+        self.assertEqual(self.rows('SELECT status FROM bf_bins WHERE code=?',(code,))[0]['status'],'weighed')
 
     def transfer(self,payload='1000'):
         return self.post('/binflow/bales/transfers/new',dict(origin_id=2,destination_id=1,carrier='Carrier',vehicle='B DOUBLE',payload=payload,request_key=secrets.token_urlsafe(24)))
