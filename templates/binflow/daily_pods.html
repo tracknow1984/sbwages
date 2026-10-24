@@ -1,6 +1,6 @@
 {% extends 'binflow/layout.html' %}
 {% block title %}Daily PODs{% endblock %}
-{% block subtitle %}{{ closed }} closed · {{ jobs|length-closed }} awaiting handover, return or weight{% endblock %}
+{% block subtitle %}{{ closed }} closed · {{ jobs|length-closed }} awaiting handover, weight or sign-off{% endblock %}
 {% block body %}
 <div class="bf-toolbar"><form method="get" class="bf-filters">
   {% if driver_demo %}<input type="hidden" name="demo" value="{{ driver_demo }}">{% endif %}<label>Run date<input type="date" name="date" value="{{ run_date }}" required></label>
@@ -13,21 +13,22 @@
 {% for j in jobs %}<tr>
   <td data-label="Client / site"><strong>{{ j.client_name }}</strong><br>{{ j.site_name }}</td>
   <td data-label="Docket"><a href="{{ url_for('bf_job',job_id=j.id) }}">{{ j.code }}</a></td>
-  <td data-label="POD status">{% if view=='deleted' %}<span class="bf-status cancelled">Deleted</span>{% elif j.status=='complete' %}<span class="bf-status complete">{{ 'Archived' if view=='archived' else 'Closed · Client available' }}</span>{% elif j.collected_at %}Open · {{ j.unweighed }} bins awaiting final weight{% else %}Awaiting client handover{% endif %}</td>
+  <td data-label="POD status">{% if view=='deleted' %}<span class="bf-status cancelled">Deleted</span>{% elif pod_final(j) %}<span class="bf-status complete">{{ 'Archived' if view=='archived' else 'Closed · Client available' }}</span>{% elif j.status=='complete' %}Weighed · awaiting material / sign-off{% elif j.collected_at %}Open · {{ j.unweighed }} bins awaiting final weight{% else %}Awaiting client handover{% endif %}</td>
   <td data-label="Net weight">{{ j.net|bfkg }} kg</td>
   <td data-label="Actions"><div class="bf-pod-actions">
     {% if not j.pod_deleted_at %}
-      {% if j.collected_at %}<a class="button secondary" href="{{ url_for('bf_pod',job_id=j.id) }}">View {{ 'POD' if j.status=='complete' else 'provisional POD' }}</a><a class="button secondary" href="{{ url_for('bf_pod_pdf',job_id=j.id) }}">Export PDF</a>{% else %}<a class="button secondary" href="{{ url_for('bf_job',job_id=j.id) }}">Open job</a>{% endif %}
-      {% if current_user.role=='admin' and not driver_demo and j.status=='complete' %}<a class="button secondary" href="{{ url_for('bf_email_pod',job_id=j.id) }}">Email</a>{% endif %}
+      {% if j.collected_at and not pod_final(j) and (current_user.role=='admin' or binflow_manager) %}<a class="button primary" href="{{ url_for('bf_job',job_id=j.id,_anchor='pod-finalisation') }}">{{ 'Review & sign off' if j.status=='complete' else 'Weigh & classify' }}</a>{% endif %}
+      {% if j.collected_at %}<a class="button secondary" href="{{ url_for('bf_pod',job_id=j.id) }}">View {{ 'POD' if pod_final(j) else 'provisional POD' }}</a><a class="button secondary" href="{{ url_for('bf_pod_pdf',job_id=j.id) }}">Export PDF</a>{% else %}<a class="button secondary" href="{{ url_for('bf_job',job_id=j.id) }}">Open job</a>{% endif %}
+      {% if current_user.role=='admin' and not driver_demo and pod_final(j) %}<a class="button secondary" href="{{ url_for('bf_email_pod',job_id=j.id) }}">Email</a>{% endif %}
     {% endif %}
-    {% if current_user.role=='admin' and not driver_demo and j.status=='complete' %}
+    {% if current_user.role=='admin' and not driver_demo and (pod_final(j) or (view!='active' and j.status=='complete')) %}
     <form method="post" action="{{ url_for('bf_file_pod',job_id=j.id) }}">
       <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ j.pod_version }}"><input type="hidden" name="view" value="{{ view }}">
       {% if view=='active' %}<button class="secondary" name="action" value="archive">Archive</button>{% else %}<button class="secondary" name="action" value="restore">Restore</button>{% endif %}
-      {% if view!='deleted' %}<button class="secondary bf-delete-pod" name="action" value="delete">Delete</button>{% endif %}
+      {% if view!='deleted' and pod_final(j) %}<button class="secondary bf-delete-pod" name="action" value="delete">Delete</button>{% endif %}
     </form>{% endif %}
   </div></td>
 </tr>{% else %}<tr><td colspan="5">No {{ view }} PODs for this date.</td></tr>{% endfor %}
 </tbody></table></div></section>
-<p class="bf-muted">{% if current_user.role=='admin' and not driver_demo %}Email, Archive and Delete are available once the POD is complete. {% endif %} Collected bins require warehouse receipt and final weight before the POD closes.</p>
+<p class="bf-muted">{% if current_user.role=='admin' and not driver_demo %}Email, Archive and Delete are available once the POD is complete. {% endif %} Collected bins require warehouse receipt, final weights, material classification and a dated warehouse signature before the POD closes.</p>
 {% endblock %}

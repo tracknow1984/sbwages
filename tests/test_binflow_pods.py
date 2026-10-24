@@ -16,7 +16,10 @@ class DailyPODTests(unittest.TestCase):
     rows = legacy.BinFlowTests.rows
     login = legacy.BinFlowTests.login
     job = legacy.BinFlowTests.job
-    initial_delivery = legacy.BinFlowTests.initial_delivery
+    def initial_delivery(self):
+        legacy.BinFlowTests.initial_delivery(self)
+        from pod_helpers import sign_pod
+        sign_pod(self,1)
     exchange = legacy.BinFlowTests.exchange
 
     def file(self, action, version=None, follow=True):
@@ -65,7 +68,7 @@ class DailyPODTests(unittest.TestCase):
         for key,value in job.items():
             if key!='pod_version':self.assertEqual(after[key],value,key)
         for table,value in before.items():self.assertEqual(self.rows('SELECT * FROM '+table),value)
-        self.assertEqual([h['action'] for h in self.rows('SELECT * FROM bf_pod_history')],['archive','delete','restore'])
+        self.assertEqual([h['action'] for h in self.rows('SELECT * FROM bf_pod_history')],['POD weighed, classified and signed off','archive','delete','restore'])
 
     def test_only_completed_pods_and_admin_with_csrf_can_be_filed(self):
         self.job(deliver=(1,2))
@@ -73,8 +76,10 @@ class DailyPODTests(unittest.TestCase):
         self.assertIsNone(self.rows('SELECT pod_deleted_at FROM bf_jobs')[0]['pod_deleted_at'])
         self.assertEqual(self.client.get('/binflow/pods/1/email').status_code,400)
         self.exchange(1,(1,2))
+        from pod_helpers import sign_pod
+        sign_pod(self,1)
         self.assertEqual(self.client.post('/binflow/pods/1/file',data=dict(action='delete',version=0)).status_code,400)
-        self.file('archive',0)
+        self.file('archive')
         self.assertIn('This POD changed',self.file('delete',0).text)
         self.assertIsNone(self.rows('SELECT pod_deleted_at FROM bf_jobs')[0]['pod_deleted_at'])
         with sqlite3.connect(self.path) as conn:

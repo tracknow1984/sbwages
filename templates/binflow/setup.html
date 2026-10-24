@@ -7,4 +7,4 @@
 </div>
 
 <section class="bf-panel bf-pad"><h2>Employee roles & state access</h2><p class="bf-muted">BINFLOW access is controlled by each employee’s business role and working state. Driver and contractor accounts see only their allocated state, labour accounts have no BINFLOW access, and managers have the national operations view.</p><a class="button primary" href="{{ url_for('admin_staff') }}">Manage employee profiles</a></section>
-{% endblock %}
+{% include 'binflow/material_setup.html' %}{% endblock %}

@@ -87,7 +87,7 @@ class DriverJourneyTests(unittest.TestCase):
         for item in self.rows("SELECT id FROM bf_job_bins WHERE job_id=2 AND direction='collect'"):
             self.post(f'/binflow/pickups/2/weigh/{item["id"]}',dict(gross='50',tare='5',confirm_tare='yes'))
         self.assertEqual(self.rows('SELECT status FROM bf_jobs WHERE id=2')[0]['status'],'complete')
-        self.assertIn(b'FINAL',self.client.get('/binflow/pickups/2/pod').data)
+        self.assertIn(b'SIGN-OFF PENDING',self.client.get('/binflow/pickups/2/pod').data)
 
     def test_stale_overview_and_other_state_cannot_select_vehicle(self):
         self.start();self.accept_overview()

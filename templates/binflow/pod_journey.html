@@ -1,0 +1,10 @@
+{% extends 'binflow/client_layout.html' %}{% block content %}
+<a href="{{ url_for('bf_pod_record',token=job.pod_token) }}">Back to POD {{ job.code }}</a>
+<h1>{{ item.bin_code }} · Bin journey</h1><p>{{ job.site_name }} · {{ item.material_name or ('Material not classified' if item.direction=='collect' else 'Empty delivery') }}</p>
+<p class="bf-note">{{ 'History frozen at signed POD approval.' if job.pod_signed_at else 'Provisional history; warehouse events will be added until sign-off.' }} Later rotations are not part of this POD.</p>
+<section class="bf-panel bf-pad"><h2>Time in custody</h2><p class="bf-muted">{{ trace.notice }}</p>
+{% for stay in trace.stays %}<article class="bf-trace-stay"><strong>{{ stay.location }}</strong><span>{{ stay.duration }}</span><small>{{ stay.from_at|display_datetime if stay.from_at else 'Arrival unknown' }} → {{ stay.to_at|display_datetime }}</small></article>{% else %}<p>No complete custody intervals are recorded.</p>{% endfor %}</section>
+<section class="bf-panel bf-pad"><h2>{{ 'Recorded bin history' if full_history else 'This collection journey' }}</h2>
+<ol class="bf-trace-timeline">{% for e in trace.events %}<li><time>{{ e.at|display_datetime }}</time><h3>{{ e.event }}</h3><p>{{ e.source or 'Location not recorded' }}{% if e.target %} → {{ e.target }}{% endif %}</p><small>{{ e.actor }}{% if e.docket %} · {{ e.docket }}{% endif %}</small>{% if e.notes %}<p class="bf-muted">{{ e.notes }}</p>{% endif %}</li>{% else %}<li>No events recorded.</li>{% endfor %}</ol>
+{% if full_history %}<a class="button secondary" href="{{ url_for('bf_bin',bin_id=item.bin_id) }}">Open current bin record</a>{% endif %}</section>
+{% endblock %}

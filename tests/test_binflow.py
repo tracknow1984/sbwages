@@ -165,7 +165,7 @@ class BinFlowTests(unittest.TestCase):
             self.assertIn(b'Weight saved',response.data)
         self.assertEqual(self.rows('SELECT status FROM bf_jobs WHERE id=2')[0]['status'],'complete')
         self.assertEqual(self.rows('SELECT SUM(net_g) AS n FROM bf_job_bins WHERE job_id=2')[0]['n'],85509)
-        self.assertIn(b'FINAL',self.client.get('/binflow/pickups/2/pod').data)
+        self.assertIn(b'SIGN-OFF PENDING',self.client.get('/binflow/pickups/2/pod').data)
         self.assertIn(b'85.509',self.client.get('/binflow/pickups/2/pod').data)
         self.assertNotIn(b'Client Beta',self.client.get('/binflow/pickups/2/pod').data)
         pdf=self.client.get('/binflow/pickups/2/pod.pdf')

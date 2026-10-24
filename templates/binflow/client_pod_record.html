@@ -1,0 +1,4 @@
+{% extends 'binflow/client_layout.html' %}{% block content %}
+<div class="bf-toolbar"><a href="{{ url_for('bf_client_pods',date=job.scheduled_date) }}">Your PODs</a><a class="button primary" href="{{ url_for('bf_client_pdf',job_id=job.id) }}">Download signed POD</a></div>
+{% include 'binflow/pod_document.html' %}
+{% endblock %}

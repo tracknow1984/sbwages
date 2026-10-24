@@ -83,6 +83,9 @@ class DriverDayTests(unittest.TestCase):
         i=self.rows('SELECT id FROM bf_job_bins WHERE job_id=2 AND direction="collect"')[0]['id']
         self.post(f'/binflow/pickups/2/weigh/{i}',dict(gross='25',tare='5',confirm_tare='yes'))
         self.assertEqual(self.rows('SELECT status FROM bf_jobs WHERE id=2')[0]['status'],'complete')
+        self.assertEqual(client.get('/binflow/client/pods/2.pdf').status_code,404)  # Weighed but unsigned.
+        from pod_helpers import sign_pod
+        sign_pod(self,2)
         self.assertTrue(client.get('/binflow/client/pods/2.pdf').data.startswith(b'%PDF-'))
         self.scan(2)
         self.assertEqual(self.stage(),'weighing')

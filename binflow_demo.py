@@ -16,7 +16,7 @@ DEMO_ENDPOINTS = frozenset({
     'bf_workday','bf_start_workday','bf_workday_vehicle','bf_finish_workday','bf_accept_overview',
     'bf_overview_state','bf_workday_break','bf_clock_state','bf_test_prestart','bf_run','bf_run_state',
     'bf_run_prestart','bf_accept_run','bf_run_action','bf_run_scan','bf_truck','bf_truck_scan',
-    'bf_workday_plan_state','bf_load_list','bf_job','bf_pod','bf_pod_pdf','bf_daily_pods',
+    'bf_workday_plan_state','bf_load_list','bf_job','bf_pod_record','bf_pod_qr','bf_pod_signature','bf_pod_journey','bf_pod','bf_pod_pdf','bf_daily_pods',
     'bf_demo_labels','bf_demo_qr','bf_demo_inbound',
 })
 SUBURBS = {
@@ -49,6 +49,8 @@ def install_demo_database(app, real_db, now):
         conn.execute('PRAGMA foreign_keys=ON')
         from binflow_reports import migrate_timings
         migrate_timings(conn)
+        from binflow_pod_records import migrate as migrate_pod_records
+        migrate_pod_records(conn)
         conn.commit()
         g.bf_demo_db = conn
         g.bf_demo_token = token

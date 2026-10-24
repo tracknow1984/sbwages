@@ -1,0 +1,21 @@
+<section class="bf-panel bf-pad" id="pod-finalisation">
+<h2>Material & POD sign-off</h2>
+{% if job.pod_signed_at %}
+<p class="bf-note">Signed by <strong>{{ job.pod_signed_name }}</strong> · {{ job.pod_signed_at|display_datetime }}. Material classifications and final weights are locked.</p>
+{% elif current_user.role=='admin' or binflow_manager %}
+<p class="bf-muted">Classify each collected bin, finish warehouse weighing, then sign the final POD. Client handover confirmation is separate from this warehouse approval.</p>
+{% set collected=items|selectattr('direction','equalto','collect')|list %}
+{% if collected %}<form method="post" action="{{ url_for('bf_pod_materials',job_id=job.id) }}" class="bf-form">
+<input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ job.pod_version }}">
+<div class="bf-grid">{% for i in collected %}<label>{{ i.bin_code }} · material<select name="material_{{ i.id }}" required><option value="">Choose material</option>{% for m in material_classes if m.active or m.id==i.material_id %}<option value="{{ m.id }}" {{ 'selected' if m.id==i.material_id }}>{{ i.material_name if m.id==i.material_id else m.name }}{{ ' (inactive)' if not m.active }}</option>{% endfor %}</select></label>{% endfor %}</div>
+<button class="secondary">Save materials</button>{% if current_user.role=='admin' %} <a href="{{ url_for('bf_setup',_anchor='materials') }}">Manage classifications</a>{% endif %}</form>
+{% else %}<p>No material collected — empty delivery only. Weighing and material classification are not applicable; sign-off is still required.</p>{% endif %}
+{% if job.status=='complete' %}<form method="post" action="{{ url_for('bf_pod_sign',job_id=job.id) }}" class="bf-form">
+<input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ job.pod_version }}">
+<h3>Final warehouse approval</h3><p>Signing as <strong>{{ current_user.first_name }} {{ current_user.last_name }}</strong>. The server records the date and time when you sign.</p>
+<label class="bf-check"><input type="checkbox" name="confirm" value="yes" required><span>I have checked the material classifications, gross, tare and net weights and approve this final POD.</span></label>
+<div class="bf-signature" data-signature><div class="bf-toolbar"><strong>Warehouse signature</strong><button type="button" class="secondary" data-clear-signature>Clear</button></div><canvas width="600" height="200" aria-label="Draw warehouse sign-off signature"></canvas><input type="hidden" name="signature" value="[]"><small>Draw your signature with your finger or mouse.</small></div>
+<button class="primary">Sign off final POD</button></form>
+{% else %}<p class="bf-note">Sign-off becomes available after handover and all warehouse weights are recorded.</p>{% endif %}
+{% else %}<p class="bf-note">Warehouse staff will classify, weigh and sign off this POD.</p>{% endif %}
+</section>

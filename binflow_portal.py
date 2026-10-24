@@ -65,11 +65,12 @@ def register_portal(app, db, access, require, render, success, failure, now, act
             account=db().execute('SELECT * FROM bf_client_accounts WHERE username=?',(username,)).fetchone()
             matched=check_password_hash(account['password_hash'] if account else app.config['DUMMY_HASH'],request.form.get('password','')[:200])
             if account and account['active'] and matched:
+                pod_next=session.get('binflow_next','')
                 session.clear()
                 session.update(bf_client_uid=account['id'],bf_client_version=account['auth_version'],csrf=secrets.token_urlsafe(32))
                 session.permanent=True
                 db().execute('DELETE FROM login_attempts WHERE key=?',(keys[0],));db().commit()
-                return redirect(url_for('bf_client_pods'))
+                return redirect(pod_next if pod_next.startswith('/binflow/pod/') else url_for('bf_client_pods'))
             return render_template('binflow/client_login.html',error='The username or password is incorrect.'),401
         return render_template('binflow/client_login.html',error=None)
 
@@ -86,17 +87,17 @@ def register_portal(app, db, access, require, render, success, failure, now, act
         except ValueError as error: abort(400,str(error))
         jobs=db().execute('''SELECT j.*,(SELECT SUM(net_g) FROM bf_job_bins i WHERE i.job_id=j.id AND i.direction='collect') AS net
             FROM bf_jobs j JOIN bf_client_account_scope s ON s.client_id=j.pod_client_id
-            WHERE s.account_id=? AND j.status='complete' AND j.pod_deleted_at IS NULL AND j.scheduled_date=? ORDER BY j.client_name,j.site_name,j.id''',
+            WHERE s.account_id=? AND j.status='complete' AND j.pod_signed_at IS NOT NULL AND j.pod_deleted_at IS NULL AND j.scheduled_date=? ORDER BY j.client_name,j.site_name,j.id''',
             (g.bf_client['id'],run_date)).fetchall()
         dates=db().execute('''SELECT DISTINCT j.scheduled_date FROM bf_jobs j JOIN bf_client_account_scope s ON s.client_id=j.pod_client_id
-            WHERE s.account_id=? AND j.status='complete' AND j.pod_deleted_at IS NULL ORDER BY j.scheduled_date DESC LIMIT 60''',(g.bf_client['id'],)).fetchall()
+            WHERE s.account_id=? AND j.status='complete' AND j.pod_signed_at IS NOT NULL AND j.pod_deleted_at IS NULL ORDER BY j.scheduled_date DESC LIMIT 60''',(g.bf_client['id'],)).fetchall()
         return render_template('binflow/client_pods.html',account=g.bf_client,jobs=jobs,dates=dates,run_date=run_date)
 
     @app.get('/binflow/client/pods/<int:job_id>.pdf')
     @client_access
     def bf_client_pdf(job_id):
         permitted=db().execute('''SELECT 1 FROM bf_jobs j JOIN bf_client_account_scope s ON s.client_id=j.pod_client_id
-            WHERE j.id=? AND s.account_id=? AND j.status='complete' AND j.pod_deleted_at IS NULL ''',(job_id,g.bf_client['id'])).fetchone()
+            WHERE j.id=? AND s.account_id=? AND j.status='complete' AND j.pod_signed_at IS NOT NULL AND j.pod_deleted_at IS NULL ''',(job_id,g.bf_client['id'])).fetchone()
         if not permitted: abort(404)
         return pdf(job_id)
 

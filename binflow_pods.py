@@ -58,11 +58,11 @@ def register_pods(app, db, access, require, render, success, failure, now, pdf):
             ' ORDER BY j.client_name,j.site_name,j.id', (run_date,)).fetchall()
         return [j for j in rows if can_view_job(db(), g.user, j)]
 
-    def closed_job(job_id):
+    def closed_job(job_id, require_signed=True):
         j = db().execute('SELECT * FROM bf_jobs WHERE id=?', (job_id,)).fetchone()
         if not j: abort(404)
-        if j['status'] != 'complete' or j['approval_status'] != 'approved':
-            raise ValueError('Finish the handover and final weights before filing or emailing this POD.')
+        if j['status'] != 'complete' or (require_signed and not j['pod_signed_at']) or j['approval_status'] != 'approved':
+            raise ValueError('Finish the handover, final weights, material classification and signed sign-off before filing or emailing this POD.')
         return j
 
     @app.get('/binflow/pods')
@@ -71,21 +71,22 @@ def register_pods(app, db, access, require, render, success, failure, now, pdf):
         run_date, view = selection()
         jobs = daily_jobs(run_date, view)
         return render('daily_pods', section='pods', run_date=run_date, view=view, jobs=jobs,
-                      closed=sum(j['status'] == 'complete' for j in jobs))
+                      closed=sum(bool(j['pod_signed_at']) for j in jobs))
 
     @app.get('/binflow/pods/export.csv')
     @require('admin')
     def bf_pods_export():
         run_date, view = selection()
         stream = io.StringIO(); writer = csv.writer(stream)
-        writer.writerow(['Docket', 'Date', 'Client', 'Site', 'State', 'POD status', 'Net weight kg', 'Filed under'])
+        writer.writerow(['Docket', 'Date', 'Client', 'Site', 'State', 'POD status', 'Net weight kg', 'Filed under', 'Signed by', 'Signed at', 'Materials'])
         def safe(value):
             value = str(value or '')
             return "'" + value if value.lstrip().startswith(('=', '+', '-', '@')) or value.startswith(('\t', '\r', '\n')) else value
         for j in daily_jobs(run_date, view):
-            status = 'Final' if j['status'] == 'complete' else ('Weight pending' if j['collected_at'] else 'Awaiting handover')
+            from binflow_pod_records import status as pod_status
+            status = pod_status(j)
             writer.writerow([safe(v) for v in (j['code'], j['scheduled_date'], j['client_name'], j['site_name'],
-                j['state'], status, str(Decimal(j['net'] or 0) / 1000), view)])
+                j['state'], status, str(Decimal(j['net'] or 0) / 1000), view, j['pod_signed_name'],j['pod_signed_at'], '; '.join(r[0] for r in db().execute("SELECT DISTINCT material_name FROM bf_job_bins WHERE job_id=? AND direction='collect'",(j['id'],))))])
         return send_file(io.BytesIO(stream.getvalue().encode('utf-8-sig')), mimetype='text/csv',
                          as_attachment=True, download_name=f'PODs-{run_date}-{view}.csv')
 
@@ -97,7 +98,7 @@ def register_pods(app, db, access, require, render, success, failure, now, pdf):
         run_date = now()[:10]
         try:
             db().execute('BEGIN IMMEDIATE')
-            j = closed_job(job_id); run_date = j['scheduled_date']
+            j = closed_job(job_id,require_signed=request.form.get('action')!='restore'); run_date = j['scheduled_date']
             if request.form.get('version', type=int) != j['pod_version']:
                 raise ValueError('This POD changed. Refresh the list before trying again.')
             action = request.form.get('action')
@@ -155,7 +156,7 @@ def register_pods(app, db, access, require, render, success, failure, now, pdf):
                 cursor = db().execute('''INSERT OR IGNORE INTO bf_pod_emails
                     (job_id,user_id,request_key,recipient,status,created_at)
                     SELECT id,?,?,?,'sending',? FROM bf_jobs
-                    WHERE id=? AND pod_version=? AND status='complete' AND pod_deleted_at IS NULL''',
+                    WHERE id=? AND pod_version=? AND status='complete' AND pod_signed_at IS NOT NULL AND pod_deleted_at IS NULL''',
                     (g.user['id'], key, recipient, now(), job_id, j['pod_version']))
                 db().commit()
                 if not cursor.rowcount:
