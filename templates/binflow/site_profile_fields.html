@@ -1,0 +1,19 @@
+{% set site_label = site_label|default('Customer Site') %}
+<fieldset><legend>{{ site_label }}</legend><div class="bf-grid">
+<label>Group<input name="group_name" maxlength="200" value="{{ values.group_name }}" placeholder="Business group or tier"></label>
+<label>{{ site_label }}<input name="customer_site" maxlength="200" value="{{ values.customer_site }}" required></label>
+<label>Address<input name="address" maxlength="500" value="{{ values.address }}" autocomplete="street-address" {{ "required" if creating or supplier|default(false) }}></label>
+<label>Suburb<input name="suburb" maxlength="200" value="{{ values.suburb }}" autocomplete="address-level2"></label>
+<label>State<select name="state" {{ "required" if creating or supplier|default(false) }}><option value="">Not confirmed</option>{% for s in states %}<option {{ 'selected' if values.state==s }}>{{ s }}</option>{% endfor %}</select></label>
+<label>Post Code<input name="postcode" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" value="{{ values.postcode }}" autocomplete="postal-code"></label>
+</div></fieldset>
+<fieldset><legend>Site contacts</legend><div class="bf-grid">
+<label>Contact Name<textarea name="contact_name" maxlength="500" rows="2">{{ values.contact_name }}</textarea></label>
+<label>Contact Email<textarea name="contact_email" maxlength="1500" rows="2">{{ values.contact_email }}</textarea></label>
+<label>Contact Number<textarea name="contact_number" maxlength="500" rows="2">{{ values.contact_number }}</textarea></label>
+<label>Contact Verified?<select name="contact_verified"><option value="no" {{ 'selected' if values.contact_verified=='no' }}>No</option><option value="yes" {{ 'selected' if values.contact_verified=='yes' }}>Yes</option></select></label>
+</div><p class="bf-muted">Keep multiple contacts in the same order across names, emails and numbers. Mark verified after checking these details with the site.</p></fieldset>
+<fieldset><legend>Service & access</legend><div class="bf-grid">
+<label>Schedule<textarea name="schedule" maxlength="500" rows="2" placeholder="e.g. Weekly — Monday, Wednesday, Friday">{{ values.schedule }}</textarea></label>
+<label>ASIC Required<select name="asic_required">{% for value,label in [('unknown','Not confirmed'),('yes','Yes'),('no','No')] %}<option value="{{ value }}" {{ 'selected' if values.asic_required==value }}>{{ label }}</option>{% endfor %}</select></label>
+</div><p class="bf-muted">{% if supplier|default(false) %}Record the agreed service or delivery schedule for this supplier site.{% else %}The schedule records the site's service agreement. Set dated collections in the collection calendar.{% endif %}</p></fieldset>

@@ -59,6 +59,12 @@ The SMTP integration uses password/app-password authentication over TLS. Provide
 
 ## Local development
 
+### Supplier Site Register
+
+BINFLOW → Client profiles shows **Supplier Site Register** directly below the Customer site register, with separate **Decommission Partners** and **Industry Suppliers** registers. The navigation also provides a dedicated supplier view at `/binflow/supplier-profiles`.
+
+Both supplier categories use the customer's 12 site/contact fields (with Supplier Site as the site-name label), responsive tables, search, filters, sorting, pagination and admin-only add/edit forms. Supplier records have independent persistent storage, duplicate-site checks, CSRF protection, edit versions and an audit history. Existing customer records and operational allocations are preserved; supplier contact entries do not create customer accounts, collection locations or bin allocations.
+
 Requires Python 3.12. Install `requirements.txt`, export environment variables from `.env.example` with your own values, and set `COOKIE_SECURE=false` only for local HTTP. `.env` is not loaded automatically.
 
 ```sh

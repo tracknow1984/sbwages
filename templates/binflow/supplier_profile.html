@@ -1,0 +1,15 @@
+{% extends 'binflow/layout.html' %}
+{% block title %}{{ 'Add supplier site' if creating else 'Supplier site profile' }}{% endblock %}
+{% block subtitle %}Supplier Site Register / {{ category_label }}{% endblock %}
+{% block body %}
+<section class="bf-panel bf-pad bf-profile-editor">
+{% if error %}<p class="bf-note" role="alert">{{ error }}</p>{% endif %}
+<form method="post" class="bf-form bf-profile-form">
+<input type="hidden" name="csrf" value="{{ csrf_token() }}">
+{% if not creating %}<input type="hidden" name="version" value="{{ profile.version }}">{% endif %}
+{% with supplier=true,site_label='Supplier Site' %}{% include 'binflow/site_profile_fields.html' %}{% endwith %}
+<div class="bf-actions"><button class="primary">{{ 'Add supplier site' if creating else 'Save profile' }}</button><a class="button secondary" href="{{ url_for('bf_supplier_profiles',category=category) }}">Cancel</a></div>
+</form>
+{% if not creating %}<p class="bf-muted">Last saved {{ profile.updated_at }} · {{ profile.updated_by }}</p>{% endif %}
+</section>
+{% endblock %}

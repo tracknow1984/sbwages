@@ -1,0 +1,10 @@
+{% extends 'binflow/layout.html' %}
+{% block title %}Supplier Site Register{% endblock %}
+{% block subtitle %}{{ register_title }} — site contacts, service schedules and access requirements.{% endblock %}
+{% block body %}
+<div class="bf-actions"><a href="{{ url_for('bf_client_profiles',_anchor='supplier-site-register') }}">Back to Customer site register</a></div>
+<nav class="bf-profile-register-tabs" aria-label="Supplier categories">
+{% for key,label in categories.items() %}<a href="{{ url_for('bf_supplier_profiles',category=key) }}" class="{{ 'active' if category==key }}" {% if category==key %}aria-current="page"{% endif %}>{{ label }} <span>{{ counts.get(key,0) }}</span></a>{% endfor %}
+</nav>
+{% include 'binflow/profile_register.html' %}
+{% endblock %}

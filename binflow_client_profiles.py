@@ -44,15 +44,17 @@ def migrate(conn):
     conn.executescript(SCHEMA)
 
 
-def validate(values):
+def validate(values, site_label="Customer Site"):
     result = {}
     for key, label, maximum in FIELDS:
+        if key == 'customer_site':
+            label = site_label
         value = str(values.get(key, '') or '').strip()
         if len(value) > maximum or '\x00' in value:
             raise ValueError(f'{label} must be no more than {maximum} characters.')
         result[key] = value
     if not result['customer_site']:
-        raise ValueError('Customer Site is required.')
+        raise ValueError(f'{site_label} is required.')
     if result['state'] and result['state'] not in STATES:
         raise ValueError('Choose an Australian state or territory, or Not confirmed.')
     if result['postcode'] and not re.fullmatch(r'[0-9]{4}', result['postcode']):
@@ -229,6 +231,57 @@ def register_counts(conn):
                 workbook=conn.execute('SELECT COUNT(*) FROM bf_allocation_workbook_rows WHERE active=1').fetchone()[0])
 
 
+def filter_register(rows, args, endpoint, endpoint_args=None, supplier=False):
+    """Shared search, filters, sorting and bounded pagination for site registers."""
+    query = args.get('q', '').strip()[:200]
+    filters = {name: args.get(name, '').strip()[:500]
+               for name in ('group', 'state', 'schedule', 'asic', 'verified', 'status', 'sort')}
+    if args.get('review') == '1' and not filters['status']:
+        filters['status'] = 'review'
+    options = {name: sorted({r[column] for r in rows if r[column]}, key=str.casefold)
+               for name, column in (('group', 'group_name'), ('schedule', 'schedule'))}
+    total, unlinked = len(rows), 0 if supplier else sum(not r['location_id'] for r in rows)
+    if query:
+        rows = [r for r in rows if query.casefold() in
+                ' '.join(str(r[k] or '') for k in (KEYS if supplier else (*KEYS, 'client_name'))).casefold()]
+    for name, column in (('group', 'group_name'), ('state', 'state'), ('schedule', 'schedule'),
+                         ('asic', 'asic_required'), ('verified', 'contact_verified')):
+        if filters[name]:
+            wanted = '' if filters[name] == '__blank__' else filters[name]
+            rows = [r for r in rows if r[column].casefold() == wanted.casefold()]
+    status = filters['status']
+    if status == 'linked' and not supplier:
+        rows = [r for r in rows if r['location_id']]
+    elif status == 'unlinked' and not supplier:
+        rows = [r for r in rows if not r['location_id']]
+    elif status == 'missing':
+        rows = [r for r in rows if not all(r[k] for k in ('address','suburb','state','postcode'))]
+    elif status == 'review':
+        rows = [r for r in rows if (not supplier and not r['location_id']) or not r['state'] or
+                not r['address'] or r['contact_verified'] == 'no']
+    sort_key = {'group':'group_name', 'state':'state', 'suburb':'suburb'}.get(filters['sort'], 'customer_site')
+    rows = sorted(rows, key=lambda r: (r[sort_key].casefold(), r['customer_site'].casefold(), r['id']))
+    try:
+        per_page = int(args.get('per_page', '20'))
+        if per_page not in (10, 20, 50): per_page = 20
+        page = max(1, int(args.get('page', '1')))
+    except ValueError:
+        per_page, page = 20, 1
+    filtered = len(rows)
+    pages = max(1, (filtered + per_page - 1) // per_page)
+    page = min(page, pages)
+    offset = (page - 1) * per_page
+    page_args = {**(endpoint_args or {}), **filters, 'q':query, 'per_page':per_page}
+    if not supplier:
+        page_args['view'] = args.get('view', 'current')
+    return dict(profiles=rows[offset:offset+per_page], query=query, filters=filters,
+                options=options, total=total, unlinked=unlinked, filtered=filtered,
+                page=page, pages=pages, per_page=per_page,
+                first=offset+1 if filtered else 0, last=min(offset+per_page, filtered),
+                previous_url=url_for(endpoint, page=page-1, **page_args) if page>1 else None,
+                next_url=url_for(endpoint, page=page+1, **page_args) if page<pages else None)
+
+
 def register_profiles(app, db, require, render, now, actor):
     @app.get('/binflow/client-profiles')
     @require('admin')
@@ -244,52 +297,12 @@ def register_profiles(app, db, require, render, now, actor):
         archived_count = sum(r['archived'] for r in rows)
         view = 'archived' if request.args.get('view')=='archived' else 'current'
         rows = [r for r in rows if bool(r['archived'])==(view=='archived')]
-        query = request.args.get('q', '').strip()[:200]
-        filters = {name: request.args.get(name, '').strip()[:500]
-                   for name in ('group', 'state', 'schedule', 'asic', 'verified', 'status', 'sort')}
-        if request.args.get('review') == '1' and not filters['status']:
-            filters['status'] = 'review'
-        options = {name: sorted({r[column] for r in rows if r[column]}, key=str.casefold)
-                   for name, column in (('group', 'group_name'), ('schedule', 'schedule'))}
-        total, unlinked = len(rows), sum(not r['location_id'] for r in rows)
-        if query:
-            rows = [r for r in rows if query.casefold() in
-                    ' '.join(str(r[k] or '') for k in (*KEYS, 'client_name')).casefold()]
-        for name, column in (('group', 'group_name'), ('state', 'state'), ('schedule', 'schedule'),
-                             ('asic', 'asic_required'), ('verified', 'contact_verified')):
-            if filters[name]:
-                wanted = '' if filters[name] == '__blank__' else filters[name]
-                rows = [r for r in rows if r[column].casefold() == wanted.casefold()]
-        status = filters['status']
-        if status == 'linked':
-            rows = [r for r in rows if r['location_id']]
-        elif status == 'unlinked':
-            rows = [r for r in rows if not r['location_id']]
-        elif status == 'missing':
-            rows = [r for r in rows if not all(r[k] for k in ('address','suburb','state','postcode'))]
-        elif status == 'review':
-            rows = [r for r in rows if not r['location_id'] or not r['state'] or
-                    not r['address'] or r['contact_verified'] == 'no']
-        sort_key = {'group':'group_name', 'state':'state', 'suburb':'suburb'}.get(filters['sort'], 'customer_site')
-        rows = sorted(rows, key=lambda r: (r[sort_key].casefold(), r['customer_site'].casefold(), r['id']))
-        try:
-            per_page = int(request.args.get('per_page', '20'))
-            if per_page not in (10, 20, 50): per_page = 20
-            page = max(1, int(request.args.get('page', '1')))
-        except ValueError:
-            per_page, page = 20, 1
-        filtered = len(rows)
-        pages = max(1, (filtered + per_page - 1) // per_page)
-        page = min(page, pages)
-        offset = (page - 1) * per_page
-        page_args = {**filters, 'q':query, 'per_page':per_page,'view':view}
-        return render('client_profiles', section='profiles', profiles=rows[offset:offset+per_page],
-                      bin_counts=bin_counts, fields=FIELDS, query=query, filters=filters, options=options, total=total, unlinked=unlinked,
-                      filtered=filtered, page=page, pages=pages, per_page=per_page,
-                      view=view,current_count=current_count,archived_count=archived_count,
-                      first=offset+1 if filtered else 0, last=min(offset+per_page,filtered),
-                      previous_url=url_for('bf_client_profiles',page=page-1,**page_args) if page>1 else None,
-                      next_url=url_for('bf_client_profiles',page=page+1,**page_args) if page<pages else None)
+        from binflow_supplier_profiles import overview
+        return render('client_profiles', section='profiles',
+                      **filter_register(rows, request.args, 'bf_client_profiles'),
+                      bin_counts=bin_counts, fields=FIELDS, view=view,
+                      current_count=current_count, archived_count=archived_count,
+                      supplier_registers=overview(db()))
 
     @app.route('/binflow/client-profiles/new', methods=['GET', 'POST'])
     @require('admin')

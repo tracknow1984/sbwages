@@ -124,6 +124,8 @@ def register_binflow(app, db, require):
         migrate_approvals(db())
         migrate_collections(db())
         migrate_client_profiles(db())
+        from binflow_supplier_profiles import migrate as migrate_supplier_profiles
+        migrate_supplier_profiles(db())
         migrate_allocation_import(db())
         migrate_route_calendar(db())
         migrate_schedule(db())
@@ -990,5 +992,7 @@ def register_binflow(app, db, require):
     from binflow_demo import register_demo
     register_demo(app,db,access,render,now)
     register_profiles(app,db,require,render,now,actor)
+    from binflow_supplier_profiles import register_suppliers
+    register_suppliers(app,db,require,render,now,actor)
 
     register_schedule(app,db,access,require,render,now,actor)

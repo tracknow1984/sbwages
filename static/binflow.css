@@ -224,3 +224,14 @@
 .bf-bin-summary{display:flex;align-items:center;gap:12px}.bf-inventory-table .bf-qr-thumbnail,.bf-inventory-table .bf-qr-thumbnail img{width:44px;height:44px;margin:0;flex-shrink:0}.bf-inventory-table .bf-status{margin-top:6px;white-space:normal}.bf-inventory-table .bf-edit-location{display:inline-block;font-size:11px;margin-top:6px}.bf-inventory-table .bf-bin-condition{max-width:170px}.bf-inventory-table td{padding-top:12px;padding-bottom:12px}
 
 .bf-setup-links{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:22px}.bf-setup-sections{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start}.bf-setup-sections>.bf-panel{margin-bottom:0}.bf-setup-sections{margin-bottom:20px}.bf-setup-sections summary small,.bf-material-settings summary small,.bf-panel>summary small{display:block;font-size:12px;font-weight:400;color:var(--bf-muted);margin:6px 0 0 18px}.bf-material-settings>section{border:0;box-shadow:none;margin:12px 0 0;padding:0}.bf-material-settings>section>h2{display:none}@media(max-width:650px){.bf-setup-sections{grid-template-columns:1fr}.bf-setup-links .button{flex:1 1 45%;text-align:center}}
+
+/* Supplier registers share the customer register's fields and responsive table. */
+.bf-supplier-section{margin-top:30px;scroll-margin-top:20px}
+.bf-supplier-section>.bf-panel-head{padding:12px 0}
+.bf-supplier-section .bf-muted{margin:7px 0 0;font-size:13px}
+.bf-supplier-register>summary{padding:18px 20px;cursor:pointer}
+.bf-supplier-register>summary strong{margin-left:6px;font-size:16px}
+.bf-supplier-register>summary span{float:right;color:var(--bf-muted);font-size:13px}
+.bf-supplier-register>summary:focus-visible{outline:3px solid #789ccf;outline-offset:-3px}
+.bf-supplier-register>.bf-pad{padding-top:4px}
+.bf-supplier-profiles th:nth-child(1){width:20%}.bf-supplier-profiles th:nth-child(2){width:21%}.bf-supplier-profiles th:nth-child(3){width:22%}.bf-supplier-profiles th:nth-child(4){width:12%}.bf-supplier-profiles th:nth-child(5){width:8%}.bf-supplier-profiles th:nth-child(6){width:9%}.bf-supplier-profiles th:nth-child(7){width:8%}
