@@ -992,6 +992,8 @@ def register_binflow(app, db, require):
     register_reports(app,db,require,render,now)
     from binflow_demo import register_demo
     register_demo(app,db,access,render,now)
+    from binflow_rental import register as register_rental
+    register_rental(app,db,require,render,now)
     register_sizes(app,db,require,render,now,actor)
     register_profiles(app,db,require,render,now,actor)
     from binflow_supplier_profiles import register_suppliers

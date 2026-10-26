@@ -1,0 +1,72 @@
+{% extends 'binflow/layout.html' %}
+{% block title %}Rental Income{% endblock %}
+{% block subtitle %}Proposed allocations, actual bins and one fortnightly BlockTexx charge.{% endblock %}
+{% macro amount(value, known=none) -%}
+{% if value is not none %}{{ value|money }}{% else %}<span class="bf-rental-review">Incomplete</span>{% if known is not none %}<small>Priced subtotal {{ known|money }}</small>{% endif %}{% endif %}
+{%- endmacro %}
+{% macro mix(counts) -%}
+{% for sid,size in sizes.items() if counts.get(sid,0) %}<small>{{ counts[sid] }} × {{ size.name }}</small>{% endfor %}
+{%- endmacro %}
+{% block body %}
+<div class="bf-toolbar bf-rental-toolbar">
+<p class="bf-muted">As at {{ as_of|display_datetime }} AEST · {{ client_count }} client accounts{% if pending_count %} + {{ pending_count }} unlinked site profiles{% endif %}</p>
+<div class="bf-actions"><a class="button secondary" href="{{ url_for('bf_setup',_anchor='bin-sizes') }}">Edit rental rates</a><a class="button secondary" href="{{ url_for('bf_rental_income',state=selected,q=query) }}">Refresh totals</a><a class="button primary" href="{{ url_for('bf_rental_income_export') }}">Export national summary</a></div>
+</div>
+<p class="bf-rental-scope">National totals — all clients. Filters below only change the client table.</p>
+<div class="bf-rental-metrics">
+<section class="bf-panel bf-pad"><span class="bf-kicker">PROPOSED / WEEK</span><h2>{{ amount(totals.proposed_cents,totals.proposed_known_cents) }}</h2><p>{{ totals.proposed_count }} proposed bins · {{ site_count }} current sites</p><small>Saved on-site targets × weekly rental rate.</small></section>
+<section class="bf-panel bf-pad"><span class="bf-kicker">ACTUAL / WEEK</span><h2>{{ amount(totals.actual_cents,totals.actual_known_cents) }}</h2><p>{{ totals.actual_count }} bins on site · {{ totals.billable_count }} billable</p><small>IN SERVICE bins recorded at customer sites × weekly rental rate.</small></section>
+<section class="bf-panel bf-pad"><span class="bf-kicker">ACTUAL LESS PROPOSED / WEEK</span><h2>{{ amount(totals.variance_cents) }}</h2><p>{{ totals.billable_count - totals.proposed_count }} bin difference</p><small>Negative means actual rental is below the proposed income.</small></section>
+</div>
+
+<section class="bf-panel bf-pad bf-rental-billing" aria-labelledby="blocktexx-rental-title">
+<div><span class="bf-kicker">SINGLE CONSOLIDATED CHARGE</span><h2 id="blocktexx-rental-title">Bill to BlockTexx · fortnightly</h2><p>All clients combined. Current actual weekly rental × 2 weeks.</p><p class="bf-muted">This is a current snapshot estimate. Check any bin or rate changes during the billing fortnight before invoicing.</p></div>
+<dl><div><dt>Fortnight excluding GST</dt><dd>{{ amount(totals.fortnight_cents) }}</dd></div><div><dt>GST · 10%</dt><dd>{{ amount(totals.gst_cents) }}</dd></div><div class="bf-rental-charge"><dt>Fortnight including GST</dt><dd>{{ amount(totals.total_cents) }}</dd></div></dl>
+{% if totals.actual_cents is none %}<p class="bf-rental-warning">Complete missing actual rental rates and review flagged bins to confirm the consolidated charge. The priced actual subtotal is {{ (totals.actual_known_cents*2)|money }} per fortnight excluding GST.</p>{% endif %}
+</section>
+
+{% if missing_sizes or totals.missing_targets or totals.review_count %}<section class="bf-panel bf-pad bf-rental-checks"><h2>Items to complete</h2>
+{% if missing_sizes %}<p>Missing weekly rental rates: {% for size in missing_sizes %}<a href="{{ url_for('bf_edit_size',size_id=size.id) }}">{{ size.name }}</a>{{ ', ' if not loop.last }}{% endfor %}. Unpriced bins are flagged, rather than counted as free.</p>{% endif %}
+{% if totals.missing_targets %}<p>{{ totals.missing_targets }} sites have no saved proposed allocation. Complete their site details / bin requirements below. The proposed total remains incomplete until these are recorded.</p>{% endif %}
+{% if totals.review_count %}<p>{{ totals.review.get('damaged',0) }} damaged and {{ totals.review.get('lost',0) }} lost bins require billing review. They are excluded from the charge estimate; lost bins are also excluded from the on-site count.</p>{% endif %}
+</section>{% endif %}
+
+<section class="bf-panel" id="rental-clients">
+<div class="bf-panel-head"><div><h2>Client rental breakdown</h2><p>Amounts below exclude GST. Expand a client for its sites and bin sizes.</p></div><span class="bf-count">{{ visible|length }} of {{ clients|length }} accounts / profiles</span></div>
+<form class="bf-rental-filters" method="get" role="search" aria-label="Filter rental clients">
+<label>Search<input type="search" name="q" value="{{ query }}" placeholder="Client, site, suburb or group" maxlength="200"></label>
+<label>State<select name="state"><option value="">All states</option>{% for state in states %}<option {{ 'selected' if state==selected }}>{{ state }}</option>{% endfor %}</select></label>
+<button class="primary">Apply filters</button><a href="{{ url_for('bf_rental_income',_anchor='rental-clients') }}">Clear</a>
+</form>
+<div class="bf-rental-table-wrap"><table class="bf-rental-table">
+<thead><tr><th scope="col">Client / sites</th><th scope="col">Proposed bins</th><th scope="col">Proposed / week</th><th scope="col">Actual bins</th><th scope="col">Actual / week</th><th scope="col">Weekly difference</th><th scope="col">Actual / fortnight</th></tr></thead>
+<tbody>{% for client in visible %}{% set s=client.summary %}
+<tr>
+<td data-label="Client / sites"><strong>{{ client.name }}</strong><small>{{ client.states|join(', ') or 'State not confirmed' }} · {{ client.sites|length }} sites</small>{% if client.pending %}<small class="bf-rental-review">Unlinked site profile</small>{% endif %}
+{% if s.missing_targets %}<small class="bf-rental-review">{{ s.missing_targets }} sites need proposed quantities</small>{% endif %}{% if s.review_count %}<small class="bf-rental-review">{{ s.review_count }} bins need billing review</small>{% endif %}</td>
+<td data-label="Proposed bins"><strong>{{ s.proposed_count }}</strong>{{ mix(s.proposed) }}</td>
+<td data-label="Proposed / week">{{ amount(s.proposed_cents,s.proposed_known_cents) }}</td>
+<td data-label="Actual bins"><strong>{{ s.actual_count }} on site</strong><small>{{ s.billable_count }} billable</small>{{ mix(s.actual) }}</td>
+<td data-label="Actual / week">{{ amount(s.actual_cents,s.actual_known_cents) }}</td>
+<td data-label="Weekly difference">{{ amount(s.variance_cents) }}</td>
+<td data-label="Actual / fortnight">{{ amount(s.fortnight_cents) }}</td>
+</tr>
+<tr class="bf-rental-detail-row"><td colspan="7"><details><summary>Sites & bin breakdown for {{ client.name }}</summary>
+{% for site in client.sites %}<article class="bf-rental-site">
+<div class="bf-panel-head"><div><h3>{{ site.name }}{% if site.state %} · {{ site.state }}{% endif %}</h3><p>{{ site.address or 'Address not recorded' }}</p></div><div class="bf-actions">
+{% if site.id %}<a href="{{ url_for('bf_requirements',location_id=site.id) }}">Edit proposed bins</a><a href="{{ url_for('bf_inventory',client=client.id) }}">View actual bins</a>{% else %}<a href="{{ url_for('bf_client_profile',profile_id=site.contact_profile_id) }}">Complete site profile</a>{% endif %}</div></div>
+{% if site.target_status=='missing' %}<p class="bf-rental-review">No proposed allocation saved.</p>{% elif site.target_status=='inactive' %}<p class="bf-rental-review">Retired proposal; bins still recorded here remain in the actual totals.</p>{% endif %}
+{% if site.target_review %}<p class="bf-muted">Proposed allocation note: {{ site.target_review }}</p>{% endif %}
+{% if site.review_bins %}<p class="bf-rental-review">Review: {% for bin in site.review_bins %}<a href="{{ url_for('bf_bin',bin_id=bin.id) }}">{{ bin.code }}</a> ({{ bin.status }}){{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
+{% if site.lines %}<div class="bf-rental-lines-wrap"><table class="bf-rental-lines"><thead><tr><th>Bin size</th><th>Rate / week</th><th>Proposed</th><th>On site</th><th>Billable actual</th><th>Proposed / week</th><th>Actual / week</th></tr></thead><tbody>
+{% for line in site.lines %}<tr><td>{{ line.name }}</td><td>{% if line.rate is none %}<a href="{{ url_for('bf_edit_size',size_id=line.size_id) }}">Set rate</a>{% else %}{{ line.rate|money }}{% endif %}</td><td>{{ line.proposed }}</td><td>{{ line.actual }}</td><td>{{ line.billable }}</td><td>{{ amount(line.rate*line.proposed if line.rate is not none else 0 if not line.proposed else none) }}</td><td>{{ amount(line.rate*line.billable if line.rate is not none else 0 if not line.billable else none) }}</td></tr>{% endfor %}
+</tbody></table></div>{% else %}<p class="bf-muted">No proposed or actual billable bins recorded for this site.</p>{% endif %}
+</article>{% else %}<p class="bf-muted">This account has no current sites.</p>{% endfor %}
+</details></td></tr>
+{% else %}<tr><td colspan="7" class="bf-empty">No clients match these filters.</td></tr>{% endfor %}
+</tbody>
+<tfoot><tr><th scope="row">{{ 'Visible clients only' if selected or query else 'All clients' }}</th><td>{{ filtered_totals.proposed_count }}</td><td>{{ amount(filtered_totals.proposed_cents,filtered_totals.proposed_known_cents) }}</td><td>{{ filtered_totals.actual_count }} on site<small>{{ filtered_totals.billable_count }} billable</small></td><td>{{ amount(filtered_totals.actual_cents,filtered_totals.actual_known_cents) }}</td><td>{{ amount(filtered_totals.variance_cents) }}</td><td>{{ amount(filtered_totals.fortnight_cents) }}</td></tr></tfoot>
+</table></div>
+</section>
+<p class="bf-muted">Proposed quantities come from saved client site allocations. Actual rental uses IN SERVICE bins recorded at a customer site, whether empty or awaiting collection. Warehouse stock, rotation allowances, bins on trucks and reserved deliveries are excluded.</p>
+{% endblock %}

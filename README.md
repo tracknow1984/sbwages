@@ -59,6 +59,14 @@ The SMTP integration uses password/app-password authentication over TLS. Provide
 
 ## Local development
 
+### Rental Income and consolidated BlockTexx rental
+
+Admin BINFLOW → Rental Income (`/binflow/rental-income`) compares each client account's active proposed on-site bin targets with actual recorded customer-site custody, using the weekly rates in Bin sizes. Expand a client for site and size detail. Warehouse stock, rotation allowances, truck stock and undelivered reservations are excluded from actual rent. Retired proposals do not remove bins still recorded at those sites from actual rental review.
+
+The national summary combines all clients into one **BlockTexx fortnightly charge estimate**: current actual weekly rental × 2, plus 10% GST rounded once on the consolidated subtotal. This is a current snapshot, not a historical billing-period calculation or an issued invoice. Review within-fortnight quantity/rate changes separately. The client/state filters affect only the detail table; the payer summary and CSV export remain national.
+
+Unset rates remain incomplete rather than free. Zero is an explicit zero rental rate. Unlinked profiles and sites without proposed quantities remain visible and mark the proposed total incomplete. IN SERVICE bins are billable in the estimate; damaged/lost records are flagged for review and prevent a confirmed total, with the priced subtotal shown separately. Lost bins are excluded from on-site counts. No customer, stock or allocation records are changed by this report.
+
 ### Editable bin sizes and pricing
 
 BINFLOW → Setup → Bin sizes provides an Edit action for each size's label, litre capacity, default empty tare, weekly rental and capital purchase amount. Prices are optional AUD amounts per bin excluding GST; rental is per week and purchase is a one-off unit cost. Blank means not set, while zero is recorded as $0.00. These are catalogue values, not automatic invoice charges.

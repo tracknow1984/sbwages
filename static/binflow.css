@@ -244,3 +244,28 @@
 .bf-size-table th:first-child{width:30%}.bf-size-table .button{padding:8px 12px;min-height:36px}
 .bf-size-editor{max-width:850px;margin-inline:auto}
 @media(max-width:760px){.bf-size-table thead{display:none}.bf .bf-size-table,.bf-size-table tbody{display:block}.bf-size-table tr{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:16px 0;border-bottom:1px solid var(--bf-line)}.bf .bf-size-table td{padding:0;border:0}.bf-size-table td:first-child,.bf-size-table td:last-child{grid-column:1/-1}.bf-size-table td::before{content:attr(data-label);display:block;font-size:10px;font-weight:700;color:var(--bf-muted);margin-bottom:5px}}
+
+/* Current bin rental, grouped by client with one national payer. */
+.bf-rental-toolbar{align-items:center;flex-wrap:wrap}.bf-rental-toolbar p{margin:0;font-size:12px}
+.bf-rental-scope{font-size:12px;font-weight:700;color:var(--bf-muted)}
+.bf-rental-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.bf-rental-metrics h2{font-size:28px;margin:12px 0}.bf-rental-metrics h2 small{font-size:13px;font-weight:400;display:block;margin-top:6px}
+.bf-rental-metrics p{font-size:13px;margin-bottom:5px}.bf-rental-metrics small{font-size:12px;color:var(--bf-muted)}
+.bf-rental-billing{display:grid;grid-template-columns:1fr minmax(270px,.8fr);gap:22px;border-top:4px solid #225bc0}
+.bf-rental-billing h2{font-size:23px}.bf-rental-billing p{font-size:13px;line-height:1.6}
+.bf-rental-billing dl{margin:0}.bf-rental-billing dl>div{display:flex;justify-content:space-between;gap:18px;padding:10px 0;font-size:14px}
+.bf-rental-billing dd{margin:0;font-weight:700;text-align:right}.bf-rental-charge{border-top:1px solid var(--bf-line);margin-top:5px;padding-top:18px!important;font-size:18px!important}
+.bf-rental-warning{grid-column:1/-1;padding:13px 16px;background:#fff5df;border-radius:6px;margin:0}
+.bf-rental-review{color:#8b5a04;font-weight:600}.bf-rental-checks h2{font-size:17px}.bf-rental-checks p{font-size:13px}
+.bf-rental-filters{display:flex;align-items:end;gap:14px;flex-wrap:wrap;padding:16px 20px;border-bottom:1px solid var(--bf-line)}
+.bf-rental-filters label{margin:0}.bf-rental-filters label:first-child{flex:1;min-width:230px}
+.bf-rental-table-wrap{overflow-x:auto}.bf .bf-rental-table{width:100%;table-layout:fixed;min-width:960px;font-size:12px}
+.bf .bf-rental-table th,.bf .bf-rental-table td{white-space:normal;overflow-wrap:anywhere;vertical-align:top;padding:13px 10px}
+.bf-rental-table>thead th:first-child{width:24%}.bf-rental-table>thead th{font-size:11px}
+.bf-rental-table small{display:block;color:var(--bf-muted);font-size:11px;margin-top:5px}.bf-rental-table small.bf-rental-review{color:#8b5a04}
+.bf-rental-table tfoot{background:#f0f5fc;font-weight:700}.bf-rental-detail-row>td{padding-top:0!important;padding-bottom:14px!important}
+.bf-rental-detail-row summary{font-size:12px;color:#225bc0}.bf-rental-site{padding:16px 0;border-top:1px solid var(--bf-line);margin-top:15px}
+.bf-rental-site .bf-panel-head{padding:0 0 10px;align-items:center;flex-wrap:wrap}.bf-rental-site h3{font-size:15px;margin:0}
+.bf-rental-site p{margin:6px 0;font-size:12px}.bf-rental-lines-wrap{overflow:auto}
+.bf .bf-rental-lines{min-width:650px;width:100%;font-size:12px}.bf .bf-rental-lines th{background:#f5f8fc;font-size:11px}
+@media(max-width:850px){.bf-rental-metrics{grid-template-columns:1fr}.bf-rental-metrics .bf-panel{margin-bottom:0}.bf-rental-metrics{margin-bottom:20px}.bf-rental-billing{grid-template-columns:1fr}.bf-rental-metrics h2{font-size:25px}.bf-rental-filters label{flex:1;min-width:140px}}
