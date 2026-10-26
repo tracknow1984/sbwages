@@ -1,0 +1,19 @@
+<details class="bf-panel bf-pad" id="bin-sizes">
+<summary>Bin sizes <small>Capacity, empty weight, rental & purchase costs</small></summary>
+<p class="bf-muted">All amounts are AUD per bin, excluding GST. Rental is weekly.</p>
+<div class="bf-size-table-wrap"><table class="bf-size-table">
+<thead><tr><th scope="col">Size / empty weight</th><th scope="col">Capacity</th><th scope="col">Weekly rental</th><th scope="col">Capital purchase</th><th scope="col">Action</th></tr></thead>
+<tbody>{% for s in sizes %}<tr>
+<td data-label="Size / empty weight"><strong>{{ s.name }} · {{ s.default_tare_g|bfkg }} kg empty</strong></td>
+<td data-label="Capacity">{{ '{:,}'.format(s.litres) }} L</td>
+<td data-label="Weekly rental">{{ s.weekly_rental_cents|money if s.weekly_rental_cents is not none else 'Not set' }}</td>
+<td data-label="Capital purchase">{{ s.capital_purchase_cents|money if s.capital_purchase_cents is not none else 'Not set' }}</td>
+<td data-label="Action"><a class="button secondary" href="{{ url_for('bf_edit_size',size_id=s.id) }}" aria-label="Edit {{ s.name }}">Edit</a></td>
+</tr>{% endfor %}</tbody></table></div>
+<details><summary>Add another size</summary><form method="post" class="bf-form">
+<input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="action" value="size">
+{% with values={'name':'','litres':'','tare':'0','weekly_rental':'','capital_purchase':''} %}{% include 'binflow/size_fields.html' %}{% endwith %}
+<button class="secondary">Add size</button></form></details>
+<p class="bf-muted">Default empty weights apply to newly registered bins. Measure each physical bin's empty tare before finalising warehouse weights.</p>
+<a class="button primary" href="{{ url_for('bf_inventory') }}">Register physical bins</a>
+</details>

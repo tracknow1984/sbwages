@@ -87,7 +87,7 @@ def seed_demo(source, target, user, state, stamp):
                    ('SAMPLE · '+places[0]+' depot',state,places[0]+', '+state+', Australia',stamp))
     target.execute('INSERT INTO bf_trucks(id,name,state,created_at) VALUES(1,?,?,?)', ('SAMPLE · '+state+' truck',state,stamp))
     for sid,litres,tare in ((1,1100,65000),(2,240,13000),(3,660,40000)):
-        target.execute('INSERT INTO bf_sizes VALUES(?,?,?,?)',(sid,f'{litres} L',litres,tare))
+        target.execute('INSERT INTO bf_sizes(id,name,litres,default_tare_g) VALUES(?,?,?,?)',(sid,f'{litres} L',litres,tare))
     for cid in (1,2):
         name = 'SAMPLE · Client '+('One' if cid==1 else 'Two')
         target.execute('INSERT INTO bf_clients(id,name,created_at) VALUES(?,?,?)',(cid,name,stamp))

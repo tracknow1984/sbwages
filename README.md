@@ -59,6 +59,12 @@ The SMTP integration uses password/app-password authentication over TLS. Provide
 
 ## Local development
 
+### Editable bin sizes and pricing
+
+BINFLOW → Setup → Bin sizes provides an Edit action for each size's label, litre capacity, default empty tare, weekly rental and capital purchase amount. Prices are optional AUD amounts per bin excluding GST; rental is per week and purchase is a one-off unit cost. Blank means not set, while zero is recorded as $0.00. These are catalogue values, not automatic invoice charges.
+
+Amounts are stored in cents. Administrator-only edits use CSRF protection, version checks and an audit history. Changes preserve bin IDs, measured physical-bin tares and saved docket details. Updated defaults apply to newly registered bins, and renamed/resized standard sizes remain edited after restart without recreating the original size. Existing prices start unset.
+
 ### Supplier Site Register
 
 BINFLOW → Client profiles shows **Supplier Site Register** directly below the Customer site register, with separate **Decommission Partners** and **Industry Suppliers** registers. The navigation also provides a dedicated supplier view at `/binflow/supplier-profiles`.

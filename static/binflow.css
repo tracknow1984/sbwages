@@ -235,3 +235,12 @@
 .bf-supplier-register>summary:focus-visible{outline:3px solid #789ccf;outline-offset:-3px}
 .bf-supplier-register>.bf-pad{padding-top:4px}
 .bf-supplier-profiles th:nth-child(1){width:20%}.bf-supplier-profiles th:nth-child(2){width:21%}.bf-supplier-profiles th:nth-child(3){width:22%}.bf-supplier-profiles th:nth-child(4){width:12%}.bf-supplier-profiles th:nth-child(5){width:8%}.bf-supplier-profiles th:nth-child(6){width:9%}.bf-supplier-profiles th:nth-child(7){width:8%}
+
+/* Editable bin-size catalogue and per-bin pricing. */
+.bf-setup-sections>#bin-sizes{grid-column:1/-1}
+.bf-size-table-wrap{overflow-x:auto;margin:16px 0}
+.bf .bf-size-table{width:100%;min-width:0;table-layout:fixed}
+.bf .bf-size-table th,.bf .bf-size-table td{white-space:normal;overflow-wrap:anywhere;min-width:0;padding:10px 8px;font-size:12px}
+.bf-size-table th:first-child{width:30%}.bf-size-table .button{padding:8px 12px;min-height:36px}
+.bf-size-editor{max-width:850px;margin-inline:auto}
+@media(max-width:760px){.bf-size-table thead{display:none}.bf .bf-size-table,.bf-size-table tbody{display:block}.bf-size-table tr{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:16px 0;border-bottom:1px solid var(--bf-line)}.bf .bf-size-table td{padding:0;border:0}.bf-size-table td:first-child,.bf-size-table td:last-child{grid-column:1/-1}.bf-size-table td::before{content:attr(data-label);display:block;font-size:10px;font-weight:700;color:var(--bf-muted);margin-bottom:5px}}

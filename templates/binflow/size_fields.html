@@ -1,0 +1,8 @@
+<label>Size label<input name="name" maxlength="60" required value="{{ values.name }}" placeholder="e.g. 1,500 L cage"></label>
+<div class="bf-grid">
+<label>Capacity (litres)<input name="litres" type="number" min="1" max="50000" step="1" value="{{ values.litres }}" required></label>
+<label>Default empty tare (kg)<input name="tare" type="number" min="0" max="5000" step="0.001" value="{{ values.tare }}" required></label>
+<label>Weekly rental per bin (AUD, ex GST)<input name="weekly_rental" type="number" inputmode="decimal" min="0" max="1000000" step="0.01" value="{{ values.weekly_rental }}" placeholder="Not set"></label>
+<label>Capital purchase per bin (AUD, ex GST)<input name="capital_purchase" type="number" inputmode="decimal" min="0" max="1000000" step="0.01" value="{{ values.capital_purchase }}" placeholder="Not set"></label>
+</div>
+<p class="bf-muted">Rental is per bin per week. Purchase is the one-off cost per bin. Both amounts exclude GST. Leave an amount blank if it is not set.</p>

@@ -24,7 +24,8 @@ from binflow_portal import migrate_portal, register_portal
 from binflow_pods import ensure_pod_available
 from binflow_qr import migrate_qr, register_qr, link_request, reopen_requests, pickup_requests, approve_requests, request_queue
 from binflow_workday import migrate_workdays, register_workdays, driver_today
-from binflow_tares import STANDARD_TARES, apply_standard_tares
+from binflow_tares import apply_standard_tares
+from binflow_sizes import migrate as migrate_sizes, save as save_size, register as register_sizes
 from binflow_approvals import migrate_approvals, register_approvals, ensure_approved, allocation_history
 from binflow_collections import migrate_collections, populate_collection_profiles, register_collections, planning_resources
 from binflow_acceptance import migrate_acceptance, register_acceptance, ensure_run_unstarted, schedule_changed
@@ -110,6 +111,7 @@ def register_binflow(app, db, require):
     db = install_demo_database(app, db, now)
     with app.app_context():
         db().executescript(SCHEMA)
+        migrate_sizes(db())
         migrate_driver(db())
         from binflow_bin_condition import migrate as migrate_bin_condition
         migrate_bin_condition(db())
@@ -137,8 +139,6 @@ def register_binflow(app, db, require):
         migrate_pod_records(db())
         from binflow_bales import migrate as migrate_bales
         migrate_bales(db())
-        for litres, tare in STANDARD_TARES.items():
-            db().execute('INSERT OR IGNORE INTO bf_sizes(name,litres,default_tare_g) VALUES(?,?,?)', (f'{litres} L', litres, tare))
         db().commit()
         tare_update = apply_standard_tares(db(), now())
         if tare_update:
@@ -340,7 +340,8 @@ def register_binflow(app, db, require):
                         raise ValueError('Choose a valid client.')
                     db().execute('INSERT INTO bf_locations(kind,client_id,name,state,address,created_at) VALUES(?,?,?,?,?,?)', ('client' if kind == 'site' else kind, client_id, text_field('name'), state, text_field('address', 500), now()))
                 elif kind == 'size':
-                    db().execute('INSERT INTO bf_sizes(name,litres,default_tare_g) VALUES(?,?,?)', (text_field('name', 60), integer('litres', 50000), grams(request.form.get('tare', '0'), 'Empty tare')))
+                    save_size(db(), request.form, now(), actor())
+                    return success('Bin size and pricing added.', 'bf_setup', _anchor='bin-sizes')
                 elif kind == 'access':
                     raise ValueError('Set each employee’s business role and working state in Staff details. The old access checkbox is no longer used.')
                 else:
@@ -991,6 +992,7 @@ def register_binflow(app, db, require):
     register_reports(app,db,require,render,now)
     from binflow_demo import register_demo
     register_demo(app,db,access,render,now)
+    register_sizes(app,db,require,render,now,actor)
     register_profiles(app,db,require,render,now,actor)
     from binflow_supplier_profiles import register_suppliers
     register_suppliers(app,db,require,render,now,actor)

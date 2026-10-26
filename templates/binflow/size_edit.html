@@ -1,0 +1,13 @@
+{% extends 'binflow/layout.html' %}
+{% block title %}Edit bin size{% endblock %}
+{% block subtitle %}{{ size.name }} — capacity, empty weight and pricing.{% endblock %}
+{% block body %}
+<section class="bf-panel bf-pad bf-size-editor">
+{% if error %}<p class="bf-note" role="alert">{{ error }}</p>{% endif %}
+<form method="post" class="bf-form">
+<input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ size.version }}">
+{% include 'binflow/size_fields.html' %}
+<p class="bf-muted">Changes update this bin size's defaults. Existing bins retain their measured tare, and saved dockets retain their recorded details.</p>
+<div class="bf-actions"><button class="primary">Save bin size</button><a class="button secondary" href="{{ url_for('bf_setup',_anchor='bin-sizes') }}">Cancel</a></div>
+</form></section>
+{% endblock %}
