@@ -1,0 +1,26 @@
+{% extends 'binflow/layout.html' %}
+{% block title %}Rental invoices{% endblock %}
+{% block subtitle %}Review a fortnight and create one consolidated draft in Xero.{% endblock %}
+{% block body %}
+<div class="bf-actions"><a class="button secondary" href="{{ url_for('bf_rental_income') }}">Rental income</a><a class="button secondary" href="{{ url_for('bf_xero_settings') }}">Xero connection</a></div>
+{% if error %}<p role="alert" class="bf-rental-warning">{{ error }}</p>{% endif %}
+{% if not connected %}<section class="bf-panel bf-pad"><h2>Connect Xero to get started</h2><p>Connect your organisation, then select the billing contact, income account and tax rate.</p><a class="button primary" href="{{ url_for('bf_xero_settings') }}">Set up Xero</a></section>
+{% else %}
+<section class="bf-panel bf-pad"><h2>{{ tenant_name }}</h2><p>{{ billable }} actual billable bins currently recorded on client sites.</p>
+{% if not billable %}<p class="bf-rental-warning">There are no actual billable bins yet. A labelled test draft uses sample quantities and does not change bin allocations.</p>{% endif %}
+<form class="bf-form" method="get"><input type="hidden" name="refresh" value="yes"><label>Find billing contact in Xero<input name="contact_search" value="{{ options.get('search','Blocktexx') }}" maxlength="100"></label><button class="secondary">Refresh Xero billing choices</button></form>
+<form class="bf-form" method="post" action="{{ url_for('bf_rental_invoice_preview') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+<div class="bf-grid"><label>Billing contact<select name="contact_id" required><option value="">Choose Xero contact</option>{% for contact in options.get('contacts',[]) %}<option value="{{ contact.id }}">{{ contact.name }}</option>{% endfor %}</select></label>
+<label>Rental income account<select name="account_code" required><option value="">Choose account</option>{% for account in options.get('accounts',[]) %}<option value="{{ account.code }}">{{ account.code }} - {{ account.name }}</option>{% endfor %}</select></label>
+<label>Tax rate<select name="tax_type" required><option value="">Choose tax treatment</option>{% for tax in options.get('taxes',[]) %}<option value="{{ tax.code }}">{{ tax.name }} ({{ tax.rate }}%)</option>{% endfor %}</select></label></div>
+<div class="bf-grid"><label>Rental period starts<input type="date" name="period_start" value="{{ period_start }}" required></label><label>Rental period ends<input type="date" name="period_end" value="{{ period_end }}" required></label></div>
+<p>Choose 14 days, including both dates. Rates are weekly, excluding GST. Payment is due 14 days after the draft invoice date.</p>
+<label>Invoice basis<select name="mode" required><option value="test">TEST ONLY - sample bin rental</option><option value="actual">Actual billable bins</option></select></label>
+<div class="bf-grid"><label>Test bin size<select name="sample_size">{% for size in sizes %}<option value="{{ size.id }}">{{ size.name }} - {{ size.weekly_rental_cents|money }} / week</option>{% endfor %}</select></label><label>Test quantity<input name="sample_quantity" type="number" value="1" min="1" max="10"></label></div>
+<p class="bf-muted">Test fields apply only to test drafts. Each test is clearly labelled in Xero and creates no stock movements.</p>
+<label><input type="checkbox" name="reviewed_period" value="yes"> For an actual rental invoice, I have checked that current quantities and rates apply for the whole fortnight.</label>
+<p class="bf-muted">Actual drafts use the current bin register. This first version does not prorate historical deliveries, collections or rate changes. Review those changes before exporting.</p>
+<button class="primary">Review draft invoice</button>
+</form></section>{% endif %}
+<section class="bf-panel bf-pad"><h2>Invoice history</h2>{% for row in history %}<p><a href="{{ url_for('bf_rental_invoice',identifier=row.id) }}">{{ 'TEST - ' if row.mode=='test' }}{{ row.period_start }} to {{ row.period_end }} · {{ row.invoice_number or row.reference }}</a><br><small>{{ row.status|replace('_',' ')|title }}</small></p>{% else %}<p>No rental invoices have been prepared yet.</p>{% endfor %}</section>
+{% endblock %}

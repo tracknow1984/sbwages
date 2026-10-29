@@ -1,0 +1,25 @@
+{% extends 'binflow/layout.html' %}
+{% block title %}Xero connection{% endblock %}
+{% block subtitle %}Connect your accounting organisation and prepare bin rental drafts.{% endblock %}
+{% block body %}
+<div class="bf-actions"><a class="button secondary" href="{{ url_for('bf_setup') }}">Back to setup</a><a class="button primary" href="{{ url_for('bf_rental_invoices') }}">Rental invoices</a></div>
+{% if error %}<p role="alert" class="bf-rental-warning">{{ error }}</p>{% endif %}
+<section class="bf-panel bf-pad"><h2>{{ 'Connected to ' ~ tenant_name if connected else 'Choose your organisation' if authorised else 'Connect to Xero' }}</h2>
+{% if connected %}<p>Rental exports create draft sales invoices. Review and send them from Xero.</p>
+<p>Last successful connection test: {{ tested or 'Not tested yet' }}</p>
+<form method="post" action="{{ url_for('bf_xero_test') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="primary">Test connection</button></form>
+{% elif authorised %}<form class="bf-form" method="post" action="{{ url_for('bf_xero_organisation') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+<label>Xero organisation<select name="tenant_id" required><option value="">Choose organisation</option>{% for org in organisations %}<option value="{{ org.id }}">{{ org.name }}</option>{% endfor %}</select></label><button class="primary">Use this organisation</button></form>
+{% else %}<p>Save the credentials for your Xero web app, then authorise access to your organisation.</p>{% endif %}
+{% if configured %}<form method="post" action="{{ url_for('bf_xero_connect') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><p>Requested access: invoices, existing contacts, accounting settings and continued access.</p><button class="{{ 'secondary' if authorised else 'primary' }}">{{ 'Reconnect to Xero' if authorised else 'Connect to Xero' }}</button></form>{% endif %}
+{% if authorised %}<details><summary>Disconnect</summary><p>Removes the saved connection from BinFlow. Existing invoices remain in Xero.</p><form method="post" action="{{ url_for('bf_xero_disconnect') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="secondary">Disconnect BinFlow</button></form></details>{% endif %}
+</section>
+<section class="bf-panel bf-pad"><h2>Xero app settings</h2><p>In <a href="https://developer.xero.com/app/manage" target="_blank" rel="noopener noreferrer">Xero Developer My Apps</a>, create a web app using the standard authorisation code flow.</p>
+<p><strong>Redirect URI</strong></p><p><code>{{ callback or 'Configure APP_URL in hosting settings first.' }}</code></p>
+{% if authorised %}<p>App credentials are saved. Disconnect before replacing them.</p>{% else %}
+<form class="bf-form" method="post" action="{{ url_for('bf_xero_credentials') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+<label>Client ID<input name="client_id" value="{{ client_id }}" required maxlength="128" autocomplete="off"></label>
+<label>Client Secret<input name="client_secret" type="password" required maxlength="512" autocomplete="new-password"></label>
+<p class="bf-muted">Credentials are encrypted on the server. The saved secret is never displayed.</p><button class="primary">Save Xero credentials</button></form>{% endif %}
+</section>
+{% endblock %}

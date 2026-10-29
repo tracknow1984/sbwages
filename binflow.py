@@ -112,6 +112,8 @@ def register_binflow(app, db, require):
     with app.app_context():
         db().executescript(SCHEMA)
         migrate_sizes(db())
+        from binflow_xero import migrate as migrate_xero
+        migrate_xero(db())
         migrate_driver(db())
         from binflow_bin_condition import migrate as migrate_bin_condition
         migrate_bin_condition(db())
@@ -994,6 +996,8 @@ def register_binflow(app, db, require):
     register_demo(app,db,access,render,now)
     from binflow_rental import register as register_rental
     register_rental(app,db,require,render,now)
+    from binflow_xero import register as register_xero
+    register_xero(app,db,require,render,now,actor)
     register_sizes(app,db,require,render,now,actor)
     register_profiles(app,db,require,render,now,actor)
     from binflow_supplier_profiles import register_suppliers

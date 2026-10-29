@@ -10,7 +10,7 @@
 {% block body %}
 <div class="bf-toolbar bf-rental-toolbar">
 <p class="bf-muted">As at {{ as_of|display_datetime }} AEST · {{ client_count }} client accounts{% if pending_count %} + {{ pending_count }} unlinked site profiles{% endif %}</p>
-<div class="bf-actions"><a class="button secondary" href="{{ url_for('bf_setup',_anchor='bin-sizes') }}">Edit rental rates</a><a class="button secondary" href="{{ url_for('bf_rental_income',state=selected,q=query) }}">Refresh totals</a><a class="button primary" href="{{ url_for('bf_rental_income_export') }}">Export national summary</a></div>
+<div class="bf-actions"><a class="button primary" href="{{ url_for('bf_rental_invoices') }}">Rental invoices</a><a class="button secondary" href="{{ url_for('bf_setup',_anchor='bin-sizes') }}">Edit rental rates</a><a class="button secondary" href="{{ url_for('bf_rental_income',state=selected,q=query) }}">Refresh totals</a><a class="button primary" href="{{ url_for('bf_rental_income_export') }}">Export national summary</a></div>
 </div>
 <p class="bf-rental-scope">National totals — all clients. Filters below only change the client table.</p>
 <div class="bf-rental-metrics">
