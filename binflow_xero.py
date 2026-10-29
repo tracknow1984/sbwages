@@ -346,8 +346,12 @@ def register(app, db, require, render, now, actor):
         db().execute('INSERT INTO bf_xero_oauth VALUES(?,?,?,?,?)',
                      (hashlib.sha256(state.encode()).hexdigest(), g.user['id'], cfg['client_id'], cfg['revision'], int(time.time())))
         db().commit()
-        return redirect('https://login.xero.com/identity/connect/authorize?' + urlencode(dict(
-            response_type='code', client_id=cfg['client_id'], redirect_uri=callback, scope=SCOPES, state=state)))
+        authorisation_url = 'https://login.xero.com/identity/connect/authorize?' + urlencode(dict(
+            response_type='code', client_id=cfg['client_id'], redirect_uri=callback, scope=SCOPES, state=state))
+        # End the protected form submission here. Browsers can otherwise apply
+        # form-action to Xero's later cross-origin redirects and leave the
+        # submitting page frozen. A new top-level navigation handles that chain.
+        return render('xero_connect', section='setup', authorisation_url=authorisation_url)
 
     @app.get('/binflow/xero/callback')
     @require('admin')

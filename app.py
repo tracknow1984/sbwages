@@ -282,9 +282,6 @@ def create_app(test_config=None):
         response.headers['X-Frame-Options'] = 'DENY'
         response.headers['Referrer-Policy'] = 'no-referrer'
         response.headers['Content-Security-Policy'] = "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'; base-uri 'self'"
-        if request.endpoint in ('bf_xero_settings', 'bf_xero_connect'):
-            response.headers['Content-Security-Policy'] = response.headers['Content-Security-Policy'].replace(
-                "form-action 'self'", "form-action 'self' https://login.xero.com")
         if request.endpoint == 'bf_dashboard':
             # Only map image tiles leave this page; Wialon and all credentials remain server-side.
             response.headers['Content-Security-Policy'] = response.headers['Content-Security-Policy'].replace(

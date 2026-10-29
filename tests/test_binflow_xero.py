@@ -1,4 +1,6 @@
 import json
+import html
+import re
 import time
 import unittest
 from urllib.parse import parse_qs, urlparse
@@ -59,9 +61,17 @@ class XeroRentalTests(unittest.TestCase):
     def test_oauth_state_is_bound_single_use_and_expiring(self):
         self.post('/binflow/xero/credentials', {'client_id': 'test-client-id', 'client_secret': 'private-client-secret'})
         result = self.post('/binflow/xero/connect', follow=False)
-        query = parse_qs(urlparse(result.location).query)
+        self.assertEqual(result.status_code, 200)
+        self.assertNotIn('Location', result.headers)
+        link = html.unescape(re.search(r'id="xero-authorize"[^>]+href="([^"]+)"', result.get_data(as_text=True)).group(1))
+        self.assertEqual(urlparse(link).netloc, 'login.xero.com')
+        self.assertEqual(urlparse(link).path, '/identity/connect/authorize')
+        query = parse_qs(urlparse(link).query)
         self.assertEqual(query['redirect_uri'], ['https://example.com/binflow/xero/callback'])
-        self.assertIn('https://login.xero.com', result.headers['Content-Security-Policy'])
+        self.assertIn("form-action 'self';", result.headers['Content-Security-Policy'])
+        self.assertNotIn('https://login.xero.com', result.headers['Content-Security-Policy'])
+        self.assertIn(b'Continue to Xero', result.data)
+        self.assertIn(b'/static/binflow-xero-connect.js', result.data)
         self.assertEqual(set(query['scope'][0].split()), set(xero.SCOPES.split()))
         state = query['state'][0]
         with patch('binflow_xero.exchange', return_value={'access_token': 'new-access', 'refresh_token': 'new-refresh', 'expires_in': 1800}) as exchange:
@@ -74,7 +84,8 @@ class XeroRentalTests(unittest.TestCase):
         self.assertFalse(self.rows('SELECT * FROM bf_xero_oauth'))
         self.post('/binflow/xero/disconnect')
         result = self.post('/binflow/xero/connect', follow=False)
-        state = parse_qs(urlparse(result.location).query)['state'][0]
+        link = html.unescape(re.search(r'id="xero-authorize"[^>]+href="([^"]+)"', result.get_data(as_text=True)).group(1))
+        state = parse_qs(urlparse(link).query)['state'][0]
         with self.connection() as conn:
             conn.execute('UPDATE bf_xero_oauth SET created_at=0')
         with patch('binflow_xero.exchange') as exchange:

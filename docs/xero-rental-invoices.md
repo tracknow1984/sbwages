@@ -13,6 +13,13 @@ tokens are placed in Flask sessions, templates or logs. Token renewal is
 serialised in SQLite. New additive tables hold connection state and invoice
 history; existing bin and operational data are unchanged.
 
+Connect to Xero completes the CSRF-protected POST on a BinFlow handoff page,
+then uses an ordinary top-level navigation to Xero. This keeps Xero's redirects
+out of the browser's form-action restrictions, including when already signed
+in to Xero. A visible Continue to Xero link remains available if automatic
+navigation is disabled. Form submissions retain the application's self-only
+content security policy.
+
 Rental Income → Rental invoices offers a labelled sample draft (1–10 bins) or
 actual rentals. Choose an existing Xero contact, active income account, tax rate
 and inclusive 14-day period. Billing choices are retrieved from Xero and are
@@ -41,6 +48,7 @@ minutes and is consumed once. Contact, account and tax selectors are validated
 against Xero choices, and organisation changes cannot redirect an old preview.
 
 Validation: python -m unittest discover -s tests -p 'test_binflow_xero.py'
+Navigation check: node tests/test_binflow_xero_connect.js
 
 Official references:
 - https://developer.xero.com/documentation/guides/oauth2/auth-flow/

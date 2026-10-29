@@ -1,0 +1,15 @@
+{% extends 'binflow/layout.html' %}
+{% block title %}Opening Xero{% endblock %}
+{% block subtitle %}Finish connecting your accounting organisation.{% endblock %}
+{% block body %}
+<section class="bf-panel bf-pad">
+  <h2>Continue to Xero</h2>
+  <p>You will be taken to Xero to sign in and approve access for BinFlow.</p>
+  <p>If Xero does not open automatically, use the button below.</p>
+  <div class="bf-actions">
+    <a id="xero-authorize" class="button primary" href="{{ authorisation_url }}" rel="noreferrer">Continue to Xero</a>
+    <a class="button secondary" href="{{ url_for('bf_xero_settings') }}">Back to Xero settings</a>
+  </div>
+</section>
+<script src="{{ url_for('static',filename='binflow-xero-connect.js') }}" defer></script>
+{% endblock %}
