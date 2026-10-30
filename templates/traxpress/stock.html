@@ -1,0 +1,21 @@
+{% extends 'traxpress/layout.html' %}{% block tx_content %}
+<section class="panel tx-panel">
+<div class="section-heading"><div><span class="eyebrow">01 / STOCK TAKE</span><h2>Record a stock count</h2></div><span class="tx-count" id="tx-count" aria-live="polite">0 tyres</span></div>
+<p class="muted">Enter each tyre size once. The count date and the automatic save timestamp are kept separately.</p>
+<form method="post" id="tx-stock-form">
+<input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="submission_token" value="{{ submission_token }}">
+<div class="form-grid"><label>Stock take date<input type="date" name="stock_date" required max="{{ today }}" value="{{ values.get('stock_date',today) }}"></label><div class="tx-info"><strong>Automatic timestamp</strong><p>Date, time and the signed-in administrator are recorded on save, in Brisbane time.</p></div></div>
+<div id="tx-stock-lines">
+{% for size,qty in inputs %}<div class="tx-stock-row"><label>Tyre size<input name="tyre_size" maxlength="80" placeholder="e.g. 295/80R22.5" value="{{ size }}" required></label><label>Quantity<input type="number" name="quantity" min="0" max="1000000" step="1" inputmode="numeric" value="{{ qty }}" required></label><button type="button" class="secondary tx-remove" aria-label="Remove tyre size row">Remove</button></div>{% endfor %}
+</div>
+<button class="secondary" type="button" id="tx-add-line">+ Add tyre size</button>
+<label class="tx-notes">Notes <span class="muted">(optional)</span><textarea name="notes" rows="2" maxlength="2000" placeholder="Count location or any discrepancies">{{ values.get('notes','') }}</textarea></label>
+<div class="form-actions"><button class="primary" type="submit">Save stock take</button><span class="hint">PDF and CSV available after saving.</span></div>
+</form></section>
+<div class="section-heading tx-history-heading"><h2>Stock take records</h2><span class="muted">Saved counts</span></div>
+<section class="panel table-wrap"><table><thead><tr><th>Record / count date</th><th>Sizes</th><th>Tyres</th><th>Recorded</th><th>Download</th></tr></thead><tbody>
+{% for r in records %}<tr><td data-label="Record / count date"><a href="{{ url_for('tx_stock_record',record_id=r.id) }}"><strong>ST-{{ '%05d'|format(r.id) }}</strong></a><small>{{ r.stock_date|display_date }}</small></td><td data-label="Sizes">{{ r.size_count }}</td><td data-label="Tyres"><strong>{{ '{:,}'.format(r.tyre_count) }}</strong></td><td data-label="Recorded">{{ r.created_at|display_datetime }}<small>{{ r.recorded_by }} · Brisbane</small></td><td data-label="Download"><div class="actions"><a class="secondary" href="{{ url_for('tx_stock_record',record_id=r.id,download='pdf') }}">PDF</a><a class="secondary" href="{{ url_for('tx_stock_record',record_id=r.id,download='csv') }}">CSV</a></div></td></tr>
+{% else %}<tr><td colspan="5" class="tx-empty">No stock takes recorded yet. Save your first count above.</td></tr>{% endfor %}
+</tbody></table></section>
+<div class="tx-pagination">{% if page_number>1 %}<a href="{{ url_for('tx_stock',page=page_number-1) }}">← Newer records</a>{% endif %}{% if more %}<a href="{{ url_for('tx_stock',page=page_number+1) }}">Older records →</a>{% endif %}</div>
+{% endblock %}

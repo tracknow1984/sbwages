@@ -1,0 +1,12 @@
+{% extends 'base.html' %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static',filename='traxpress.css') }}">
+<script src="{{ url_for('static',filename='traxpress.js') }}" defer></script>
+<div class="tx-app">
+<div class="page-heading"><div><span class="eyebrow">SB EMPIRE · WAREHOUSE OPERATIONS</span><h1>Traxpress<span class="tx-dot" aria-hidden="true">.</span></h1><p class="muted">Tyre stock, unloading and order preparation.</p></div><span class="badge active">AUD · EX GST</span></div>
+<nav class="tx-tabs no-print" aria-label="Traxpress navigation">
+{% for key,label,endpoint in [('stock','Stock take','tx_stock'),('handling','Handling','tx_handling'),('setup','Setup','tx_setup')] %}<a href="{{ url_for(endpoint) }}" class="{{ 'active' if tx_section==key }}" {% if tx_section==key %}aria-current="page"{% endif %}>{{ label }}</a>{% endfor %}
+</nav>
+{% block tx_content %}{% endblock %}
+</div>
+{% endblock %}

@@ -258,6 +258,8 @@ def create_app(test_config=None):
             request.max_content_length = 512 * 1024
         elif request.endpoint in ('bf_job_action','bf_run_prestart'):
             request.max_content_length = 8 * 1024 * 1024
+        elif request.endpoint == 'tx_handling':
+            request.max_content_length = 6 * 1024 * 1024
         elif request.endpoint == 'employee_prestart':
             request.max_content_length = 32 * 1024 * 1024
         elif request.endpoint == 'upload_licence_photos':
@@ -1556,6 +1558,8 @@ def create_app(test_config=None):
     register_site_tour(app, require)
     from binflow import register_binflow
     register_binflow(app, db, require)
+    from traxpress import register_traxpress
+    register_traxpress(app, db, require)
     return app
 
 
