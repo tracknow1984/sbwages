@@ -1,0 +1,102 @@
+.bin-stickers {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 310px), 1fr));
+  gap: 20px;
+  align-items: start;
+}
+
+.bin-sticker {
+  box-sizing: border-box;
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: space-between;
+  aspect-ratio: 3 / 4;
+  padding: 6.5%;
+  color: #111;
+  background: #fff;
+  border: 1px solid #c9cdd0;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.bin-sticker-logo {
+  display: block;
+  width: 78%;
+  height: auto;
+  margin-inline: auto;
+}
+
+.bin-sticker-scan {
+  display: grid;
+  justify-items: center;
+}
+
+.bin-sticker-qr {
+  display: block;
+  width: 73%;
+  height: auto;
+  aspect-ratio: 1;
+  image-rendering: pixelated;
+}
+
+.bin-sticker .bin-sticker-scan h2 {
+  margin: 1.5cqw 0 0;
+  color: #111;
+  font: 700 7cqw/1.1 Arial, Helvetica, sans-serif;
+  letter-spacing: -.035em;
+}
+
+.bin-sticker-details {
+  padding-top: 3cqw;
+  border-top: 0.5mm solid #111;
+}
+
+.bin-sticker-id {
+  display: block;
+  font-size: 10cqw;
+  font-weight: 700;
+  letter-spacing: -.025em;
+  line-height: 1.1;
+}
+
+.bin-sticker-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 2cqw;
+  margin-top: 2cqw;
+  font-size: 4cqw;
+  line-height: 1.2;
+}
+
+.bin-sticker-operator {
+  font-size: 3cqw;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+@media print {
+  @page { size: 150mm 200mm; margin: 0; }
+
+  .bin-stickers { display: block; }
+
+  .bin-sticker {
+    width: 150mm;
+    height: 200mm;
+    padding: 9mm 10mm;
+    border: 0;
+    break-inside: avoid;
+  }
+
+  .bin-sticker + .bin-sticker { break-before: page; }
+
+  .bin-sticker-logo { width: 102mm; }
+  .bin-sticker-qr { width: 94mm; height: 94mm; }
+  .bin-sticker .bin-sticker-scan h2 { margin-top: 2mm; font-size: 9mm; }
+  .bin-sticker-details { padding-top: 4mm; }
+  .bin-sticker-id { font-size: 13mm; }
+  .bin-sticker-meta { margin-top: 2mm; gap: 3mm; font-size: 5mm; }
+  .bin-sticker-operator { font-size: 4mm; }
+}
