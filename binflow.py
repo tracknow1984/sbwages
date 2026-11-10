@@ -249,7 +249,7 @@ def register_binflow(app, db, require):
         scope = state_scope(g.user)
         if scope is not None:
             where, args = '(' + where + ') AND b.state=?', (*args, scope)
-        return db().execute('''SELECT b.*,s.name AS size_name,COALESCE(t.name,l.name) AS location_name,l.kind,c.name AS client_name,
+        return db().execute('''SELECT b.*,s.name AS size_name,s.litres,COALESCE(t.name,l.name) AS location_name,l.kind,c.name AS client_name,
             t.name AS truck_name,COALESCE(ac.name,c.name) AS allocated_client_name,
             COALESCE(al.name,CASE WHEN l.kind='client' THEN l.name END) AS allocated_site_name,
             aj.approval_status AS allocation_approval,

@@ -22,10 +22,13 @@
         <h2>Scan this bin</h2>
       </div>
       <div class="bin-sticker-details">
-        <strong class="bin-sticker-id">{{ b.code }}</strong>
-        <div class="bin-sticker-meta">
-          <span>{{ b.size_name }} · {{ b.state }}</span>
+        <div class="bin-sticker-identity">
+          <strong class="bin-sticker-id">{{ b.code }}</strong>
           <span class="bin-sticker-operator">BinFlow / SB Empire</span>
+        </div>
+        <div class="bin-sticker-meta">
+          <span>SIZE - {{ b.litres }}L</span>
+          <span>LOCATION - {{ b.state }}</span>
         </div>
       </div>
     </article>
