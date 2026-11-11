@@ -481,10 +481,11 @@ def create_app(test_config=None):
     @app.get('/admin/staff')
     @require('admin')
     def admin_staff():
-        from employee_induction import EDITION
+        from employee_induction import EDITION, PREVIOUS_EQUIVALENT_EDITION
         people = db().execute("""SELECT u.*,s.id AS induction_id,s.signed_at AS induction_signed_at
-            FROM users u LEFT JOIN handbook_signatures s ON s.user_id=u.id AND s.version=?
-            WHERE u.role='employee' ORDER BY u.status,u.first_name,u.last_name""",(EDITION,)).fetchall()
+            FROM users u LEFT JOIN handbook_signatures s ON s.id=(SELECT MAX(h.id) FROM handbook_signatures h
+                WHERE h.user_id=u.id AND h.version IN (?,?))
+            WHERE u.role='employee' ORDER BY u.status,u.first_name,u.last_name""",(EDITION,PREVIOUS_EQUIVALENT_EDITION)).fetchall()
         return render_template('staff.html', people=people, active=sum(p['status'] == 'active' for p in people), tab='staff')
 
     @app.route('/admin/staff/new', methods=['GET', 'POST'])

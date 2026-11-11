@@ -15,13 +15,15 @@ from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer
 
-EDITION = '1.0'
+EDITION = '1.1'
+# Edition 1.1 adds contractor guidance. The induction declarations are unchanged.
+PREVIOUS_EQUIVALENT_EDITION = '1.0'
 ROOT = Path(__file__).resolve().parent
 TERMS = (ROOT / 'handbooks/acknowledgements.json').read_text()
 # Only this exact release package can be installed. Private handbook bytes and
 # employee contact details live on the application's persistent database.
-PACKAGE_DIGEST = 'a411e95d6283a0330f8c0b281c564c18e599e2ea2ccc0f98ba54d58e228bfe15'
-PUBLISH_KEY_DIGEST = '7ce235199f6d4d0c60f47d9ea6a858cbc48253194be44156b98cff88b062184e'
+PACKAGE_DIGEST = '48fc3a74cff581e9152840eefe7bdec3a5da5425b1a49e98c75193488bb15a33'
+PUBLISH_KEY_DIGEST = '2d3e1fa14e6e56a57ed2544f4f31a2a906fa65e70a11267927afc82c972b4632'
 
 
 def receipt_pdf(record, edition):
@@ -65,8 +67,8 @@ def register_induction(app, db, require):
         """)
 
     def own_signature():
-        return db().execute('SELECT * FROM handbook_signatures WHERE user_id=? AND version=?',
-                            (g.user['id'],EDITION)).fetchone()
+        return db().execute('''SELECT * FROM handbook_signatures WHERE user_id=? AND version IN (?,?)
+            ORDER BY id DESC LIMIT 1''',(g.user['id'],EDITION,PREVIOUS_EQUIVALENT_EDITION)).fetchone()
 
     @app.context_processor
     def induction_status():
@@ -96,11 +98,12 @@ def register_induction(app, db, require):
     @app.route('/employee/induction',methods=['GET','POST'])
     @require('employee')
     def employee_induction():
-        edition = db().execute('SELECT version,contacts,terms FROM handbook_editions WHERE version=?',(EDITION,)).fetchone()
+        edition = db().execute('''SELECT version,contacts,terms FROM handbook_editions WHERE version IN (?,?)
+            ORDER BY (version=?) DESC LIMIT 1''',(EDITION,PREVIOUS_EQUIVALENT_EDITION,EDITION)).fetchone()
         terms = json.loads(edition['terms']) if edition else None
         name = ' '.join((g.user['first_name']+' '+g.user['last_name']).split())
         if request.method=='POST':
-            if not edition or request.form.get('version')!=EDITION:
+            if not edition or request.form.get('version')!=edition['version']:
                 abort(409,'The handbook edition changed. Reopen My induction before signing.')
             if not own_signature():
                 typed = ' '.join(request.form.get('signature','').split())
@@ -112,20 +115,21 @@ def register_induction(app, db, require):
                 else:
                     db().execute("""INSERT INTO handbook_signatures(user_id,version,signature,username,signed_at)
                         VALUES(?,?,?,?,?) ON CONFLICT(user_id,version) DO NOTHING""",
-                        (g.user['id'],EDITION,typed,g.user['username'],datetime.now(timezone.utc).isoformat()))
+                        (g.user['id'],edition['version'],typed,g.user['username'],datetime.now(timezone.utc).isoformat()))
                     db().commit()
                     return redirect(url_for('employee_induction'))
             else:
                 return redirect(url_for('employee_induction'))
         records = db().execute('SELECT * FROM handbook_signatures WHERE user_id=? ORDER BY id DESC',(g.user['id'],)).fetchall()
-        return render_template('induction.html',tab='induction',version=EDITION,terms=terms,
+        return render_template('induction.html',tab='induction',version=edition['version'] if edition else EDITION,terms=terms,
                                contacts=json.loads(edition['contacts']) if edition else [],
                                name=name,signed=own_signature(),records=records)
 
     @app.get('/employee/induction/handbook.pdf')
     @require('employee')
     def employee_handbook():
-        row=db().execute('SELECT pdf FROM handbook_editions WHERE version=?',(EDITION,)).fetchone()
+        row=db().execute('''SELECT pdf FROM handbook_editions WHERE version IN (?,?)
+            ORDER BY (version=?) DESC LIMIT 1''',(EDITION,PREVIOUS_EQUIVALENT_EDITION,EDITION)).fetchone()
         if not row: abort(404)
         return send_file(io.BytesIO(row['pdf']),mimetype='application/pdf',download_name='SB-Empire-Employee-Handbook.pdf')
 

@@ -10,8 +10,14 @@
     {% for contact,phone in contacts %}<p>{{ contact }} · <a href="tel:{{ phone|replace(' ','') }}">{{ phone }}</a></p>{% endfor %}
     </details>
   </section>
+    {% if 'contractor' in assigned_roles(current_user) %}
+  {% from 'contractor_guidance.html' import hours_note, insurance_note %}
+  <section class="panel induction-card"><h2>Contractor hours and insurance</h2>
+    <p><strong>Timesheets.</strong> {{ hours_note() }}</p>
+    <p><strong>Insurance.</strong> {{ insurance_note() }}</p>
+  </section>{% endif %}
   {% if signed %}<section class="panel induction-card"><h2>Induction signed</h2>
-    <p>{{ signed.signature }} · {{ signed.signed_at|display_datetime }} Brisbane time</p>
+    <p>Signed edition {{ signed.version }} · {{ signed.signature }} · {{ signed.signed_at|display_datetime }} Brisbane time</p>
     <a class="button primary" href="{{ url_for('induction_record',record_id=signed.id) }}">Download my signed handbook</a>
   </section>{% else %}
   <form method="post" class="panel induction-card">
@@ -26,6 +32,6 @@
     <button type="submit" class="primary">Sign induction</button>
   </form>{% endif %}
   {% else %}<section class="panel induction-card"><h2>Handbook being prepared</h2><p>Your handbook will appear here when the edition is available.</p></section>{% endif %}
-  {% for record in records if record.version!=version %}<p><a href="{{ url_for('induction_record',record_id=record.id) }}">My signed handbook · Edition {{ record.version }}</a></p>{% endfor %}
+  {% for record in records if not signed or record.id!=signed.id %}<p><a href="{{ url_for('induction_record',record_id=record.id) }}">My signed handbook · Edition {{ record.version }}</a></p>{% endfor %}
 </div>
 {% endblock %}
