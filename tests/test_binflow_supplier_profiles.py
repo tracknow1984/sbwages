@@ -20,6 +20,8 @@ class SupplierProfileTests(unittest.TestCase):
     login = fixtures.BinFlowTests.login
 
     def add(self, category='decommission-partners', **values):
+        if category=='industry-suppliers':
+            values.setdefault('group_name','TRANSPORT')
         return self.post(f'/binflow/supplier-profiles/{category}/new', row(**values))
 
     def test_three_registers_and_all_fields_are_independent_and_persistent(self):
@@ -35,7 +37,7 @@ class SupplierProfileTests(unittest.TestCase):
             self.assertIn(b'Supplier site profile added', result.data)
             saved = self.rows('SELECT * FROM bf_supplier_site_profiles WHERE category=?', (category,))[0]
             for key, _, _ in FIELDS:
-                self.assertEqual(saved[key], row(customer_site=label + ' Test site')[key])
+                self.assertEqual(saved[key], 'TRANSPORT' if category=='industry-suppliers' and key=='group_name' else row(customer_site=label + ' Test site')[key])
             self.assertEqual(saved['updated_by'], 'SB Empire')
         with sqlite3.connect(self.path) as conn:
             migrate(conn)
@@ -83,6 +85,23 @@ class SupplierProfileTests(unittest.TestCase):
         self.assertEqual(self.add(customer_site='duplicate').status_code, 400)
         self.assertEqual(self.add('industry-suppliers', customer_site='Duplicate').status_code, 200)
         self.assertEqual(len(self.rows('SELECT * FROM bf_supplier_site_profiles')), 2)
+
+    def test_industry_company_and_group_dropdown_preserve_existing_names(self):
+        path='/binflow/supplier-profiles/industry-suppliers'
+        form=self.client.get(path+'/new').text
+        self.assertIn('Company Name<input',form)
+        self.assertIn('<select name="group_name">',form)
+        for group in ('TRANSPORT','CONSUMABLES','OTHER'):
+            self.assertIn('value="'+group+'"',form)
+        self.assertEqual(self.add('industry-suppliers',group_name='Arbitrary').status_code,400)
+        self.assertEqual(self.add('industry-suppliers',group_name='TRANSPORT').status_code,200)
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("UPDATE bf_supplier_site_profiles SET group_name='Legacy group'")
+        edit='/binflow/supplier-profiles/site/1'
+        self.assertIn('Legacy group (existing)',self.client.get(edit).text)
+        self.assertEqual(self.post(edit,dict(row(group_name='Legacy group'),version='1')).status_code,200)
+        self.assertEqual(self.post(edit,dict(row(group_name='OTHER'),version='2')).status_code,200)
+        self.assertIn('Company Name / Group',self.client.get(path).text)
 
     def test_filters_search_sort_and_pagination_stay_in_category(self):
         for number in range(12):

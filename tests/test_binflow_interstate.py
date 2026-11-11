@@ -107,7 +107,7 @@ class BookingTests(unittest.TestCase):
         self.assertEqual(self.client.get(manifest).status_code,404)
         self.post(CAL+'/1/lock',dict(version=1))
         self.assertIn('Scheduled bale pickups',self.client.get('/binflow/bales').text)
-        form=dict(origin_id=1,destination_id=2,carrier='Carrier',vehicle='Truck',payload='1200',
+        form=dict(origin_id=1,destination_id=2,carrier_supplier_id=1,vehicle_type='SINGLE',vehicle='Truck',payload='1200',
                   expected_bales=2,request_key=secrets.token_urlsafe(24))
         self.post(manifest,dict(form,destination_id=1))
         self.assertFalse(self.rows('SELECT * FROM bf_bale_transfers'))

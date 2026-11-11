@@ -7,7 +7,7 @@
 <form method="post" class="bf-form bf-profile-form">
 <input type="hidden" name="csrf" value="{{ csrf_token() }}">
 {% if not creating %}<input type="hidden" name="version" value="{{ profile.version }}">{% endif %}
-{% with supplier=true,site_label='Supplier Site' %}{% include 'binflow/site_profile_fields.html' %}{% endwith %}
+{% with supplier=true %}{% include 'binflow/site_profile_fields.html' %}{% endwith %}
 <div class="bf-actions"><button class="primary">{{ 'Add supplier site' if creating else 'Save profile' }}</button><a class="button secondary" href="{{ url_for('bf_supplier_profiles',category=category) }}">Cancel</a></div>
 </form>
 {% if not creating %}<p class="bf-muted">Last saved {{ profile.updated_at }} · {{ profile.updated_by }}</p>{% endif %}

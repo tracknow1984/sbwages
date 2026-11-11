@@ -16,6 +16,8 @@ class BaleTests(unittest.TestCase):
     login=legacy.BinFlowTests.login
 
     def prepare(self):
+        with sqlite3.connect(self.path) as conn:
+            conn.execute('INSERT OR IGNORE INTO bf_supplier_site_profiles(id,category,group_name,customer_site,updated_at,updated_by) VALUES(1,"industry-suppliers","TRANSPORT","Carrier","now","Test")')
         self.post('/binflow/setup/materials',dict(name='Cotton textiles',active='yes'))
         self.settings(1,receiving_hub='yes',max_bales='100')
         self.settings(2,max_bales='10',target_kg='800')
@@ -157,7 +159,7 @@ class BaleTests(unittest.TestCase):
         self.assertTrue(self.scan_source(key,code).json['ok'])
 
     def transfer(self,payload='1000'):
-        return self.post('/binflow/bales/transfers/new',dict(origin_id=2,destination_id=1,carrier='Carrier',vehicle='B DOUBLE',payload=payload,request_key=secrets.token_urlsafe(24)))
+        return self.post('/binflow/bales/transfers/new',dict(origin_id=2,destination_id=1,carrier_supplier_id=1,vehicle_type='B DOUBLE',vehicle='TEST-1',payload=payload,request_key=secrets.token_urlsafe(24)))
 
     def scan(self,code,action='load',tid=1,expected=200):
         response=self.post(f'/binflow/bales/transfers/{tid}/scan',dict(action=action,code=code),follow=False)
@@ -213,6 +215,48 @@ class BaleTests(unittest.TestCase):
         for path in ('/binflow/bales','/binflow/bales/1','/binflow/bales/1/label','/binflow/bales/1/qr.png','/binflow/bales/storage.csv'):
             self.assertEqual(guest.get(path).status_code,302)
         self.assertEqual(self.client.post('/binflow/bales/new',data={}).status_code,400)
+
+    def test_industry_carrier_vehicle_type_and_optional_truck_details(self):
+        self.prepare()
+        self.create()
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("""INSERT INTO bf_supplier_site_profiles(id,category,customer_site,updated_at,updated_by)
+                VALUES(2,'decommission-partners','Non-carrier depot','now','Test')""")
+        path='/binflow/bales/transfers/new'
+        form=self.client.get(path).text
+        self.assertLess(form.index('name="vehicle_type"'), form.index('name="origin_id"'))
+        self.assertNotIn('Non-carrier depot',form)
+        for kind in ('SINGLE','B DOUBLE','RIGID'):
+            self.assertIn('value="'+kind+'"',form)
+        submission=dict(origin_id=2,destination_id=1,vehicle_type='RIGID',carrier_supplier_id=1,request_key=secrets.token_urlsafe(24))
+        for invalid in (dict(vehicle_type='VAN'),dict(vehicle_type=''),dict(carrier_supplier_id=2),dict(carrier_supplier_id=''),dict(payload='-1')):
+            self.post(path,dict(submission,**invalid))
+            self.assertFalse(self.rows('SELECT id FROM bf_bale_transfers'))
+        self.post(path,submission)
+        self.post(path,submission)
+        item=self.rows('SELECT * FROM bf_bale_transfers')[0]
+        self.assertEqual((item['carrier_supplier_id'],item['carrier'],item['vehicle_type'],item['vehicle'],item['payload_g']),
+                         (1,'Carrier','RIGID','',None))
+        self.scan('BA0000001')
+        self.action('depart',confirm='yes')
+        self.assertEqual(self.rows('SELECT status FROM bf_bale_transfers')[0]['status'],'transit')
+
+    def test_legacy_transfer_limits_and_related_records_survive_upgrade(self):
+        from binflow_bales import migrate_transfer_fields
+        with sqlite3.connect(':memory:') as conn:
+            conn.execute('PRAGMA foreign_keys=ON')
+            conn.executescript("""CREATE TABLE bf_supplier_site_profiles(id INTEGER PRIMARY KEY);
+                CREATE TABLE bf_bale_transfers(id INTEGER PRIMARY KEY,carrier TEXT,vehicle TEXT,payload_g INTEGER NOT NULL CHECK(payload_g>0));
+                CREATE TABLE child(transfer_id INTEGER REFERENCES bf_bale_transfers(id));
+                INSERT INTO bf_bale_transfers VALUES(1,'Original Carrier','REG001',500000);
+                INSERT INTO child VALUES(1);""")
+            migrate_transfer_fields(conn)
+            migrate_transfer_fields(conn)
+            self.assertEqual(conn.execute('SELECT carrier,vehicle,payload_g,vehicle_type,carrier_supplier_id FROM bf_bale_transfers').fetchone(),
+                             ('Original Carrier','REG001',500000,None,None))
+            self.assertEqual(conn.execute('SELECT * FROM child').fetchone(),(1,))
+            conn.execute("INSERT INTO bf_bale_transfers (id,carrier,vehicle_type) VALUES(2,'New Carrier','SINGLE')")
+            self.assertFalse(conn.execute('PRAGMA foreign_key_check').fetchall())
 
     def test_duplicate_scans_and_payload_limit(self):
         self.prepare();self.create();self.create();self.transfer('500')

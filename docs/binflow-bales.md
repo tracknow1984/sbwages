@@ -21,7 +21,7 @@ The entered weight is net material kilograms. Bin/POD weighing remains separate:
 
 Crossing warehouse capacity warning thresholds or the interstate load target automatically creates one `Pickup ready` action. Repeated stock changes update that action without duplicates. Starting a transfer actions the pickup; readiness is reconsidered after cancellation or dispatch. Receiving hubs do not generate onward interstate pickup requests.
 
-This automates internal pickup readiness, not carrier booking or messaging. Staff confirm the carrier, truck/trailer and actual available payload when opening a transfer. Scans cannot exceed that payload. No transport costs or storage rates are assumed.
+This automates internal pickup readiness, not carrier booking or messaging. Staff select the vehicle type and an industry supplier when opening a transfer. Registration and available payload are optional. When supplied, the payload limits the weight scanned onto the manifest. No transport costs or storage rates are assumed.
 
 ## Controls and records
 

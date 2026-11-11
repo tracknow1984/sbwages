@@ -173,14 +173,8 @@ def register(app, db, require, render, client_access, now, actor):
     def bf_invoices():
         conn = db()
         cfg = xero.config(conn)
-        opts = json.loads(cfg['choices_json'])
-        error = None
         connected = bool(cfg['tenant_id'] and cfg['token_cipher'])
-        if connected and (not opts or request.args.get('refresh')=='yes'):
-            try:
-                opts = xero.choices(app,conn,request.args.get('search','').strip()[:100])
-            except xero.XeroError as exc:
-                error = str(exc)
+        opts,error = xero.directory_for_page(app,conn,cfg,request.args.get('refresh')=='yes')
         page = max(1,request.args.get('page',1,type=int))
         history = conn.execute("""SELECT i.id,i.invoice_number,i.mode,i.status,i.xero_status,i.created_at,
             json_extract(i.snapshot_json,'$.contact.name') AS contact,c.name AS category FROM bf_rental_invoices i

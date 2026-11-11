@@ -10,6 +10,8 @@ CATEGORIES = {
     'decommission-partners': 'Decommission Partners',
     'industry-suppliers': 'Industry Suppliers',
 }
+INDUSTRY_GROUPS = ('TRANSPORT','CONSUMABLES','OTHER')
+
 SCHEMA = '''
 CREATE TABLE IF NOT EXISTS bf_supplier_site_profiles (
  id INTEGER PRIMARY KEY,
@@ -41,6 +43,17 @@ def category_label(category):
     return CATEGORIES[category]
 
 
+def site_label(category):
+    return 'Company Name' if category=='industry-suppliers' else 'Supplier Site'
+
+
+def supplier_details(category, values, previous=None):
+    group = values['group_name']
+    if category=='industry-suppliers' and group and group not in INDUSTRY_GROUPS and group!=previous:
+        raise ValueError('Choose TRANSPORT, CONSUMABLES or OTHER.')
+    return validate(values, site_label=site_label(category))
+
+
 def register_context(conn, category, args=None):
     from binflow_client_profiles import filter_register
     label = category_label(category)
@@ -48,7 +61,7 @@ def register_context(conn, category, args=None):
                         (category,)).fetchall()
     context = filter_register(rows, args or {}, 'bf_supplier_profiles', {'category': category}, supplier=True)
     return dict(context, supplier=True, category=category, register_title=label,
-                site_label='Supplier Site', edit_endpoint='bf_supplier_profile',
+                site_label=site_label(category), edit_endpoint='bf_supplier_profile',
                 new_url=url_for('bf_new_supplier_profile', category=category),
                 list_url=url_for('bf_supplier_profiles', category=category),
                 clear_url=url_for('bf_supplier_profiles', category=category),
@@ -84,7 +97,7 @@ def register_suppliers(app, db, require, render, now, actor):
         if request.method == 'POST':
             values.update({k: request.form.get(k, '').strip() for k in KEYS})
             try:
-                details = validate(values, site_label='Supplier Site')
+                details = supplier_details(category,values)
                 if not details['state'] or not details['address']:
                     raise ValueError('Enter the site address and choose its state.')
                 db().execute('BEGIN IMMEDIATE')
@@ -100,7 +113,8 @@ def register_suppliers(app, db, require, render, now, actor):
             except ValueError as exc:
                 error = str(exc)
             db().rollback()
-        return render('supplier_profile', section='suppliers', category=category, category_label=label,
+        return render('supplier_profile', section='suppliers', category=category, site_label=site_label(category),
+                      group_options=INDUSTRY_GROUPS if category=='industry-suppliers' else (), category_label=label,
                       profile=None, values=values, creating=True, error=error), 400 if error else 200
 
     @app.route('/binflow/supplier-profiles/site/<int:profile_id>', methods=['GET', 'POST'])
@@ -118,7 +132,7 @@ def register_suppliers(app, db, require, render, now, actor):
             try:
                 if str(profile['version']) != request.form.get('version'):
                     raise ValueError('This profile changed while you were editing. Reload it before saving.')
-                values.update(validate(values, site_label='Supplier Site'))
+                values.update(supplier_details(category,values,profile['group_name']))
                 if not values['state'] or not values['address']:
                     raise ValueError('Enter the site address and choose its state.')
                 stamp, changed_by = now(), actor()
@@ -135,5 +149,6 @@ def register_suppliers(app, db, require, render, now, actor):
             except ValueError as exc:
                 error = str(exc)
             db().rollback()
-        return render('supplier_profile', section='suppliers', category=category, category_label=CATEGORIES[category],
+        return render('supplier_profile', section='suppliers', category=category, site_label=site_label(category),
+                      group_options=INDUSTRY_GROUPS if category=='industry-suppliers' else (), category_label=CATEGORIES[category],
                       profile=profile, values=values, creating=False, error=error), 400 if error else 200

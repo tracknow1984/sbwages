@@ -1,0 +1,9 @@
+<form method="get" class="bf-form" action="{{ url_for(request.endpoint) }}#xero-contact-search">
+  <input type="hidden" name="refresh" value="yes">
+  <button class="secondary">Refresh contacts from Xero</button>
+</form>
+<div class="bf-form" id="xero-contact-search">
+  <label>Find Xero contact<input type="search" data-xero-search autocomplete="off" placeholder="Type a company name" aria-controls="xero-contact-list"></label>
+  <small aria-live="polite" data-xero-count>{% if options.get('contacts_complete') %}{{ options.get('contacts',[])|length }} active Xero contacts{% elif options.get('contacts') %}Showing a previously saved partial list.{% endif %}</small>
+</div>
+<script src="{{ url_for('static',filename='binflow-xero-contacts.js') }}" defer></script>

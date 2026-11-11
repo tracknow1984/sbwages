@@ -29,7 +29,7 @@
 <details class="bf-panel bf-pad"{{ " open" if bales }}><summary>3. Transfer to Brisbane</summary>
   {% if bales %}
   <ul>{% for b in bales %}<li><a href="{{ url_for('bf_bale',bid=b.id) }}">{{ b.code }}</a> · {{ b.material_name }} · {{ b.net_g|bfkg }} kg · {{ b.status|replace('_',' ') }}</li>{% endfor %}</ul>
-  <p>Use a sample carrier and vehicle with a 1,000 kg payload. Scan each bale ID to load, dispatch the manifest, scan both IDs at Brisbane and sign for receipt into BlockTexx storage.</p>
+  <p>Choose a vehicle type and select Sample carrier. Scan each bale ID to load, dispatch the manifest, scan both IDs at Brisbane and sign for receipt into BlockTexx storage.</p>
   <a class="button secondary" href="{{ url_for('bf_bale_transfer_new',warehouse=1) }}">Create a sample transfer</a>
   {% else %}<p>Create the first bale to start a transfer.</p>{% endif %}
   {% for t in transfers %}<p><a href="{{ url_for('bf_bale_transfer',tid=t.id) }}">{{ t.code }} · {{ t.status|replace('_',' ') }}</a>{% if t.signed_at %} · <a href="{{ url_for('bf_bale_note',tid=t.id) }}">View signed storage note</a>{% endif %}</p>{% endfor %}

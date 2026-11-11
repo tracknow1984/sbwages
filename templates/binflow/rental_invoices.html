@@ -8,9 +8,9 @@
 {% else %}
 <section class="bf-panel bf-pad"><h2>{{ tenant_name }}</h2><p>{{ billable }} actual billable bins currently recorded on client sites.</p>
 {% if not billable %}<p class="bf-rental-warning">There are no actual billable bins yet. A labelled test draft uses sample quantities and does not change bin allocations.</p>{% endif %}
-<form class="bf-form" method="get"><input type="hidden" name="refresh" value="yes"><label>Find billing contact in Xero<input name="contact_search" value="{{ options.get('search','Blocktexx') }}" maxlength="100"></label><button class="secondary">Refresh Xero billing choices</button></form>
+{% include 'binflow/xero_contact_search.html' %}
 <form class="bf-form" method="post" action="{{ url_for('bf_rental_invoice_preview') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
-<div class="bf-grid"><label>Billing contact<select name="contact_id" required><option value="">Choose Xero contact</option>{% for contact in options.get('contacts',[]) %}<option value="{{ contact.id }}">{{ contact.name }}</option>{% endfor %}</select></label>
+<div class="bf-grid"><label>Billing contact<select id="xero-contact-list" data-xero-contacts data-record-text name="contact_id" required><option value="">Choose Xero contact</option>{% for contact in options.get('contacts',[]) %}<option data-contact-search="{{ contact.aliases }}" value="{{ contact.id }}">{{ contact.name }}</option>{% endfor %}</select></label>
 <label>Rental income account<select name="account_code" required><option value="">Choose account</option>{% for account in options.get('accounts',[]) %}<option value="{{ account.code }}">{{ account.code }} - {{ account.name }}</option>{% endfor %}</select></label>
 <label>Tax rate<select name="tax_type" required><option value="">Choose tax treatment</option>{% for tax in options.get('taxes',[]) %}<option value="{{ tax.code }}">{{ tax.name }} ({{ tax.rate }}%)</option>{% endfor %}</select></label></div>
 <div class="bf-grid"><label>Rental period starts<input type="date" name="period_start" value="{{ period_start }}" required></label><label>Rental period ends<input type="date" name="period_end" value="{{ period_end }}" required></label></div>

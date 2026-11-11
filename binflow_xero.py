@@ -7,6 +7,7 @@ reference rather than blindly resent. No approval, email or payment API exists.
 import base64
 import hashlib
 import json
+import logging
 import re
 import secrets
 import sqlite3
@@ -17,6 +18,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlparse
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 from uuid import UUID, uuid4
+from threading import Thread
 
 from cryptography.fernet import Fernet, InvalidToken
 from flask import abort, flash, g, redirect, request, session, url_for
@@ -72,7 +74,7 @@ def request_json(url, method='GET', headers=None, data=None):
         with build_opener(NoRedirect).open(req, timeout=10) as response:
             body = response.read(4 * 1024 * 1024 + 1)
         if len(body) > 4 * 1024 * 1024:
-            raise XeroError('Xero returned too much data. Narrow the contact search.')
+            raise XeroError('Xero returned more data than this request can process.')
         return json.loads(body) if body else {}
     except HTTPError as exc:
         messages = {400: 'Xero rejected the request. Check the app settings or invoice contact, account and tax selections.',
@@ -198,20 +200,74 @@ def organisation(app, conn, tenant=None):
     return rows[0]
 
 
-def choices(app, conn, search='Blocktexx'):
-    accounts = records(api(app, conn, 'Accounts'), 'Accounts')
-    taxes = records(api(app, conn, 'TaxRates'), 'TaxRates')
-    contacts = records(api(app, conn, 'Contacts?' + urlencode({'searchTerm': search[:100], 'page': 1})), 'Contacts')
+def contact_directory(app, conn, tenant):
+    contacts = {}
+    page = 1
+    while True:
+        params = urlencode(dict(page=page, pageSize=500, summaryOnly='true', includeArchived='false',
+                                where='ContactStatus=="ACTIVE"', order='Name ASC'))
+        response = api(app, conn, 'Contacts?' + params, tenant_id=tenant)
+        rows = records(response, 'Contacts')
+        before = len(contacts)
+        for row in rows:
+            if row.get('ContactStatus', 'ACTIVE') != 'ACTIVE':
+                continue
+            name = row.get('Name')
+            if not isinstance(name, str) or not name.strip():
+                raise XeroError('Xero returned a contact without a name. Refresh the contact list again.')
+            identifier = uuid_text(row.get('ContactID'))
+            aliases = ' '.join(str(row.get(k) or '') for k in ('FirstName','LastName','ContactNumber','EmailAddress')).strip()
+            contacts[identifier] = dict(id=identifier, name=name, aliases=aliases)
+        paging = response.get('pagination') or {}
+        last = paging.get('pageCount')
+        if not rows or (isinstance(last,int) and page >= last):
+            total = paging.get('itemCount')
+            if (isinstance(last,int) and page < last) or (isinstance(total,int) and total != len(contacts)):
+                raise XeroError('The Xero contact list changed during refresh. Please refresh again.')
+            break
+        if before == len(contacts):
+            raise XeroError('Xero repeated a contact page. Please refresh the list again.')
+        page += 1
+    return sorted(contacts.values(), key=lambda c: (c['name'].casefold(),c['id']))
+
+
+def choices(app, conn):
+    cfg = config(conn)
+    tenant = cfg['tenant_id']
+    accounts = records(api(app, conn, 'Accounts', tenant_id=tenant), 'Accounts')
+    taxes = records(api(app, conn, 'TaxRates', tenant_id=tenant), 'TaxRates')
     result = dict(
         accounts=[dict(code=str(a['Code']), name=a.get('Name', '')) for a in accounts
                   if a.get('Status') == 'ACTIVE' and a.get('Type') in ('REVENUE','SALES','OTHERINCOME') and a.get('Code')],
         taxes=[dict(code=t['TaxType'], name=t.get('Name', ''), rate=str(t.get('EffectiveRate', 0))) for t in taxes
                if t.get('Status') == 'ACTIVE' and t.get('CanApplyToRevenue') and t.get('TaxType')],
-        contacts=[dict(id=uuid_text(c.get('ContactID')), name=c.get('Name', '')) for c in contacts
-                  if c.get('ContactStatus') == 'ACTIVE'], search=search)
-    conn.execute('UPDATE bf_xero_config SET choices_json=?,choices_at=? WHERE id=1', (json.dumps(result), int(time.time())))
+        contacts=contact_directory(app, conn, tenant), contacts_complete=True)
+    updated = conn.execute("""UPDATE bf_xero_config SET choices_json=?,choices_at=MAX(?,choices_at+1) WHERE id=1
+                              AND tenant_id=? AND revision=? AND choices_at=? AND token_cipher IS NOT NULL""",
+                           (json.dumps(result),int(time.time()),tenant,cfg['revision'],cfg['choices_at'])).rowcount
     conn.commit()
+    if not updated:
+        latest = config(conn)
+        if latest['tenant_id']==tenant and latest['revision']==cfg['revision']:
+            saved = json.loads(latest['choices_json'])
+            if saved.get('contacts_complete'):
+                return saved
+        raise XeroError('The Xero connection changed. Reload the page to refresh its contacts.')
+    logging.getLogger('gunicorn.error').info('Xero billing contacts refreshed: %d active contacts.',len(result['contacts']))
     return result
+
+
+def directory_for_page(app, conn, cfg, refresh=False):
+    options = json.loads(cfg['choices_json'])
+    if cfg['tenant_id'] and cfg['token_cipher'] and (
+            refresh or not options.get('contacts_complete') or cfg['choices_at'] < time.time()-3600):
+        try:
+            return choices(app,conn), None
+        except XeroError as exc:
+            current = config(conn)
+            options = json.loads(current['choices_json']) if current['tenant_id']==cfg['tenant_id'] else {}
+            return options, 'Could not refresh Xero billing choices. ' + str(exc)
+    return options, None
 
 
 def billing_choices(conn, values, linked_contact=None):
@@ -287,6 +343,19 @@ def invoice_payload(snapshot, reference, today):
 
 
 def register(app, db, require, render, now, actor):
+    # Replace pre-upgrade, first-page-only caches without holding up app startup.
+    if not app.testing:
+        with app.app_context():
+            cfg = config(db())
+        if cfg['tenant_id'] and cfg['token_cipher'] and not json.loads(cfg['choices_json']).get('contacts_complete'):
+            def fill_existing_directory():
+                with app.app_context():
+                    try:
+                        choices(app,db())
+                    except XeroError as exc:
+                        app.logger.warning('Xero billing contact refresh pending: %s',exc)
+            Thread(target=fill_existing_directory,name='xero-contacts-upgrade',daemon=True).start()
+
     def go_settings():
         return redirect(url_for('bf_xero_settings'))
 
@@ -435,12 +504,7 @@ def register(app, db, require, render, now, actor):
     @require('admin')
     def bf_rental_invoices():
         cfg = config(db())
-        opts, error = json.loads(cfg['choices_json']), None
-        if cfg['tenant_id'] and cfg['token_cipher'] and (not opts or request.args.get('refresh') == 'yes'):
-            try:
-                opts = choices(app, db(), request.args.get('contact_search', 'Blocktexx').strip()[:100])
-            except XeroError as exc:
-                error = str(exc)
+        opts, error = directory_for_page(app,db(),cfg,request.args.get('refresh')=='yes')
         stamp = date.fromisoformat(now()[:10])
         history = db().execute('SELECT id,reference,period_start,period_end,mode,status,invoice_number FROM bf_rental_invoices WHERE category_id=1 ORDER BY created_at DESC,rowid DESC LIMIT 30').fetchall()
         return render('rental_invoices', section='rental', connected=bool(cfg['tenant_id'] and cfg['token_cipher']),

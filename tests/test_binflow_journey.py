@@ -311,7 +311,7 @@ class DriverJourneyTests(unittest.TestCase):
         self.assertEqual(self.client.get(inbound+suffix).text.count('Emptied into'),3)
         form = self.client.get(base+'/bales/transfers/new')
         key = re.search(r'name="request_key" value="([^"]+)"',form.text)[1]
-        page = self.post(base+'/bales/transfers/new',dict(origin_id=1,destination_id=4,carrier='Sample carrier',
+        page = self.post(base+'/bales/transfers/new',dict(origin_id=1,destination_id=4,carrier_supplier_id=1,vehicle_type='SINGLE',
             vehicle='TEST-01',payload=1000,request_key=key))
         transfer = base+'/bales/transfers/1'
         self.assertEqual(page.request.path,transfer)

@@ -84,7 +84,11 @@ def install_demo_database(app, real_db, now):
         # Use the sample's operating state only after validating its session and endpoint.
         g.user = dict(g.user, working_state=saved['state'])
         if warehouse or request.endpoint in ('bf_demo_inbound', 'bf_demo_docket'):
-            from binflow_bales import migrate_bale_scans
+            from binflow_bales import migrate_bale_scans, migrate_transfer_fields
+            from binflow_supplier_profiles import migrate as migrate_suppliers
+            if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='bf_supplier_site_profiles'").fetchone():
+                migrate_suppliers(conn)
+            migrate_transfer_fields(conn)
             migrate_bale_scans(conn)
             if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='bf_interstate_manifests'").fetchone():
                 from binflow_interstate import migrate as migrate_interstate
@@ -152,6 +156,8 @@ def seed_demo(source, target, user, state, stamp):
 
 
 def prepare_warehouse(conn, stamp):
+    conn.execute("""INSERT OR IGNORE INTO bf_supplier_site_profiles(category,group_name,customer_site,updated_at,updated_by)
+        VALUES('industry-suppliers','TRANSPORT','Sample carrier',?,'Sample run')""",(stamp,))
     # The first three locations are the sample origin and its two sample client sites.
     if conn.execute('SELECT 1 FROM bf_bale_settings WHERE warehouse_id=4 AND receiving_hub=1').fetchone():
         return

@@ -22,6 +22,31 @@ def migrate_bale_scans(conn):
         event_id INTEGER NOT NULL REFERENCES bf_events(id), UNIQUE(draft_key,bin_id))""")
 
 
+VEHICLE_TYPES = ('SINGLE', 'B DOUBLE', 'RIGID')
+
+
+def migrate_transfer_fields(conn):
+    # Older manifests have a mandatory payload. Keep their actual limits and all custody references.
+    columns = {r[1]:r for r in conn.execute('PRAGMA table_info(bf_bale_transfers)')}
+    if columns['payload_g'][3] or 'vehicle_type' not in columns or 'carrier_supplier_id' not in columns:
+        conn.execute('SAVEPOINT bale_transfer_fields')
+        try:
+            if columns['payload_g'][3]:
+                conn.execute('ALTER TABLE bf_bale_transfers ADD COLUMN confirmed_g INTEGER CHECK(confirmed_g>0)')
+                conn.execute('UPDATE bf_bale_transfers SET confirmed_g=payload_g')
+                conn.execute('ALTER TABLE bf_bale_transfers DROP COLUMN payload_g')
+                conn.execute('ALTER TABLE bf_bale_transfers RENAME COLUMN confirmed_g TO payload_g')
+            if 'vehicle_type' not in columns:
+                conn.execute("ALTER TABLE bf_bale_transfers ADD COLUMN vehicle_type TEXT CHECK(vehicle_type IN ('SINGLE','B DOUBLE','RIGID'))")
+            if 'carrier_supplier_id' not in columns:
+                conn.execute('ALTER TABLE bf_bale_transfers ADD COLUMN carrier_supplier_id INTEGER REFERENCES bf_supplier_site_profiles(id)')
+        except Exception:
+            conn.execute('ROLLBACK TO bale_transfer_fields')
+            raise
+        finally:
+            conn.execute('RELEASE bale_transfer_fields')
+
+
 def migrate(conn):
     conn.executescript('''
     CREATE TABLE IF NOT EXISTS bf_bale_sources (
@@ -54,7 +79,9 @@ def migrate(conn):
       id INTEGER PRIMARY KEY, request_key TEXT NOT NULL UNIQUE, code TEXT UNIQUE,
       origin_id INTEGER NOT NULL REFERENCES bf_locations(id), destination_id INTEGER NOT NULL REFERENCES bf_locations(id),
       origin_name TEXT NOT NULL, destination_name TEXT NOT NULL, carrier TEXT NOT NULL, vehicle TEXT NOT NULL,
-      payload_g INTEGER NOT NULL CHECK(payload_g>0), status TEXT NOT NULL DEFAULT 'loading'
+      payload_g INTEGER CHECK(payload_g>0),
+      vehicle_type TEXT CHECK(vehicle_type IN ('SINGLE','B DOUBLE','RIGID')),
+      carrier_supplier_id INTEGER REFERENCES bf_supplier_site_profiles(id), status TEXT NOT NULL DEFAULT 'loading'
         CHECK(status IN ('loading','transit','received','handed_over','cancelled')),
       version INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, created_by TEXT NOT NULL,
       departed_at TEXT, departed_by TEXT, received_at TEXT, signed_at TEXT, signed_by TEXT,
@@ -73,6 +100,7 @@ def migrate(conn):
       code TEXT NOT NULL, material_name TEXT NOT NULL, net_g INTEGER NOT NULL, signed_at TEXT NOT NULL,
       recipient TEXT NOT NULL, recorded_by TEXT NOT NULL);
     ''')
+    migrate_transfer_fields(conn)
     migrate_bale_scans(conn)
 
 
@@ -467,9 +495,14 @@ def register(app,db,access,require,render,success,failure,now,actor):
                     handover = int(request.form.get('storage_handover')=='yes')
                     if handover and not (dest['hub'] and dest['state']=='QLD'):
                         raise ValueError('Select a Brisbane receiving hub for a BlockTexx storage handover.')
-                carrier=request.form.get('carrier','').strip();vehicle=request.form.get('vehicle','').strip()
-                if not carrier or not vehicle or max(len(carrier),len(vehicle))>150:raise ValueError('Enter the carrier and vehicle / trailer registration (up to 150 characters).')
-                payload=weight(request.form.get('payload',''));key=request.form.get('request_key','')
+                vehicle_type = request.form.get('vehicle_type','')
+                if vehicle_type not in VEHICLE_TYPES:
+                    raise ValueError('Choose SINGLE, B DOUBLE or RIGID.')
+                vehicle = request.form.get('vehicle','').strip()
+                if len(vehicle)>150:
+                    raise ValueError('Enter a registration of up to 150 characters.')
+                payload = weight(request.form.get('payload',''),optional=True)
+                key = request.form.get('request_key','')
                 if not 20<=len(key)<=100:raise ValueError('Refresh the transfer form and try again.')
                 db().execute('BEGIN IMMEDIATE')
                 if booking:
@@ -481,9 +514,13 @@ def register(app,db,access,require,render,success,failure,now,actor):
                 if old:
                     if old['booking_id']!=bid: raise ValueError('Reopen this booking to start a manifest.')
                     allowed(old['origin_id']);return success('Transfer already created.','bf_bale_transfer',tid=old['id'])
+                supplier = db().execute("""SELECT id,customer_site FROM bf_supplier_site_profiles
+                    WHERE id=? AND category='industry-suppliers'""",(request.form.get('carrier_supplier_id',type=int),)).fetchone()
+                if not supplier:
+                    raise ValueError('Choose a carrier from Industry Suppliers.')
                 pickup=db().execute("SELECT id FROM bf_bale_pickups WHERE warehouse_id=? AND status='ready'",(oid,)).fetchone()
-                tid=db().execute('''INSERT INTO bf_bale_transfers(request_key,origin_id,destination_id,origin_name,destination_name,carrier,vehicle,payload_g,created_at,created_by,pickup_id)
-                  VALUES(?,?,?,?,?,?,?,?,?,?,?)''',(key,oid,did,origin['name'],dest['name'],carrier,vehicle,payload,now(),actor(),pickup['id'] if pickup else None)).lastrowid
+                tid=db().execute('''INSERT INTO bf_bale_transfers(request_key,origin_id,destination_id,origin_name,destination_name,carrier,carrier_supplier_id,vehicle_type,vehicle,payload_g,created_at,created_by,pickup_id)
+                  VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)''',(key,oid,did,origin['name'],dest['name'],supplier['customer_site'],supplier['id'],vehicle_type,vehicle,payload,now(),actor(),pickup['id'] if pickup else None)).lastrowid
                 db().execute('UPDATE bf_bale_transfers SET code=? WHERE id=?',(f'BT{tid:06d}',tid))
                 if booking:
                     db().execute('INSERT INTO bf_interstate_manifests(transfer_id,booking_id,expected_bales,blocktexx_handover) VALUES(?,?,?,?)',
@@ -493,7 +530,9 @@ def register(app,db,access,require,render,success,failure,now,actor):
                 return success('Transfer ready. Scan each bale as it goes onto the truck.','bf_bale_transfer',tid=tid)
             except ValueError as error:
                 return failure(error,'bf_bale_transfer_new',**({'booking':bid} if booking else {}))
-        return view('bale_transfer_new',warehouses=origins,selected=request.args.get('warehouse',type=int),
+        carriers = db().execute("""SELECT id,customer_site,suburb,state,address FROM bf_supplier_site_profiles
+            WHERE category='industry-suppliers' ORDER BY customer_site COLLATE NOCASE,state,suburb,address,id""").fetchall()
+        return view('bale_transfer_new',carriers=carriers,vehicle_types=VEHICLE_TYPES,warehouses=origins,selected=request.args.get('warehouse',type=int),
                     request_key=secrets.token_urlsafe(24),destinations=destinations,booking=booking)
 
     @app.get('/binflow/bales/transfers/<int:tid>')
@@ -525,7 +564,7 @@ def register(app,db,access,require,render,success,failure,now,actor):
                     if t['expected_bales'] and len(loaded)>=t['expected_bales']:
                         raise ValueError('All expected bales have been scanned for this load.')
                     total=sum(i['net_g'] for i in loaded)
-                    if total+b['net_g']>t['payload_g']:raise ValueError('This bale would exceed the confirmed truck payload limit.')
+                    if t['payload_g'] is not None and total+b['net_g']>t['payload_g']:raise ValueError('This bale would exceed the confirmed truck payload limit.')
                     db().execute('INSERT INTO bf_bale_transfer_items VALUES(?,?,?,?,?,?,?,?,?)',(tid,b['id'],b['code'],b['material_name'],b['net_g'],now(),actor(),None,None))
                     db().execute("UPDATE bf_bales SET status='loading',version=version+1 WHERE id=?",(b['id'],))
                     event('Scanned onto truck',b['id'],tid,t['origin_id'])
@@ -572,7 +611,7 @@ def register(app,db,access,require,render,success,failure,now,actor):
                     if t['expected_bales'] and len(rows)!=t['expected_bales']:
                         raise ValueError(f"Scan all {t['expected_bales']} booked bales before dispatch.")
                     if not rows or request.form.get('confirm')!='yes':raise ValueError('Load at least one bale and confirm the truck manifest.')
-                    if sum(i['net_g'] for i in rows)>t['payload_g']:raise ValueError('Truck payload limit exceeded.')
+                    if t['payload_g'] is not None and sum(i['net_g'] for i in rows)>t['payload_g']:raise ValueError('Truck payload limit exceeded.')
                     for i in rows:
                         b=db().execute('SELECT * FROM bf_bales WHERE id=?',(i['bale_id'],)).fetchone()
                         if b['status']!='loading' or b['warehouse_id']!=t['origin_id']:raise ValueError('Bale custody changed. Review this manifest.')
@@ -587,7 +626,7 @@ def register(app,db,access,require,render,success,failure,now,actor):
                 recipient=request.form.get('recipient','').strip()
                 if not recipient or len(recipient)>150 or request.form.get('confirm')!='yes':raise ValueError('Enter the BlockTexx recipient and confirm the storage handover.')
                 signature=signature_png(request.form.get('signature','[]'))
-                stamp=now();snapshot=dict(code=t['code'],origin=t['origin_name'],destination=t['destination_name'],carrier=t['carrier'],vehicle=t['vehicle'],
+                stamp=now();snapshot=dict(code=t['code'],origin=t['origin_name'],destination=t['destination_name'],carrier=t['carrier'],vehicle_type=t['vehicle_type'],vehicle=t['vehicle'],
                   departed_at=t['departed_at'],received_at=t['received_at'],signed_at=stamp,recipient=recipient,signed_by=actor(),items=[dict(i) for i in rows],total_g=sum(i['net_g'] for i in rows))
                 for i in rows:
                     b=db().execute('SELECT * FROM bf_bales WHERE id=?',(i['bale_id'],)).fetchone()

@@ -1,6 +1,8 @@
 {% set site_label = site_label|default('Customer Site') %}
 <fieldset><legend>{{ site_label }}</legend><div class="bf-grid">
-<label>Group<input name="group_name" maxlength="200" value="{{ values.group_name }}" placeholder="Business group or tier"></label>
+<label>Group{% if group_options %}<select name="group_name">
+<option value="">Choose group</option>{% if profile and profile.group_name and profile.group_name not in group_options %}<option value="{{ profile.group_name }}" {{ 'selected' if values.group_name==profile.group_name }}>{{ profile.group_name }} (existing)</option>{% endif %}
+{% for group in group_options %}<option value="{{ group }}" {{ 'selected' if values.group_name==group }}>{{ group }}</option>{% endfor %}</select>{% else %}<input name="group_name" maxlength="200" value="{{ values.group_name }}" placeholder="Business group or tier">{% endif %}</label>
 <label>{{ site_label }}<input name="customer_site" maxlength="200" value="{{ values.customer_site }}" required></label>
 <label>Address<input name="address" maxlength="500" value="{{ values.address }}" autocomplete="street-address" {{ "required" if creating or supplier|default(false) }}></label>
 <label>Suburb<input name="suburb" maxlength="200" value="{{ values.suburb }}" autocomplete="address-level2"></label>

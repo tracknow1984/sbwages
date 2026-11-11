@@ -32,7 +32,7 @@ class XeroRentalTests(unittest.TestCase):
             conn.execute('''UPDATE bf_xero_config SET tenant_id=?,tenant_name=?,choices_at=?,choices_json=? WHERE id=1''',
                          (TENANT, 'Test Organisation', int(time.time()), json.dumps({
                              'accounts': [{'code': '200', 'name': 'Rental income'}],
-                             'contacts': [{'id': CONTACT, 'name': 'BlockTexx'}],
+                             'contacts_complete': True, 'contacts': [{'id': CONTACT, 'name': 'BlockTexx'}],
                              'taxes': [{'code': 'OUTPUT', 'name': 'GST on income', 'rate': '10'}]})))
             conn.execute('UPDATE bf_sizes SET weekly_rental_cents=181 WHERE id=1')
 
@@ -44,6 +44,59 @@ class XeroRentalTests(unittest.TestCase):
 
     def invoice(self):
         return self.rows('SELECT * FROM bf_rental_invoices ORDER BY rowid DESC')[0]
+
+    def test_complete_contact_directory_across_pages_searches_and_failed_refresh(self):
+        from uuid import UUID
+        self.connect()
+        directory=[dict(ContactID=str(UUID(int=n+1)),Name=f'Company {n:04d}',ContactStatus='ACTIVE') for n in range(1003)]
+        directory[-1]['Name']='Zebra Tail Transport'
+        pages=[]
+        def xero_data(app,conn,path,**kwargs):
+            self.assertEqual(kwargs['tenant_id'],TENANT)
+            if path=='Accounts':
+                return {'Accounts':[dict(Code='200',Name='Sales',Status='ACTIVE',Type='SALES')]}
+            if path=='TaxRates':
+                return {'TaxRates':[dict(TaxType='OUTPUT',Name='GST',Status='ACTIVE',CanApplyToRevenue=True,EffectiveRate=10)]}
+            qs=parse_qs(urlparse(path).query)
+            self.assertNotIn('searchTerm',qs)
+            page=int(qs['page'][0])
+            size=int(qs['pageSize'][0])
+            pages.append(page)
+            return dict(Contacts=directory[(page-1)*size:page*size],
+                        pagination=dict(page=page,pageCount=3,itemCount=len(directory)))
+        with self.connection() as conn:
+            cfg=xero.config(conn)
+            legacy=json.loads(cfg['choices_json'])
+            legacy.pop('contacts_complete')
+            legacy['search']='Blocktexx'
+            conn.execute('UPDATE bf_xero_config SET choices_json=?',(json.dumps(legacy),))
+        with patch('binflow_xero.api',side_effect=xero_data):
+            admin=self.client.get('/binflow/invoices?search=Blocktexx')
+            rental=self.client.get('/binflow/rental-invoices?contact_search=Other')
+        self.assertEqual(pages,[1,2,3])
+        for page in (admin,rental):
+            self.assertIn('1003 active Xero contacts',page.text)
+            self.assertIn('Zebra Tail Transport',page.text)
+            self.assertIn('Company 0000',page.text)
+        saved=self.rows('SELECT choices_json,choices_at FROM bf_xero_config')[0]
+        self.assertEqual(len(json.loads(saved['choices_json'])['contacts']),1003)
+        def fail_on_second(app,conn,path,**kw):
+            if 'page=2&' in path:
+                raise xero.XeroError('Xero temporarily unavailable')
+            return xero_data(app,conn,path,**kw)
+        with patch('binflow_xero.api',side_effect=fail_on_second):
+            result=self.client.get('/binflow/rental-invoices?refresh=yes')
+        self.assertIn('Could not refresh',result.text)
+        self.assertIn('Zebra Tail Transport',result.text)
+        self.assertEqual(self.rows('SELECT choices_json,choices_at FROM bf_xero_config')[0],saved)
+
+    def test_contact_pages_without_metadata_continue_until_empty(self):
+        rows=[dict(ContactID=CONTACT,Name='BlockTexx',ContactStatus='ACTIVE')]
+        with patch('binflow_xero.api',side_effect=[dict(Contacts=rows),dict(Contacts=[])]):
+            self.assertEqual(xero.contact_directory(self.app,self.connection(),TENANT)[0]['name'],'BlockTexx')
+        with patch('binflow_xero.api',side_effect=[dict(Contacts=rows),dict(Contacts=rows)]):
+            with self.assertRaises(xero.XeroError):
+                xero.contact_directory(self.app,self.connection(),TENANT)
 
     def test_secrets_encrypted_and_pages_render_without_them(self):
         self.connect()
