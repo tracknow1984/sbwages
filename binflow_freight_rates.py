@@ -1,6 +1,7 @@
 """Client freight pricing. Monetary amounts are AUD cents ex GST, percentages are basis points."""
 import hashlib
 import json
+from itertools import combinations
 
 from flask import abort, flash, g, redirect, render_template, request, url_for
 from binflow_collections import STATES
@@ -8,6 +9,14 @@ from binflow_sizes import amount
 
 VEHICLES = ('SEMI TRAILER', 'B-DOUBLE')
 MIN_RIGID_HOURS = 4
+# Place each return directly under its outbound route, starting with NSW to QLD.
+ROUTE_STATES = ('NSW', *(state for state in STATES if state != 'NSW'))
+ROUTES = tuple(route for a, b in combinations(ROUTE_STATES, 2) for route in ((a, b), (b, a)))
+MATRIX_VEHICLES = ('B-DOUBLE', 'SEMI TRAILER')
+
+
+def matrix_version(saved, hourly):
+    return hashlib.sha256(json.dumps([saved, hourly], sort_keys=True).encode()).hexdigest()
 
 
 def migrate(conn):
@@ -108,29 +117,47 @@ def register(app, db, require, render, client_access, now, actor):
             abort(400)
         if request.method == 'POST':
             conn.execute('BEGIN IMMEDIATE')
-        rows = conn.execute("""SELECT destination,vehicle,cents FROM bf_interstate_rates
-            WHERE account_id=? AND origin=? AND vehicle IN (?,?)""",(aid,origin,*VEHICLES))
-        saved = {r['destination']+':'+r['vehicle']:r['cents'] for r in rows}
+        rows = conn.execute("""SELECT origin,destination,vehicle,cents FROM bf_interstate_rates
+            WHERE account_id=? AND vehicle IN (?,?)""", (aid,*MATRIX_VEHICLES))
+        saved = {f"{r['origin']}:{r['destination']}:{r['vehicle']}":r['cents'] for r in rows}
         hourly = hourly_rate(conn,aid)
-        version = hashlib.sha256(json.dumps([saved,hourly],sort_keys=True).encode()).hexdigest()
-        fields = {state+':'+vehicle for state in STATES if state!=origin for vehicle in VEHICLES}
+        version = matrix_version(saved,hourly)
         values = {key:f'{cents/100:.2f}' for key,cents in saved.items()}
         hourly_value = '' if hourly is None else f'{hourly/100:.2f}'
         error = None
         if request.method == 'POST':
-            if request.form.get('version')!=version:
-                abort(409,'This rate card has changed. Reopen it before saving.')
+            keys = [f'{a}:{b}:{v}' for a,b in ROUTES for v in MATRIX_VEHICLES]
+            posted_names = {key:key for key in keys}
+            expected_version = version
+            # A single-state form opened before deployment can still save its original rows.
+            if request.form.get('layout') != 'routes' and any(key.count(':')==1 for key in request.form):
+                posted_names = {key:key.split(':',1)[1] for key in keys if key.startswith(origin+':')}
+                previous = {name:saved[key] for key,name in posted_names.items() if key in saved}
+                expected_version = matrix_version(previous,hourly)
+            if request.form.get('version') != expected_version:
+                abort(409,'This rate card has changed. Reload the matrix before saving.')
             try:
-                if not fields.issubset(request.form):
-                    raise ValueError('The matrix is incomplete. Reload this pickup state before saving.')
-                values = {key:request.form[key].strip() for key in fields}
+                if not all(name in request.form for name in posted_names.values()):
+                    raise ValueError('Some rate fields are missing. Reload the matrix before saving.')
+                values.update({key:request.form[name].strip() for key,name in posted_names.items()})
                 hourly_value = request.form.get('rigid_hourly',hourly_value).strip()
                 updated_hourly = amount(hourly_value,'Local RIGID hourly rate',1000000,100,optional=True)
-                changes = [(aid,origin,*key.split(':'),amount(value,'Base freight',1000000,100))
-                           for key,value in values.items() if value]
-                conn.execute('DELETE FROM bf_interstate_rates WHERE account_id=? AND origin=? AND vehicle IN (?,?)',
-                             (aid,origin,*VEHICLES))
-                conn.executemany('INSERT INTO bf_interstate_rates VALUES(?,?,?,?,?)',changes)
+                upserts, removals = [], []
+                for key in posted_names:
+                    pickup,delivery,vehicle = key.split(':')
+                    cents = amount(values[key],f'{pickup} → {delivery} {vehicle}',1000000,100,optional=True)
+                    if cents == saved.get(key):
+                        continue
+                    route = (aid,pickup,delivery,vehicle)
+                    if cents is None:
+                        removals.append(route)
+                    else:
+                        upserts.append((*route,cents))
+                conn.executemany("""INSERT INTO bf_interstate_rates(account_id,origin,destination,vehicle,cents)
+                    VALUES(?,?,?,?,?) ON CONFLICT(account_id,origin,destination,vehicle)
+                    DO UPDATE SET cents=excluded.cents""",upserts)
+                conn.executemany("""DELETE FROM bf_interstate_rates
+                    WHERE account_id=? AND origin=? AND destination=? AND vehicle=?""",removals)
                 if updated_hourly is None:
                     conn.execute('DELETE FROM bf_rigid_hourly_rates WHERE account_id=?',(aid,))
                 else:
@@ -138,13 +165,13 @@ def register(app, db, require, render, client_access, now, actor):
                         DO UPDATE SET cents=excluded.cents""",(aid,updated_hourly))
                 conn.commit()
                 flash(f'Pricing matrix saved for {account["name"]}.','success')
-                return redirect(url_for('bf_interstate_rates',aid=aid,origin=origin),code=303)
+                return redirect(url_for('bf_interstate_rates',aid=aid),code=303)
             except ValueError as exc:
                 conn.rollback()
                 error = str(exc)
         setting = current_fuel(conn)
         _, minimum_price = rigid_quote(hourly,0,setting['bps'])
         prices = {key:quote(base,setting['bps']) for key,base in saved.items()}
-        return render('interstate_rates',section='interstate',client=account,regions=STATES,origin=origin,
-                      vehicles=VEHICLES,values=values,version=version,error=error,fuel=setting,prices=prices,
+        return render('interstate_rates',section='interstate',client=account,routes=ROUTES,
+                      vehicles=MATRIX_VEHICLES,values=values,version=version,error=error,fuel=setting,prices=prices,
                       hourly_value=hourly_value,minimum=MIN_RIGID_HOURS,minimum_price=minimum_price),400 if error else 200

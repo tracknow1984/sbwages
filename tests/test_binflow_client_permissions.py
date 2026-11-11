@@ -1,6 +1,7 @@
 import json
 import re
 import sqlite3
+from html.parser import HTMLParser
 import unittest
 
 import test_binflow as legacy
@@ -9,6 +10,19 @@ from binflow_collections import STATES
 from binflow_freight_rates import VEHICLES
 from pod_helpers import sign_pod
 from test_binflow_interstate import CAL, CLIENT, data
+
+
+def matrix_fields(page):
+    class FormInputs(HTMLParser):
+        def handle_starttag(self, tag, attributes):
+            attrs = dict(attributes)
+            name = attrs.get('name', '')
+            if tag == 'input' and (':' in name or name in ('version','layout','rigid_hourly')):
+                values[name] = attrs.get('value','')
+
+    values = {}
+    FormInputs().feed(page)
+    return values
 
 
 class PortalPermissionTests(unittest.TestCase):
@@ -119,8 +133,8 @@ class PortalPermissionTests(unittest.TestCase):
         path=f'{CAL}/access/{aid}/rates?origin=VIC'
         def save_rate(value):
             page=self.client.get(path)
-            fields={state+':'+vehicle:'' for state in STATES if state!='VIC' for vehicle in VEHICLES}
-            fields.update({'QLD:SEMI TRAILER':value,'version':re.search('name="version" value="([^"]+)"',page.text)[1]})
+            fields=matrix_fields(page.text)
+            fields['VIC:QLD:SEMI TRAILER']=value
             self.assertEqual(self.post(path,fields).status_code,200)
         save_rate('123.45')
         first=self.visit('freight-client')
@@ -158,9 +172,8 @@ class PortalPermissionTests(unittest.TestCase):
             path=f'{CAL}/access/{aid}/rates?origin=VIC'
             page=self.client.get(path).text
             self.assertIn('12.5%',page)
-            fields={state+':'+vehicle:'' for state in STATES if state!='VIC' for vehicle in VEHICLES}
-            fields.update({'QLD:SEMI TRAILER':'100.04','rigid_hourly':hourly,
-                           'version':re.search('name="version" value="([^"]+)"',page)[1]})
+            fields=matrix_fields(page)
+            fields.update({'VIC:QLD:SEMI TRAILER':'100.04','rigid_hourly':hourly})
             self.assertEqual(self.post(path,fields).status_code,200)
             return self.visit(name)
 
@@ -211,3 +224,35 @@ class PortalPermissionTests(unittest.TestCase):
         self.assertEqual(response.status_code,200)
         self.assertEqual(self.send(client,CLIENT+'/1/edit',data(vehicle='RIGID',version='2',destination='NSW')).status_code,400)
         self.assertEqual(self.rows('SELECT rate_cents,fuel_bps FROM bf_interstate_bookings'),[dict(rate_cents=180000,fuel_bps=0)])
+
+    def test_route_matrix_round_trip_prices_are_independent(self):
+        from binflow_freight_rates import matrix_version
+        aid=self.account('national-rates')
+        path=f'{CAL}/access/{aid}/rates'
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("INSERT INTO bf_interstate_rates VALUES(?,'WA','TAS','B-DOUBLE',99900)",(aid,))
+        fields=matrix_fields(self.client.get(path+'?origin=NSW').text)
+        expected={f'{start}:{end}:{vehicle}' for start in STATES for end in STATES if start!=end for vehicle in VEHICLES}
+        self.assertEqual({key for key in fields if ':' in key},expected)
+        self.assertEqual(fields['WA:TAS:B-DOUBLE'],'999.00')
+        fields.update({'NSW:QLD:B-DOUBLE':'2000.00','QLD:NSW:B-DOUBLE':'1750.00',
+                       'NSW:QLD:SEMI TRAILER':'1350.00','QLD:NSW:SEMI TRAILER':'0.00'})
+        self.assertEqual(self.post(path,fields).status_code,200)
+        self.assertEqual(self.post(path,fields).status_code,409)
+        stored=matrix_fields(self.client.get(path).text)
+        for key in expected:
+            self.assertEqual(stored[key],fields[key])
+        self.assertEqual(self.post(path,dict(stored,**{'NSW:QLD:B-DOUBLE':'123','WA:TAS:B-DOUBLE':'-2'})).status_code,400)
+        incomplete=dict(stored)
+        del incomplete['NT:ACT:B-DOUBLE']
+        self.assertEqual(self.post(path,incomplete).status_code,400)
+        self.assertEqual(matrix_fields(self.client.get(path).text),stored)
+        # Pre-release per-state forms may still be open. A scoped save must preserve other states' rates.
+        older={f'{dest}:{truck}':'' for dest in STATES if dest!='QLD' for truck in VEHICLES}
+        older.update({'version':matrix_version({'NSW:B-DOUBLE':175000,'NSW:SEMI TRAILER':0},None),'NSW:B-DOUBLE':'1600'})
+        self.assertEqual(self.post(path+'?origin=QLD',older).status_code,200)
+        final=matrix_fields(self.client.get(path).text)
+        self.assertEqual(final['QLD:NSW:B-DOUBLE'],'1600.00')
+        self.assertEqual(final['QLD:NSW:SEMI TRAILER'],'')
+        self.assertEqual(final['NSW:QLD:B-DOUBLE'],'2000.00')
+        self.assertEqual(final['WA:TAS:B-DOUBLE'],'999.00')

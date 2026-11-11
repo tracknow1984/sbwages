@@ -20,3 +20,21 @@
 .it-quote>div:last-child {border-top:1px solid #d7e1de}
 .it-quote dd {margin:0;font-variant-numeric:tabular-nums}
 .it-rate-grid small {display:block;text-align:left;margin:.2rem 0;overflow-wrap:anywhere}
+
+.it-matrix {max-width:54rem}
+.it-matrix .it-local-hourly {margin:0}
+.it-local-hourly summary {cursor:pointer}
+.it-local-hourly label {max-width:15rem;margin-top:.6rem}
+.it-matrix-scroll {overflow:auto;max-height:65vh;border:1px solid #d7e1de;border-radius:.5rem}
+.it-matrix .it-rate-grid {width:100%;max-width:none;border-collapse:separate;border-spacing:0}
+.it-matrix .it-rate-grid th {vertical-align:middle;white-space:nowrap}
+.it-matrix .it-rate-grid thead th {position:sticky;top:0;z-index:1;text-align:left;background:#edf3f7;color:#173650}
+.it-matrix .it-rate-grid tbody tr:nth-child(4n+1),.it-matrix .it-rate-grid tbody tr:nth-child(4n+2) {background:#f7fafc}
+.it-matrix .it-rate-grid input {text-align:right;font-variant-numeric:tabular-nums}
+.it-matrix .it-rate-grid small {display:none}
+.it-matrix:has(.it-show-fuel:checked) .it-rate-grid small {display:block}
+@media(max-width:560px) {
+  .it-matrix .it-rate-grid th,.it-matrix .it-rate-grid td {padding:.35rem .2rem}
+  .it-matrix .it-rate-grid thead th {white-space:normal;letter-spacing:.02em}
+  .it-matrix .it-rate-grid input {padding-inline:.25rem}
+}

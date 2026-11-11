@@ -1,17 +1,31 @@
 {% extends 'binflow/layout.html' %}{% from 'binflow/freight_amounts.html' import breakdown %}
-{% block title %}Pricing matrix{% endblock %}{% block subtitle %}{{ client.name }} · All amounts in AUD ex GST{% endblock %}
-{% block body %}<link rel="stylesheet" href="{{ url_for('static',filename='binflow-interstate.css') }}">
+{% block title %}Pricing matrix{% endblock %}{% block subtitle %}{{ client.name }} · Base rates in AUD ex GST{% endblock %}
+{% block body %}
+<link rel="stylesheet" href="{{ url_for('static',filename='binflow-interstate.css') }}">
 <a href="{{ url_for('bf_interstate_accounts',_anchor='login-'~client.id) }}">← Client login</a>
-<div class="bf-panel bf-pad bf-toolbar"><strong>Weekly fuel surcharge · {{ fuel.bps|hours }}%</strong><a href="{{ url_for('bf_weekly_fuel') }}">Update for all clients</a></div>
-<section class="bf-panel bf-pad"><form method="get" class="bf-filters"><label>Interstate pickup state<select name="origin">{% for s in regions %}<option {{ 'selected' if origin==s }}>{{ s }}</option>{% endfor %}</select></label><button class="secondary">Show rates</button></form>
-{% if error %}<p class="notice error" role="alert">{{ error }}</p>{% endif %}
-<form method="post" class="bf-form"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ version }}">
-<h2>Interstate · {{ origin }} pickup</h2><p>Enter the base freight per vehicle, ex GST. A blank rate shows “Price to be confirmed”.</p>
-<table class="it-rate-grid"><thead><tr><th>Delivery</th>{% for v in vehicles %}<th scope="col">{{ v }}</th>{% endfor %}</tr></thead><tbody>
-{% for s in regions if s!=origin %}<tr><th scope="row">{{ s }}</th>{% for v in vehicles %}{% set key=s~':'~v %}<td>
-<input type="number" inputmode="decimal" min="0" max="1000000" step=".01" name="{{ key }}" aria-label="{{ origin }} to {{ s }} {{ v }}" value="{{ values.get(key,'') }}">
-{% if prices.get(key) %}<small>Saved fuel {{ prices[key].fuel|money }}<br>Total {{ prices[key].total|money }} ex GST</small>{% endif %}</td>{% endfor %}</tr>{% endfor %}</tbody></table>
-<h2>Local RIGID</h2><label>Hourly rate (AUD ex GST)<input type="number" inputmode="decimal" min="0" max="1000000" step=".01" name="rigid_hourly" value="{{ hourly_value }}"></label>
-<p>{{ minimum }}-hour minimum per local job across all states.</p>
-{% if minimum_price %}<details><summary>Minimum charge · {{ minimum_price.total|money }} ex GST including fuel</summary>{{ breakdown(minimum_price) }}</details>{% endif %}
-<button class="primary">Save pricing matrix</button></form></section>{% endblock %}
+<section class="bf-panel bf-pad it-matrix">
+  <form method="post" class="bf-form">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+    <input type="hidden" name="layout" value="routes">
+    <input type="hidden" name="version" value="{{ version }}">
+    <div class="bf-toolbar"><div><h2>Interstate routes</h2><span>Weekly fuel surcharge · {{ fuel.bps|hours }}% <a href="{{ url_for('bf_weekly_fuel') }}">Edit</a></span></div>
+      <button class="primary">Save pricing matrix</button></div>
+    <details class="it-local-hourly" {% if error %}open{% endif %}>
+      <summary>Local RIGID · {{ minimum }}-hour minimum</summary>
+      <label>Hourly rate (AUD ex GST)<input type="number" inputmode="decimal" min="0" max="1000000" step=".01" name="rigid_hourly" value="{{ hourly_value }}"></label>
+      {% if minimum_price %}<p>Minimum charge including fuel</p>{{ breakdown(minimum_price) }}{% endif %}
+    </details>
+    {% if error %}<p class="notice error" role="alert">{{ error }}</p>{% endif %}
+    {% if prices %}<label class="bf-check"><input type="checkbox" class="it-show-fuel">Show saved fuel charges and totals</label>{% endif %}
+    <div class="it-matrix-scroll" tabindex="0" role="region" aria-label="Interstate route rates">
+      <table class="it-rate-grid"><thead><tr><th scope="col">Route</th><th scope="col">B-Double</th><th scope="col">Semi Trailer</th></tr></thead>
+        <tbody>{% for pickup,delivery in routes %}
+          <tr><th scope="row">{{ pickup }} → {{ delivery }}</th>{% for vehicle in vehicles %}
+            {% set key=pickup~':'~delivery~':'~vehicle %}<td><input type="number" inputmode="decimal" min="0" max="1000000" step=".01" name="{{ key }}" aria-label="{{ pickup }} to {{ delivery }} {{ vehicle }}" value="{{ values.get(key,'') }}">
+              {% if prices.get(key) %}<small>Fuel {{ prices[key].fuel|money }}<br>Total {{ prices[key].total|money }} ex GST</small>{% endif %}</td>{% endfor %}
+          </tr>{% endfor %}
+        </tbody></table>
+    </div>
+    <small class="bf-muted">Blank rates display “Price to be confirmed”.</small>
+  </form>
+</section>{% endblock %}
