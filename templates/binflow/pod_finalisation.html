@@ -21,13 +21,13 @@
 <button class="secondary">Save missing classifications</button></form>
 </details>
 {% endif %}
-{% else %}<p>Empty delivery completed. Sign off this delivery POD.</p>{% endif %}
+{% else %}<p>Empty delivery completed. Check the run weights before sign-off.</p>{% endif %}
 {% set run=pod_run_signoff(job) %}
 {% if run %}<h3>Run sign-off · {{ job.scheduled_date|display_date }}</h3>
 <p>Sign the customer PODs together after the last warehouse weight is saved.</p>
 {% for stop in run.stops %}<p><strong>{{ stop.code }} · {{ stop.site_name }}</strong> · {{ stop.weighed_bins }}/{{ stop.collected_bins }} weighed · {{ stop.net|bfkg }} kg net{{ ' · Signed' if stop.pod_signed_at }}</p>{% endfor %}
 {% endif %}
-{% if job.status=='complete' and not missing and (not run or run.ready) %}<form method="post" action="{{ url_for('bf_pod_sign',job_id=job.id) }}" class="bf-form">
+{% if pod_weights_ready(job) and not missing and (not run or run.ready) %}<form method="post" action="{{ url_for('bf_pod_sign',job_id=job.id) }}" class="bf-form">
 <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ job.pod_version }}">
 {% if run %}<input type="hidden" name="scope" value="run"><input type="hidden" name="run_version" value="{{ run.version }}">{% endif %}
 <h3>Final warehouse approval</h3><p>Signing as <strong>{{ current_user.first_name }} {{ current_user.last_name }}</strong>. Your signature is dated and timed.</p>

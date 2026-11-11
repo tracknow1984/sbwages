@@ -5,6 +5,7 @@ import json
 import sqlite3
 from datetime import datetime
 from flask import abort, g, redirect, render_template, request, send_file, session, url_for
+from binflow_handover import pod_weights_ready
 from binflow_permissions import can_view_job, is_office, is_warehouse
 from binflow_pods import ensure_pod_available
 from prestart_media import signature_png
@@ -149,6 +150,7 @@ def run_signoff(conn, job, user):
 
 
 def register(app,db,access,require,render,job,items,success,failure,now,actor):
+    app.jinja_env.globals['pod_weights_ready'] = lambda j: pod_weights_ready(db(), j)
     app.jinja_env.globals['pod_run_signoff']=lambda j: run_signoff(db(),j,g.user)
     app.jinja_env.globals['pod_status']=status
     app.jinja_env.globals['pod_final']=lambda j:bool(j['pod_signed_at'])
@@ -211,6 +213,8 @@ def register(app,db,access,require,render,job,items,success,failure,now,actor):
             if not (is_office(g.user) or is_warehouse(g.user) or getattr(g,'bf_demo_warehouse',False)):abort(403)
             if j['pod_signed_at']:raise ValueError('This POD has already been signed off.')
             if request.form.get('version',type=int)!=j['pod_version']:raise ValueError('This POD changed. Refresh and review it before signing.')
+            if not pod_weights_ready(db(), j):
+                raise ValueError('Complete all weights for this run before warehouse sign-off.')
             targets = [j]
             if request.form.get('scope')=='run':
                 run = run_signoff(db(),j,g.user)
@@ -261,6 +265,8 @@ def register(app,db,access,require,render,job,items,success,failure,now,actor):
             if not j['pod_signed_at'] or not permitted_pod(db(),account,j):abort(404)
         ensure_pod_available(j)
         if not j['collected_at']:abort(404)
+        if not pod_weights_ready(db(), j):
+            abort(409, 'POD pending. Complete all warehouse weights for this run first.')
         return j,account,True
 
     @app.get('/binflow/pod/<token>')

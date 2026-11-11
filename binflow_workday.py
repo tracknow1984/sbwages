@@ -3,6 +3,7 @@ import sqlite3
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from binflow_handover import weight_progress
 from binflow_permissions import selected_state, state_scope, require_state
 
 from flask import abort, g, redirect, request, url_for
@@ -186,6 +187,13 @@ def finish_blockers(conn,day):
         reasons.append('Complete every client stop and warehouse return first. Ask the office to resolve any cancelled work.')
     run=conn.execute('SELECT returned_at FROM bf_runs WHERE truck_id=? AND run_date=?',(day['truck_id'],day['work_date'])).fetchone()
     if jobs and (not run or not run['returned_at']): reasons.append('Confirm that you are back at the warehouse.')
+    if jobs and run and run['returned_at']:
+        weights = weight_progress(conn, jobs[0])
+        remaining = weights['expected'] - weights['weighed']
+        if remaining:
+            reasons.append(f'Warehouse handover pending. Bins still to weigh: {remaining}.')
+        elif any(not j['pod_signed_at'] and not j['pod_deleted_at'] for j in jobs):
+            reasons.append('Sign off the run PODs to complete warehouse handover before finishing the day.')
     return reasons
 
 

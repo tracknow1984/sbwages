@@ -1,11 +1,12 @@
 from binflow_helpers import pickup_material
+import re
 import sqlite3
 import time
 import unittest
 from unittest.mock import patch
 
 import test_binflow as legacy
-from binflow_helpers import prestart, depart, RUN_DATE
+from binflow_helpers import prestart, depart, RUN_DATE, SIGNATURE
 from binflow_gps import cipher, fetch_units, store_units, distance_m
 
 
@@ -85,14 +86,20 @@ class DriverDayTests(unittest.TestCase):
         self.post(f'/binflow/pickups/2/weigh/{i}',dict(gross='25',tare='5',confirm_tare='yes'))
         self.assertEqual(self.rows('SELECT status FROM bf_jobs WHERE id=2')[0]['status'],'complete')
         self.assertEqual(client.get('/binflow/client/pods/2.pdf').status_code,404)  # Weighed but unsigned.
-        from pod_helpers import sign_pod
-        sign_pod(self,2)
-        self.assertTrue(client.get('/binflow/client/pods/2.pdf').data.startswith(b'%PDF-'))
+        self.assertEqual(self.client.get('/binflow/pickups/2/pod.pdf').status_code,409)
+        version=self.rows('SELECT pod_version FROM bf_jobs WHERE id=2')[0]['pod_version']
+        self.assertIn(b'Complete all weights',self.post('/binflow/pickups/2/pod/sign',
+            dict(version=version,confirm='yes',signature=SIGNATURE)).data)
         self.scan(2)
         self.assertEqual(self.stage(),'weighing')
         self.assertIn(b'Back at warehouse',self.client.get('/binflow/driver/my-day?summary=1&date='+RUN_DATE).data)
         i=self.rows('SELECT id FROM bf_job_bins WHERE job_id=4 AND direction="collect"')[0]['id']
         self.post(f'/binflow/pickups/4/weigh/{i}',dict(gross='35',tare='5',confirm_tare='yes'))
+        self.assertEqual(self.stage(),'signoff')
+        docket=self.client.get('/binflow/pickups/2')
+        run_version=re.search(r'name="run_version" value="([^"]+)"',docket.text)[1]
+        self.post('/binflow/pickups/2/pod/sign',dict(version=version,run_version=run_version,scope='run',confirm='yes',signature=SIGNATURE))
+        self.assertTrue(client.get('/binflow/client/pods/2.pdf').data.startswith(b'%PDF-'))
         self.assertEqual(self.stage(),'done')
         self.assertEqual(original,self.rows('SELECT id,token FROM bf_bins ORDER BY id'))
         self.assertFalse(self.rows('SELECT * FROM bf_bins WHERE truck_id=1'))

@@ -12,6 +12,7 @@ from prestart_media import signature_png
 from binflow_requirements import load_plan
 from binflow_approvals import ensure_approved
 from binflow_acceptance import acceptance_ok, manifest, schedule_changed
+from binflow_handover import weight_progress
 from binflow_workday import run_workday, driver_today
 from binflow_permissions import can_view_job, is_office, require_state, run_operating_state, selected_state, eligible_driver
 
@@ -91,6 +92,7 @@ def run_data(conn, truck_id, run_date, driver_id, today):
                                               (truck_id,run_date,depot_id)).fetchone())
     current_rows = [r for r in rows if current and r['job_id']==current['id']]
     action, scan_rows = None, []
+    weights = weight_progress(conn, jobs[0]) if jobs and run['returned_at'] else None
     if workday and workday['finished_at']:
         stage='finished'
     elif clock_required and not workday:
@@ -108,7 +110,12 @@ def run_data(conn, truck_id, run_date, driver_id, today):
     elif not jobs:
         stage = 'empty'
     elif run['returned_at']:
-        stage = 'done' if all(j['status']=='complete' for j in jobs) else 'weighing'
+        if weights['weighed'] < weights['expected']:
+            stage = 'weighing'
+        elif any(not j['pod_signed_at'] and not j['pod_deleted_at'] for j in jobs):
+            stage = 'signoff'
+        else:
+            stage = 'done'
     elif not accepted:
         stage = 'acceptance'
     elif run['accepted_by'] and run['accepted_by']!=driver_id:
@@ -144,9 +151,11 @@ def run_data(conn, truck_id, run_date, driver_id, today):
         JOIN bf_sizes s ON s.id=b.size_id LEFT JOIN bf_job_bins i ON i.bin_id=b.id AND i.active=1
         LEFT JOIN bf_jobs j ON j.id=i.job_id WHERE b.truck_id=? ORDER BY b.code''',(truck_id,)).fetchall()
     step_key = stage+':'+str(loading_job['id'] if stage=='load' and loading_job else depot_id if stage=='return' else current['id'] if current else '')
+    if stage == 'weighing':
+        step_key = f"weighing:{weights['weighed']}/{weights['expected']}"
     operating_state = run_operating_state(conn, truck_id, run_date, truck['state'])
     return dict(truck=truck, operating_state=operating_state, run=run, jobs=jobs, rows=rows, current=current, current_rows=current_rows,
-                simple_flow=simple_flow,test_prestart_allowed=test_prestart_allowed,loading_job=loading_job,
+                weights=weights,simple_flow=simple_flow,test_prestart_allowed=test_prestart_allowed,loading_job=loading_job,
                 depot=depot,onboard=onboard,step_key=step_key,
                 hold=hold,passed=passed,stage=stage,action=action,scan_rows=scan_rows,
                 remaining=len(scan_rows),stop_number=next((n for n,j in enumerate(jobs,1) if current and j['id']==current['id']),0),
@@ -220,9 +229,9 @@ def driver_plan_data(conn,user,run_date,state=''):
             continue
         j=dict(row)
         if j['received_at'] or (j['returned_at'] and j['collected_at']):
-            j.update(colour='orange',phase='Back at warehouse',detail='POD closed' if j['status']=='complete' else f'{j["unweighed"]} bins to weigh')
+            j.update(colour='orange',phase='Back at warehouse',detail='POD closed' if j['pod_signed_at'] else f'{j["unweighed"]} bins to weigh' if j['unweighed'] else 'Awaiting run sign-off')
         elif j['collected_at']:
-            j.update(colour='green',phase='Client completed',detail='POD closed' if j['status']=='complete' else 'Returning full bins')
+            j.update(colour='green',phase='Client completed',detail='POD closed' if j['pod_signed_at'] else 'Awaiting warehouse handover')
         else:
             active=(j['departed_at'] and not any(k['status']=='scheduled' for k in groups.get(j['truck_id'],{}).get('jobs',[]))) or j['moved']
             j.update(colour='blue' if active else 'queued',phase='In progress' if active else 'Scheduled',detail='')
@@ -381,10 +390,10 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
                 mark_returned(db(),truck_id,run_date,now())
                 message='Depot arrival saved. Scan each full bin off the truck.'
             elif action=='arrive':
-                if data['stage'] not in ('arrive','done','weighing'):
+                if data['stage'] not in ('arrive','done','weighing','signoff'):
                     raise ValueError('Finish all client stops and scan every returning bin first.')
                 mark_returned(db(),truck_id,run_date,now())
-                message='Warehouse return recorded. The office can finalise any remaining weights.'
+                message='Warehouse arrival recorded. Check the weights and sign the PODs to complete handover.'
             else:
                 abort(404)
             from binflow_reports import begin_current

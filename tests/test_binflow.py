@@ -183,7 +183,7 @@ class BinFlowTests(unittest.TestCase):
         self.exchange(2,(1,2,3,4))
         self.assertEqual(self.rows('SELECT status,location_id FROM bf_bins WHERE id=1')[0],{'status':'transit','location_id':None})
         self.assertEqual(self.rows('SELECT status,location_id FROM bf_bins WHERE id=3')[0],{'status':'at_client','location_id':3})
-        self.assertIn(b'WEIGHT PENDING',self.client.get('/binflow/pickups/2/pod').data)
+        self.assertEqual(self.client.get('/binflow/pickups/2/pod').status_code,409)
         self.post('/binflow/pickups/2/receive',{'confirmed':[1,2]})
         self.assertEqual(self.rows('SELECT status,location_id FROM bf_bins WHERE id=1')[0],{'status':'received','location_id':1})
         weights=self.rows("SELECT id FROM bf_job_bins WHERE job_id=2 AND direction='collect' ORDER BY id")

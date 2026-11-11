@@ -68,7 +68,7 @@ class DriverScanTests(unittest.TestCase):
         self.assertIn(b'Finish this client',self.client.get('/binflow/driver/1?job=2',follow_redirects=True).data)
         self.exchange(2,())
         self.assertEqual(self.rows('SELECT status FROM bf_jobs WHERE id=2')[0]['status'],'collected')
-        self.assertIn(b'WEIGHT PENDING',self.client.get('/binflow/pickups/2/pod').data)
+        self.assertEqual(self.client.get('/binflow/pickups/2/pod').status_code,409)
         self.post('/binflow/pickups/2/receive',{'confirmed':[1,2]})
         self.assert_custody(1,None,1,'full','transit')
         self.weigh(1)

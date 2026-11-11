@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 from flask import abort, flash, g, jsonify, redirect, render_template, request, send_file, session, url_for
 from prestart_media import photo_jpeg, signature_png
 from binflow_driver import migrate_driver, register_driver
+from binflow_handover import pod_weights_ready
 from binflow_permissions import (DRIVER_ENDPOINTS, WAREHOUSE_ENDPOINTS, is_driver, is_manager, is_warehouse, is_office, workspaces, can_view_job,
     has_binflow_access, state_scope, eligible_driver, available_drivers)
 from binflow_runs import migrate_runs, register_runs, guard_movement, check_owner
@@ -872,7 +873,7 @@ def register_binflow(app, db, require):
             event(item['bin_id'], 'Warehouse weight recorded', job_id, j['warehouse_id'], j['warehouse_id'], f'Gross {kg(gross)} kg; tare {kg(tare)} kg; net {kg(gross-tare)} kg')
             if not db().execute("SELECT 1 FROM bf_job_bins WHERE job_id=? AND direction='collect' AND weighed_at IS NULL", (job_id,)).fetchone():
                 db().execute("UPDATE bf_jobs SET status='complete',completed_at=? WHERE id=?", (now(),job_id))
-            return success('Weight saved. The POD reflects the recorded net weight.', 'bf_job', job_id=job_id)
+            return success('Weight saved. Check the run weigh-in progress below.', 'bf_job', job_id=job_id)
         except ValueError as error:
             return failure(error, 'bf_job', job_id=job_id)
 
@@ -922,6 +923,8 @@ def register_binflow(app, db, require):
         ensure_pod_available(j)
         if j['status'] in ('scheduled','cancelled'):
             abort(400, 'Confirm the physical handover before creating a POD.')
+        if not pod_weights_ready(db(), j):
+            abort(409, 'POD pending. Complete all warehouse weights for this run first.')
         rows = items(job_id)
         return render('pod', section='pods', job=j, items=rows, net=sum(i['net_g'] or 0 for i in rows))
 
@@ -949,6 +952,8 @@ def register_binflow(app, db, require):
         ensure_pod_available(j)
         if j['status'] in ('scheduled','cancelled'):
             abort(400, 'Confirm the physical handover before creating a POD.')
+        if not pod_weights_ready(db(), j):
+            abort(409, 'POD pending. Complete all warehouse weights for this run first.')
         rows = items(job_id); output = io.BytesIO(); styles = getSampleStyleSheet()
         # Embed fonts so client PDFs render consistently on phones and printers.
         font_dir = Path(reportlab.__file__).parent / 'fonts'

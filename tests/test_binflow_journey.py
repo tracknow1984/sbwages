@@ -77,8 +77,8 @@ class DriverJourneyTests(unittest.TestCase):
         job=self.rows('SELECT * FROM bf_jobs WHERE id=2')[0]
         self.assertEqual(job['confirmation'],'driver_scanned');self.assertIsNone(job['signature'])
         self.assertEqual(job['status'],'collected')
-        self.assertIn(b'Driver QR scans completed',self.client.get('/binflow/pickups/2/pod').data)
-        self.assertTrue(self.client.get('/binflow/pickups/2/pod.pdf').data.startswith(b'%PDF'))
+        self.assertEqual(self.client.get('/binflow/pickups/2/pod').status_code,409)
+        self.assertEqual(self.client.get('/binflow/pickups/2/pod.pdf').status_code,409)
         count=len(self.rows('SELECT * FROM bf_events'))
         retry=self.scan('collect','BF000002')
         self.assertTrue(retry.json['duplicate']);self.assertEqual(len(self.rows('SELECT * FROM bf_events')),count)
@@ -88,8 +88,8 @@ class DriverJourneyTests(unittest.TestCase):
         self.assertEqual(self.stage(),'weighing')
         self.assertEqual(self.rows('SELECT status,location_id,truck_id FROM bf_bins WHERE id=1')[0],dict(status='received',location_id=1,truck_id=None))
         self.time+=timedelta(hours=8)
-        self.assertIn(b'Your work is saved',self.finish().data)
-        self.assertTrue(self.rows('SELECT committed_at FROM entries')[0]['committed_at'])
+        self.assertIn(b'Bins still to weigh: 2',self.finish().data)
+        self.assertIsNone(self.rows('SELECT committed_at FROM entries')[0]['committed_at'])
         with sqlite3.connect(self.path) as conn:
             warehouse_user = conn.execute("""INSERT INTO users(role,first_name,last_name,email,username,password_hash,
                 business_role,extra_business_roles,working_state) VALUES('employee','Warehouse','Operator','warehouse@example.com','warehouseperson',?,
@@ -117,6 +117,9 @@ class DriverJourneyTests(unittest.TestCase):
             conn.execute("UPDATE users SET working_state='NSW' WHERE id=?",(warehouse_user,))
         self.assertEqual(self.client.get('/binflow/pickups/2').status_code,403)
         self.assertEqual(self.post('/binflow/warehouse/scan',dict(code='BF000001'),follow=False).status_code,409)
+        self.post('/logout');self.login('employee','phonedriver')
+        self.assertIn(b'Your work is saved',self.finish().data)
+        self.assertTrue(self.rows('SELECT committed_at FROM entries')[0]['committed_at'])
 
     def test_stale_overview_and_other_state_cannot_select_vehicle(self):
         self.start();self.accept_overview()
@@ -249,6 +252,14 @@ class DriverJourneyTests(unittest.TestCase):
             self.assertNotIn('name="material_',page.text)
             self.assertIn(material,page.text)
             if jid==1:
+                driver_page = self.client.get('/binflow/driver/my-day'+suffix)
+                driver_page = self.client.get(driver_page.location)
+                self.assertIn('2 of 3 bins weighed',driver_page.text)
+                self.assertNotIn('WAREHOUSE HANDOVER COMPLETE',driver_page.text)
+                self.assertNotIn('>Finish day<',driver_page.text)
+                self.assertIn(b'Bins still to weigh: 1',self.post('/binflow/driver/my-day/1/finish'+suffix,self.stamp()).data)
+                for document in ('pod','pod.pdf'):
+                    self.assertEqual(self.client.get('/binflow/pickups/1/'+document+suffix).status_code,409)
                 self.assertNotIn('name="run_version"',page.text)
                 version = re.search(r'name="version" value="(\d+)"',page.text)
                 blocked = self.post(base+'/pickups/1/pod/sign',dict(scope='run',version=version[1] if version else 0,
@@ -256,9 +267,13 @@ class DriverJourneyTests(unittest.TestCase):
                 self.assertNotIn('Signed by <strong>',blocked.text)
         version = re.search(r'name="version" value="(\d+)"',page.text)[1]
         run_version = re.search(r'name="run_version" value="([^"]+)"',page.text)[1]
+        self.assertIn(b'Sign off the run PODs',self.post('/binflow/driver/my-day/1/finish'+suffix,self.stamp()).data)
         signed = self.post(base+'/pickups/2/pod/sign',dict(version=version,run_version=run_version,
                                                            scope='run',confirm='yes',signature=SIGNATURE))
         self.assertIn('Signed by <strong>',signed.text)
+        driver_page = self.client.get('/binflow/driver/my-day'+suffix, follow_redirects=True)
+        self.assertIn('WAREHOUSE HANDOVER COMPLETE',driver_page.text)
+        self.assertIn('>Finish day<',driver_page.text)
         for jid in (1,2):
             self.assertIn('Signed by <strong>',self.client.get(inbound+'/'+str(jid)+suffix).text)
         form = self.client.get(base+'/bales/new?warehouse=1')
@@ -340,7 +355,7 @@ class DriverJourneyTests(unittest.TestCase):
         self.action('client-arrival',suffix,job_id=1)
         self.scan('deliver','DEMO-1100-E01',suffix);self.scan('deliver','DEMO-240-E02',suffix)
         self.scan('collect','DEMO-1100-F04',suffix);self.scan('collect','DEMO-240-F05',suffix)
-        self.assertIn(b'Driver QR scans completed',self.client.get('/binflow/pickups/1/pod'+suffix).data)
+        self.assertEqual(self.client.get('/binflow/pickups/1/pod'+suffix).status_code,409)
         self.action('client-arrival',suffix,job_id=2)
         self.scan('deliver','DEMO-660-E03',suffix);self.scan('collect','DEMO-660-F06',suffix)
         self.action('depot-arrival',suffix,warehouse_id=1)
@@ -348,9 +363,10 @@ class DriverJourneyTests(unittest.TestCase):
             self.assertTrue(self.scan('return',code,suffix).json['ok'])
         self.assertEqual(self.client.get('/binflow/driver/demo/inbound'+suffix).data.count(b'TO BE WEIGHED'),3)
         self.time+=timedelta(hours=8)
+        self.assertIn(b'Bins still to weigh: 3',self.post('/binflow/driver/my-day/1/finish'+suffix,self.stamp()).data)
+        self.complete_sample_warehouse(token)
         finished=self.post('/binflow/driver/my-day/1/finish'+suffix,self.stamp())
         self.assertIn(b'Sample run complete',finished.data)
-        self.complete_sample_warehouse(token)
         for table,data in before.items():self.assertEqual(self.rows('SELECT * FROM '+table),data,table)
         self.assertEqual(self.client.get('/binflow/driver/my-day?state=NSW').status_code,403)
         self.assertIn('<p>QLD</p>',self.client.get('/binflow/driver/my-day').text)
