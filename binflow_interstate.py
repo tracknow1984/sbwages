@@ -215,7 +215,7 @@ def register(app, db, access, require, render, client_access, now, actor):
         return url_for('bf_client_interstate_detail' if external else 'bf_interstate_detail',bid=bid)
 
     def show_calendar(external):
-        view = request.args.get('view','week')
+        view = request.args.get('view','month' if external else 'week')
         state = request.args.get('state','')
         if view not in ('week','month') or state not in ('',)+STATES:
             abort(400)
@@ -224,7 +224,7 @@ def register(app, db, access, require, render, client_access, now, actor):
         except ValueError:
             abort(400)
         start,end,previous,following,title,weeks = calendar_period(chosen,view)
-        scope = ' AND account_id=?' if external else ''
+        scope = ' AND b.account_id=?' if external else ''
         args = (g.bf_client['id'],) if external else ()
         if state:
             points = [key for key,(_,region) in PLACES.items() if region==state]
@@ -232,9 +232,7 @@ def register(app, db, access, require, render, client_access, now, actor):
             scope += f' AND (origin IN ({marks}) OR destination IN ({marks}))'
             args += (*points,*points)
         limits = (start.isoformat(),end.isoformat())
-        select = 'SELECT b.* FROM bf_interstate_bookings b'
-        if not external:
-            select = """SELECT b.*, COALESCE(a.name,b.client_name) AS billing_name,
+        select = """SELECT b.*, COALESCE(a.name,b.client_name) AS billing_name,
                        t.status AS manifest_status, m.expected_bales
                 FROM bf_interstate_bookings b LEFT JOIN bf_client_accounts a ON a.id=b.account_id
                 LEFT JOIN bf_interstate_manifests m ON m.transfer_id=(
@@ -249,15 +247,14 @@ def register(app, db, access, require, render, client_access, now, actor):
         previews = {}
         legend = {}
         counts = {'Pickup':0,'Delivery':0}
-        if not external and (rows or pending):
-            colours = dispatch_colours(db())
-            for booking in (*rows,*pending):
-                name = booking['billing_name']
-                key = ' '.join(name.casefold().split())
-                preview = dict(booking,colour=colours[key],status=booking_status(booking,booking['manifest_status']))
-                previews[booking['id']] = preview
-                if booking['locked_at']:
-                    legend.setdefault(colours[key],name)
+        colours = dispatch_colours(db()) if not external and (rows or pending) else {}
+        for booking in (*rows,*pending):
+            name = booking['billing_name']
+            key = ' '.join(name.casefold().split())
+            preview = dict(booking,colour=colours.get(key,0),status=booking_status(booking,booking['manifest_status']))
+            previews[booking['id']] = preview
+            if not external and booking['locked_at']:
+                legend.setdefault(preview['colour'],name)
         for row in rows:
             for field,label in [('pickup_date','Pickup'),('delivery_date','Delivery')]:
                 if limits[0] <= row[field] <= limits[1]:

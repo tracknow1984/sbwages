@@ -246,10 +246,10 @@ def calendar_period(chosen, view):
     return start,end,previous,following,title,weeks
 
 
-def collection_calendar_view(conn, args, today):
+def collection_calendar_view(conn, args, today, default_view='week'):
     from binflow_route_calendar import enabled, view_data
     state = args.get('state','')
-    view = args.get('view','week')
+    view = args.get('view','week' if 'week' in args else default_view)
     if state not in ('',)+STATES or view not in ('month','week'):
         abort(400)
     try:

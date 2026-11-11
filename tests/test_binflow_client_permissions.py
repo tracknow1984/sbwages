@@ -188,6 +188,35 @@ class PortalPermissionTests(unittest.TestCase):
         self.assertNotIn('Alpha QLD',body)
         self.assertIn('No sites match',reader.get(path+'?q=missing-site-name').text)
 
+    def test_transfer_login_defaults_to_month_with_only_own_booking_previews(self):
+        self.account('preview-one')
+        self.account('preview-two')
+        first=self.visit('preview-one')
+        second=self.visit('preview-two')
+        for client,company in ((first,'Own pickup'),(second,'Other pickup')):
+            self.send(client,CLIENT+'/new',data(pickup_company=company))
+        self.post(CAL+'/1/lock',dict(version=1))
+        self.post(CAL+'/2/lock',dict(version=1))
+        self.send(first,CLIENT+'/new',data(pickup_company='Own pending'))
+        self.send(second,CLIENT+'/new',data(pickup_company='Other pending'))
+        login=self.send(first,'/binflow/client/login?transfers=1',dict(username='preview-one',password='sample-password'))
+        self.assertIn('class="active" aria-current="page" href=',login.text)
+        self.assertNotIn('bf-date-grid-week',login.text)
+        for view in ('month','week'):
+            page=first.get(CLIENT+'?date=2026-11-11&view='+view)
+            self.assertEqual(page.status_code,200)
+            self.assertIn('it-booking-1',page.text)
+            self.assertIn('Own pending',page.text)
+            self.assertIn('Own pickup',page.text)
+            self.assertIn('data-transfer-preview="1"',page.text)
+            self.assertIn('href="/binflow/client/interstate-transfers/1"',page.text)
+            self.assertNotIn('href="/binflow/interstate-transfers/1"',page.text)
+            self.assertNotIn('Other pickup',page.text)
+            self.assertNotIn('Other pending',page.text)
+            self.assertEqual('bf-date-grid-week' in page.text,view=='week')
+        self.assertIn('bf-date-grid-week',self.client.get(CAL).text)
+        self.assertEqual(first.get(CLIENT+'/2').status_code,404)
+
     def test_address_suggestions_are_available_on_staff_and_client_booking_forms(self):
         self.account('address-user',custom_permissions='yes',permission=['bookings.add','bookings.edit'])
         client=self.visit('address-user')

@@ -1,9 +1,9 @@
 """BlockTexx management: scoped collections and permission-gated national views."""
 import json
-from datetime import date, timedelta
 
 from flask import abort, g, render_template, request
-from binflow_schedule import STATES, monday
+from binflow_schedule import STATES
+from binflow_collections import calendar_period, dated
 
 
 def migrate(conn):
@@ -74,41 +74,46 @@ def permitted_pod(conn, account, job_id, rights):
     return conn.execute('SELECT 1 FROM bf_jobs j WHERE j.id=? AND '+scope,(job_id,*params)).fetchone()
 
 
-def calendar(conn, aid, start, state):
-    first=date.fromisoformat(start)
-    days=[dict(date=(first+timedelta(days=i)).isoformat(),label=(first+timedelta(days=i)).strftime('%a %d %b'),entries=[]) for i in range(7)]
-    by_date={d['date']:d for d in days}
-    if aid is None:
-        selected=conn.execute("SELECT id,name,state FROM bf_locations WHERE kind='client'")
-    else:
-        selected=conn.execute("""SELECT l.id,l.name,l.state FROM bf_locations l
-            JOIN bf_client_site_scope s ON s.site_id=l.id WHERE s.account_id=?""",(aid,))
+def calendar(conn, aid, grid, state):
+    days = {day.isoformat():dict(date=day.isoformat(),label=day.strftime('%a %d %b'),entries=[])
+            for week in grid for day in week}
+    selected=conn.execute("""SELECT l.id,l.name,l.state FROM bf_locations l
+        JOIN bf_client_site_scope s ON s.site_id=l.id WHERE s.account_id=?""",(aid,))
     sites={r['id']:r for r in selected if not state or r['state']==state}
-    weeks=conn.execute("SELECT * FROM bf_schedule_weeks WHERE week_start=? AND status='published'"+(' AND state=?' if state else ''),(start,state) if state else (start,)).fetchall()
-    for week in weeks:
-        jobs={r['id']:dict(r) for r in conn.execute("""SELECT j.*,r.departed_at,
-          EXISTS(SELECT 1 FROM bf_job_bins b WHERE b.job_id=j.id AND b.direction='collect') AS has_pickup,
+    if not sites:
+        return days
+    start,end = grid[0][0].isoformat(),grid[-1][0].isoformat()
+    weeks=conn.execute("""SELECT id,plan_json FROM bf_schedule_weeks WHERE status='published'
+        AND week_start BETWEEN ? AND ?"""+(' AND state=?' if state else ''),
+        (start,end,state) if state else (start,end)).fetchall()
+    if not weeks:
+        return days
+    week_ids=[w['id'] for w in weeks]
+    marks=','.join('?' for _ in week_ids)
+    jobs={r['id']:r for r in conn.execute(f"""SELECT j.*,r.departed_at,
           EXISTS(SELECT 1 FROM bf_job_bins b WHERE b.job_id=j.id AND (b.delivered_at IS NOT NULL OR b.picked_up_at IS NOT NULL)) AS started,
           (SELECT n.id FROM bf_jobs n WHERE n.truck_id=j.truck_id AND n.scheduled_date=j.scheduled_date
            AND n.status='scheduled' AND n.schedule_live=1 AND n.approval_status='approved' ORDER BY n.run_order,n.id LIMIT 1) AS active_job
-          FROM bf_jobs j LEFT JOIN bf_runs r ON r.truck_id=j.truck_id AND r.run_date=j.scheduled_date
-          WHERE j.schedule_week_id=? AND j.schedule_live=1""",(week['id'],)) if r['site_id'] in sites}
+          FROM bf_jobs j JOIN bf_client_site_scope s ON s.site_id=j.site_id AND s.account_id=?
+          LEFT JOIN bf_runs r ON r.truck_id=j.truck_id AND r.run_date=j.scheduled_date
+          WHERE j.schedule_week_id IN ({marks}) AND j.schedule_live=1""",(aid,*week_ids))}
+    for week in weeks:
         seen=set()
         for day in json.loads(week['plan_json']).get('days',[]):
-            if day['date'] not in by_date: continue
+            if day['date'] not in days: continue
             for item in day.get('items',[]):
                 if item.get('kind') not in ('visit','job'):continue
                 job=jobs.get(item.get('job_id')) if item['kind']=='job' else None
                 sid=job['site_id'] if job else item.get('site_id')
                 if sid not in sites or (item['kind']=='job' and not job):continue
-                if job and (job['id'] in seen or (aid is None and not job['has_pickup'])):continue
+                if job and (job['id'] in seen or job['schedule_week_id']!=week['id']):continue
                 if job:seen.add(job['id'])
                 status='booked'
                 if job:
                     if job['status']=='cancelled' or job['approval_status']=='rejected':status='cancelled'
                     elif job['status'] in ('collected','received','complete'):status='completed'
                     elif job['driver_arrived_at'] or job['started'] or (job['departed_at'] and job['id']==job['active_job']):status='on_route'
-                by_date[day['date']]['entries'].append(dict(site=sites[sid]['name'],state=sites[sid]['state'],status=status))
+                days[day['date']]['entries'].append(dict(site=sites[sid]['name'],state=sites[sid]['state'],status=status))
     return days
 
 
@@ -116,20 +121,25 @@ def register(app, db, client_access, now):
     @app.get('/binflow/client/calendar')
     @client_access
     def bf_client_calendar():
-        try:start=monday(request.args.get('week',now()[:10]))
-        except ValueError as error:abort(400,str(error))
-        state=request.args.get('state','')
-        if state and state not in STATES:abort(400)
-        first=date.fromisoformat(start)
+        view = request.args.get('view','week' if 'week' in request.args else 'month')
+        state = request.args.get('state','')
+        if view not in ('week','month') or (state and state not in STATES):
+            abort(400)
+        today = now()[:10]
+        try:
+            chosen = dated(request.args.get('date') or request.args.get('week') or today)
+        except ValueError:
+            abort(400,'Choose a valid calendar date.')
+        _,_,previous,following,title,grid = calendar_period(chosen,view)
         return render_template('binflow/client_calendar.html',account=g.bf_client,states=STATES,state=state,
-          week=start,previous=(first-timedelta(days=7)).isoformat(),following=(first+timedelta(days=7)).isoformat(),
-          national=False,days=calendar(db(),g.bf_client['id'],start,state))
+            view=view,chosen=chosen,today=today,previous=previous,following=following,title=title,grid=grid,
+            days=calendar(db(),g.bf_client['id'],grid,state))
 
     @app.get('/binflow/client/local-pickups')
     @client_access
     def bf_client_national():
         from binflow_collections import collection_calendar_view, STATES as calendar_states
-        template, data = collection_calendar_view(db(), request.args, now()[:10])
+        template, data = collection_calendar_view(db(), request.args, now()[:10],default_view='month')
         return render_template('binflow/'+template+'.html',account=g.bf_client,states=calendar_states,
                                portal_calendar=True, **data)
 

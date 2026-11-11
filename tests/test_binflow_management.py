@@ -78,6 +78,24 @@ class ManagementTests(unittest.TestCase):
         with sqlite3.connect(self.path) as c:c.execute("UPDATE bf_jobs SET status='cancelled'")
         self.assertIn('bf-client-status cancelled',client.get(path).text)
 
+    def test_scoped_month_includes_published_weeks_and_preserves_week_links(self):
+        self.seed()
+        with sqlite3.connect(self.path) as conn:
+            for day,status in [('2026-11-02','published'),('2026-11-09','draft'),('2026-11-30','published')]:
+                plan=dict(days=[dict(date=day,items=[dict(kind='visit',site_id=3),dict(kind='visit',site_id=4)])])
+                conn.execute("""INSERT INTO bf_schedule_weeks(state,week_start,revision,status,plan_json,updated_at,updated_by)
+                    VALUES('QLD',?,1,?,?,'now',1)""",(day,status,json.dumps(plan)))
+        client=self.portal()
+        calendar='/binflow/client/calendar'
+        self.assertIn('bf-client-month',client.get(calendar).text)
+        month=client.get(calendar+'?date=2026-11-11').text
+        self.assertIn('November 2026',month)
+        self.assertEqual(month.count('Alpha QLD'),2)
+        self.assertNotIn('Beta QLD',month)
+        self.assertNotIn('Alpha QLD',client.get(calendar+'?date=2026-11-11&state=NSW').text)
+        self.assertIn('bf-client-week',client.get(calendar+'?week=2026-11-02').text)
+        self.assertNotIn('bf-client-month',client.get(calendar+'?view=week&date=2026-11-02').text)
+
     def test_pods_and_qr_require_exact_site_and_final_signoff(self):
         self.seed();self.initial_delivery()
         token=self.rows('SELECT pod_token FROM bf_jobs WHERE id=1')[0]['pod_token']

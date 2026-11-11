@@ -26,3 +26,9 @@
  .bf-client-register td>* {grid-column:2}
  .bf .bf-client-register .bf-directory-empty {display:block}
 }
+
+.bf-portal .bf-client-month {width:100%;min-width:0;table-layout:fixed}
+.bf-client-month td>a {display:flex;align-items:center;flex-wrap:wrap;gap:.2rem;min-height:2rem;text-decoration:none;font-weight:700}
+.bf-client-count {padding:.1rem .35rem;border-radius:1rem;background:#e1eff4;color:#17495c;font-size:.75rem}
+.bf-client-month-stop {display:block;overflow-wrap:anywhere;line-height:1.25;margin:.25rem 0}
+@media(max-width:600px){.bf-client-month .bf-client-month-stop {display:none}}
