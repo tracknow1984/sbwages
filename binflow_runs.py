@@ -7,8 +7,8 @@ from urllib.parse import urlparse
 
 from flask import abort, g, jsonify, redirect, request, url_for
 
-from prestart_config import VEHICLE_CHECKS, DECLARATION
-from prestart_media import signature_png
+from prestart_config import VEHICLE_CHECKS, TRUCK_CHECKS, DECLARATION
+from prestart_media import signature_png, truck_inspection
 from binflow_requirements import load_plan
 from binflow_approvals import ensure_approved
 from binflow_acceptance import acceptance_ok, manifest, schedule_changed
@@ -16,7 +16,7 @@ from binflow_handover import weight_progress
 from binflow_workday import run_workday, driver_today
 from binflow_permissions import can_view_job, is_office, require_state, run_operating_state, selected_state, eligible_driver
 
-CHECKS = VEHICLE_CHECKS + [('lift', 'Tail lift / bin lifter and controls (if fitted)', True)]
+CHECKS = VEHICLE_CHECKS
 
 
 def migrate_runs(conn):
@@ -78,11 +78,6 @@ def run_data(conn, truck_id, run_date, driver_id, today):
         AND passed=1 AND id>COALESCE((SELECT MAX(id) FROM bf_run_inspections WHERE truck_id=? AND passed=0),0)
         ORDER BY id DESC LIMIT 1''', (truck_id,today,driver_id,truck_id)).fetchone()
     simple_flow = bool(workday and workday['flow_version']==2)
-    last_fail = conn.execute('SELECT MAX(id) FROM bf_run_inspections WHERE truck_id=? AND passed=0', (truck_id,)).fetchone()[0]
-    # A test acknowledgement never clears a real defect, even after office resolution.
-    test_prestart_allowed = not last_fail
-    if simple_flow and test_prestart_allowed and run.get('test_prestart_by')==driver_id and run.get('test_prestart_date')==today:
-        passed = dict(testing=True, submitted_at=run['test_prestart_at'])
     waiting = [r for r in rows if r['direction']=='deliver' and not r['loaded_at'] and not r['delivered_at']]
     returns = [r for r in rows if r['direction']=='collect' and not r['returned_at']]
     loading_job = next((j for j in jobs if waiting and j['id']==waiting[0]['job_id']), None)
@@ -101,7 +96,7 @@ def run_data(conn, truck_id, run_date, driver_id, today):
         stage='planned'
     elif workday and hold:
         stage='hold'
-    elif simple_flow and workday['break_started_at'] and not workday['break_finished_at']:
+    elif workday and workday['break_started_at'] and not workday['break_finished_at']:
         stage='break'
     elif simple_flow and jobs and not accepted:
         stage='acceptance'
@@ -155,7 +150,7 @@ def run_data(conn, truck_id, run_date, driver_id, today):
         step_key = f"weighing:{weights['weighed']}/{weights['expected']}"
     operating_state = run_operating_state(conn, truck_id, run_date, truck['state'])
     return dict(truck=truck, operating_state=operating_state, run=run, jobs=jobs, rows=rows, current=current, current_rows=current_rows,
-                weights=weights,simple_flow=simple_flow,test_prestart_allowed=test_prestart_allowed,loading_job=loading_job,
+                weights=weights,simple_flow=simple_flow,loading_job=loading_job,
                 depot=depot,onboard=onboard,step_key=step_key,
                 hold=hold,passed=passed,stage=stage,action=action,scan_rows=scan_rows,
                 remaining=len(scan_rows),stop_number=next((n for n,j in enumerate(jobs,1) if current and j['id']==current['id']),0),
@@ -280,7 +275,8 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
         assigned={j['driver_id'] for j in data['jobs'] if j['driver_id']}
         if data['run']['driver_id']: assigned.add(data['run']['driver_id'])
         can_accept=not assigned or assigned=={g.user['id']}
-        return render('run',journey_mode=data['simple_flow'],section='driver',driver_mode=True,run_date=run_date,today=today(),checks=CHECKS,declaration=DECLARATION,
+        last_inspection = db().execute('SELECT MAX(id) FROM bf_run_inspections WHERE truck_id=?',(truck_id,)).fetchone()[0] if session_key else None
+        return render('run',last_inspection=last_inspection or 0,journey_mode=data['simple_flow'],section='driver',driver_mode=True,run_date=run_date,today=today(),truck_checks=TRUCK_CHECKS,declaration=DECLARATION,
                       submission_token=session_key,loading=load_plan(db(),truck_id,run_date),can_accept=can_accept,
                       manifest_version=manifest(db(),truck_id,run_date)[2],
                       acceptance_history=db().execute('SELECT * FROM bf_run_acceptance_history WHERE truck_id=? AND run_date=? ORDER BY id',(truck_id,run_date)).fetchall(),**data)
@@ -303,15 +299,7 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
             reading = request.form.get('reading','').strip()
             if not re.fullmatch(r'\d{1,8}(\.\d{1,2})?',reading):
                 raise ValueError('Enter a valid odometer reading in kilometres.')
-            results=[]
-            for key,label,allow_na in CHECKS:
-                answer=request.form.get('check_'+key)
-                note=request.form.get('note_'+key,'').strip()
-                if answer not in (('pass','fail','na') if allow_na else ('pass','fail')):
-                    raise ValueError('Answer every vehicle check.')
-                if len(note)>500 or (answer=='fail' and not note):
-                    raise ValueError('Add a short defect note for each failed check.')
-                results.append(dict(key=key,label=label,value=answer,note=note))
+            results, photos = truck_inspection(request.form, request.files)
             fit=request.form.get('fit_for_duty')
             notes=request.form.get('notes','').strip()
             if fit not in ('yes','no') or len(notes)>2000 or (fit=='no' and not notes):
@@ -325,6 +313,8 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
                 checks_json,failure_count,fit_for_duty,notes,signature,declaration,submitted_at,submission_token,signature_image)
                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''', (g.user['id'],actor(),data['truck']['name'],'vehicle',reading,'km',
                 json.dumps(results),failures,fit,notes,actor(),DECLARATION,now(),token,signature)).lastrowid
+            db().executemany('INSERT INTO prestart_photos(prestart_id,check_key,data) VALUES(?,?,?)',
+                             [(pid, key, data) for key,data in photos.items()])
             db().execute('INSERT INTO bf_run_inspections(truck_id,inspection_date,driver_id,prestart_id,passed) VALUES(?,?,?,?,?)',
                          (truck_id,today(),g.user['id'],pid,int(passed)))
             db().execute('INSERT OR IGNORE INTO bf_runs(truck_id,run_date,driver_id) VALUES(?,?,?)',(truck_id,run_date,g.user['id']))

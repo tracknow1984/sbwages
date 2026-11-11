@@ -52,3 +52,24 @@ def photo_jpeg(upload):
             return output.getvalue()
     except (OSError, ValueError, UnidentifiedImageError, Image.DecompressionBombError):
         raise ValueError('Upload a valid JPG, PNG or WebP photo, up to 20 megapixels.') from None
+
+
+
+def truck_inspection(form, files):
+    from prestart_config import TRUCK_CHECKS
+    answers, photos = [], {}
+    for key, spec in TRUCK_CHECKS.items():
+        result = form.get('check_' + key)
+        if result not in ('pass', 'fail'):
+            raise ValueError('Answer every vehicle check.')
+        note = form.get('note_' + key, '').strip() if result=='fail' else ''
+        if len(note)>500 or (result=='fail' and spec.evidence=='note' and not note):
+            raise ValueError('Describe the tailgate lift fault in up to 500 characters.')
+        if result=='fail' and spec.evidence=='photo':
+            upload = files.get('photo_' + key)
+            if not upload or not upload.filename:
+                raise ValueError('Add a photo for the ' + key + ' check.')
+            photos[key] = photo_jpeg(upload)
+        answers.append(dict(key=key, label=spec.label, value=result,
+                            answer=spec.good if result=='pass' else spec.bad, note=note))
+    return answers, photos

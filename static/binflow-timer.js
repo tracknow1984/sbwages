@@ -19,13 +19,14 @@ if(typeof document!=='undefined') (()=>{
   function update(){
     const state=shiftTimer(clock.dataset.started,clock.dataset.breakStarted,clock.dataset.breakFinished,server+performance.now()-baseline);
     clock.querySelector('[data-elapsed]').textContent=state.elapsed;
-    clock.querySelector('[data-break-summary]').textContent=state.takingBreak?'Break · '+state.breakTime:clock.dataset.breakFinished?'30-minute break completed':state.due?'Break due now':'Break due at 4 hours';
+    clock.querySelector('[data-break-summary]').textContent=state.takingBreak?'Break · '+state.breakTime:clock.dataset.breakFinished?'Lunch taken':state.due?'Lunch due':'Lunch at 4h';
     clock.classList.toggle('break-due',state.due);
     banner.hidden=!(state.due||state.takingBreak);
     start.hidden=!state.due;finish.hidden=!state.takingBreak;
     finish.querySelector('button').disabled=state.remaining>0;
-    title.textContent=state.takingBreak?(state.remaining?'Break · '+state.breakTime+' remaining':'Your 30-minute break is complete'):'Time for your 30-minute break';
-    message.textContent=state.takingBreak?'Your break time is saved. Tap below when you are ready to continue.':'You started four hours ago. Park safely before taking your break.';
+    title.textContent=state.takingBreak?(state.remaining?'Break · '+state.breakTime+' remaining':'Your 30-minute break is complete'):'Lunch time';
+    message.textContent=state.takingBreak?'Resume after the countdown.':'Park safely before starting lunch.';
+    if(state.due)clock.dispatchEvent(new Event('lunchdue'));
     if(state.due&&!alerted&&!document.hidden){alerted=true;navigator.vibrate?.([180,100,180]);}
   }
   async function sync(){
@@ -33,6 +34,7 @@ if(typeof document!=='undefined') (()=>{
     pending=true;
     try{
       const response=await fetch(clock.dataset.clockState,{headers:{Accept:'application/json'}});
+      if(response.status===401){location.assign((await response.json()).login_url);return;}
       if(!response.ok||!response.headers.get('content-type')?.includes('application/json'))return;
       const data=await response.json();
       if(!data.day){location.reload();return;}

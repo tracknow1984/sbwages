@@ -165,6 +165,10 @@ def register_demo(app, db, access, render, now):
     @app.get('/binflow/driver/test-cycle')
     @access
     def bf_demo_cycle():
+        if request.args.get('leave') == '1':
+            live = app.extensions['bf_real_db']()
+            live.execute('UPDATE bf_driver_resume SET in_sample=0 WHERE user_id=?',(g.user['id'],))
+            live.commit()
         return render('demo_cycle', section='driver', selected_state='NSW')
 
     @app.post('/binflow/driver/demo')
@@ -189,6 +193,8 @@ def register_demo(app, db, access, render, now):
             path.unlink(missing_ok=True)
             raise
         session['driver_demo'] = dict(token=token,uid=g.user['id'],state=state,date=stamp[:10])
+        from binflow_resume import save_sample
+        save_sample(app.extensions['bf_real_db'](), session['driver_demo'])
         # Reset only this session's previous isolated sample. Never touch live data.
         if saved.get('uid')==g.user['id'] and saved.get('token'):
             demo_path(app,saved['token']).unlink(missing_ok=True)

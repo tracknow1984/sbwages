@@ -201,22 +201,6 @@ def register_journey(app, db, access, render, success, failure, now):
     @app.post('/binflow/driver/<int:truck_id>/test-prestart')
     @access
     def bf_test_prestart(truck_id):
-        from binflow_runs import run_data, check_owner, valid_date
-        from binflow_workday import driver_today
-        run_date = request.form.get('date', '')
-        try:
-            valid_date(run_date)
-            db().execute('BEGIN IMMEDIATE')
-            check_owner(db(), truck_id, run_date, g.user)
-            data = run_data(db(), truck_id, run_date, g.user['id'], driver_today(db(), g.user, now()))
-            if not data['simple_flow'] or data['stage'] != 'prestart' or not data['test_prestart_allowed']:
-                raise ValueError('The testing prestart is not available for this vehicle. Follow the current step.')
-            db().execute('UPDATE bf_runs SET test_prestart_at=?,test_prestart_date=?,test_prestart_by=? WHERE truck_id=? AND run_date=?',
-                         (now(), driver_today(db(), g.user, now()), g.user['id'], truck_id, run_date))
-            workday_event(db(), data['workday']['id'], g.user['id'], 'Testing prestart OK', now(),
-                          'Temporary test acknowledgement only; no signed vehicle inspection created.')
-            from binflow_reports import begin_current
-            begin_current(db(),g.user,truck_id,run_date,now())
-            return success('Testing prestart OK. Load your bins.', 'bf_run', truck_id=truck_id, date=run_date)
-        except ValueError as error:
-            return failure(error, 'bf_run', truck_id=truck_id, date=run_date or now()[:10])
+        # Drivers with an old page open must complete the same inspection.
+        return failure(ValueError('Complete the truck prestart checklist.'), 'bf_run',
+                       truck_id=truck_id, date=request.form.get('date') or now()[:10])

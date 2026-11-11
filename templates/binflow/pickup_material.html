@@ -1,6 +1,6 @@
 <label>Material in this bin
   <select name="material_id" required data-pickup-material>
-    <option value="">Choose material before pickup</option>
+    <option value="">Select material</option>
     {% for material in material_classes if material.active %}
     <option value="{{ material.id }}">{{ material.name }}</option>
     {% endfor %}

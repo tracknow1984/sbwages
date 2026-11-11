@@ -43,14 +43,14 @@
     const selected = form.querySelector('[name="action"]:checked') || form.querySelector('[name="action"]');
     context.textContent = context.dataset[selected.value] || '';
     lastCode = '';
-    say('Ready. Scan one bin at a time for this movement.');
+    say('');
   }
   form.querySelectorAll('[data-scan-action]').forEach(radio => radio.addEventListener('change', setAction));
   setAction();
   async function scan(code) {
     if (busy || !code.trim()) return;
     if (material && !material.value) {
-      say('Choose the material in this bin before confirming its pickup.', true);
+      say('Select the pickup material.', true);
       material.focus();
       return;
     }
@@ -67,6 +67,7 @@
         throw new Error('Your session may have expired. Refresh and sign in, then scan this bin again.');
       }
       const result = await response.json();
+      if (response.status===401 && result.login_url) {stopCamera(); location.assign(result.login_url); return;}
       if (!response.ok || !result.ok) throw new Error(result.message || 'Scan could not be saved. Try again.');
       if (form.dataset.lookup && result.redirect) { stopCamera(); location.assign(result.redirect); return; }
       if (result.html && stock) stock.innerHTML = result.html;
@@ -75,7 +76,7 @@
       input.value = '';
       if (!result.duplicate && navigator.vibrate) navigator.vibrate(80);
     } catch (error) {
-      say(error instanceof TypeError ? 'Connection lost. Check your connection and scan this bin again to confirm its location.' : error.message, true);
+      say(error instanceof TypeError ? 'Connection lost. Scan again to confirm.' : error.message, true);
     } finally {
       busy = false;
       buttons.forEach(b => { b.disabled = false; });

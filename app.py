@@ -24,8 +24,8 @@ from work_weeks import WORK_WEEKS, profile_end, profile_start, saved_period
 from binflow_workday import active_entry
 from binflow_permissions import (is_driver, is_manager, is_warehouse, has_binflow_access, assigned_roles,
     role_fields, workspaces, current_workspace, BUSINESS_ROLES, WORKING_STATES)
-from prestart_config import ASSETS, DECLARATION, checklist
-from prestart_media import signature_png, photo_jpeg
+from prestart_config import ASSETS, DECLARATION, TRUCK_CHECKS, checklist
+from prestart_media import signature_png, photo_jpeg, truck_inspection
 
 SCHEMA = '''
 CREATE TABLE IF NOT EXISTS rent_months (
@@ -259,11 +259,11 @@ def create_app(test_config=None):
             request.max_content_length = 4 * 1024 * 1024
         elif request.endpoint == 'save_public_blocktexx_questions':
             request.max_content_length = 512 * 1024
-        elif request.endpoint in ('bf_job_action','bf_run_prestart'):
+        elif request.endpoint in ('bf_job_action',):
             request.max_content_length = 8 * 1024 * 1024
         elif request.endpoint == 'tx_handling':
             request.max_content_length = 6 * 1024 * 1024
-        elif request.endpoint == 'employee_prestart':
+        elif request.endpoint in ('employee_prestart', 'bf_run_prestart'):
             request.max_content_length = 32 * 1024 * 1024
         elif request.endpoint == 'upload_licence_photos':
             request.max_content_length = 12 * 1024 * 1024
@@ -278,6 +278,17 @@ def create_app(test_config=None):
                 g.user = dict(user, binflow_workspace=selected if selected in modes else next(iter(modes), None))
             else:
                 session.clear()
+        if not g.user and request.endpoint != 'bf_lunch_worker' and (request.path.startswith(('/binflow/driver/', '/training/')) or
+                           request.args.get('demo') and request.path.startswith('/binflow/')):
+            # Never replay an expired scan or restore a training token supplied by a URL.
+            if request.method=='GET' and request.endpoint=='bf_demo_cycle':
+                session['binflow_next'] = url_for('bf_demo_cycle')
+            else:
+                session.pop('binflow_next', None)
+            login_url = url_for('login', audience='employee', resume=1)
+            if request.accept_mimetypes.best == 'application/json':
+                return {'ok': False, 'login_url': login_url, 'message': 'Sign in to resume your run.'}, 401
+            return redirect(login_url)
         if request.method == 'POST':
             if not secrets.compare_digest(session.get('csrf', ''), request.form.get('csrf', '')) or not session.get('csrf'):
                 abort(400, 'Your form expired. Refresh the page and try again.')
@@ -396,6 +407,10 @@ def create_app(test_config=None):
                 session.permanent = True
                 db().execute('DELETE FROM login_attempts WHERE key IN (?,?)', (key, ipkey))
                 db().commit()
+                from binflow_resume import restore_driver
+                resume = restore_driver(db(), user)
+                if resume and not binflow_next:
+                    return redirect(resume)
                 if binflow_next.startswith('/binflow/') or binflow_next == '/admin/bin-management':
                     return redirect(binflow_next)
                 return redirect(url_for('index'))
@@ -1145,7 +1160,12 @@ def create_app(test_config=None):
                     raise ValueError('Enter a valid non-negative meter reading with up to two decimal places.')
                 answers = []
                 photos = {}
+                vehicle = ASSETS[asset]=='vehicle'
+                if vehicle:
+                    answers, photos = truck_inspection(request.form, request.files)
                 for key, label, allow_na in checklist(asset):
+                    if vehicle and key in TRUCK_CHECKS:
+                        continue
                     value = request.form.get('check_' + key, '')
                     allowed = ('yes', 'no') if key == 'greased' else ('pass', 'fail', 'na') if allow_na else ('pass', 'fail')
                     note = request.form.get('note_' + key, '').strip()
@@ -1200,7 +1220,7 @@ def create_app(test_config=None):
         completed_assets = {r['asset'] for r in db().execute('SELECT DISTINCT asset FROM prestarts WHERE substr(submitted_at,1,10)=?', (today().isoformat(),))}
         equipment_failed = bool(asset and db().execute('SELECT 1 FROM prestarts WHERE asset=? AND substr(submitted_at,1,10)=? AND failure_count>0 LIMIT 1', (asset,today().isoformat())).fetchone())
         return render_template('prestart_form.html', completed=completed, completed_assets=completed_assets, equipment_failed=equipment_failed, tab='prestart', assets=ASSETS, asset=asset,
-                               checks=checklist(asset) if asset else [], declaration=DECLARATION,
+                               checks=checklist(asset) if asset else [], truck_checks=TRUCK_CHECKS if ASSETS.get(asset)=="vehicle" else {}, declaration=DECLARATION,
                                token=session['prestart_token'], records=prestart_rows(g.user['id']), admin_view=False)
 
     @app.get('/admin/prestart')
@@ -1581,6 +1601,8 @@ def create_app(test_config=None):
     register_site_tour(app, require)
     from binflow import register_binflow
     register_binflow(app, db, require)
+    from binflow_lunch import register_lunch
+    register_lunch(app, db)
     from traxpress import register_traxpress
     register_traxpress(app, db, require)
     return app

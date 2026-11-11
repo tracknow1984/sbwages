@@ -1,12 +1,12 @@
 {% extends 'binflow/layout.html' %}
 {% block title %}Sample warehouse &amp; baling{% endblock %}
-{% block subtitle %}Follow the returned bins from the scales to the signed storage handover.{% endblock %}
+{% block subtitle %}Wetherill Park · NSW{% endblock %}
 {% block body %}
 {% include 'binflow/warehouse_scanner.html' %}
 <section class="bf-panel bf-pad"><h2>1. Weigh returns and sign the PODs</h2>
   {% set total=jobs|sum(attribute='expected') %}
   {% set weighed=jobs|sum(attribute='weighed') %}
-  {% if weighed < total %}<p><strong>{{ weighed }} of {{ total }} bins weighed.</strong> Save all remaining weights to unlock POD sign-off.</p>
+  {% if weighed < total %}<p><strong>{{ weighed }} of {{ total }} bins weighed.</strong> Weigh all bins to unlock sign-off.</p>
   {% elif jobs|rejectattr('pod_signed_at')|list %}<p>All {{ total }} bins have saved weights. Open a docket to sign the run PODs.</p>
   {% else %}<p>Warehouse handover complete. The run PODs are signed.</p>{% endif %}
   {% for job in jobs %}
@@ -16,7 +16,7 @@
   </div>{% endfor %}
   <a href="{{ url_for('bf_workday') }}">Back to sample driver day</a>
 </section>
-<section class="bf-panel bf-pad"><h2>2. Create the sample bales</h2>
+<details class="bf-panel bf-pad"{% if jobs and not jobs|rejectattr("pod_signed_at")|list %} open{% endif %}><summary>2. Create the sample bales</summary>
   <p>For the first bale, choose COTTON and add F04 and F05 by their full IDs below. Enter 125 kg and confirm the bins were emptied. For the second bale, choose PC MIX and add F06 at 75 kg.</p>
   <div class="bf-size-table-wrap"><table class="bf-size-table"><thead><tr><th>Source bin</th><th>Material / net</th><th>Stage</th></tr></thead><tbody>
     {% for s in sources %}<tr><td data-label="Source bin"><strong>{{ s.bin_code }}</strong></td>
@@ -25,15 +25,15 @@
   </tbody></table></div>
   <a class="button primary" href="{{ url_for('bf_bale_new',warehouse=1) }}">Create a sample bale</a>
   <a class="button secondary" href="{{ url_for('bf_bales') }}">View bale stock</a>
-</section>
-<section class="bf-panel bf-pad"><h2>3. Transfer to Brisbane and sign handover</h2>
+</details>
+<details class="bf-panel bf-pad"{{ " open" if bales }}><summary>3. Transfer to Brisbane</summary>
   {% if bales %}
   <ul>{% for b in bales %}<li><a href="{{ url_for('bf_bale',bid=b.id) }}">{{ b.code }}</a> · {{ b.material_name }} · {{ b.net_g|bfkg }} kg · {{ b.status|replace('_',' ') }}</li>{% endfor %}</ul>
   <p>Use a sample carrier and vehicle with a 1,000 kg payload. Scan each bale ID to load, dispatch the manifest, scan both IDs at Brisbane and sign for receipt into BlockTexx storage.</p>
   <a class="button secondary" href="{{ url_for('bf_bale_transfer_new',warehouse=1) }}">Create a sample transfer</a>
   {% else %}<p>Create the first bale to start a transfer.</p>{% endif %}
   {% for t in transfers %}<p><a href="{{ url_for('bf_bale_transfer',tid=t.id) }}">{{ t.code }} · {{ t.status|replace('_',' ') }}</a>{% if t.signed_at %} · <a href="{{ url_for('bf_bale_note',tid=t.id) }}">View signed storage note</a>{% endif %}</p>{% endfor %}
-</section>
+</details>
 <details class="bf-panel bf-pad"><summary>Restart this sample</summary><p>This clears your current sample and starts a fresh driver day.</p>
   <form method="post" action="{{ url_for('bf_demo_start') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="reset" value="yes"><input type="hidden" name="state" value="{{ session.driver_demo.state }}"><button class="secondary">Reset sample run</button></form>
 </details>

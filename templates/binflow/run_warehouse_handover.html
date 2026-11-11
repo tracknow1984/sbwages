@@ -1,13 +1,13 @@
 <section class="bf-panel bf-pad bf-action-card">
 {% if weights and weights.weighed < weights.expected %}
-  <span class="bf-kicker">WAREHOUSE WEIGH-IN</span>
+
   <h2>Weigh the returned bins</h2>
-  <p><strong>{{ weights.weighed }} of {{ weights.expected }} bins weighed.</strong> Warehouse handover stays open until every bin has a saved weight and the run PODs are signed.</p>
+  <p><strong>{{ weights.weighed }} of {{ weights.expected }} bins weighed.</strong> Sign-off unlocks after the last weight.</p>
 {% elif jobs|rejectattr('pod_deleted_at')|rejectattr('pod_signed_at')|list %}
   <span class="bf-kicker">WAREHOUSE HANDOVER PENDING</span>
   <h2>Ready for POD sign-off</h2>
   {% if weights and weights.expected %}<p>All {{ weights.expected }} bins have saved weights.</p>{% endif %}
-  <p>Warehouse staff can now review and sign the run PODs to complete handover.</p>
+  <p>Sign the PODs to complete handover.</p>
 {% else %}
   <span class="bf-kicker">WAREHOUSE HANDOVER COMPLETE</span>
   <h2>Run PODs signed</h2>

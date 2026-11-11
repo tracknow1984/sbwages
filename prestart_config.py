@@ -1,4 +1,6 @@
 """Versioned checklist text stored with each submitted prestart."""
+from typing import NamedTuple
+
 ASSETS = {
     'T595 BOBCAT': 'machine',
     'SUMITOMO EXCAVATOR': 'machine',
@@ -23,22 +25,24 @@ MACHINE_CHECKS = [
     ('warning', 'Horn and reversing alarm', False),
     ('access', 'Steps, handrails and operator area clear and secure', False),
 ]
-VEHICLE_CHECKS = [
-    ('tyres', 'Tyres, wheels and wheel nuts', False),
-    ('oil', 'Engine oil level', False),
-    ('water', 'Coolant / water level (check only when safe and cool)', False),
-    ('leaks', 'No fuel, oil, coolant or air leaks', False),
-    ('lights', 'Headlights, brake lights, indicators and reflectors', False),
-    ('visibility', 'Windscreen, mirrors, wipers and washers', False),
-    ('brakes', 'Service / parking brakes and air pressure where fitted', False),
-    ('steering', 'Steering and dashboard warning indicators', False),
-    ('horn', 'Horn and reversing alarm where fitted', False),
-    ('seatbelt', 'Seat belt, seat and cab doors', False),
-    ('body', 'Body, tray, tailgate and latches secure', False),
-    ('load', 'Load restraint and load secure (if carrying a load)', True),
-    ('coupling', 'Trailer coupling, safety connections and lines (if towing)', True),
-    ('equipment', 'Required emergency equipment present and serviceable', False),
-]
+class TruckCheck(NamedTuple):
+    label: str
+    good: str
+    bad: str
+    evidence: str = ''
+
+
+TRUCK_CHECKS = {
+    'body': TruckCheck('Walk-around · any damage to the vehicle body?', 'No', 'Yes', 'photo'),
+    'lights': TruckCheck('Lights working?', 'Yes', 'No'),
+    'tyres': TruckCheck('Tyres', 'Good', 'Bad', 'photo'),
+    'camera': TruckCheck('Reverse camera', 'Working', 'Not working'),
+    'windscreen': TruckCheck('Windscreen', 'Good', 'Damaged', 'photo'),
+    'brakes': TruckCheck('Brakes', 'Good', 'Issue'),
+    'mirrors': TruckCheck('Mirrors', 'Good', 'Bad'),
+    'lift': TruckCheck('Tailgate lift', 'Working', 'Not working', 'note'),
+}
+VEHICLE_CHECKS = [(key, check.label, False) for key, check in TRUCK_CHECKS.items()]
 DECLARATION = ('I have personally completed this prestart and recorded the results accurately. '
                'My fit-for-duty answer reflects whether I am rested, alert and able to work safely, '
                'without impairment from alcohol, drugs, medication, illness or injury. '

@@ -109,6 +109,8 @@ def grams(raw, label='Weight'):
 
 def register_binflow(app, db, require):
     from binflow_demo import install_demo_database
+    from binflow_resume import install_resume
+    install_resume(app, db)
     db = install_demo_database(app, db, now)
     with app.app_context():
         db().executescript(SCHEMA)

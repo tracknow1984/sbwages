@@ -1,0 +1,20 @@
+<div class="bf-truck-checks">
+{% for key,spec in truck_checks.items() %}
+  <div role="group" aria-labelledby="truck-check-{{ key }}" class="bf-truck-check" data-truck-check{% if paged %} data-inspection-part="{{ 0 if loop.index<=4 else 1 }}"{% endif %}>
+    <span class="bf-check-name" id="truck-check-{{ key }}">{{ spec.label }}</span>
+    <div class="bf-truck-options">
+    {% for value,caption in [('pass',spec.good),('fail',spec.bad)] %}
+      <label><input type="radio" name="check_{{ key }}" value="{{ value }}" required
+        {% if request.form.get('check_'+key)==value %}checked{% endif %}><span>{{ caption }}</span></label>
+    {% endfor %}
+    </div>
+    {% if spec.evidence=='photo' %}<label data-issue-field>{{ {'body':'Photo of body damage','tyres':'Photo of tyre condition','windscreen':'Photo of windscreen damage'}[key] }}
+      <input type="file" name="photo_{{ key }}" accept="image/jpeg,image/png,image/webp" capture="environment">
+    </label>{% elif spec.evidence=='note' %}<label data-issue-field>Describe the fault
+      <textarea name="note_{{ key }}" rows="2" maxlength="500">{{ request.form.get('note_'+key,'') }}</textarea>
+    </label>{% endif %}
+  </div>
+{% endfor %}
+</div>
+<link rel="stylesheet" href="{{ url_for('static',filename='binflow-truck-checks.css') }}">
+<script src="{{ url_for('static',filename='binflow-truck-checks.js') }}" defer></script>

@@ -114,7 +114,7 @@ class DriverDayTests(unittest.TestCase):
         prestart(self,fail=True)
         self.assertEqual(self.stage(),'hold')
         self.scan(3,409)
-        self.assertIn(b'Damaged tyre',self.client.get('/binflow/driver/my-day?summary=1').data)
+        self.assertIn(b'Brakes require repair',self.client.get('/binflow/driver/my-day?summary=1').data)
         record=self.client.get('/admin/prestart/1').data
         self.assertIn(b'/binflow/prestarts/1/resolve',record)
         before=self.rows('SELECT * FROM prestarts')

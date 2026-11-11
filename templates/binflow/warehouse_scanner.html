@@ -1,12 +1,12 @@
 <section class="bf-panel bf-pad" data-driver-scanner>
-<h2>Scan a bin to record its weight</h2>
+<h2>Warehouse weigh-in</h2>
 <form method="post" action="{{ url_for('bf_warehouse_scan') }}" class="bf-form" data-scan-form data-lookup="weight">
 <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="action" value="weigh">
 <p data-scan-context hidden></p>
 <div class="bf-camera-controls"><button type="button" class="primary" data-camera-start>Scan bin QR</button><button type="button" class="secondary" data-camera-stop hidden>Close camera</button></div>
 <video class="bf-camera" data-camera playsinline muted hidden aria-label="Returned bin QR scanner"></video>
-<div class="bf-scan-entry"><label>Bin ID<input name="code" data-scan-code maxlength="1000" autocomplete="off" required placeholder="Scan or enter the bin ID"></label><button type="submit" class="secondary">Open weight entry</button></div>
-<p class="bf-scan-feedback" data-scan-feedback role="status" aria-live="polite">Scan a returned bin, then enter its scale reading.</p>
+<details><summary>Enter bin ID</summary><div class="bf-scan-entry"><label>Bin ID<input name="code" data-scan-code maxlength="1000" autocomplete="off" required placeholder="Scan or enter the bin ID"></label><button type="submit" class="secondary">Open weight entry</button></div></details>
+<p class="bf-scan-feedback" data-scan-feedback role="status" aria-live="polite"></p>
 </form>
 </section>
 <script src="{{ url_for('static',filename='vendor/jsQR.min.js') }}" defer></script>

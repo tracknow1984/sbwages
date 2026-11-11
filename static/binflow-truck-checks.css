@@ -1,0 +1,35 @@
+.bf-truck-checks {display:grid;gap:6px}
+.bf-truck-check {min-width:0;border:0;border-bottom:1px solid #dae4ed;margin:0;padding:2px 0 7px}
+.bf-truck-check .bf-check-name {font-size:14px;font-weight:650;color:#203952}
+.bf-truck-options {display:flex;gap:6px}
+.bf-truck-options label {position:relative;display:flex;flex:1;cursor:pointer}
+.bf-truck-options label input {position:absolute;opacity:0;width:1px;min-height:0;inset:50% auto auto 2px}
+.bf-truck-options label span {display:grid;place-items:center;width:100%;min-height:44px;border:1px solid #aebecb;border-radius:7px;color:#233e57;background:#fff;font-weight:600}
+.bf-truck-options input:checked + span {background:#e2f4eb;border:2px solid #287653;color:#18593d}
+.bf-truck-options input[value=fail]:checked + span {background:#fff0de;border-color:#b06a24;color:#703900}
+.bf-truck-options input:focus-visible + span {outline:3px solid #165fcc}
+.bf-truck-check [data-issue-field] {display:grid;gap:4px;margin:6px 0}
+.bf-truck-check [hidden] {display:none!important}
+[data-truck-inspection] [hidden] {display:none!important}
+.bf-inspection-nav {display:flex;gap:8px;justify-content:space-between;align-items:center}
+.bf-inspection-nav span {color:#526a7e;font-size:12px}
+.bf-inspection-nav button {min-height:44px;min-width:74px}
+
+.bf-truck-checks .bf-truck-check {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);align-items:center;column-gap:6px;row-gap:2px}
+.bf-truck-checks .bf-truck-check .bf-truck-options label {display:block;margin:0;padding:0;min-height:0}
+.bf-truck-checks .bf-truck-check .bf-check-name {font-size:13px;line-height:1.25}
+.bf-truck-checks .bf-truck-check .bf-truck-options span {font-size:12px;line-height:1.2;text-align:center;padding:2px;box-sizing:border-box}
+.bf-truck-checks .bf-truck-check [data-issue-field] {grid-column:1/-1}
+[data-truck-inspection] .bf-truck-checks {gap:3px}
+
+.bf-inspection-info {display:flex;gap:14px;flex-wrap:wrap}
+.bf-inspection-info details[open] {flex-basis:100%}
+@media (max-width:600px) {
+  .driver-journey .driver-appbar {height:52px}
+  .driver-journey .bf-day [data-truck-inspection] [data-inspection-part="2"] > .bf-signature {margin:0}
+  .bf-journey [data-truck-inspection] .bf-signature .bf-toolbar {margin-bottom:3px}
+  .driver-journey .bf-day [data-truck-inspection] button.bf-next {min-height:46px;height:46px;padding-block:8px}
+  .bf-journey [data-truck-inspection] .bf-signature canvas {height:80px}
+  .bf-journey [data-inspection-part="2"] .bf-check {margin:3px 0;padding:4px;min-height:44px}
+  .bf-journey [data-inspection-part="2"] > label:first-child {margin:0 0 3px}
+}

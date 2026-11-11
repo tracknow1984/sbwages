@@ -33,8 +33,13 @@ class DriverJourneyTests(unittest.TestCase):
         wid=re.search(rb'/my-day/(\d+)/overview',page.data)[1].decode()
         return self.post(f'/binflow/driver/my-day/{wid}/overview'+suffix,dict(state=state,version=version[1].decode()))
 
-    def simple_prestart(self,suffix=''):
-        return self.post(f'/binflow/driver/{self.truck_id}/test-prestart'+suffix,dict(date=RUN_DATE))
+    def simple_prestart(self,suffix='',run_date=RUN_DATE):
+        import secrets
+        from binflow_runs import CHECKS
+        values = {'check_'+key:'pass' for key,_,_ in CHECKS}
+        return self.post(f'/binflow/driver/{self.truck_id}/prestart'+suffix,
+                         dict(values,date=run_date,reading='12000',submission_token=secrets.token_urlsafe(24),
+                              fit_for_duty='yes',signature=SIGNATURE,signed='yes'))
 
     def scan(self, action, code, suffix=''):
         material = (2 if code=='DEMO-660-F06' else 1) if suffix else pickup_material(self)
@@ -51,12 +56,12 @@ class DriverJourneyTests(unittest.TestCase):
         self.accept_overview();self.choose()
         self.assertEqual(self.stage(),'prestart')
         self.simple_prestart();self.assertEqual(self.stage(),'load')
-        self.assertFalse(self.rows('SELECT * FROM prestarts'))
+        self.assertEqual(len(self.rows('SELECT * FROM prestarts')),1)
         self.assertEqual(self.scan('deliver','BF000003').status_code,409)
         for code in ('BF000003','BF000004'):
             self.assertTrue(self.scan('load',code).json['ok'])
         self.assertEqual(self.stage(),'ready')
-        self.assertIn(b'Confirm your truck manifest',self.client.get('/binflow/driver/1/day?date='+RUN_DATE).data)
+        self.assertIn(b'Confirm manifest',self.client.get('/binflow/driver/1/day?date='+RUN_DATE).data)
         self.action('depart');self.assertEqual(self.stage(),'navigate')
         run=self.rows('SELECT * FROM bf_runs')[0]
         self.assertTrue(run['manifest_confirmed_at']);self.assertIn('BF000003',run['onboard_manifest'])
@@ -157,8 +162,8 @@ class DriverJourneyTests(unittest.TestCase):
         day = self.rows('SELECT * FROM bf_workdays')[0]
         path = f'/binflow/driver/my-day/{day["id"]}/vehicle'
         fields = dict(truck_id=2, state='QLD', scheduled_truck_id=3)
-        self.assertIn('Ready to load?', self.post(path,fields).text)
-        self.assertIn('Ready to load?', self.post(path,fields).text)
+        self.assertIn('Vehicle prestart', self.post(path,fields).text)
+        self.assertIn('Vehicle prestart', self.post(path,fields).text)
         self.assertEqual(self.rows('SELECT truck_id FROM bf_jobs WHERE id IN (2,3) ORDER BY id'),
                          [dict(truck_id=1),dict(truck_id=2)])
         self.assertEqual(len(self.rows('SELECT * FROM bf_run_acceptance_history')), 1)
@@ -187,13 +192,13 @@ class DriverJourneyTests(unittest.TestCase):
         from binflow_runs import CHECKS
         fields={f'check_{key}':'pass' for key,_,_ in CHECKS}
         self.post('/binflow/driver/1/prestart',dict(fields,date=RUN_DATE,submission_token=secrets.token_urlsafe(24),reading='100',
-            fit_for_duty='yes',signature=SIGNATURE,signed='yes',check_tyres='fail',note_tyres='Damaged tyre'))
+            fit_for_duty='yes',signature=SIGNATURE,signed='yes',check_brakes='fail',note_brakes='Brake issue'))
         self.assertEqual(self.stage(),'hold')
-        self.simple_prestart();self.assertEqual(self.stage(),'hold')
+        self.post('/binflow/driver/1/test-prestart',dict(date=RUN_DATE));self.assertEqual(self.stage(),'hold')
         self.assertIsNone(self.rows('SELECT test_prestart_at FROM bf_runs')[0]['test_prestart_at'])
         with sqlite3.connect(self.path) as conn:
             conn.execute("UPDATE bf_run_inspections SET resolved_at=?,resolution='Repaired'",(self.time.isoformat(),))
-        self.simple_prestart();self.assertEqual(self.stage(),'prestart')
+        self.post('/binflow/driver/1/test-prestart',dict(date=RUN_DATE));self.assertEqual(self.stage(),'prestart')
         self.assertIn(b'Odometer',self.client.get('/binflow/driver/1/day?date='+RUN_DATE).data)
         prestart(self);self.assertEqual(self.stage(),'load')
 
@@ -205,9 +210,9 @@ class DriverJourneyTests(unittest.TestCase):
             conn.execute("UPDATE bf_jobs SET scheduled_date='2026-10-20' WHERE id=2")
         self.post('/binflow/driver/start-day',dict(flow_version='2',**self.stamp('Australia/Sydney')))
         self.accept_overview();self.choose()
-        self.post('/binflow/driver/1/test-prestart',dict(date='2026-10-20'))
+        self.simple_prestart(run_date='2026-10-20')
         self.assertEqual(self.client.get('/binflow/driver/1/day/state?date=2026-10-20').json['stage'],'load')
-        self.assertEqual(self.rows('SELECT test_prestart_date FROM bf_runs')[0]['test_prestart_date'],'2026-10-20')
+        self.assertEqual(self.rows('SELECT inspection_date FROM bf_run_inspections')[0]['inspection_date'],'2026-10-20')
 
     def test_admin_sample_never_links_to_real_mutations(self):
         self.post('/logout');self.login()
@@ -342,7 +347,7 @@ class DriverJourneyTests(unittest.TestCase):
         self.assertIn('SAMPLE · interstate spare · QLD', picker.text)
         self.truck_id = 2
         selected=self.post('/binflow/driver/my-day/1/vehicle'+suffix,dict(state='NSW',truck_id=self.truck_id))
-        self.assertIn(b'OK',selected.data)
+        self.assertIn(b'Vehicle prestart',selected.data)
         loading = self.client.get(f'/binflow/driver/{self.truck_id}/load-list'+suffix+'&date='+RUN_DATE)
         self.assertIn('Wetherill Park',loading.text)
         self.simple_prestart(suffix)

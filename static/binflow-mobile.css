@@ -26,3 +26,39 @@
 @media print{.driver-appbar,.bf-shift-clock{display:none!important}.bf-demo-labels article{break-inside:avoid}.bf-demo-banner{border:2px solid #775526}}
 
 .bf-journey.bf-no-clock .bf-heading{padding-right:0;min-height:92px}
+
+/* Keep the next action in reach while leaving the full manifest available. */
+.driver-journey > .main,.driver-account.driver-journey > .main {padding:12px clamp(10px,3vw,22px) 20px}
+.driver-journey .bf-journey {max-width:640px;margin:auto}
+.bf-journey .bf-run-context {display:flex;align-items:baseline;justify-content:space-between;gap:10px;color:#425a70;font-size:13px;margin:8px 0}
+.bf-journey .bf-run-context span {font-size:12px;white-space:nowrap}
+.driver-journey .bf-day .bf-pad {padding:14px;margin:0 0 8px;border-radius:12px}
+.driver-journey .bf-day h1 {margin:0 0 5px;color:#173653;font-size:24px;line-height:1.17;letter-spacing:-.4px}
+.driver-journey .bf-day h2 {font-size:19px;margin:0 0 6px}
+.bf-journey p {margin:4px 0 8px;line-height:1.35}
+.bf-journey .bf-next {min-height:46px;padding:10px 14px;margin-top:8px}
+.bf-journey .bf-form {gap:8px}
+.bf-journey .bf-bin-chips,.bf-journey .bf-stop-quantities,.bf-journey .bf-destination {margin:6px 0}
+.bf-journey .bf-bin-chips > span,.bf-journey .bf-stop-quantities span,.bf-journey .bf-destination {padding:5px 8px}
+.bf-journey .bf-stop-quantities strong {font-size:16px}
+.bf-journey .bf-scan-feedback:empty {display:none}
+.bf-journey .bf-scan-list {margin:4px 0}
+.bf-journey .bf-scan-list li {display:flex;align-items:center;justify-content:space-between;gap:6px;padding:4px 0}
+.bf-journey .bf-demo-scan {width:auto;flex-shrink:0;margin:0;padding:6px 9px}
+.bf-day details > summary,.bf-demo-banner > summary {cursor:pointer;font-weight:650;padding:6px 0}
+.driver-journey .bf-demo-banner {display:block;padding:2px 10px;margin:0 0 6px}
+.bf-journey .bf-navigation-note {margin:3px 0;font-size:11px}
+.driver-journey .bf-day .bf-shift-clock {float:none;position:static;display:flex;align-items:center;gap:8px;min-width:0;width:auto;padding:5px 10px;margin:0 0 4px;border-radius:9px}
+.bf-shift-clock strong {font-size:16px}
+.bf-journey .bf-shift-clock span {margin-left:auto}
+.driver-journey .bf-day .bf-break-banner {margin:5px 0;clear:both}
+.driver-journey .bf-day .bf-alert-settings {font-size:12px;margin:0 0 5px}
+
+.driver-journey .bf-day .bf-alert-settings > summary,.driver-journey .bf-day .bf-demo-banner > summary {padding:2px 0;min-height:24px}
+.driver-journey .bf-day .bf-run-context {margin:2px 0 4px}
+.driver-journey .bf-day [data-truck-inspection] {gap:8px}
+.driver-journey .bf-day [data-truck-inspection] label {margin-bottom:0}
+.driver-journey .bf-day [data-truck-inspection] input[name=reading] {min-height:44px;padding:7px}
+
+.bf-journey [data-scan-form] [data-driver-stock] .bf-scan-queue {margin:0;padding:0;border:0;box-shadow:none}
+.bf-journey [data-scan-form] [data-driver-stock] .bf-next {margin:0}

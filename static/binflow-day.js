@@ -25,7 +25,7 @@
       link.classList.replace('primary','secondary');
       link.querySelector('[data-navigation-label]').textContent='Open directions again';
       navigation.querySelector('[data-navigation-note]').textContent=
-        'When parked at this stop, tap “'+button.textContent.trim()+'” to continue.';
+        'When parked, confirm arrival.';
     };
     try {
       const saved=JSON.parse(sessionStorage.getItem(storageKey));
@@ -43,7 +43,9 @@
   async function getState(url) {
     const controller=new AbortController();
     const timeout=window.setTimeout(()=>controller.abort(),10000);
-    try {return await fetch(url,{headers:{Accept:'application/json'},cache:'no-store',signal:controller.signal});}
+    try {const response=await fetch(url,{headers:{Accept:'application/json'},cache:'no-store',signal:controller.signal});
+      if(response.status===401){location.assign((await response.json()).login_url);throw new Error('Sign in');}
+      return response;}
     finally {window.clearTimeout(timeout);}
   }
   async function poll() {
