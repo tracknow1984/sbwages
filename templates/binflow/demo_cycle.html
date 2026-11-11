@@ -1,14 +1,14 @@
 {% extends 'binflow/layout.html' %}
-{% block title %}Test a full BinFlow cycle{% endblock %}
-{% block subtitle %}Run a two-stop collection through to signed BlockTexx storage handover using sample stock.{% endblock %}
+{% block title %}NSW collection to bale test{% endblock %}
+{% block subtitle %}Collect in Smithfield and Fairfield, weigh and bale at Wetherill Park, then transfer the bales to Brisbane.{% endblock %}
 {% block body %}
 <section class="bf-panel bf-pad">
-  <h2>Start a sample cycle</h2>
-  <p>Two customer jobs and six bins are ready. Use the scheduled truck or the interstate spare. Choose NSW for a Wetherill Park to Brisbane transfer. You can enter the printed bin and bale IDs in each scanner.</p>
+  <h2>Start the NSW sample cycle</h2>
+  <p>Two customer jobs and six bins are ready. Use the scheduled truck or the interstate spare. The collection and baling depot is Wetherill Park, NSW. You can enter the printed bin and bale IDs in each scanner.</p>
   <form method="post" action="{{ url_for('bf_demo_start') }}" class="bf-form">
     <input type="hidden" name="csrf" value="{{ csrf_token() }}">
-    <label>Sample state<select name="state">{% for state in states %}<option {{ 'selected' if state==selected_state }}>{{ state }}</option>{% endfor %}</select></label>
-    <button class="primary">Start or resume sample cycle</button>
+    <input type="hidden" name="state" value="NSW">
+    <button class="primary">Start or resume NSW sample cycle</button>
   </form>
 </section>
 <section class="bf-panel bf-pad"><h2>What to test</h2>

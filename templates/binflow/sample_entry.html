@@ -1,1 +1,11 @@
-{% if not driver_demo %}<details class="bf-panel bf-pad" id="sample-run"><summary>Try today’s sample run</summary><p>Practise a two-stop collection, warehouse weigh-in, baling and signed storage handover using sample stock.</p><form method="post" action="{{ url_for('bf_demo_start') }}" class="bf-form"><input type="hidden" name="csrf" value="{{ csrf_token() }}">{% if binflow_state %}<input type="hidden" name="state" value="{{ binflow_state }}">{% else %}<label>Sample state<select name="state">{% for state in states %}<option {{ 'selected' if state==(selected_state or 'QLD') }}>{{ state }}</option>{% endfor %}</select></label>{% endif %}<button class="secondary bf-next">Open sample run for today</button></form></details>{% endif %}
+{% if not driver_demo %}
+<details class="bf-panel bf-pad" id="sample-run">
+  <summary>Try the NSW collection to bale test</summary>
+  <p>Collect at Smithfield and Fairfield, then return to Wetherill Park for weighing and baling. Transfer the finished bales to Brisbane for signed storage handover.</p>
+  <form method="post" action="{{ url_for('bf_demo_start') }}" class="bf-form">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+    <input type="hidden" name="state" value="NSW">
+    <button class="secondary bf-next">Open NSW sample run for today</button>
+  </form>
+</details>
+{% endif %}

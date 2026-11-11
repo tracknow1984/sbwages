@@ -10,7 +10,7 @@ import sqlite3
 from pathlib import Path
 
 from flask import abort, g, has_request_context, redirect, request, send_file, session, url_for
-from binflow_permissions import has_binflow_access, selected_state, state_scope
+from binflow_permissions import has_binflow_access
 
 DEMO_ENDPOINTS = frozenset({
     'bf_workday','bf_start_workday','bf_workday_vehicle','bf_finish_workday','bf_accept_overview',
@@ -54,7 +54,7 @@ def install_demo_database(app, real_db, now):
         warehouse = sample_key is not None and request.endpoint in WAREHOUSE_ENDPOINTS
         if (not g.user or not has_binflow_access(g.user) or (not warehouse and request.endpoint not in DEMO_ENDPOINTS) or
                 not token or not secrets.compare_digest(token, saved.get('token', '')) or saved.get('uid') != g.user['id'] or
-                (state_scope(g.user) and state_scope(g.user) != saved.get('state'))):
+                saved.get('state') not in SUBURBS):
             abort(403, 'This sample run is not available in your session. Open Driver day and start a new sample run.')
         path = demo_path(app, token)
         if not path.is_file():
@@ -76,6 +76,9 @@ def install_demo_database(app, real_db, now):
         g.bf_demo_db = conn
         g.bf_demo_token = token
         g.bf_demo_warehouse = warehouse
+        g.bf_demo_state = saved['state']
+        # Use the sample's operating state only after validating its session and endpoint.
+        g.user = dict(g.user, working_state=saved['state'])
         if warehouse or request.endpoint in ('bf_demo_inbound', 'bf_demo_docket'):
             prepare_warehouse(conn, now())
             conn.commit()
@@ -160,12 +163,12 @@ def register_demo(app, db, access, render, now):
     @app.get('/binflow/driver/test-cycle')
     @access
     def bf_demo_cycle():
-        return render('demo_cycle', section='driver', selected_state=state_scope(g.user) or 'NSW')
+        return render('demo_cycle', section='driver', selected_state='NSW')
 
     @app.post('/binflow/driver/demo')
     @access
     def bf_demo_start():
-        state = selected_state(g.user,request.form.get('state') or state_scope(g.user) or 'QLD')
+        state = request.form.get('state') or 'NSW'
         if state not in SUBURBS:
             abort(400)
         saved = session.get('driver_demo',{})

@@ -182,6 +182,9 @@ class DriverJourneyTests(unittest.TestCase):
         response=self.post('/binflow/driver/demo',dict(state='NSW'),follow=False)
         token=parse_qs(urlsplit(response.location).query)['demo'][0]
         suffix='?demo='+token
+        self.post('/binflow/driver/start-day'+suffix,dict(flow_version='2',**self.stamp()))
+        self.assertIn('Smithfield',self.client.get('/binflow/driver/my-day'+suffix).text)
+        self.assertIn('Choose your truck',self.accept_overview(suffix,'NSW').text)
         job=self.client.get('/binflow/pickups/1'+suffix)
         self.assertNotIn(b'Warehouse weigh-in',job.data)
         self.assertNotIn(b'Cancel this scheduled job',job.data)
@@ -258,10 +261,13 @@ class DriverJourneyTests(unittest.TestCase):
         self.assertEqual(self.client.get('/training/invalid/binflow/bales/new').status_code,403)
 
     def test_today_sample_uses_same_flow_without_changing_real_stock_or_payroll(self):
-        with sqlite3.connect(self.path) as conn:
-            conn.execute("UPDATE users SET working_state='NSW' WHERE id=?", (self.uid,))
-        before={table:self.rows('SELECT * FROM '+table) for table in ('bf_bins','bf_jobs','bf_job_bins','bf_workdays','bf_events','entries','sheets','bf_step_timings','bf_bale_storage','bf_bales','bf_bale_sources','bf_bale_transfers','bf_rental_invoices')}
-        opened=self.post('/binflow/driver/demo',dict(state='NSW'),follow=False)
+        self.assertEqual(self.rows('SELECT working_state FROM users WHERE id=?', (self.uid,))[0]['working_state'],'QLD')
+        page = self.client.get('/binflow/driver/test-cycle')
+        self.assertIn('Start the NSW sample cycle',page.text)
+        self.assertIn('name="state" value="NSW"',page.text)
+        self.assertIn('name="state" value="NSW"',self.client.get('/binflow/driver/my-day').text)
+        before={table:self.rows('SELECT * FROM '+table) for table in ('users','bf_bins','bf_jobs','bf_job_bins','bf_workdays','bf_events','entries','sheets','bf_step_timings','bf_bale_storage','bf_bales','bf_bale_sources','bf_bale_transfers','bf_rental_invoices')}
+        opened=self.post('/binflow/driver/demo',follow=False)
         self.assertEqual(opened.status_code,302)
         token=parse_qs(urlsplit(opened.location).query)['demo'][0]
         suffix='?demo='+token
@@ -271,11 +277,16 @@ class DriverJourneyTests(unittest.TestCase):
         self.assertIn(b'DEMO-1100-E01',self.client.get('/binflow/driver/demo/labels'+suffix).data)
         self.assertEqual(self.client.get('/binflow/driver/demo/qr/1'+suffix).mimetype,'image/png')
         self.post('/binflow/driver/start-day'+suffix,dict(flow_version='2',**self.stamp()))
+        overview = self.client.get('/binflow/driver/my-day'+suffix)
+        for place in ('Smithfield','Fairfield'):
+            self.assertIn(place,overview.text)
         picker = self.accept_overview(suffix, 'NSW')
         self.assertIn('SAMPLE · interstate spare · QLD', picker.text)
         self.truck_id = 2
         selected=self.post('/binflow/driver/my-day/1/vehicle'+suffix,dict(state='NSW',truck_id=self.truck_id))
         self.assertIn(b'OK',selected.data)
+        loading = self.client.get(f'/binflow/driver/{self.truck_id}/load-list'+suffix+'&date='+RUN_DATE)
+        self.assertIn('Wetherill Park',loading.text)
         self.simple_prestart(suffix)
         self.assertEqual(self.scan('load','DEMO-660-E03',suffix).status_code,409)
         self.scan('load','DEMO-1100-E01',suffix)
@@ -298,6 +309,8 @@ class DriverJourneyTests(unittest.TestCase):
         self.assertIn(b'Sample run complete',finished.data)
         self.complete_sample_warehouse(token)
         for table,data in before.items():self.assertEqual(self.rows('SELECT * FROM '+table),data,table)
+        self.assertEqual(self.client.get('/binflow/driver/my-day?state=NSW').status_code,403)
+        self.assertIn('<p>QLD</p>',self.client.get('/binflow/driver/my-day').text)
         # A second authenticated session cannot use the owner's sample token.
         second=self.app.test_client()
         with second.session_transaction() as session: session.update(uid=self.uid,version=0,csrf='x')

@@ -239,7 +239,7 @@ def register_workdays(app,db,access,require,render,success,failure,now):
         if day and day['state']: require_state(g.user,day['state'])
         if day and day['truck_id'] and not day['finished_at'] and request.args.get('summary')!='1' and not request.args.get('date'):
             return redirect(url_for('bf_run',truck_id=day['truck_id'],date=day['work_date']))
-        state=selected_state(g.user,request.args.get('state',day['state'] if day else ''))
+        state=selected_state(g.user,request.args.get('state',day['state'] if day else getattr(g,'bf_demo_state','')))
         if state not in ('',)+STATES: abort(400)
         trucks = available_trucks(db(), day, state) if day and not day['finished_at'] and state else []
         entries=db().execute('''SELECT e.*,s.week_end FROM bf_workday_entries x JOIN entries e ON e.sheet_id=x.sheet_id AND e.work_date=x.work_date
@@ -273,7 +273,7 @@ def register_workdays(app,db,access,require,render,success,failure,now):
             if db().execute('SELECT 1 FROM bf_workdays WHERE user_id=? AND work_date=?',(g.user['id'],key)).fetchone():
                 return success('This driver day has already been finalised.','bf_workday')
             wid=db().execute('''INSERT INTO bf_workdays(user_id,work_date,timezone,started_at,start_received_at,phone_started_at,state)
-                VALUES(?,?,?,?,?,?,?)''',(g.user['id'],key,zone,stamp.isoformat(),received,phone,state_scope(g.user) or '')).lastrowid
+                VALUES(?,?,?,?,?,?,?)''',(g.user['id'],key,zone,stamp.isoformat(),received,phone,state_scope(g.user) or getattr(g,'bf_demo_state',''))).lastrowid
             db().execute('UPDATE bf_workdays SET flow_version=? WHERE id=?',(2 if request.form.get('flow_version')=='2' else 0,wid))
             if getattr(g,'bf_demo_token',None):
                 db().execute('UPDATE bf_jobs SET scheduled_date=?',(key,))
