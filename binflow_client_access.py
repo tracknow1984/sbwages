@@ -19,6 +19,7 @@ ENDPOINTS = {
     'bf_client_national':'national.view','bf_client_national_progress':'national.view',
     'bf_client_national_weeks':'national.view','bf_client_profiles_portal':'profiles.view',
     'bf_client_site_portal':'profiles.view','bf_client_site_new':'profiles.add','bf_client_site_edit':'profiles.edit',
+    'bf_pod_record':'pods.view', 'bf_pod_journey':'pods.view',
     'bf_client_pods':'pods.view','bf_client_pdf':'pods.view','bf_client_calendar':'calendar.view',
     'bf_client_requests':'requests.view', 'bf_client_invoices':'invoices.view', 'bf_client_invoice_pdf':'invoices.view',
 }
@@ -55,6 +56,7 @@ def rights_for(conn, aid):
 def set_context(conn, account):
     g.bf_client=account
     g.client_rights=rights_for(conn,account['id'])
+    g.client_section = ENDPOINTS.get(request.endpoint, '').partition('.')[0]
     return g.client_rights
 
 def revision(rights):

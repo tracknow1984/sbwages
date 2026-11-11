@@ -50,8 +50,8 @@ class SupplierProfileTests(unittest.TestCase):
         for table, records in before.items():
             self.assertEqual(self.rows('SELECT * FROM ' + table), records)
         decomm = self.client.get('/binflow/supplier-profiles/decommission-partners').data
-        self.assertIn(b'Decommission Partners Test site', decomm)
-        self.assertNotIn(b'Industry Suppliers Test site', decomm)
+        self.assertIn(b'Decomm Partners Test site', decomm)
+        self.assertNotIn(b'Industry Supplier Test site', decomm)
 
     def test_edit_audit_stale_save_and_duplicate_rollback(self):
         self.add(customer_site='Partner first')

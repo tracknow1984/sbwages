@@ -1,5 +1,6 @@
+{% set active_key = category if section == 'suppliers' else section %}
 {% macro menu_link(key, label, endpoint, icon) -%}
-  <a href="{{ url_for(endpoint) }}" data-bf-icon="{{ icon }}"{% if section == key %} class="active" aria-current="page"{% endif %}>{{ label }}{% if key == 'requests' and bf_request_count %} <strong class="bf-request-badge">{{ bf_request_count }}</strong>{% endif %}</a>
+  <a href="{{ url_for(endpoint, **kwargs) }}" data-bf-icon="{{ icon }}"{% if active_key == key %} class="active" aria-current="page"{% endif %}>{{ label }}{% if key == 'requests' and bf_request_count %} <strong class="bf-request-badge">{{ bf_request_count }}</strong>{% endif %}</a>
 {%- endmacro %}
 {% set is_admin = current_user.role == 'admin' %}
 <aside class="bf-office-sidebar no-print">
@@ -26,8 +27,10 @@
 
     {% if is_admin %}
       <div class="bf-menu-group" role="group" aria-labelledby="bf-menu-suppliers">
-        <h2 id="bf-menu-suppliers">Suppliers</h2>
-        {{ menu_link('suppliers', 'Supplier Site Register', 'bf_supplier_register', 'clients') }}
+        <h2 id="bf-menu-suppliers">Supplier Register</h2>
+        {% for key, label in bf_supplier_categories.items() %}
+          {{ menu_link(key, label, 'bf_supplier_profiles', 'warehouse' if key == 'industry-suppliers' else 'clients', category=key) }}
+        {% endfor %}
       </div>
 
       <div class="bf-menu-group" role="group" aria-labelledby="bf-menu-accounting">

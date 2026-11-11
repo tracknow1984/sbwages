@@ -1,2 +1,52 @@
 {% from 'binflow/brand.html' import brand as binflow_brand %}
-<!doctype html><html lang="en-AU"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BINFLOW · {{ "All Transfers" if external or request.args.get("transfers") else "Client portal" }}</title><link rel="stylesheet" href="{{ url_for('static',filename='style.css') }}"><link rel="stylesheet" href="{{ url_for('static',filename='binflow.css') }}">{% include 'binflow/ui_assets.html' %}<link rel="stylesheet" href="{{ url_for('static',filename='binflow-client.css') }}"></head><body class="bf-ui"><header class="topbar"><span class="brand">{{ binflow_brand() }}</span>{% if account %}<form method="post" action="{{ url_for('bf_client_logout') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="ghost">Sign out</button></form>{% endif %}</header><main class="bf bf-portal">{% if account %}<nav class="bf-client-nav" aria-label="Client portal">{% for endpoint,label,right in [('bf_client_calendar','Collection calendar','calendar.view'),('bf_client_national','National local pickups','national.view'),('bf_client_pods','Completed PODs' if 'pods.all' in g.client_rights else 'Daily PODs','pods.view'),('bf_client_requests','Collection requests','requests.view'),('bf_client_interstate','All Transfers','bookings.view'),('bf_client_profiles_portal','Client profiles','profiles.view'),('bf_client_invoices','Invoices','invoices.view')] if right in g.client_rights %}<a href="{{ url_for(endpoint) }}" {% if request.endpoint==endpoint or (endpoint=='bf_client_pods' and request.endpoint in ('bf_pod_record','bf_pod_journey')) %}aria-current="page"{% endif %}>{{ label }}</a>{% endfor %}</nav>{% endif %}{% block content %}{% endblock %}{% with bf_page_guide=bf_public_guide %}{% include 'binflow/page_guide.html' %}{% endwith %}</main></body></html>
+{% from 'binflow/icons.html' import icon %}
+<!doctype html>
+<html lang="en-AU">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>BINFLOW · {{ "All Transfers" if external or request.args.get("transfers") else "Client portal" }}</title>
+  <link rel="stylesheet" href="{{ url_for('static',filename='style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static',filename='binflow.css') }}">
+  {% include 'binflow/ui_assets.html' %}
+  <link rel="stylesheet" href="{{ url_for('static',filename='binflow-client.css') }}">
+</head>
+<body class="bf-ui">
+  <header class="topbar">
+    <span class="brand">{{ binflow_brand() }}</span>
+    {% if account %}
+      <form method="post" action="{{ url_for('bf_client_logout') }}">
+        <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+        <button class="ghost">Sign out</button>
+      </form>
+    {% endif %}
+  </header>
+
+  {% set has_menu = account and g.client_rights %}
+  <div class="bf bf-portal{% if has_menu %} bf-portal-shell{% endif %}">
+    {% if has_menu %}
+      <nav class="bf-client-nav no-print" aria-labelledby="bf-client-menu-title">
+        <h2 id="bf-client-menu-title">Client portal</h2>
+        {% for section, endpoint, label, symbol in [
+          ('calendar', 'bf_client_calendar', 'Collection calendar', 'calendar'),
+          ('national', 'bf_client_national', 'National local pickups', 'pin'),
+          ('pods', 'bf_client_pods', 'Completed PODs' if 'pods.all' in g.client_rights else 'Daily PODs', 'pod'),
+          ('requests', 'bf_client_requests', 'Collection requests', 'requests'),
+          ('bookings', 'bf_client_interstate', 'All Transfers', 'truck'),
+          ('profiles', 'bf_client_profiles_portal', 'Client profiles', 'clients'),
+          ('invoices', 'bf_client_invoices', 'Invoices', 'invoice')
+        ] if section ~ '.view' in g.client_rights %}
+          <a href="{{ url_for(endpoint) }}"{% if g.client_section == section %} aria-current="page"{% endif %}>
+            {{ icon(symbol) }}<span>{{ label }}</span>
+          </a>
+        {% endfor %}
+      </nav>
+    {% endif %}
+
+    <main class="bf-portal-content">
+      {% block content %}{% endblock %}
+      {% with bf_page_guide=bf_public_guide %}{% include 'binflow/page_guide.html' %}{% endwith %}
+    </main>
+  </div>
+</body>
+</html>

@@ -73,9 +73,9 @@ BINFLOW → Setup → Bin sizes provides an Edit action for each size's label, l
 
 Amounts are stored in cents. Administrator-only edits use CSRF protection, version checks and an audit history. Changes preserve bin IDs, measured physical-bin tares and saved docket details. Updated defaults apply to newly registered bins, and renamed/resized standard sizes remain edited after restart without recreating the original size. Existing prices start unset.
 
-### Supplier Site Register
+### Supplier Register
 
-BINFLOW → Client profiles shows **Supplier Site Register** directly below the Customer site register, with separate **Decommission Partners** and **Industry Suppliers** registers. The navigation also provides a dedicated supplier view at `/binflow/supplier-profiles`.
+BINFLOW → Client profiles shows **Supplier Register** directly below the Customer site register, with separate **Industry Supplier** and **Decomm Partners** registers. Both have direct links under **Supplier Register** in the staff menu.
 
 Both supplier categories use the customer's 12 site/contact fields (with Supplier Site as the site-name label), responsive tables, search, filters, sorting, pagination and admin-only add/edit forms. Supplier records have independent persistent storage, duplicate-site checks, CSRF protection, edit versions and an audit history. Existing customer records and operational allocations are preserved; supplier contact entries do not create customer accounts, collection locations or bin allocations.
 

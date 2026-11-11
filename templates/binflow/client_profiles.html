@@ -4,7 +4,7 @@
 {% block body %}
 {% include 'binflow/profile_register.html' %}
 <section id="supplier-site-register" class="bf-supplier-section" aria-labelledby="supplier-register-title">
-<div class="bf-panel-head"><div><h2 id="supplier-register-title">Supplier Site Register</h2><p class="bf-muted">Site details, contacts, schedules and access requirements for your suppliers.</p></div></div>
+<div class="bf-panel-head"><div><h2 id="supplier-register-title">Supplier Register</h2><p class="bf-muted">Site details, contacts, schedules and access requirements for your suppliers.</p></div></div>
 {% for r in supplier_registers %}
 <details class="bf-panel bf-supplier-register" open>
 <summary><strong>{{ r.register_title }}</strong><span>{{ r.total }} sites</span></summary>

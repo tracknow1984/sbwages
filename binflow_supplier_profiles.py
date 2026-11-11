@@ -7,8 +7,8 @@ from flask import abort, flash, redirect, request, url_for
 from binflow_client_profiles import KEYS, validate
 
 CATEGORIES = {
-    'decommission-partners': 'Decommission Partners',
-    'industry-suppliers': 'Industry Suppliers',
+    'industry-suppliers': 'Industry Supplier',
+    'decommission-partners': 'Decomm Partners',
 }
 INDUSTRY_GROUPS = ('TRANSPORT','CONSUMABLES','OTHER')
 
@@ -74,6 +74,8 @@ def overview(conn):
 
 
 def register_suppliers(app, db, require, render, now, actor):
+    app.add_template_global(CATEGORIES, 'bf_supplier_categories')
+
     @app.get('/binflow/supplier-profiles')
     @require('admin')
     def bf_supplier_register():
