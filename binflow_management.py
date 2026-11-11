@@ -55,25 +55,39 @@ BOOTSTRAP_HASH = 'scrypt:32768:8:1$wPRz9OQKMzV1N0vU$1e562584d5f08b8c607b8c4e1c2a
 
 def site_guard(alias='j'):
     # Legacy accounts retain client scope; BlockTexx is additionally restricted by site.
-    return f""" AND (NOT EXISTS(SELECT 1 FROM bf_client_accounts a WHERE a.id=s.account_id AND a.username='blocktexx')
+    return f""" AND (NOT EXISTS(SELECT 1 FROM bf_client_accounts a WHERE a.id=s.account_id AND (a.username='blocktexx' OR EXISTS(SELECT 1 FROM bf_interstate_accounts i WHERE i.account_id=a.id)))
       OR EXISTS(SELECT 1 FROM bf_client_site_scope ss WHERE ss.account_id=s.account_id AND ss.site_id={alias}.site_id)) """
 
 
-def permitted_pod(conn, account, job):
-    return conn.execute('''SELECT 1 FROM bf_client_account_scope s WHERE s.account_id=? AND s.client_id=?''',
-        (account['id'],job['pod_client_id'])).fetchone() and (account['username'].lower()!='blocktexx' or
-        conn.execute('SELECT 1 FROM bf_client_site_scope WHERE account_id=? AND site_id=?',(account['id'],job['site_id'])).fetchone())
+def pod_scope(account, rights):
+    final="j.status='complete' AND j.pod_signed_at IS NOT NULL AND j.pod_deleted_at IS NULL"
+    if 'pods.view' not in rights:
+        return '0',()
+    if 'pods.all' in rights:
+        return final,()
+    return final+""" AND EXISTS(SELECT 1 FROM bf_client_account_scope s
+        WHERE s.client_id=j.pod_client_id AND s.account_id=? """+site_guard()+')',(account['id'],)
+
+
+def permitted_pod(conn, account, job_id, rights):
+    scope,params=pod_scope(account,rights)
+    return conn.execute('SELECT 1 FROM bf_jobs j WHERE j.id=? AND '+scope,(job_id,*params)).fetchone()
 
 
 def calendar(conn, aid, start, state):
     first=date.fromisoformat(start)
     days=[dict(date=(first+timedelta(days=i)).isoformat(),label=(first+timedelta(days=i)).strftime('%a %d %b'),entries=[]) for i in range(7)]
     by_date={d['date']:d for d in days}
-    sites={r['id']:dict(r) for r in conn.execute('''SELECT l.* FROM bf_locations l JOIN bf_client_site_scope s ON s.site_id=l.id
-      WHERE s.account_id=?''',(aid,)) if not state or r['state']==state}
+    if aid is None:
+        selected=conn.execute("SELECT id,name,state FROM bf_locations WHERE kind='client'")
+    else:
+        selected=conn.execute("""SELECT l.id,l.name,l.state FROM bf_locations l
+            JOIN bf_client_site_scope s ON s.site_id=l.id WHERE s.account_id=?""",(aid,))
+    sites={r['id']:r for r in selected if not state or r['state']==state}
     weeks=conn.execute("SELECT * FROM bf_schedule_weeks WHERE week_start=? AND status='published'"+(' AND state=?' if state else ''),(start,state) if state else (start,)).fetchall()
     for week in weeks:
         jobs={r['id']:dict(r) for r in conn.execute("""SELECT j.*,r.departed_at,
+          EXISTS(SELECT 1 FROM bf_job_bins b WHERE b.job_id=j.id AND b.direction='collect') AS has_pickup,
           EXISTS(SELECT 1 FROM bf_job_bins b WHERE b.job_id=j.id AND (b.delivered_at IS NOT NULL OR b.picked_up_at IS NOT NULL)) AS started,
           (SELECT n.id FROM bf_jobs n WHERE n.truck_id=j.truck_id AND n.scheduled_date=j.scheduled_date
            AND n.status='scheduled' AND n.schedule_live=1 AND n.approval_status='approved' ORDER BY n.run_order,n.id LIMIT 1) AS active_job
@@ -87,7 +101,7 @@ def calendar(conn, aid, start, state):
                 job=jobs.get(item.get('job_id')) if item['kind']=='job' else None
                 sid=job['site_id'] if job else item.get('site_id')
                 if sid not in sites or (item['kind']=='job' and not job):continue
-                if job and job['id'] in seen:continue
+                if job and (job['id'] in seen or (aid is None and not job['has_pickup'])):continue
                 if job:seen.add(job['id'])
                 status='booked'
                 if job:
@@ -102,6 +116,14 @@ def register(app, db, client_access, now):
     @app.get('/binflow/client/calendar')
     @client_access
     def bf_client_calendar():
+        return week_view(False)
+
+    @app.get('/binflow/client/local-pickups')
+    @client_access
+    def bf_client_national():
+        return week_view(True)
+
+    def week_view(national):
         try:start=monday(request.args.get('week',now()[:10]))
         except ValueError as error:abort(400,str(error))
         state=request.args.get('state','')
@@ -109,7 +131,7 @@ def register(app, db, client_access, now):
         first=date.fromisoformat(start)
         return render_template('binflow/client_calendar.html',account=g.bf_client,states=STATES,state=state,
           week=start,previous=(first-timedelta(days=7)).isoformat(),following=(first+timedelta(days=7)).isoformat(),
-          days=calendar(db(),g.bf_client['id'],start,state))
+          national=national,days=calendar(db(),None if national else g.bf_client['id'],start,state))
 
     @app.get('/binflow/client/requests')
     @client_access

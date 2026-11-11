@@ -1,0 +1,10 @@
+{% extends 'binflow/layout.html' %}{% block title %}Pricing matrix{% endblock %}{% block subtitle %}{{ client.name }} · {{ client.username }}{% endblock %}
+{% block body %}<link rel="stylesheet" href="{{ url_for('static',filename='binflow-interstate.css') }}">
+<a href="{{ url_for('bf_interstate_accounts',_anchor='login-'~client.id) }}">← Client login</a><section class="bf-panel bf-pad">
+<form method="get" class="bf-filters"><label>Pickup state<select name="origin">{% for s in regions %}<option {{ 'selected' if origin==s }}>{{ s }}</option>{% endfor %}</select></label><button class="secondary">Show rates</button></form>
+<h2>Pickup in {{ origin }}</h2><p>Enter the AUD price per vehicle, excluding GST. A blank rate shows “Price to be confirmed”. Set return rates under the opposite pickup state.</p>
+{% if error %}<p class="notice error" role="alert">{{ error }}</p>{% endif %}
+<form method="post" class="bf-form"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ version }}">
+<table class="it-rate-grid"><thead><tr><th>Delivery</th>{% for v in vehicles %}<th scope="col">{{ v }}</th>{% endfor %}</tr></thead><tbody>
+{% for s in regions if s!=origin %}<tr><th scope="row">{{ s }}</th>{% for v in vehicles %}<td><input type="number" inputmode="decimal" min="0" max="1000000" step=".01" name="{{ s }}:{{ v }}" aria-label="{{ origin }} to {{ s }} {{ v }}" value="{{ values.get(s~':'~v,'') }}"></td>{% endfor %}</tr>{% endfor %}</tbody></table>
+<button class="primary">Save {{ origin }} rates</button></form></section>{% endblock %}

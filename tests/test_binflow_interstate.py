@@ -11,7 +11,7 @@ CLIENT = '/binflow/client/interstate-transfers'
 
 
 def data(**changes):
-    return dict(dict(job_type='external',handling='bulk',origin='MEL',destination='BNE',
+    return dict(dict(job_type='external',handling='bulk',vehicle='RIGID',origin='MEL',destination='BNE',
         pickup_date='2026-11-13',delivery_date='',client_name='Freight test',pickup_address='1 Depot Street',
         pickup_contact='Pat',delivery_address='2 Depot Street',delivery_contact='Kim',
         email='booking@example.invalid',goods='12 pallets linen\n3 cartons cotton',

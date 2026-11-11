@@ -2,21 +2,27 @@
 {% macro entry(name,label,required=true,type='text',limit=200) %}
 <label>{{ label }}{{ ' (optional)' if not required }}<input type="{{ type }}" name="{{ name }}" value="{{ values.get(name,'') }}" maxlength="{{ limit }}" {{ 'required' if required }}></label>
 {% endmacro %}
+{% macro state_select(name,label) %}<label>{{ label }}<select name="{{ name }}" required><option value="">Select state</option>{% for state in regions %}<option {{ 'selected' if places.get(values.get(name),('',''))[1]==state }}>{{ state }}</option>{% endfor %}</select></label>{% endmacro %}
 {% block transfer_content %}
 <a href="{{ url_for('bf_client_interstate' if external else 'bf_interstate_calendar') }}">← Transfer calendar</a>
 <section class="bf-panel bf-pad"><h2>{{ 'Review booking details' if row else 'Request a transfer' }}</h2>
 {% if error %}<p class="notice error" role="alert">{{ error }}</p>{% endif %}
-<form method="post" class="bf-form it-form" data-it-booking data-lanes="{{ lanes|tojson|forceescape }}">
+<form method="post" class="bf-form it-form" data-it-booking data-rates="{{ rates|tojson|forceescape }}" data-lanes="{{ lanes|tojson|forceescape }}">
   <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="request_key" value="{{ key }}">
   {% if row %}<input type="hidden" name="version" value="{{ row.version }}">{% endif %}
   <div class="bf-grid two"><label>Job type<select name="job_type" required><option value="internal" {{ 'selected' if values.job_type=='internal' }}>Internal · SB Empire</option><option value="external" {{ 'selected' if values.job_type=='external' }}>External · subcontractor</option></select></label>
-  <label>Goods recording<select name="handling" required><option value="scanned" {{ 'selected' if values.handling=='scanned' }}>Scan each bale</option><option value="bulk" {{ 'selected' if values.handling=='bulk' }}>Bulk movement · list goods</option></select></label></div>
-  <div class="bf-grid two">{% for name,label in [('origin','Pickup route'),('destination','Delivery route')] %}<label>{{ label }}<select name="{{ name }}" required><option value="">Select location</option>{% for key,place in places.items() %}<option value="{{ key }}" {{ 'selected' if values.get(name)==key }}>{{ place[0] }} · {{ place[1] }}</option>{% endfor %}</select></label>{% endfor %}</div>
-  <div class="bf-grid two">{% for name,label in [('pickup_date','Pickup date'),('delivery_date','Delivery date')] %}<label>{{ label }}<input type="date" name="{{ name }}" min="2000-01-01" max="2100-12-31" value="{{ values.get(name,'') }}"></label>{% endfor %}</div>
-  <p data-transit-hint class="bf-muted" aria-live="polite">Known routes use calendar days in either direction. Enter either date to estimate the other.</p>
-  <h3>Pickup</h3><div class="bf-grid two">{{ entry('client_name','Client name') }}{{ entry('pickup_address','Client pickup address',limit=500) }}{{ entry('pickup_contact','Client primary contact') }}{{ entry('pickup_phone','Pickup contact number',false,'tel',50) }}</div>
-  <h3>Delivery</h3><div class="bf-grid two">{{ entry('delivery_address','Delivery address',limit=500) }}{{ entry('delivery_contact','Delivery contact name') }}{{ entry('delivery_phone','Delivery contact number',false,'tel',50) }}{{ entry('email','Booking confirmation email',true,'email') }}</div>
-  <label><span data-goods-label>{{ 'Goods and quantities' if values.handling=='bulk' else 'Load notes (optional)' }}</span><textarea rows="3" name="goods" maxlength="4000" placeholder="e.g. 24 pallets of mixed textiles" {{ 'required' if values.handling=='bulk' }}>{{ values.get('goods','') }}</textarea></label>
+  {% if bulk_only %}<div><strong>Goods recording</strong><p>Bulk movement</p></div>{% else %}<label>Goods recording<select name="handling" required><option value="scanned" {{ 'selected' if values.handling=='scanned' }}>Scan each bale</option><option value="bulk" {{ 'selected' if bulk_only or values.handling=='bulk' }}>Bulk movement · list goods</option></select></label>{% endif %}</div>
+  <label>Vehicle type<select name="vehicle" {{ 'required' if external }}><option value="">Select vehicle</option>{% for v in vehicles %}<option {{ 'selected' if values.vehicle==v }}>{{ v }}</option>{% endfor %}</select></label>
+  <h3>Pickup location</h3><div class="bf-grid two">{{ entry('pickup_address','Pickup address',limit=500) }}{{ state_select('origin','Pickup state') }}
+  {{ entry('client_name','Client name') }}{{ entry('pickup_contact','Primary contact name') }}{{ entry('pickup_phone','Pickup contact number',false,'tel',50) }}
+  <label>Pickup date<input type="date" name="pickup_date" min="2000-01-01" max="2100-12-31" value="{{ values.get('pickup_date','') }}"></label></div>
+  <h3>Delivery location</h3><div class="bf-grid two">{{ entry('delivery_address','Delivery address',limit=500) }}{{ state_select('destination','Delivery state') }}
+  {{ entry('delivery_contact','Delivery contact name') }}{{ entry('delivery_phone','Delivery contact number',false,'tel',50) }}
+  <label>Delivery date (ETA)<input type="date" name="delivery_date" min="2000-01-01" max="2100-12-31" value="{{ values.get('delivery_date','') }}"></label></div>
+  <p data-transit-hint class="bf-muted" aria-live="polite">Enter a pickup date or delivery date to estimate the other.</p>
+  {% if priced %}<p><strong>Freight price</strong> · <output data-rate>Price to be confirmed</output><input type="hidden" name="shown_rate" disabled></p>{% endif %}
+  {{ entry('email','Booking confirmation email',true,'email') }}
+  <label><span data-goods-label>{{ 'Goods and quantities' if bulk_only or values.handling=='bulk' else 'Load notes (optional)' }}</span><textarea rows="3" name="goods" maxlength="4000" placeholder="e.g. 24 pallets of mixed textiles" {{ 'required' if bulk_only or values.handling=='bulk' }}>{{ values.get('goods','') }}</textarea></label>
   <button type="submit" class="primary">{{ 'Save changes' if row else 'Submit transfer request' }}</button>
 </form></section><script src="{{ url_for('static',filename='binflow-interstate.js') }}" defer></script>
 {% endblock %}

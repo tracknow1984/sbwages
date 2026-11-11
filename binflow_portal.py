@@ -9,7 +9,8 @@ from functools import wraps
 from flask import abort, flash, g, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from binflow_management import site_guard, register as register_management
+import binflow_client_access as portal
+from binflow_management import pod_scope, permitted_pod, register as register_management
 from binflow_runs import valid_date
 from binflow_pods import migrate_pods, register_pods
 
@@ -30,6 +31,7 @@ def migrate_portal(conn):
     if 'pod_client_id' not in {r['name'] for r in conn.execute('PRAGMA table_info(bf_jobs)')}:
         conn.execute('ALTER TABLE bf_jobs ADD COLUMN pod_client_id INTEGER REFERENCES bf_clients(id)')
         conn.execute('UPDATE bf_jobs SET pod_client_id=(SELECT client_id FROM bf_locations WHERE id=bf_jobs.site_id)')
+    portal.migrate(conn)
     migrate_pods(conn)
 
 
@@ -41,10 +43,9 @@ def register_portal(app, db, access, require, render, success, failure, now, act
             if not account or account['auth_version']!=session.get('bf_client_version'):
                 session.pop('bf_client_uid',None);session.pop('bf_client_version',None)
                 return redirect(url_for('bf_client_login', transfers=1) if request.endpoint.startswith('bf_client_interstate') else url_for('bf_client_login'))
-            g.bf_transfer_only = db().execute('SELECT 1 FROM bf_interstate_accounts WHERE account_id=?',(account['id'],)).fetchone() is not None
-            if g.bf_transfer_only and not request.endpoint.startswith('bf_client_interstate'):
+            rights=portal.set_context(db(),account)
+            if portal.ENDPOINTS.get(request.endpoint) not in rights:
                 abort(403)
-            g.bf_client=account
             return fn(*args,**kwargs)
         return wrapped
 
@@ -74,9 +75,16 @@ def register_portal(app, db, access, require, render, success, failure, now, act
                 session.update(bf_client_uid=account['id'],bf_client_version=account['auth_version'],csrf=secrets.token_urlsafe(32))
                 session.permanent=True
                 db().execute('DELETE FROM login_attempts WHERE key=?',(keys[0],));db().commit()
-                if request.args.get('transfers')=='1' or db().execute('SELECT 1 FROM bf_interstate_accounts WHERE account_id=?',(account['id'],)).fetchone():
-                    return redirect(url_for('bf_client_interstate'))
-                return redirect(pod_next if pod_next.startswith('/binflow/pod/') else url_for('bf_client_calendar'))
+                rights=portal.set_context(db(),account)
+                if 'pods.view' in rights and pod_next.startswith('/binflow/pod/'):
+                    return redirect(pod_next)
+                booking_first=request.args.get('transfers')=='1' or db().execute(
+                    'SELECT 1 FROM bf_interstate_accounts WHERE account_id=?',(account['id'],)).fetchone()
+                homes=['bf_client_interstate','bf_client_calendar'] if booking_first else ['bf_client_calendar','bf_client_interstate']
+                for endpoint in homes+['bf_client_national','bf_client_pods','bf_client_profiles_portal','bf_client_requests']:
+                    if portal.ENDPOINTS[endpoint] in rights:
+                        return redirect(url_for(endpoint))
+                return render_template('binflow/client_inactive.html',account=account)
             return render_template('binflow/client_login.html',error='The username or password is incorrect.'),401
         return render_template('binflow/client_login.html',error=None)
 
@@ -88,28 +96,39 @@ def register_portal(app, db, access, require, render, success, failure, now, act
     @app.get('/binflow/client/pods')
     @client_access
     def bf_client_pods():
-        run_date=request.args.get('date',now()[:10])
-        try: valid_date(run_date)
-        except ValueError as error: abort(400,str(error))
-        jobs=db().execute('''SELECT j.*,(SELECT SUM(net_g) FROM bf_job_bins i WHERE i.job_id=j.id AND i.direction='collect') AS net
-            FROM bf_jobs j JOIN bf_client_account_scope s ON s.client_id=j.pod_client_id
-            WHERE s.account_id=? AND j.status='complete' AND j.pod_signed_at IS NOT NULL AND j.pod_deleted_at IS NULL AND j.scheduled_date=? '''+site_guard()+''' ORDER BY j.client_name,j.site_name,j.id''',
-            (g.bf_client['id'],run_date)).fetchall()
-        dates=db().execute('''SELECT DISTINCT j.scheduled_date FROM bf_jobs j JOIN bf_client_account_scope s ON s.client_id=j.pod_client_id
-            WHERE s.account_id=? AND j.status='complete' AND j.pod_signed_at IS NOT NULL AND j.pod_deleted_at IS NULL '''+site_guard()+''' ORDER BY j.scheduled_date DESC LIMIT 60''',(g.bf_client['id'],)).fetchall()
-        return render_template('binflow/client_pods.html',account=g.bf_client,jobs=jobs,dates=dates,run_date=run_date)
+        national='pods.all' in g.client_rights
+        run_date=request.args.get('date','' if national else now()[:10])
+        if run_date:
+            try: valid_date(run_date)
+            except ValueError as error: abort(400,str(error))
+        scope,params=pod_scope(g.bf_client,g.client_rights)
+        dates=db().execute('SELECT DISTINCT j.scheduled_date FROM bf_jobs j WHERE '+scope+
+            ' ORDER BY j.scheduled_date DESC LIMIT 60',params).fetchall()
+        if run_date:
+            scope+=' AND j.scheduled_date=?'
+            params+= (run_date,)
+        page=max(1,request.args.get('page',1,type=int))
+        count=db().execute('SELECT COUNT(*) FROM bf_jobs j WHERE '+scope,params).fetchone()[0]
+        pages=max(1,(count+49)//50)
+        page=min(page,pages)
+        jobs=db().execute("""SELECT j.id,j.code,j.pod_token,j.scheduled_date,j.client_name,j.site_name,
+            (SELECT SUM(net_g) FROM bf_job_bins i WHERE i.job_id=j.id AND i.direction='collect') AS net
+            FROM bf_jobs j WHERE """+scope+' ORDER BY j.scheduled_date DESC,j.client_name,j.site_name,j.id LIMIT 50 OFFSET ?',
+            (*params,(page-1)*50)).fetchall()
+        return render_template('binflow/client_pods.html',account=g.bf_client,jobs=jobs,dates=dates,
+            run_date=run_date,national=national,page=page,pages=pages)
 
     @app.get('/binflow/client/pods/<int:job_id>.pdf')
     @client_access
     def bf_client_pdf(job_id):
-        permitted=db().execute('''SELECT 1 FROM bf_jobs j JOIN bf_client_account_scope s ON s.client_id=j.pod_client_id
-            WHERE j.id=? AND s.account_id=? AND j.status='complete' AND j.pod_signed_at IS NOT NULL AND j.pod_deleted_at IS NULL '''+site_guard(),(job_id,g.bf_client['id'])).fetchone()
-        if not permitted: abort(404)
+        if not permitted_pod(db(),g.bf_client,job_id,g.client_rights): abort(404)
         return pdf(job_id)
 
     from binflow_interstate import register as register_interstate
     register_interstate(app,db,access,require,render,client_access,now,actor)
     register_management(app, db, client_access, now)
+    from binflow_client_directory import register as register_directory
+    register_directory(app,db,client_access,now)
 
     register_pods(app, db, access, require, render, success, failure, now, pdf)
 
@@ -144,6 +163,7 @@ def register_portal(app, db, access, require, render, success, failure, now, act
                 else:
                     aid=db().execute('''INSERT INTO bf_client_accounts(username,name,password_hash,active,created_at,updated_at,updated_by)
                         VALUES(?,?,?,?,?,?,?)''',(username,name,generate_password_hash(password),active,now(),now(),actor())).lastrowid
+                portal.bind_named_default(db())
                 db().execute('DELETE FROM bf_client_account_scope WHERE account_id=?',(aid,))
                 db().executemany('INSERT INTO bf_client_account_scope(account_id,client_id) VALUES(?,?)',[(aid,cid) for cid in sorted(scopes)])
                 db().execute('INSERT INTO bf_client_access_history(account_id,action,scopes,actor,created_at) VALUES(?,?,?,?,?)',

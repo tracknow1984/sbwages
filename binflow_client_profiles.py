@@ -282,6 +282,46 @@ def filter_register(rows, args, endpoint, endpoint_args=None, supplier=False):
                 next_url=url_for(endpoint, page=page+1, **page_args) if page<pages else None)
 
 
+def create_site(conn, values, details, stamp, who):
+    if values['client_id'] in ('', 'new'):
+        name = values['client_name'] or details['customer_site']
+        if len(name) > 200 or '\x00' in name:
+            raise ValueError('Client / business name must be no more than 200 characters.')
+        if conn.execute('SELECT 1 FROM bf_clients WHERE name=?', (name,)).fetchone():
+            raise ValueError('That client already exists. Select it under Client account to add another site.')
+        cid = conn.execute('INSERT INTO bf_clients(name,created_at) VALUES(?,?)', (name,stamp)).lastrowid
+    else:
+        try:
+            cid = int(values['client_id'])
+        except ValueError:
+            raise ValueError('Choose a valid client account.') from None
+        if not conn.execute('SELECT 1 FROM bf_clients WHERE id=?', (cid,)).fetchone():
+            raise ValueError('Choose a valid client account.')
+    lid = conn.execute("INSERT INTO bf_locations(kind,client_id,name,state,address,created_at) VALUES('client',?,?,?,?,?)",
+                       (cid,details['customer_site'],details['state'],details['address'],stamp)).lastrowid
+    return save_profile(conn, details, stamp, who, location_id=lid)
+
+
+def update_site(conn, profile, values, lid, stamp, who):
+    if lid:
+        location = conn.execute("SELECT * FROM bf_locations WHERE id=? AND kind='client'", (lid,)).fetchone()
+        if not location:
+            raise ValueError('Choose a valid collection site.')
+        if not values['state'] or not values['address']:
+            raise ValueError('A linked collection site needs its state and street address.')
+        if not profile['location_id'] and location['state'] != values['state']:
+            raise ValueError('The selected collection site must be in the same state as this profile.')
+        locked = conn.execute('''SELECT EXISTS(SELECT 1 FROM bf_bins WHERE location_id=?)
+            OR EXISTS(SELECT 1 FROM bf_jobs WHERE site_id=? OR warehouse_id=?)''', (lid,lid,lid)).fetchone()[0]
+        if locked and values['state'] != location['state']:
+            raise ValueError('State is fixed once bins or jobs are linked. Add a new location for another state.')
+        conn.execute('UPDATE bf_locations SET name=?,state=?,address=? WHERE id=?',
+                     (values['customer_site'], values['state'], values['address'], lid))
+    save_profile(conn, values, stamp, who, profile, lid)
+    from binflow_allocation_import import activate_pending
+    activate_pending(conn, profile['id'], stamp, who)
+
+
 def register_profiles(app, db, require, render, now, actor):
     @app.get('/binflow/client-profiles')
     @require('admin')
@@ -317,23 +357,7 @@ def register_profiles(app, db, require, render, now, actor):
                 if not details['state'] or not details['address']:
                     raise ValueError('Enter the site address and choose its state so it is ready for collections.')
                 db().execute('BEGIN IMMEDIATE')
-                if values['client_id'] in ('', 'new'):
-                    name = values['client_name'] or details['customer_site']
-                    if len(name) > 200 or '\x00' in name:
-                        raise ValueError('Client / business name must be no more than 200 characters.')
-                    if db().execute('SELECT 1 FROM bf_clients WHERE name=?', (name,)).fetchone():
-                        raise ValueError('That client already exists. Select it under Client account to add another site.')
-                    cid = db().execute('INSERT INTO bf_clients(name,created_at) VALUES(?,?)', (name,now())).lastrowid
-                else:
-                    try:
-                        cid = int(values['client_id'])
-                    except ValueError:
-                        raise ValueError('Choose a valid client account.') from None
-                    if not db().execute('SELECT 1 FROM bf_clients WHERE id=?', (cid,)).fetchone():
-                        raise ValueError('Choose a valid client account.')
-                lid = db().execute("INSERT INTO bf_locations(kind,client_id,name,state,address,created_at) VALUES('client',?,?,?,?,?)",
-                                   (cid,details['customer_site'],details['state'],details['address'],now())).lastrowid
-                save_profile(db(), details, now(), actor(), location_id=lid)
+                create_site(db(), values, details, now(), actor())
                 db().commit()
                 flash('Client site profile added. It is ready for collections.', 'success')
                 return redirect(url_for('bf_client_profiles', q=details['customer_site']))
@@ -372,23 +396,7 @@ def register_profiles(app, db, require, render, now, actor):
                         db().execute('INSERT INTO bf_client_profile_history(profile_id,snapshot,changed_at,changed_by) VALUES(?,?,?,?)',
                                      (profile_id, json.dumps(dict(target)), now(), actor()))
                         db().execute('DELETE FROM bf_client_site_profiles WHERE id=?', (target['id'],))
-                if lid:
-                    location = db().execute("SELECT * FROM bf_locations WHERE id=? AND kind='client'", (lid,)).fetchone()
-                    if not location:
-                        raise ValueError('Choose a valid collection site.')
-                    if not values['state'] or not values['address']:
-                        raise ValueError('A linked collection site needs its state and street address.')
-                    if not profile['location_id'] and location['state'] != values['state']:
-                        raise ValueError('The selected collection site must be in the same state as this profile.')
-                    locked = db().execute('''SELECT EXISTS(SELECT 1 FROM bf_bins WHERE location_id=?)
-                        OR EXISTS(SELECT 1 FROM bf_jobs WHERE site_id=? OR warehouse_id=?)''', (lid,lid,lid)).fetchone()[0]
-                    if locked and values['state'] != location['state']:
-                        raise ValueError('State is fixed once bins or jobs are linked. Add a new location for another state.')
-                    db().execute('UPDATE bf_locations SET name=?,state=?,address=? WHERE id=?',
-                                 (values['customer_site'], values['state'], values['address'], lid))
-                save_profile(db(), values, now(), actor(), profile, lid)
-                from binflow_allocation_import import activate_pending
-                activate_pending(db(), profile_id, now(), actor())
+                update_site(db(),profile,values,lid,now(),actor())
                 db().commit()
                 flash('Client profile saved.', 'success')
                 return redirect(url_for('bf_client_profiles'))

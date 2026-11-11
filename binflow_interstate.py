@@ -12,16 +12,18 @@ from werkzeug.security import generate_password_hash
 
 from binflow_collections import STATES, calendar_period, dated
 from binflow_pods import send_smtp
+import binflow_client_access as portal
+import binflow_freight_rates as freight
 
 PLACES = {
     'MEL': ('Melbourne', 'VIC'), 'SYD': ('Sydney', 'NSW'), 'BNE': ('Brisbane', 'QLD'),
     'ADL': ('Adelaide', 'SA'), 'WA': ('Western Australia', 'WA'),
-    **{state: ('Other ' + state, state) for state in STATES if state != 'WA'},
+    **{state: (state, state) for state in STATES if state != 'WA'},
 }
-LANES = {'BNE-MEL': 3, 'BNE-SYD': 2, 'ADL-MEL': 2, 'ADL-BNE': 4, 'BNE-WA': 5}
+LANES = {'QLD-VIC': 3, 'NSW-QLD': 2, 'SA-VIC': 2, 'QLD-SA': 4, 'QLD-WA': 5}
 FIELDS = ('job_type','handling','origin','destination','pickup_date','delivery_date','client_name',
           'pickup_address','pickup_contact','pickup_phone','delivery_address','delivery_contact',
-          'delivery_phone','email','goods')
+          'delivery_phone','email','goods','vehicle')
 PROGRESS = {'loading':'Loading','transit':'In transit','received':'Received','handed_over':'Handed over'}
 
 
@@ -49,15 +51,20 @@ def migrate(conn):
             blocktexx_handover INTEGER NOT NULL DEFAULT 0);
         CREATE INDEX IF NOT EXISTS bf_interstate_booking_manifest ON bf_interstate_manifests(booking_id,transfer_id);
     """)
+    freight.migrate(conn)
 
 
 def route_days(origin, destination):
-    return LANES.get('-'.join(sorted((origin, destination))))
+    return LANES.get('-'.join(sorted((PLACES[origin][1], PLACES[destination][1]))))
 
 
-def parse_booking(form):
+def parse_booking(form, client=False):
     from app import valid_email
     data = {field:form.get(field,'').strip() for field in FIELDS}
+    if client:
+        data['handling']='bulk'
+    if (client or data['vehicle']) and data['vehicle'] not in freight.VEHICLES:
+        raise ValueError('Choose RIGID, SEMI TRAILER or B-DOUBLE.')
     if data['job_type'] not in ('internal','external') or data['handling'] not in ('scanned','bulk'):
         raise ValueError('Choose a job type and how the goods will be recorded.')
     origin, destination = data['origin'], data['destination']
@@ -110,12 +117,17 @@ def confirmation(conn, config, row, now):
         msg = EmailMessage()
         msg['Subject'] = f"SB Empire interstate transfer IT-{row['id']:06d} confirmed"
         msg['From'], msg['To'] = config['SMTP_FROM'], row['email']
+        freight_details = ''
+        if row['vehicle']:
+            freight_details = f"Vehicle: {row['vehicle']}\n"
+            if row['account_id'] is not None:
+                freight_details += (f"Freight: AUD ${row['rate_cents']/100:,.2f} ex GST\n" if row['rate_cents'] is not None else "Freight price to be confirmed\n")
         msg.set_content(f"Hi {row['pickup_contact']},\n\nSB Empire has confirmed transfer IT-{row['id']:06d} for {row['client_name']}.\n\n"
             f"Pickup: {dated(row['pickup_date']):%a %d %b %Y} · {PLACES[row['origin']][0]}\n{row['pickup_address']}\n"
             f"Pickup contact: {row['pickup_contact']} {row['pickup_phone']}\n\n"
             f"Delivery: {dated(row['delivery_date']):%a %d %b %Y} · {PLACES[row['destination']][0]}\n{row['delivery_address']}\n"
             f"Delivery contact: {row['delivery_contact']} {row['delivery_phone']}\n\n"
-            f"Goods: {row['goods'] or 'Bales on a scanned manifest'}\n\nSB Empire Operations")
+            f"{freight_details}Goods: {row['goods'] or 'Bales on a scanned manifest'}\n\nSB Empire Operations")
         send_smtp(config, msg)
     except (OSError, smtplib.SMTPException, ValueError):
         status = 'failed'
@@ -127,8 +139,11 @@ def confirmation(conn, config, row, now):
 
 
 def register(app, db, access, require, render, client_access, now, actor):
+    freight.register(app,db,require,render)
+    portal.register_site_scope(app,db,require,render,now,actor)
+
     def page(template, external, **data):
-        data.update(places=PLACES,lanes=LANES,external=external)
+        data.update(places=PLACES,lanes=LANES,regions=STATES,vehicles=freight.VEHICLES,external=external)
         if external:
             return render_template('binflow/'+template+'.html',account=g.bf_client,**data)
         return render(template,section='interstate',**data)
@@ -169,7 +184,7 @@ def register(app, db, access, require, render, client_access, now, actor):
                 events[row[field]].append((label,row))
         pending = db().execute('SELECT * FROM bf_interstate_bookings WHERE locked_at IS NULL'+scope+
                                ' ORDER BY pickup_date,id',args).fetchall()
-        return page('interstate_calendar',external,view=view,state=state,regions=STATES,chosen=chosen,
+        return page('interstate_calendar',external,view=view,state=state,chosen=chosen,
                     previous=previous,following=following,title=title,weeks=weeks,events=events,pending=pending,today=now()[:10])
 
     @app.get('/binflow/interstate-transfers')
@@ -183,7 +198,14 @@ def register(app, db, access, require, render, client_access, now, actor):
         return show_calendar(True)
 
     def form_page(external, row=None):
-        values = dict(row) if row else dict(job_type='internal',handling='scanned',client_name=g.bf_client['name'] if external else '')
+        values = dict(row) if row else dict(job_type='internal',handling='bulk' if external else 'scanned',client_name=g.bf_client['name'] if external else '')
+        aid = g.bf_client['id'] if external else (row['account_id'] if row else None)
+        def show(error=None):
+            card=freight.rates_for(db(),aid) if aid else {}
+            if row and row['vehicle'] and row['rate_cents'] is not None:
+                card[f"{PLACES[row['origin']][1]}:{PLACES[row['destination']][1]}:{row['vehicle']}"]=row['rate_cents']
+            return page('interstate_form',external,values=values,key=key,row=row,error=error,rates=card,
+                        priced=aid is not None,bulk_only=external)
         if not row and request.method=='GET' and request.args.get('pickup'):
             try:
                 values['pickup_date'] = dated(request.args['pickup']).isoformat()
@@ -194,11 +216,23 @@ def register(app, db, access, require, render, client_access, now, actor):
             values = request.form
             key = values.get('request_key','')
             try:
-                data = parse_booking(values)
+                data = parse_booking(values,client=external)
                 conn = db()
                 conn.execute('BEGIN IMMEDIATE')
+                price=None
+                if aid and data['vehicle']:
+                    key_fields = (PLACES[data['origin']][1],PLACES[data['destination']][1],data['vehicle'])
+                    if row and row['rate_cents'] is not None and key_fields==(PLACES[row['origin']][1],PLACES[row['destination']][1],row['vehicle']):
+                        price=row['rate_cents']
+                    else:
+                        price=freight.rates_for(conn,aid).get(':'.join(key_fields))
+                data['rate_cents']=price
+                if aid and 'shown_rate' in values and values['shown_rate']!=('' if price is None else str(price)):
+                    already_saved=not row and conn.execute('SELECT 1 FROM bf_interstate_bookings WHERE request_key=? AND account_id=?',(key,aid)).fetchone()
+                    if not already_saved:
+                        raise ValueError('The freight rate has changed. Review the updated price before submitting.')
                 if row:
-                    assignments = ','.join(f'{field}=?' for field in FIELDS)
+                    assignments = ','.join(f'{field}=?' for field in data)
                     if not conn.execute(f'UPDATE bf_interstate_bookings SET {assignments},version=version+1 WHERE id=? AND version=? AND locked_at IS NULL',
                                         (*data.values(),row['id'],values.get('version'))).rowcount:
                         raise ValueError('The booking changed. Reopen it to review its current details.')
@@ -214,16 +248,16 @@ def register(app, db, access, require, render, client_access, now, actor):
                             abort(409)
                         bid = old['id']
                     else:
-                        columns = ','.join(FIELDS)
-                        marks = ','.join('?' for _ in FIELDS)
+                        columns = ','.join(data)
+                        marks = ','.join('?' for _ in data)
                         bid = conn.execute(f'INSERT INTO bf_interstate_bookings(request_key,account_id,created_by,created_at,{columns}) VALUES(?,?,?,?,{marks})',
                                            (key,aid,who,now(),*data.values())).lastrowid
                 conn.commit()
                 return redirect(details_url(bid,external))
             except ValueError as error:
                 db().rollback()
-                return page('interstate_form',external,values=values,key=key,row=row,error=str(error)),400
-        return page('interstate_form',external,values=values,key=key,row=row,error=None)
+                return show(str(error)),400
+        return show()
 
     @app.route('/binflow/interstate-transfers/new',methods=['GET','POST'])
     @access
@@ -234,6 +268,13 @@ def register(app, db, access, require, render, client_access, now, actor):
     @client_access
     def bf_client_interstate_new():
         return form_page(True)
+
+    @app.route('/binflow/client/interstate-transfers/<int:bid>/edit',methods=['GET','POST'])
+    @client_access
+    def bf_client_interstate_edit(bid):
+        row=booking(bid,True)
+        if row['locked_at']: abort(409)
+        return form_page(True,row)
 
     @app.route('/binflow/interstate-transfers/<int:bid>/edit',methods=['GET','POST'])
     @require('admin')
@@ -272,7 +313,11 @@ def register(app, db, access, require, render, client_access, now, actor):
         if not row['locked_at']:
             if request.form.get('version',type=int)!=row['version']:
                 abort(409,'The request has changed. Review the updated dates before confirming.')
-            db().execute('UPDATE bf_interstate_bookings SET locked_at=?,locked_by=?,version=version+1 WHERE id=?',(now(),actor(),bid))
+            price=row['rate_cents']
+            if price is None and row['account_id'] and row['vehicle']:
+                key=f"{PLACES[row['origin']][1]}:{PLACES[row['destination']][1]}:{row['vehicle']}"
+                price=freight.rates_for(db(),row['account_id']).get(key)
+            db().execute('UPDATE bf_interstate_bookings SET locked_at=?,locked_by=?,rate_cents=?,version=version+1 WHERE id=?',(now(),actor(),price,bid))
             db().commit()
             confirmation(db(),app.config,booking(bid),now)
         else:
@@ -334,15 +379,44 @@ def register(app, db, access, require, render, client_access, now, actor):
                     aid = conn.execute("""INSERT INTO bf_client_accounts(name,username,password_hash,active,created_at,updated_at,updated_by)
                         VALUES(?,?,?,?,?,?,?)""",(name,username,generate_password_hash(password),active,now(),now(),actor())).lastrowid
                     conn.execute('INSERT INTO bf_interstate_accounts VALUES(?)',(aid,))
+                    portal.bind_named_default(conn)
+                    if request.form.get('custom_permissions')=='yes':
+                        portal.save_rights(conn,aid,request.form)
                 conn.commit()
                 flash(f'Booking login “{username}” saved.','success')
                 return redirect(url_for('bf_interstate_accounts',_anchor=f'login-{aid}'),code=303)
             except (ValueError,sqlite3.IntegrityError) as exc:
                 db().rollback()
                 error = str(exc) if isinstance(exc,ValueError) else 'That username is already in use.'
-                attempted = dict(id=aid,name=name,username=username,active=request.form.get('active')=='yes')
+                attempted = dict(id=request.form.get('account_id',type=int),name=name,username=username,active=request.form.get('active')=='yes')
         accounts = db().execute("""SELECT a.id,a.name,a.username,a.active,a.created_at,
             i.account_id IS NOT NULL AS transfer_only FROM bf_client_accounts a
             LEFT JOIN bf_interstate_accounts i ON i.account_id=a.id
             ORDER BY a.created_at DESC,a.id DESC""").fetchall()
-        return render('interstate_access',section='interstate',accounts=accounts,error=error,attempted=attempted),400 if error else 200
+        policies={a['id']:portal.rights_for(db(),a['id']) for a in accounts}
+        create_rights=portal.defaults(True)
+        if attempted and not attempted['id'] and request.form.get('custom_permissions')=='yes':
+            create_rights=set(request.form.getlist('permission'))
+            if request.form.get('pod_scope')=='national':
+                create_rights.add('pods.all')
+        return render('interstate_access',policies=policies,modules=portal.MODULES,create_rights=create_rights,
+                      revision=portal.revision,section='interstate',accounts=accounts,error=error,attempted=attempted),400 if error else 200
+
+    @app.post('/binflow/interstate-transfers/access/<int:aid>/permissions')
+    @require('admin')
+    def bf_client_save_permissions(aid):
+        conn=db()
+        conn.execute('BEGIN IMMEDIATE')
+        if not conn.execute('SELECT 1 FROM bf_client_accounts WHERE id=?',(aid,)).fetchone(): abort(404)
+        if request.form.get('version')!=portal.revision(portal.rights_for(conn,aid)):
+            abort(409,'Permissions changed. Reopen the login before saving.')
+        try:
+            portal.save_rights(conn,aid,request.form)
+        except ValueError as error:
+            conn.rollback()
+            abort(400,str(error))
+        conn.execute('INSERT INTO bf_client_access_history(account_id,action,scopes,actor,created_at) VALUES(?,?,?,?,?)',
+                     (aid,'Portal permissions saved',','.join(sorted(portal.rights_for(conn,aid))),actor(),now()))
+        conn.commit()
+        flash('Portal permissions saved.','success')
+        return redirect(url_for('bf_interstate_accounts',_anchor=f'login-{aid}'),code=303)

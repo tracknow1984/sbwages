@@ -1,0 +1,5 @@
+{% extends 'binflow/layout.html' %}{% block title %}Approved sites{% endblock %}{% block subtitle %}{{ client.name }}{% endblock %}{% block body %}
+<a href="{{ url_for('bf_interstate_accounts',_anchor='login-'~client.id) }}">← Client login</a>
+<section class="bf-panel bf-pad"><form method="post" class="bf-form"><p>These sites apply to approved-site calendar, request and POD permissions.</p>
+<input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ version }}">
+<div class="bf-access-clients">{% for s in sites %}<label class="bf-check"><input type="checkbox" name="site_id" value="{{ s.id }}" {{ 'checked' if s.id in selected }}>{{ s.state }} · {{ s.name }}</label>{% else %}<p>No client sites are registered.</p>{% endfor %}</div><button class="primary">Save approved sites</button></form></section>{% endblock %}

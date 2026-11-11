@@ -3,6 +3,8 @@
 <a href="{{ url_for('bf_client_interstate' if external else 'bf_interstate_calendar',date=b.pickup_date) }}">← Transfer calendar</a>
 <section class="bf-panel bf-pad"><div class="bf-toolbar"><div><small>IT-{{ '%06d'|format(b.id) }}</small><h2>{{ b.client_name }}</h2></div><span class="bf-badge">{{ status }}</span></div>
 <p>{{ places[b.origin][0] }} → {{ places[b.destination][0] }} · {{ 'Internal' if b.job_type=='internal' else 'External · subcontractor' }} · {{ 'Scan each bale' if b.handling=='scanned' else 'Bulk movement' }}</p>
+{% if b.vehicle %}<p>Vehicle <strong>{{ b.vehicle }}</strong>{% if b.account_id %} · {{ 'AUD ${:,.2f} ex GST'.format(b.rate_cents/100) if b.rate_cents is not none else 'Price to be confirmed' }}{% endif %}</p>{% endif %}
+{% if external and not b.locked_at and 'bookings.edit' in g.client_rights %}<a class="button secondary" href="{{ url_for('bf_client_interstate_edit',bid=b.id) }}">Edit request</a>{% endif %}
 <div class="bf-grid two"><div><h3>Pickup · {{ b.pickup_date|display_date }}</h3><p>{{ b.pickup_address }}<br>{{ b.pickup_contact }} {{ b.pickup_phone }}</p></div>
 <div><h3>Delivery · {{ b.delivery_date|display_date }}</h3><p>{{ b.delivery_address }}<br>{{ b.delivery_contact }} {{ b.delivery_phone }}</p></div></div>
 {% if b.goods %}<h3>{{ 'Goods and quantities' if b.handling=='bulk' else 'Load notes' }}</h3><p class="it-goods">{{ b.goods }}</p>{% endif %}

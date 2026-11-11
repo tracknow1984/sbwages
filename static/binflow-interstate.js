@@ -2,6 +2,18 @@
   const form = document.querySelector('[data-it-booking]');
   if (!form) return;
   const {origin, destination, pickup_date: pickup, delivery_date: delivery, handling, job_type: job, goods} = form.elements;
+  const rates = JSON.parse(form.dataset.rates);
+  const vehicle = form.elements.vehicle;
+  const price = form.querySelector('[data-rate]');
+  function updatePrice() {
+    if (!price) return;
+    const cents = rates[[origin.value, destination.value, vehicle.value].join(':')];
+    price.textContent = cents == null ? 'Price to be confirmed' : new Intl.NumberFormat('en-AU', {style: 'currency', currency: 'AUD'}).format(cents / 100) + ' AUD ex GST';
+    form.elements.shown_rate.value = cents == null ? '' : String(cents);
+    form.elements.shown_rate.disabled = false;
+  }
+  [origin, destination, vehicle].forEach(el => el.addEventListener('change', updatePrice));
+  updatePrice();
   const lanes = JSON.parse(form.dataset.lanes);
   const hint = form.querySelector('[data-transit-hint]');
   let anchor = pickup.value || !delivery.value ? pickup : delivery;
@@ -34,15 +46,15 @@
     estimate();
   }));
   function updateHandling() {
-    const bulk = handling.value === 'bulk';
+    const bulk = !handling || handling.value === 'bulk';
     goods.required = bulk;
     form.querySelector('[data-goods-label]').textContent = bulk ? 'Goods and quantities (one line per item)' : 'Load notes (optional)';
   }
   job.addEventListener('change', () => {
-    handling.value = job.value === 'external' ? 'bulk' : 'scanned';
+    if (handling) handling.value = job.value === 'external' ? 'bulk' : 'scanned';
     updateHandling();
   });
-  handling.addEventListener('change', updateHandling);
+  handling?.addEventListener('change', updateHandling);
   estimate();
   updateHandling();
 })();

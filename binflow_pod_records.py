@@ -262,7 +262,8 @@ def register(app,db,access,require,render,job,items,success,failure,now,actor):
                 session['binflow_next']=url_for('bf_pod_record',token=token)
                 return j,None,False
             from binflow_management import permitted_pod
-            if not j['pod_signed_at'] or not permitted_pod(db(),account,j):abort(404)
+            from binflow_client_access import set_context
+            if not permitted_pod(db(),account,j['id'],set_context(db(),account)):abort(404)
         ensure_pod_available(j)
         if not j['collected_at']:abort(404)
         if not pod_weights_ready(db(), j):

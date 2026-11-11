@@ -1,0 +1,7 @@
+{% extends 'binflow/client_layout.html' %}{% block content %}
+<div class="bf-toolbar"><h1>Client profiles</h1>{% if 'profiles.add' in g.client_rights %}<a class="button primary" href="{{ url_for('bf_client_site_new') }}">Add client profile</a>{% endif %}</div>
+<form method="get" class="bf-filters"><label>Search<input type="search" name="q" value="{{ query }}" placeholder="Site, address or contact"></label>
+<label>State<select name="state"><option value="">All states</option>{% for s in states %}<option {{ 'selected' if filters.state==s }}>{{ s }}</option>{% endfor %}</select></label>
+<label>Sites<select name="view">{% for v in ['current','archived','all'] %}<option value="{{ v }}" {{ 'selected' if view==v }}>{{ v|capitalize }}</option>{% endfor %}</select></label><button class="primary">Search</button></form>
+<section class="bf-panel bf-pad"><p>{{ filtered }} matching sites</p>{% for p in profiles %}<p><a href="{{ url_for('bf_client_site_portal',pid=p.id) }}"><strong>{{ p.customer_site }}</strong></a><br>{{ [p.group_name,p.suburb,p.state]|select|join(' · ') }}</p>{% else %}<p>No sites match your search.</p>{% endfor %}</section>
+{% if pages>1 %}<nav class="bf-chips">{% if previous_url %}<a href="{{ previous_url }}">Previous</a>{% endif %} Page {{ page }} of {{ pages }} {% if next_url %}<a href="{{ next_url }}">Next</a>{% endif %}</nav>{% endif %}{% endblock %}

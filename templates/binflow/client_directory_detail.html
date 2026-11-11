@@ -1,0 +1,5 @@
+{% extends 'binflow/client_layout.html' %}{% block content %}
+<a href="{{ url_for('bf_client_profiles_portal') }}">← Client profiles</a>
+<div class="bf-toolbar"><h1>{{ profile.customer_site }}</h1>{% if 'profiles.edit' in g.client_rights %}<a class="button primary" href="{{ url_for('bf_client_site_edit',pid=profile.id) }}">Edit profile</a>{% endif %}</div>
+<section class="bf-panel bf-pad"><dl class="bf-directory-details">{% for k,label,_ in fields if k!='customer_site' %}<div><dt>{{ label }}</dt><dd>{{ profile[k] or '—' }}</dd></div>{% endfor %}<div><dt>Bin requirements</dt><dd>{% for b in bins %}{{ b.quantity }} × {{ b.name }}{% if not loop.last %}<br>{% endif %}{% else %}None recorded{% endfor %}</dd></div></dl></section>
+{% endblock %}

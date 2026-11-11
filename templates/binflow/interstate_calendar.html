@@ -1,9 +1,10 @@
 {% extends 'binflow/interstate_base.html' %}
 {% block transfer_content %}
 {% set cal='bf_client_interstate' if external else 'bf_interstate_calendar' %}
+{% set can_add=not external or 'bookings.add' in g.client_rights %}
 {% set detail='bf_client_interstate_detail' if external else 'bf_interstate_detail' %}
 <div class="it-tools">
-  <a class="button primary" href="{{ url_for('bf_client_interstate_new' if external else 'bf_interstate_new') }}">{{ 'Request a transfer' if external else 'New transfer booking' }}</a>
+  {% if can_add %}<a class="button primary" href="{{ url_for('bf_client_interstate_new' if external else 'bf_interstate_new') }}">{{ 'Request a transfer' if external else 'New transfer booking' }}</a>{% endif %}
   {% if not external and current_user.role=='admin' %}<a class="button secondary" href="{{ url_for('bf_interstate_accounts') }}">External booking logins</a>{% endif %}
 </div>
 <section class="bf-calendar-shell">
@@ -18,7 +19,7 @@
   <div class="bf-calendar-grid-wrap"><table class="bf-date-grid {{ 'bf-date-grid-week' if view=='week' }}" aria-label="Scheduled interstate pickups and deliveries">
     <thead><tr>{% for day in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}<th scope="col">{{ day }}</th>{% endfor %}</tr></thead>
     <tbody>{% for week in weeks %}<tr>{% for day in week %}{% set iso=day.isoformat() %}
-      <td class="{{ 'outside' if view=='month' and day.month!=chosen.month }} {{ 'today' if iso==today }}"><div class="bf-date-heading"><a href="{{ url_for('bf_client_interstate_new' if external else 'bf_interstate_new',pickup=iso) }}" aria-label="Request pickup on {{ day.strftime('%d %B %Y') }}"><time datetime="{{ iso }}">{{ day.day }}</time></a></div>
+      <td class="{{ 'outside' if view=='month' and day.month!=chosen.month }} {{ 'today' if iso==today }}"><div class="bf-date-heading">{% if can_add %}<a href="{{ url_for('bf_client_interstate_new' if external else 'bf_interstate_new',pickup=iso) }}" aria-label="Request pickup on {{ day.strftime('%d %B %Y') }}"><time datetime="{{ iso }}">{{ day.day }}</time></a>{% else %}<time datetime="{{ iso }}">{{ day.day }}</time>{% endif %}</div>
         {% for kind,b in events[iso] %}<a class="it-event {{ kind|lower }}" href="{{ url_for(detail,bid=b.id) }}"><strong>{{ kind }} · {{ places[b.origin if kind=='Pickup' else b.destination][1] }}</strong><span>{{ b.client_name }}</span></a>{% endfor %}
       </td>{% endfor %}</tr>{% endfor %}</tbody></table></div>
 </section>

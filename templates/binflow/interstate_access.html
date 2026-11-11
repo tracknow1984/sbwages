@@ -1,6 +1,15 @@
 {% extends 'binflow/layout.html' %}
 {% block title %}External booking logins{% endblock %}
-{% block subtitle %}Manage customer access to Interstate Transfers.{% endblock %}
+{% block subtitle %}Manage customer logins, permissions and freight rates.{% endblock %}
+
+{% macro permission_matrix(rights) %}
+<table class="it-permissions"><caption>Portal permissions</caption>
+<thead><tr><th scope="col">Area</th>{% for action in ['View','Add','Edit'] %}<th scope="col">{{ action }}</th>{% endfor %}</tr></thead><tbody>
+{% for key,label,actions in modules %}<tr><th scope="row">{{ label }}</th>{% for action in ['view','add','edit'] %}<td>
+{% if action in actions %}<input type="checkbox" name="permission" aria-label="{{ action|capitalize }} {{ label }}" value="{{ key }}.{{ action }}" {{ 'checked' if key~'.'~action in rights }}>{% else %}<span aria-label="Unavailable">—</span>{% endif %}</td>{% endfor %}</tr>{% endfor %}</tbody></table>
+<label>POD visibility<select name="pod_scope"><option value="scoped">Approved sites</option><option value="national" {{ 'selected' if 'pods.all' in rights }}>All completed PODs nationally</option></select></label>
+<small class="bf-muted">Add or Edit includes View. Booking changes apply to the client’s own unconfirmed requests.</small>
+{% endmacro %}
 
 {% macro fields(account, values) %}
   <input type="hidden" name="csrf" value="{{ csrf_token() }}">
@@ -11,6 +20,10 @@
     <input type="password" name="password" autocomplete="new-password" minlength="12" maxlength="200" {{ 'required' if not account }}>
   </label>
   <label class="bf-check"><input type="checkbox" name="active" value="yes" {{ 'checked' if not values or values.active }}>Login enabled</label>
+  {% if not account %}<details><summary>Portal permissions</summary>
+  <p>Standard access lets this client view and add their own interstate bookings.</p>
+  <label class="bf-check"><input type="checkbox" name="custom_permissions" value="yes" {{ 'checked' if request.form.get('custom_permissions')=='yes' }}>Use custom permissions</label>
+  {{ permission_matrix(create_rights) }}</details>{% endif %}
   <button class="primary">{{ 'Save login' if account else 'Create login' }}</button>
 {% endmacro %}
 
@@ -30,13 +43,18 @@
   <article id="login-{{ a.id }}" class="it-login">
     <div class="it-login-heading"><strong>{{ a.name }}</strong><span class="bf-badge">{{ 'Enabled' if a.active else 'Disabled' }}</span></div>
     <div>Username <strong>{{ a.username }}</strong></div>
-    <small class="bf-muted">{{ 'Transfers only' if a.transfer_only else 'Client portal' }} · Created {{ a.created_at|display_datetime }}</small>
+    <small class="bf-muted">{{ 'Booking login' if a.transfer_only else 'Client portal' }} · Created {{ a.created_at|display_datetime }}</small>
     {% if a.transfer_only %}
     <details {{ 'open' if attempted and attempted.id==a.id }}><summary>Edit login</summary>
       <form method="post" class="bf-form">{{ fields(a, attempted if attempted and attempted.id==a.id else a) }}</form>
     </details>
     {% elif a.username|lower=='blocktexx' %}<a href="{{ url_for('bf_client_accounts') }}">Manage BlockTexx access</a>{% endif %}
+  <details><summary>Portal permissions</summary><form method="post" class="bf-form" action="{{ url_for('bf_client_save_permissions',aid=a.id) }}">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ revision(policies[a.id]) }}">
+    {{ permission_matrix(policies[a.id]) }}<button class="primary">Save permissions</button></form></details>
+  {% if a.transfer_only %}<a href="{{ url_for('bf_portal_sites',aid=a.id) }}">Edit approved sites</a>{% endif %}
+  <a href="{{ url_for('bf_interstate_rates',aid=a.id) }}">Pricing matrix</a>
   </article>
   {% else %}<p>No customer logins have been saved yet.</p>{% endfor %}
-</section>
+</section><script src="{{ url_for('static',filename='binflow-portal-permissions.js') }}" defer></script>
 {% endblock %}

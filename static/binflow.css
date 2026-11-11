@@ -279,3 +279,22 @@ summary.bf-condition-label {cursor:pointer;min-height:36px}
 .bf-condition-label.archived {color:#455366}
 .bf-condition-options {display:grid;gap:4px;margin-bottom:8px}
 .bf-condition-options button {justify-content:flex-start;font-size:.8rem}
+
+/* Office navigation shares one set of links across both layouts. */
+.bf-office-content {min-width:0}
+.bf-ui .bf-office-sidebar .bf-nav {display:flex;flex-flow:column nowrap;gap:2px;overflow:visible;margin:0}
+.bf-ui .bf-office-sidebar .bf-nav>a {display:flex;align-items:center;white-space:normal;padding:.55rem .65rem;line-height:1.3}
+.bf-office-sidebar .bf-request-badge {margin-left:auto}
+.bf-office-sidebar .bf-office-toggle {width:100%;text-align:left}
+.bf-office-toggle::after {content:'▾';float:right}
+.bf-office-toggle[aria-expanded=true]::after {content:'▴'}
+.bf-office-sidebar [hidden] {display:none!important}
+@media screen and (min-width:980px) {
+  .bf-office-shell {display:grid;grid-template-columns:clamp(11.5rem,15vw,14rem) minmax(0,1fr);gap:clamp(1rem,1.7vw,2rem);align-items:start}
+  .bf-office-sidebar {position:sticky;top:.65rem;max-height:calc(100vh - 1.3rem);overflow-y:auto;overscroll-behavior:contain}
+}
+@media screen and (max-width:979px) {
+  .bf-office-sidebar {margin-bottom:1rem}
+  .bf-ui .bf-office-sidebar .bf-nav {margin-top:.4rem}
+  .bf-ui .bf-office-sidebar .bf-nav>a {min-height:44px}
+}
