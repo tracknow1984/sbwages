@@ -153,6 +153,29 @@ class CurrentCalendarTests(unittest.TestCase):
             self.assertTrue(any('reconciliation' in s for s in plan['issues']))
             self.assertTrue(any('Weekly plan requires' in s for s in plan['issues']))
 
+    def test_six_planning_sections_are_only_on_the_office_calendar(self):
+        from test_binflow_client_permissions import PortalPermissionTests
+        self.prepare()
+        with self.connection() as conn:
+            rebuild(conn,'2026-10-23T12:00:00')
+            conn.execute("UPDATE bf_client_site_profiles SET suburb='Paget',schedule='Weekly' WHERE location_id=3")
+        PortalPermissionTests.account(self,'calendar-viewer',custom_permissions='yes',permission=['national.view'])
+        client=PortalPermissionTests.visit(self,'calendar-viewer')
+        sections = ('State depots, staffing & weekly checks','collections need a day / extra capacity',
+                    'Planning assumptions & dispatch checks','client sites need location details',
+                    'Ad hoc / schedules to confirm','Current client schedules')
+        for view in ('week', 'month'):
+            query = '?date=2026-10-26&view='+view
+            office = self.client.get('/binflow/collection-calendar'+query)
+            portal = client.get('/binflow/client/local-pickups'+query)
+            self.assertEqual((office.status_code,portal.status_code),(200,200))
+            for heading in sections:
+                self.assertIn(heading,office.text)
+                self.assertNotIn(heading,portal.text)
+            self.assertIn('data-calendar-readonly',portal.text)
+            self.assertIn('data-expand-date',portal.text)
+            self.assertIn('Pickup progress',portal.text)
+
     def test_calendar_separates_unassigned_weekly_demand_from_fixed_dates(self):
         self.prepare()
         with self.connection() as conn:
