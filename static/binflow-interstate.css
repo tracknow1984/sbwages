@@ -38,3 +38,13 @@
   .it-matrix .it-rate-grid thead th {white-space:normal;letter-spacing:.02em}
   .it-matrix .it-rate-grid input {padding-inline:.25rem}
 }
+
+.bf .it-form .it-address {align-self:start;min-width:0}
+.it-address label {display:block}
+.it-address input {width:100%}
+.it-address ul {list-style:none;margin:.25rem 0 0;padding:0;background:white;border:1px solid #9caebc;border-radius:.4rem;max-height:15rem;overflow:auto}
+.it-address li {padding:.65rem .75rem;cursor:pointer;overflow-wrap:anywhere;line-height:1.35}
+.it-address li+li {border-top:1px solid #e1e7ec}
+.it-address li:hover,.it-address li[aria-selected=true] {background:#e6f1fa;color:#102c4c}
+.it-address-status {display:block;color:#4f6476}
+.it-address-status:empty {display:none}

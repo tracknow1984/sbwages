@@ -2,6 +2,16 @@
 {% macro entry(name,label,required=true,type='text',limit=200) %}
 <label>{{ label }}{{ ' (optional)' if not required }}<input type="{{ type }}" name="{{ name }}" value="{{ values.get(name,'') }}" maxlength="{{ limit }}" {{ 'required' if required }}></label>
 {% endmacro %}
+{% macro address_input(name,label,state_field) %}
+<div class="it-address" data-address-state="{{ state_field }}">
+  <label for="{{ name }}">{{ label }}</label>
+  <input id="{{ name }}" name="{{ name }}" value="{{ values.get(name,'') }}" maxlength="500" required
+         placeholder="Street number, street and suburb" autocomplete="off" role="combobox"
+         aria-autocomplete="list" aria-expanded="false" aria-controls="{{ name }}-options">
+  <ul id="{{ name }}-options" role="listbox" aria-label="{{ label }} suggestions" hidden></ul>
+  <small class="it-address-status" role="status"></small>
+</div>
+{% endmacro %}
 {% macro state_select(name,label) %}<label>{{ label }}<select name="{{ name }}" required><option value="">Select state</option>{% for state in regions %}<option {{ 'selected' if places.get(values.get(name),('',''))[1]==state }}>{{ state }}</option>{% endfor %}</select></label>{% endmacro %}
 {% block transfer_content %}
 <a href="{{ url_for('bf_client_interstate' if external else 'bf_interstate_calendar') }}">← Transfer calendar</a>
@@ -18,16 +28,18 @@
   </div>
   <div class="bf-grid two">{% if not external %}<label>Job type<select name="job_type" required><option value="internal" {{ 'selected' if values.job_type=='internal' }}>Internal · SB Empire</option><option value="external" {{ 'selected' if values.job_type=='external' }}>External · subcontractor</option></select></label>{% endif %}
   {% if bulk_only %}<div><strong>Goods recording</strong><p>Bulk movement</p></div>{% else %}<label>Goods recording<select name="handling" required><option value="scanned" {{ 'selected' if values.handling=='scanned' }}>Scan each bale</option><option value="bulk" {{ 'selected' if bulk_only or values.handling=='bulk' }}>Bulk movement · list goods</option></select></label>{% endif %}</div>
-  <h3>Pickup location</h3>{{ entry('pickup_company','Pick Up Company Name',external) }}<div class="bf-grid two">{{ entry('pickup_address','Pickup address',limit=500) }}{{ state_select('origin','Pickup state') }}
+  <h3>Pickup location</h3>{{ entry('pickup_company','Pick Up Company Name',external) }}<div class="bf-grid two">{{ address_input('pickup_address','Pickup address','origin') }}{{ state_select('origin','Pickup state') }}
   {{ entry('pickup_contact','Primary contact name') }}{{ entry('pickup_phone','Pickup contact number',false,'tel',50) }}
   <label>Pickup date<input type="date" name="pickup_date" min="2000-01-01" max="2100-12-31" value="{{ values.get('pickup_date','') }}"></label></div>
-  <h3>Delivery location</h3>{{ entry('delivery_company','Delivery Company Name',external) }}<div class="bf-grid two">{{ entry('delivery_address','Delivery address',limit=500) }}{{ state_select('destination','Delivery state') }}
+  <h3>Delivery location</h3>{{ entry('delivery_company','Delivery Company Name',external) }}<div class="bf-grid two">{{ address_input('delivery_address','Delivery address','destination') }}{{ state_select('destination','Delivery state') }}
   {{ entry('delivery_contact','Delivery contact name') }}{{ entry('delivery_phone','Delivery contact number',false,'tel',50) }}
   <label>Delivery date (ETA)<input type="date" name="delivery_date" min="2000-01-01" max="2100-12-31" value="{{ values.get('delivery_date','') }}"></label></div>
+  <small class="bf-muted">Address suggestions © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a></small>
   <p data-transit-hint class="bf-muted" aria-live="polite">Enter a pickup date or delivery date to estimate the other.</p>
   {% if priced %}<p><strong>Freight price · AUD ex GST</strong> · <output data-rate>Price to be confirmed</output><input type="hidden" name="shown_rate" disabled></p>{% endif %}
   {{ entry('email','Booking confirmation email',true,'email') }}
   <label><span data-goods-label>{{ 'Goods and quantities' if bulk_only or values.handling=='bulk' else 'Load notes (optional)' }}</span><textarea rows="3" name="goods" maxlength="4000" placeholder="e.g. 24 pallets of mixed textiles" {{ 'required' if bulk_only or values.handling=='bulk' }}>{{ values.get('goods','') }}</textarea></label>
   <button type="submit" class="primary">{{ 'Save changes' if row else 'Submit transfer request' }}</button>
 </form></section><script src="{{ url_for('static',filename='binflow-interstate.js') }}" defer></script>
+<script src="{{ url_for('static',filename='binflow-address-search.js') }}" defer></script>
 {% endblock %}

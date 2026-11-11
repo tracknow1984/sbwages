@@ -309,6 +309,8 @@ def create_app(test_config=None):
             # Only map image tiles leave this page; Wialon and all credentials remain server-side.
             response.headers['Content-Security-Policy'] = response.headers['Content-Security-Policy'].replace(
                 "img-src 'self' data:", "img-src 'self' data: https://tile.openstreetmap.org")
+        if request.endpoint in ('bf_client_interstate_new','bf_client_interstate_edit','bf_interstate_new','bf_interstate_edit'):
+            response.headers['Content-Security-Policy'] += "; connect-src 'self' https://photon.komoot.io"
         if request.endpoint == 'document_file':
             response.headers['Content-Security-Policy'] = "sandbox; default-src 'none'; frame-ancestors 'self'"
             response.headers['X-Frame-Options'] = 'SAMEORIGIN'

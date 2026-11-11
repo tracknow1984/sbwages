@@ -188,6 +188,20 @@ class PortalPermissionTests(unittest.TestCase):
         self.assertNotIn('Alpha QLD',body)
         self.assertIn('No sites match',reader.get(path+'?q=missing-site-name').text)
 
+    def test_address_suggestions_are_available_on_staff_and_client_booking_forms(self):
+        self.account('address-user',custom_permissions='yes',permission=['bookings.add','bookings.edit'])
+        client=self.visit('address-user')
+        self.send(client,CLIENT+'/new',data())
+        for browser,base in ((client,CLIENT),(self.client,CAL)):
+            for path in ('/new','/1/edit'):
+                response=browser.get(base+path)
+                self.assertEqual(response.status_code,200)
+                self.assertIn("connect-src 'self' https://photon.komoot.io",response.headers['Content-Security-Policy'])
+                for name in ('pickup_address','delivery_address'):
+                    self.assertIn('aria-controls="'+name+'-options"',response.text)
+                self.assertIn('binflow-address-search.js',response.text)
+            self.assertNotIn('photon.komoot.io',browser.get(base).headers['Content-Security-Policy'])
+
     def test_billing_is_bound_to_login_and_companies_are_separate(self):
         aid=self.account('billing-user',custom_permissions='yes',permission=['bookings.add','bookings.edit'])
         with sqlite3.connect(self.path) as conn:
