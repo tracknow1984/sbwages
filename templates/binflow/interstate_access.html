@@ -1,13 +1,42 @@
-{% extends 'binflow/layout.html' %}{% block title %}External booking logins{% endblock %}{% block subtitle %}Each login can request transfers and view its own bookings.{% endblock %}
-{% macro fields(a) %}
-<input type="hidden" name="csrf" value="{{ csrf_token() }}">{% if a %}<input type="hidden" name="account_id" value="{{ a.id }}">{% endif %}
-<label>Organisation or contact name<input name="name" maxlength="150" value="{{ a.name if a }}" required></label>
-<label>Username<input name="username" value="{{ a.username if a }}" minlength="3" maxlength="100" required></label>
-<label>{{ 'New password (optional)' if a else 'Password' }}<input type="password" name="password" autocomplete="new-password" minlength="12" maxlength="200" {{ 'required' if not a }}></label>
-<label class="bf-check"><input type="checkbox" name="active" value="yes" {{ 'checked' if not a or a.active }}>Login enabled</label><button class="primary">{{ 'Save login' if a else 'Create login' }}</button>
+{% extends 'binflow/layout.html' %}
+{% block title %}External booking logins{% endblock %}
+{% block subtitle %}Manage customer access to Interstate Transfers.{% endblock %}
+
+{% macro fields(account, values) %}
+  <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+  {% if account %}<input type="hidden" name="account_id" value="{{ account.id }}">{% endif %}
+  <label>Organisation or contact name<input name="name" maxlength="150" value="{{ values.name if values }}" required></label>
+  <label>Username<input name="username" value="{{ values.username if values }}" minlength="3" maxlength="100" required></label>
+  <label>{{ 'New password (optional)' if account else 'Password (at least 12 characters)' }}
+    <input type="password" name="password" autocomplete="new-password" minlength="12" maxlength="200" {{ 'required' if not account }}>
+  </label>
+  <label class="bf-check"><input type="checkbox" name="active" value="yes" {{ 'checked' if not values or values.active }}>Login enabled</label>
+  <button class="primary">{{ 'Save login' if account else 'Create login' }}</button>
 {% endmacro %}
-{% block body %}<a href="{{ url_for('bf_interstate_calendar') }}">← Transfer calendar</a>
-{% if error %}<p class="notice error" role="alert">{{ error }}</p>{% endif %}
-<section class="bf-panel bf-pad"><h2>Booking portal</h2><a href="{{ url_for('bf_client_login',transfers=1) }}">{{ url_for('bf_client_login',transfers=1,_external=true) }}</a></section>
-<section class="bf-panel bf-pad"><h2>Create booking login</h2><form method="post" class="bf-form">{{ fields(none) }}</form></section>
-<section class="bf-panel bf-pad"><h2>Existing logins</h2>{% for a in accounts %}<details><summary>{{ a.name }} · {{ a.username }} · {{ 'Enabled' if a.active else 'Disabled' }}</summary><form method="post" class="bf-form">{{ fields(a) }}</form></details>{% else %}<p>No booking-only logins yet.</p>{% endfor %}</section>{% endblock %}
+
+{% block body %}
+<link rel="stylesheet" href="{{ url_for('static',filename='binflow-interstate.css') }}">
+<a href="{{ url_for('bf_interstate_calendar') }}">← Transfer calendar</a>
+<section class="bf-panel bf-pad" aria-labelledby="booking-portal">
+  <div class="bf-toolbar"><h2 id="booking-portal">Booking portal</h2>
+    <a href="{{ url_for('bf_client_login',transfers=1) }}">Customer sign-in page</a></div>
+  <h3 id="saved-logins">Saved logins ({{ accounts|length }})</h3>
+  {% if error %}<p class="notice error" role="alert">{{ error }}</p>{% endif %}
+  <details class="it-login-create" {{ 'open' if attempted and not attempted.id }}>
+    <summary>Create booking login</summary>
+    <form method="post" class="bf-form">{{ fields(none, attempted if attempted and not attempted.id else none) }}</form>
+  </details>
+  {% for a in accounts %}
+  <article id="login-{{ a.id }}" class="it-login">
+    <div class="it-login-heading"><strong>{{ a.name }}</strong><span class="bf-badge">{{ 'Enabled' if a.active else 'Disabled' }}</span></div>
+    <div>Username <strong>{{ a.username }}</strong></div>
+    <small class="bf-muted">{{ 'Transfers only' if a.transfer_only else 'Client portal' }} · Created {{ a.created_at|display_datetime }}</small>
+    {% if a.transfer_only %}
+    <details {{ 'open' if attempted and attempted.id==a.id }}><summary>Edit login</summary>
+      <form method="post" class="bf-form">{{ fields(a, attempted if attempted and attempted.id==a.id else a) }}</form>
+    </details>
+    {% elif a.username|lower=='blocktexx' %}<a href="{{ url_for('bf_client_accounts') }}">Manage BlockTexx access</a>{% endif %}
+  </article>
+  {% else %}<p>No customer logins have been saved yet.</p>{% endfor %}
+</section>
+{% endblock %}

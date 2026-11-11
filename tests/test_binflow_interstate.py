@@ -126,3 +126,31 @@ class BookingTests(unittest.TestCase):
         self.assertEqual(self.client.get(CLIENT+'/2').status_code,404)
         self.post('/binflow/client/logout')
         self.assertIn('login',self.client.get(CLIENT).location)
+
+    def test_admin_sees_new_and_existing_portal_logins(self):
+        access = CAL + '/access'
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("""INSERT INTO bf_client_accounts
+                (username,name,password_hash,active,created_at,updated_at,updated_by)
+                VALUES('older-login','Previous client','test-only-hash',0,'2024-02-01','2024-02-01','Admin')""")
+        form = dict(name='Freight office',username='new-freight',password='test-only-password',active='yes')
+        response = self.post(access,form,follow=False)
+        aid = self.rows('SELECT id FROM bf_client_accounts WHERE username=?',(form['username'],))[0]['id']
+        self.assertEqual(response.status_code,303)
+        self.assertTrue(response.location.endswith(f'#login-{aid}'))
+        page = self.client.get(access).text
+        self.assertIn('Saved logins (2)',page)
+        self.assertLess(page.index('Username <strong>new-freight'),page.index('Username <strong>older-login'))
+        self.assertIn('Disabled',page)
+        self.assertIn('Client portal · Created',page)
+        self.assertNotIn(form['password'],page)
+        self.assertNotIn('test-only-hash',page)
+        self.assertIn('View saved booking logins',self.client.get('/binflow/client/login?transfers=1').text)
+        invalid = self.post(access,dict(form,name='Another company'))
+        self.assertEqual(invalid.status_code,400)
+        self.assertIn('That username is already in use.',invalid.text)
+        self.assertIn('value="Another company"',invalid.text)
+        self.assertNotIn(form['password'],invalid.text)
+        guest = self.app.test_client()
+        self.assertEqual(guest.get(access).status_code,302)
+        self.assertNotIn('new-freight',guest.get('/binflow/client/login?transfers=1').text)

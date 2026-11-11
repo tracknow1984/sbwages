@@ -308,6 +308,7 @@ def register(app, db, access, require, render, client_access, now, actor):
     @require('admin')
     def bf_interstate_accounts():
         error = None
+        attempted = None
         if request.method=='POST':
             try:
                 name = request.form.get('name','').strip()
@@ -334,11 +335,14 @@ def register(app, db, access, require, render, client_access, now, actor):
                         VALUES(?,?,?,?,?,?,?)""",(name,username,generate_password_hash(password),active,now(),now(),actor())).lastrowid
                     conn.execute('INSERT INTO bf_interstate_accounts VALUES(?)',(aid,))
                 conn.commit()
-                flash('Booking login saved.','success')
-                return redirect(url_for('bf_interstate_accounts'))
+                flash(f'Booking login “{username}” saved.','success')
+                return redirect(url_for('bf_interstate_accounts',_anchor=f'login-{aid}'),code=303)
             except (ValueError,sqlite3.IntegrityError) as exc:
                 db().rollback()
                 error = str(exc) if isinstance(exc,ValueError) else 'That username is already in use.'
-        accounts = db().execute("""SELECT a.id,a.name,a.username,a.active FROM bf_interstate_accounts i
-            JOIN bf_client_accounts a ON a.id=i.account_id ORDER BY a.name""").fetchall()
-        return render('interstate_access',section='interstate',accounts=accounts,error=error),400 if error else 200
+                attempted = dict(id=aid,name=name,username=username,active=request.form.get('active')=='yes')
+        accounts = db().execute("""SELECT a.id,a.name,a.username,a.active,a.created_at,
+            i.account_id IS NOT NULL AS transfer_only FROM bf_client_accounts a
+            LEFT JOIN bf_interstate_accounts i ON i.account_id=a.id
+            ORDER BY a.created_at DESC,a.id DESC""").fetchall()
+        return render('interstate_access',section='interstate',accounts=accounts,error=error,attempted=attempted),400 if error else 200
