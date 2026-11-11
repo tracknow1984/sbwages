@@ -107,9 +107,18 @@ def available_drivers(conn, state=''):
     return [u for u in users if driver_available(u, state)]
 
 
+def run_operating_state(conn, truck_id, run_date, home_state):
+    states = conn.execute("""SELECT state FROM bf_workdays WHERE truck_id=? AND work_date=? AND state!=''
+        UNION SELECT state FROM bf_jobs WHERE truck_id=? AND scheduled_date=? AND schedule_live=1
+        AND approval_status='approved' AND status!='cancelled'""", (truck_id, run_date, truck_id, run_date)).fetchall()
+    if not states:
+        return home_state
+    return states[0]['state'] if len(states) == 1 else None
+
+
 def can_view_run(conn, user, truck_id, run_date, include_available=True):
     truck = conn.execute('SELECT state FROM bf_trucks WHERE id=?', (truck_id,)).fetchone()
-    if not truck or not state_allowed(user, truck['state']):
+    if not truck or not state_allowed(user, run_operating_state(conn, truck_id, run_date, truck['state'])):
         return False
     if is_office(user):
         return True

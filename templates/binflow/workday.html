@@ -28,7 +28,20 @@
 {% if not daily_overview.runs and not daily_overview.plans %}<p>No client stops are published for today. You can continue for warehouse work.</p>{% endif %}
 {% if selected_state %}<form method="post" action="{{ url_for('bf_accept_overview',day_id=workday.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="state" value="{{ selected_state }}"><input type="hidden" name="version" value="{{ daily_overview.version }}"><button class="primary bf-next">{{ icon('check') }} Accept daily overview {{ icon('arrow') }}</button></form>{% endif %}</section>
 {% else %}
-<section class="bf-panel bf-pad"><span class="bf-kicker">STEP 3 · VEHICLE</span><div class="bf-step-icon">{{ icon('truck') }}</div><h2>Choose your truck</h2><p>{{ selected_state }} · today’s available vehicles</p>{% if trucks %}<form method="post" action="{{ url_for('bf_workday_vehicle',day_id=workday.id) }}" class="bf-form"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="state" value="{{ selected_state }}"><label>Vehicle<select name="truck_id" required><option value="">Choose vehicle</option>{% for truck in trucks %}<option value="{{ truck.id }}">{{ truck.name }}</option>{% endfor %}</select></label><button class="primary bf-next">Continue to prestart →</button></form>{% else %}<p>No available vehicles. Ask the office to check your allocation.</p><a class="button secondary bf-next" href="{{ url_for('bf_workday') }}">Refresh</a>{% endif %}</section>
+<section class="bf-panel bf-pad"><span class="bf-kicker">STEP 3 · VEHICLE</span>
+<div class="bf-step-icon">{{ icon('truck') }}</div><h2>Choose your truck</h2>
+<p>Choose an available truck from any state for your {{ selected_state }} run.</p>
+{% if trucks %}<form method="post" action="{{ url_for('bf_workday_vehicle',day_id=workday.id) }}" class="bf-form">
+<input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="state" value="{{ selected_state }}">
+{% if daily_overview.runs|length > 1 %}<label>Scheduled run<select name="scheduled_truck_id" required>
+<option value="">Choose your scheduled stops</option>
+{% for r in daily_overview.runs %}<option value="{{ r.truck_id }}">{{ r.truck_name }} · {{ r.jobs[0].site_name }} · {{ r.jobs|length }} stops</option>{% endfor %}
+</select></label>{% endif %}
+<label>Truck · home state<select name="truck_id" required><option value="">Choose vehicle</option>
+{% for truck in trucks %}<option value="{{ truck.id }}">{{ truck.name }} · {{ truck.state }}</option>{% endfor %}</select></label>
+<button class="primary bf-next">Continue to prestart →</button></form>
+{% else %}<p>No vehicles are available for this run. Ask the office to check the allocation.</p>
+<a class="button secondary bf-next" href="{{ url_for('bf_workday') }}">Refresh</a>{% endif %}</section>
 {% endif %}
 {% if request.args.get('summary')=='1' %}<section class="bf-panel bf-pad"><h2>Approved work</h2><div data-driver-plan="{{ url_for('bf_workday_plan_state',date=run_date,state=selected_state) }}">{% include 'binflow/driver_plan_cards.html' %}</div><p class="bf-muted" data-plan-updated>Updates every 20 seconds while open</p></section>{% endif %}
 {% include 'binflow/sample_entry.html' %}

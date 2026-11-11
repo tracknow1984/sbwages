@@ -110,11 +110,12 @@ def register_acceptance(app,db,access,success,failure,now,actor):
     @app.post('/binflow/driver/<int:truck_id>/accept')
     @access
     def bf_accept_run(truck_id):
-        from binflow_permissions import require_state
+        from binflow_permissions import require_state, run_operating_state
         run_date=request.form.get('date','')
         truck=db().execute('SELECT * FROM bf_trucks WHERE id=?',(truck_id,)).fetchone()
         if not truck: abort(404)
-        require_state(g.user,truck['state'])
+        state = run_operating_state(db(), truck_id, run_date, truck['state'])
+        require_state(g.user, state)
         try:
             valid_date(run_date)
             db().execute('BEGIN IMMEDIATE')
@@ -158,4 +159,4 @@ def register_acceptance(app,db,access,success,failure,now,actor):
             return success('Schedule accepted. Scan the allocated empty bins onto your truck.' if day else 'Schedule accepted. Complete today’s prestart, then scan your allocated empty bins onto the truck.',
                 'bf_run',truck_id=truck_id,date=run_date)
         except ValueError as error:
-            return failure(error,'bf_drivers',state=truck['state'],date=run_date or now()[:10])
+            return failure(error,'bf_drivers',state=state,date=run_date or now()[:10])

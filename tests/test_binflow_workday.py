@@ -24,6 +24,10 @@ class DriverWorkdayTests(unittest.TestCase):
         self.time=datetime(2026,10,19,7,5,17,tzinfo=ZoneInfo('Australia/Brisbane'))
         self.clock=patch('binflow.datetime',wraps=datetime)
         self.mock_clock=self.clock.start();self.mock_clock.now.side_effect=lambda zone: self.time.astimezone(zone)
+        self.truck_id = 1
+        payroll_clock = patch('app.datetime', self.mock_clock)
+        payroll_clock.start()
+        self.addCleanup(payroll_clock.stop)
         self.initial_delivery()
         self.job(collect=(1,2),deliver=(3,4),legacy=False)
         self.post('/binflow/driver',dict(name='QLD day truck',state='QLD'))
@@ -121,10 +125,12 @@ class DriverWorkdayTests(unittest.TestCase):
         self.assertEqual((entry['first_logged_at'], entry['last_updated_at'], entry['last_updated_by']),
                          (first, changed, self.uid))
 
-    def test_vehicle_state_prestart_and_acceptance_cannot_be_bypassed(self):
+    def test_interstate_vehicle_selection_keeps_prestart_and_acceptance_gates(self):
         self.start()
+        self.assertIn('NSW day truck · NSW', self.client.get('/binflow/driver/my-day').text)
         self.choose(truck=2,state='QLD')
-        self.assertIsNone(self.rows('SELECT truck_id FROM bf_workdays')[0]['truck_id'])
+        self.assertEqual(self.rows('SELECT truck_id,state FROM bf_workdays')[0], dict(truck_id=2,state='QLD'))
+        self.assertEqual(self.client.get('/binflow/driver/2/day/state?date='+RUN_DATE).json['stage'], 'prestart')
         self.choose()
         self.post('/binflow/driver/1/accept',dict(date=RUN_DATE,manifest_version='stale'))
         self.assertFalse(self.rows('SELECT * FROM bf_run_acceptance_history WHERE truck_id=1'))

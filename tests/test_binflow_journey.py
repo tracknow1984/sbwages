@@ -33,13 +33,13 @@ class DriverJourneyTests(unittest.TestCase):
         return self.post(f'/binflow/driver/my-day/{wid}/overview'+suffix,dict(state=state,version=version[1].decode()))
 
     def simple_prestart(self,suffix=''):
-        return self.post('/binflow/driver/1/test-prestart'+suffix,dict(date=RUN_DATE))
+        return self.post(f'/binflow/driver/{self.truck_id}/test-prestart'+suffix,dict(date=RUN_DATE))
 
     def scan(self, action, code, suffix=''):
-        return self.post('/binflow/driver/1/day/scan-bin'+suffix,dict(date=RUN_DATE,action=action,code=code),follow=False)
+        return self.post(f'/binflow/driver/{self.truck_id}/day/scan-bin'+suffix,dict(date=RUN_DATE,action=action,code=code),follow=False)
 
     def action(self, action, suffix='', **values):
-        return self.post('/binflow/driver/1/day/'+action+suffix,dict(date=RUN_DATE,**values))
+        return self.post(f'/binflow/driver/{self.truck_id}/day/'+action+suffix,dict(date=RUN_DATE,**values))
 
     def test_complete_live_day_records_manifest_automatic_pod_and_inbound(self):
         self.start()
@@ -97,6 +97,39 @@ class DriverJourneyTests(unittest.TestCase):
         self.assertIsNone(self.rows('SELECT truck_id FROM bf_workdays')[0]['truck_id'])
         self.accept_overview();self.assertEqual(self.choose(truck=2,state='NSW').status_code,403)
         self.assertIsNone(self.rows('SELECT truck_id FROM bf_workdays')[0]['truck_id'])
+
+    def test_reserved_spare_cannot_take_accepted_stops(self):
+        self.start()
+        picker = self.accept_overview()
+        self.assertIn('NSW day truck · NSW', picker.text)
+        with sqlite3.connect(self.path) as conn:
+            other = conn.execute("SELECT id FROM users WHERE role='admin' LIMIT 1").fetchone()[0]
+            conn.execute("INSERT INTO bf_runs(truck_id,run_date,driver_id) VALUES(2,?,?)", (RUN_DATE,other))
+        self.assertIn('This vehicle is unavailable', self.choose(truck=2).text)
+        self.assertNotIn('NSW day truck · NSW', self.client.get('/binflow/driver/my-day').text)
+        self.assertEqual(self.rows('SELECT truck_id FROM bf_jobs WHERE id=2')[0]['truck_id'], 1)
+        self.assertIsNone(self.rows('SELECT truck_id FROM bf_workdays')[0]['truck_id'])
+
+    def test_spare_takes_only_the_chosen_manifest_when_two_runs_are_available(self):
+        self.post('/logout')
+        self.login()
+        self.post('/binflow/driver', dict(name='Second QLD truck',state='QLD'))
+        self.job(deliver=(5,),site=4,legacy=False)
+        self.post('/binflow/pickups/3/truck', dict(truck_id=3))
+        self.post('/logout')
+        self.login('employee','phonedriver')
+        self.start()
+        picker = self.accept_overview()
+        self.assertIn('name="scheduled_truck_id"', picker.text)
+        self.assertIn('Select the scheduled run', self.choose(truck=2).text)
+        day = self.rows('SELECT * FROM bf_workdays')[0]
+        path = f'/binflow/driver/my-day/{day["id"]}/vehicle'
+        fields = dict(truck_id=2, state='QLD', scheduled_truck_id=3)
+        self.assertIn('Ready to load?', self.post(path,fields).text)
+        self.assertIn('Ready to load?', self.post(path,fields).text)
+        self.assertEqual(self.rows('SELECT truck_id FROM bf_jobs WHERE id IN (2,3) ORDER BY id'),
+                         [dict(truck_id=1),dict(truck_id=2)])
+        self.assertEqual(len(self.rows('SELECT * FROM bf_run_acceptance_history')), 1)
 
     def test_break_persists_and_requires_thirty_minutes(self):
         self.start();self.accept_overview();self.choose();self.simple_prestart()
@@ -238,8 +271,10 @@ class DriverJourneyTests(unittest.TestCase):
         self.assertIn(b'DEMO-1100-E01',self.client.get('/binflow/driver/demo/labels'+suffix).data)
         self.assertEqual(self.client.get('/binflow/driver/demo/qr/1'+suffix).mimetype,'image/png')
         self.post('/binflow/driver/start-day'+suffix,dict(flow_version='2',**self.stamp()))
-        self.accept_overview(suffix, 'NSW')
-        selected=self.post('/binflow/driver/my-day/1/vehicle'+suffix,dict(state='NSW',truck_id=1))
+        picker = self.accept_overview(suffix, 'NSW')
+        self.assertIn('SAMPLE · interstate spare · QLD', picker.text)
+        self.truck_id = 2
+        selected=self.post('/binflow/driver/my-day/1/vehicle'+suffix,dict(state='NSW',truck_id=self.truck_id))
         self.assertIn(b'OK',selected.data)
         self.simple_prestart(suffix)
         self.assertEqual(self.scan('load','DEMO-660-E03',suffix).status_code,409)

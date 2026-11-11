@@ -4,7 +4,7 @@
 {% block body %}
 <section class="bf-panel bf-pad">
   <h2>Start a sample cycle</h2>
-  <p>Two customer jobs, one truck and six bins are ready. Choose NSW for a Wetherill Park to Brisbane transfer. You can enter the printed bin and bale IDs in each scanner.</p>
+  <p>Two customer jobs and six bins are ready. Use the scheduled truck or the interstate spare. Choose NSW for a Wetherill Park to Brisbane transfer. You can enter the printed bin and bale IDs in each scanner.</p>
   <form method="post" action="{{ url_for('bf_demo_start') }}" class="bf-form">
     <input type="hidden" name="csrf" value="{{ csrf_token() }}">
     <label>Sample state<select name="state">{% for state in states %}<option {{ 'selected' if state==selected_state }}>{{ state }}</option>{% endfor %}</select></label>

@@ -50,6 +50,22 @@ def run_workday(conn,uid,truck_id,run_date):
                         (uid,truck_id,run_date)).fetchone()
 
 
+def available_trucks(conn, day, state):
+    """A truck's base can differ from the state of its work for this day."""
+    return conn.execute("""SELECT t.* FROM bf_trucks t
+        WHERE NOT EXISTS (SELECT 1 FROM bf_workdays d WHERE d.truck_id=t.id AND d.user_id!=:driver
+            AND (d.finished_at IS NULL OR d.work_date=:date))
+        AND NOT EXISTS (SELECT 1 FROM bf_runs r WHERE r.truck_id=t.id AND r.run_date=:date
+            AND (r.driver_id!=:driver OR r.returned_at IS NOT NULL))
+        AND NOT EXISTS (SELECT 1 FROM bf_jobs j WHERE j.truck_id=t.id AND j.scheduled_date=:date
+            AND j.schedule_live=1 AND j.status!='cancelled' AND (j.state!=:state OR j.driver_id!=:driver))
+        AND NOT EXISTS (SELECT 1 FROM bf_bins b WHERE b.truck_id=t.id AND NOT EXISTS
+            (SELECT 1 FROM bf_job_bins i JOIN bf_jobs j ON j.id=i.job_id WHERE i.bin_id=b.id AND i.active=1
+             AND j.truck_id=t.id AND j.scheduled_date=:date AND j.state=:state AND j.driver_id=:driver))
+        ORDER BY t.state!=:state, t.state, t.name""",
+        dict(driver=day['user_id'], date=day['work_date'], state=state)).fetchall()
+
+
 def driver_today(conn,user,stamp):
     day=active_workday(conn,user['id'])
     return datetime.fromisoformat(stamp).astimezone(ZoneInfo(day['timezone'])).date().isoformat() if day else stamp[:10]
@@ -225,15 +241,7 @@ def register_workdays(app,db,access,require,render,success,failure,now):
             return redirect(url_for('bf_run',truck_id=day['truck_id'],date=day['work_date']))
         state=selected_state(g.user,request.args.get('state',day['state'] if day else ''))
         if state not in ('',)+STATES: abort(400)
-        trucks=[]
-        if day and not day['finished_at'] and state:
-            from binflow_runs import run_jobs
-            for truck in db().execute('SELECT * FROM bf_trucks WHERE state=? ORDER BY name',(state,)):
-                other=db().execute('SELECT 1 FROM bf_workdays WHERE truck_id=? AND finished_at IS NULL AND user_id!=?',(truck['id'],g.user['id'])).fetchone()
-                run=db().execute('SELECT driver_id FROM bf_runs WHERE truck_id=? AND run_date=?',(truck['id'],day['work_date'])).fetchone()
-                assigned={j['driver_id'] for j in run_jobs(db(),truck['id'],day['work_date']) if j['driver_id']}
-                if other or (run and run['driver_id'] and run['driver_id']!=g.user['id']) or (assigned and assigned!={g.user['id']}): continue
-                trucks.append(dict(truck))
+        trucks = available_trucks(db(), day, state) if day and not day['finished_at'] and state else []
         entries=db().execute('''SELECT e.*,s.week_end FROM bf_workday_entries x JOIN entries e ON e.sheet_id=x.sheet_id AND e.work_date=x.work_date
             JOIN sheets s ON s.id=e.sheet_id WHERE x.workday_id=? ORDER BY e.work_date''',(day['id'],)).fetchall() if day else []
         can_change_vehicle=bool(day and not day['finished_at'])
@@ -249,9 +257,6 @@ def register_workdays(app,db,access,require,render,success,failure,now):
         from binflow_journey import overview
         daily_overview=overview(db(),g.user,plan_date,state) if day and day['flow_version']==2 else None
         overview_valid=bool(daily_overview and day['overview_hash']==daily_overview['version'])
-        if daily_overview and daily_overview['runs'] and not day['truck_id']:
-            available={r['truck_id'] for r in daily_overview['runs']}
-            trucks=[t for t in trucks if t['id'] in available]
         return render('workday',journey_mode=not day or day['flow_version']==2,daily_overview=daily_overview,overview_valid=overview_valid,section='driver',driver_mode=True,workday=day,selected_state=state,trucks=trucks,
                       run_date=plan_date,**driver_plan_data(db(),g.user,plan_date,state),
                       blockers=finish_blockers(db(),day) if day and not day['finished_at'] else [],clock_entries=entries,
@@ -283,26 +288,25 @@ def register_workdays(app,db,access,require,render,success,failure,now):
     @access
     def bf_workday_vehicle(day_id):
         try:
-            from binflow_runs import check_owner
             from binflow_acceptance import ensure_run_unstarted
             db().execute('BEGIN IMMEDIATE');day=owned(day_id)
             if day['finished_at']: raise ValueError('This driver day is already finalised.')
             tid=request.form.get('truck_id',type=int);state=selected_state(g.user,request.form.get('state',''))
-            truck=db().execute('SELECT * FROM bf_trucks WHERE id=? AND state=?',(tid,state)).fetchone()
-            if not truck or state not in STATES: raise ValueError('Choose a vehicle allocated to your selected state.')
+            if state not in STATES: raise ValueError('Choose your operating state.')
+            if tid and tid == day['truck_id'] and state == day['state']:
+                return success('Vehicle already selected.', 'bf_run', truck_id=tid, date=day['work_date'])
+            candidates = {t['id']: t for t in available_trucks(db(), day, state)}
+            truck = candidates.get(tid)
+            if not truck:
+                raise ValueError('This vehicle is unavailable for your run. Choose another vehicle.')
             if day['flow_version']==2:
-                from binflow_journey import overview
+                from binflow_journey import overview, select_run_vehicle
                 plan=overview(db(),g.user,day['work_date'],state)
                 if not day['overview_accepted_at'] or day['overview_hash']!=plan['version'] or day['state']!=state:
                     raise ValueError('Review and accept the current daily overview before selecting your vehicle.')
-                if plan['runs'] and tid not in {r['truck_id'] for r in plan['runs']}:
-                    raise ValueError('Choose a vehicle with work in your accepted daily overview.')
-            check_owner(db(),tid,day['work_date'],g.user)
-            run=db().execute('SELECT driver_id FROM bf_runs WHERE truck_id=? AND run_date=?',(tid,day['work_date'])).fetchone()
-            if run and run['driver_id'] and run['driver_id']!=g.user['id']: raise ValueError('This vehicle is assigned to another driver.')
-            if db().execute("SELECT 1 FROM bf_jobs WHERE truck_id=? AND scheduled_date=? AND schedule_live=1 AND status!='cancelled' AND driver_id IS NOT NULL AND driver_id!=?",
-                            (tid,day['work_date'],g.user['id'])).fetchone():
-                raise ValueError('This vehicle has work assigned to another driver. Ask the office to check its schedule.')
+                if not day['truck_id']:
+                    select_run_vehicle(db(), day, plan['runs'], truck, candidates,
+                                       request.form.get('scheduled_truck_id', type=int), now())
             if day['truck_id'] and day['truck_id']!=tid:
                 ensure_run_unstarted(db(),day['truck_id'],day['work_date'])
                 if db().execute('SELECT 1 FROM bf_runs WHERE truck_id=? AND run_date=? AND accepted_at IS NOT NULL',(day['truck_id'],day['work_date'])).fetchone():

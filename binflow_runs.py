@@ -13,7 +13,7 @@ from binflow_requirements import load_plan
 from binflow_approvals import ensure_approved
 from binflow_acceptance import acceptance_ok, manifest, schedule_changed
 from binflow_workday import run_workday, driver_today
-from binflow_permissions import can_view_job, is_office, require_state, selected_state, eligible_driver
+from binflow_permissions import can_view_job, is_office, require_state, run_operating_state, selected_state, eligible_driver
 
 CHECKS = VEHICLE_CHECKS + [('lift', 'Tail lift / bin lifter and controls (if fitted)', True)]
 
@@ -144,7 +144,8 @@ def run_data(conn, truck_id, run_date, driver_id, today):
         JOIN bf_sizes s ON s.id=b.size_id LEFT JOIN bf_job_bins i ON i.bin_id=b.id AND i.active=1
         LEFT JOIN bf_jobs j ON j.id=i.job_id WHERE b.truck_id=? ORDER BY b.code''',(truck_id,)).fetchall()
     step_key = stage+':'+str(loading_job['id'] if stage=='load' and loading_job else depot_id if stage=='return' else current['id'] if current else '')
-    return dict(truck=truck,run=run,jobs=jobs,rows=rows,current=current,current_rows=current_rows,
+    operating_state = run_operating_state(conn, truck_id, run_date, truck['state'])
+    return dict(truck=truck, operating_state=operating_state, run=run, jobs=jobs, rows=rows, current=current, current_rows=current_rows,
                 simple_flow=simple_flow,test_prestart_allowed=test_prestart_allowed,loading_job=loading_job,
                 depot=depot,onboard=onboard,step_key=step_key,
                 hold=hold,passed=passed,stage=stage,action=action,scan_rows=scan_rows,
@@ -156,7 +157,7 @@ def run_data(conn, truck_id, run_date, driver_id, today):
 def check_owner(conn, truck_id, run_date, user):
     truck=conn.execute('SELECT state FROM bf_trucks WHERE id=?',(truck_id,)).fetchone()
     if not truck: abort(404)
-    require_state(user,truck['state'])
+    require_state(user, run_operating_state(conn, truck_id, run_date, truck['state']))
     if is_office(user):
         return
     run = conn.execute('SELECT driver_id FROM bf_runs WHERE truck_id=? AND run_date=?', (truck_id,run_date)).fetchone()
@@ -467,8 +468,7 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
                 WHERE j.truck_id=? AND j.scheduled_date=? AND (i.loaded_at IS NOT NULL OR i.picked_up_at IS NOT NULL)''',(truck_id,run_date)).fetchone():
                 raise ValueError('This run has started. Its driver and stop order are locked to protect bin movements.')
             uid=int(request.form.get('driver_id','0'))
-            truck=db().execute('SELECT state FROM bf_trucks WHERE id=?',(truck_id,)).fetchone()
-            if not truck or not eligible_driver(db(),uid,truck['state']):
+            if any(not eligible_driver(db(),uid,state) for state in {j['state'] for j in jobs}):
                 raise ValueError('Choose an active driver or contractor allocated to this state, or a manager.')
             orders=[]
             before=manifest(db(),truck_id,run_date)[2]

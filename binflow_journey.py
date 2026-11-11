@@ -44,6 +44,36 @@ def overview(conn, user, day, state):
     return dict(**payload, version=hashlib.sha256(encoded.encode()).hexdigest())
 
 
+def select_run_vehicle(conn, day, runs, truck, candidates, scheduled_truck_id, stamp):
+    """Move one reviewed, unstarted manifest when the driver chooses a spare vehicle."""
+    if not runs:
+        return
+    routes = {r['truck_id']: r for r in runs}
+    target = truck['id']
+    source = scheduled_truck_id or target
+    if not scheduled_truck_id and target not in routes and len(routes) == 1:
+        source = next(iter(routes))
+    if source not in routes or source not in candidates:
+        raise ValueError('Select the scheduled run you want to drive on this vehicle.')
+    if source == target:
+        return
+    if target in routes:
+        raise ValueError('This vehicle already has a different scheduled run. Choose its own run or a spare vehicle.')
+    date = day['work_date']
+    for tid in (source, target):
+        ensure_run_unstarted(conn, tid, date)
+        if conn.execute("""SELECT 1 FROM bf_runs WHERE truck_id=? AND run_date=? AND accepted_at IS NOT NULL""",
+                        (tid, date)).fetchone():
+            raise ValueError('This run has already been accepted. Ask the office to change its vehicle.')
+    conn.executemany('UPDATE bf_jobs SET truck_id=?, vehicle=? WHERE id=?',
+                     [(target, truck['name'], j['id']) for j in routes[source]['jobs']])
+    conn.execute('UPDATE bf_runs SET driver_id=NULL WHERE truck_id=? AND run_date=? AND driver_id=?',
+                 (source, date, day['user_id']))
+    from binflow_workday import workday_event
+    workday_event(conn, day['id'], day['user_id'], 'Scheduled run moved to selected vehicle', stamp,
+                  routes[source]['truck_name'] + ' → ' + truck['name'])
+
+
 def accept_vehicle_run(conn, user, day, truck, stamp):
     """Bind an unchanged, accepted overview to the selected vehicle atomically."""
     jobs, snapshot, version = manifest(conn, truck['id'], day['work_date'])

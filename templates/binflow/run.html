@@ -9,7 +9,7 @@
 <div class="bf bf-day bf-journey" data-run-stage="{{ stage }}" data-run-current="{{ current.id if current else '' }}" data-run-step="{{ step_key }}" data-run-version="{{ manifest_version }}" data-run-state="{{ url_for('bf_run_state',truck_id=truck.id,date=run_date) }}">
 {% include 'binflow/demo_banner.html' %}
 {% include 'binflow/driver_clock.html' %}
-<header class="bf-heading"><div><span class="bf-kicker">{{ truck.state }} · {{ run_date|display_date }}</span><h1>{{ 'Your day is complete' if stage in ['done','weighing','finished'] else 'Let’s keep moving' }}</h1><p class="bf-vehicle-caption">{{ icon('truck') }} {{ truck.name }}</p></div></header>
+<header class="bf-heading"><div><span class="bf-kicker">{{ operating_state }} · {{ run_date|display_date }}</span><h1>{{ 'Your day is complete' if stage in ['done','weighing','finished'] else 'Let’s keep moving' }}</h1><p class="bf-vehicle-caption">{{ icon('truck') }} {{ truck.name }}</p></div></header>
 {% set phase={'prestart':1,'hold':1,'acceptance':1,'load':2,'ready':2,'navigate':3,'deliver':3,'collect':3,'handover':3,'navigate_depot':4,'return':4,'arrive':4,'weighing':4,'done':4,'finished':4}.get(stage,1) %}
 <div class="bf-route-progress" aria-label="Run progress"><span class="{{ 'active' if phase==1 }}{{ 'complete' if phase>1 }}">Check</span><span class="{{ 'active' if phase==2 }}{{ 'complete' if phase>2 }}">Load</span><span class="{{ 'active' if phase==3 }}{{ 'complete' if phase>3 }}">Clients</span><span class="{{ 'active' if phase==4 }}">Return</span></div>
 {% if stage=='prestart' %}

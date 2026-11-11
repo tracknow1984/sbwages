@@ -68,6 +68,10 @@ def install_demo_database(app, real_db, now):
         migrate_bin_condition(conn)
         from binflow_pod_records import migrate as migrate_pod_records
         migrate_pod_records(conn)
+        if request.endpoint == 'bf_workday':
+            conn.execute("""INSERT OR IGNORE INTO bf_trucks(id,name,state,created_at)
+                SELECT 2,'SAMPLE · interstate spare',CASE WHEN state='QLD' THEN 'NSW' ELSE 'QLD' END,created_at
+                FROM bf_trucks WHERE id=1""")
         conn.commit()
         g.bf_demo_db = conn
         g.bf_demo_token = token

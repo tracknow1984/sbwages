@@ -6,7 +6,7 @@ from binflow_qr import pickup_requests
 from binflow_approvals import ensure_approved
 from binflow_acceptance import schedule_cards, ensure_run_unstarted, schedule_changed
 from binflow_workday import driver_today
-from binflow_permissions import require_state, is_driver, is_office
+from binflow_permissions import run_operating_state, is_driver, is_office
 
 from flask import abort, g, jsonify, redirect, render_template, request, url_for
 
@@ -89,7 +89,7 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
         state=request.args.get('state','')
         if state not in ('',)+tuple(states): abort(400)
         jobs = db().execute("SELECT * FROM bf_jobs WHERE approval_status='approved' AND status='scheduled' AND truck_id IS NULL ORDER BY scheduled_date,id").fetchall()
-        previous=db().execute("""SELECT DISTINCT j.truck_id,j.scheduled_date,t.name,t.state FROM bf_jobs j JOIN bf_trucks t ON t.id=j.truck_id
+        previous=db().execute("""SELECT DISTINCT j.truck_id,j.scheduled_date,t.name,j.state FROM bf_jobs j JOIN bf_trucks t ON t.id=j.truck_id
             WHERE j.scheduled_date<? AND j.status IN ('scheduled','collected') ORDER BY j.scheduled_date DESC,t.name""",(run_date,)).fetchall()
         if not is_office(g.user):
             def mine(tid,day):
@@ -117,8 +117,8 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
                 raise ValueError('This truck has already started its run for this date. Choose an unstarted run.')
             if j['status'] != 'scheduled':
                 raise ValueError('Choose a truck before completing the client handover.')
-            if j['state'] != t['state']:
-                raise ValueError('Choose a truck from the same state as this job.')
+            if j['state'] != run_operating_state(db(), t['id'], j['scheduled_date'], t['state']):
+                raise ValueError('Choose a truck operating in this job’s state.')
             if j['schedule_week_id']:
                 if db().execute('''SELECT 1 FROM bf_jobs WHERE truck_id=? AND scheduled_date=? AND id!=?
                     AND schedule_live=1 AND status!='cancelled' AND (driver_id IS NULL OR driver_id!=?)''',
@@ -147,13 +147,12 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
     @app.get('/binflow/driver/<int:truck_id>')
     @access
     def bf_truck(truck_id):
-        t = truck(truck_id)
-        require_state(g.user,t['state'])
         selected = request.args.get('job', type=int)
         j = job(selected) if selected else None
         if j and j['truck_id'] != truck_id:
             abort(404)
         run_date = j['scheduled_date'] if j else request.args.get('date',now()[:10])
+        check_owner(db(),truck_id,run_date,g.user)
         return redirect(url_for('bf_run',truck_id=truck_id,date=run_date))
 
     @app.get('/binflow/driver/<int:truck_id>/state')
@@ -200,7 +199,7 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
                 message = f'{b["code"]} — already scanned for this step. Stock unchanged.'
             else:
                 guard_movement(db(),j,action,g.user,driver_today(db(),g.user,now()))
-                if b['reserved_job'] != j['id'] or b['state'] != t['state']:
+                if b['reserved_job'] != j['id'] or b['state'] != j['state']:
                     raise ValueError('The bin allocation changed. Refresh the job before scanning.')
                 if action in ('load','deliver','collect','unload') and j['status'] != 'scheduled':
                     raise ValueError('The client handover is already complete. This movement is closed.')
