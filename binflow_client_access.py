@@ -14,7 +14,8 @@ MODULES = (
 ENDPOINTS = {
     'bf_client_rigid_quote':'bookings.view', 'bf_client_interstate':'bookings.view', 'bf_client_interstate_detail':'bookings.view',
     'bf_client_interstate_new':'bookings.add','bf_client_interstate_edit':'bookings.edit',
-    'bf_client_national':'national.view','bf_client_profiles_portal':'profiles.view',
+    'bf_client_national':'national.view','bf_client_national_progress':'national.view',
+    'bf_client_national_weeks':'national.view','bf_client_profiles_portal':'profiles.view',
     'bf_client_site_portal':'profiles.view','bf_client_site_new':'profiles.add','bf_client_site_edit':'profiles.edit',
     'bf_client_pods':'pods.view','bf_client_pdf':'pods.view','bf_client_calendar':'calendar.view',
     'bf_client_requests':'requests.view',

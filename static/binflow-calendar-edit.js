@@ -1,7 +1,9 @@
 'use strict';
 (() => {
-  const root = document.querySelector('[data-calendar-editor]');
+  const root = document.querySelector('[data-calendar-editor], [data-calendar-readonly]');
   if (!root) return;
+  const editable = root.hasAttribute('data-calendar-editor');
+  let opener = null;
   const panel = document.getElementById('calendar-expanded-day');
   const moveDialog = document.getElementById('calendar-stop-move');
   const message = root.querySelector('[data-calendar-message]');
@@ -34,6 +36,7 @@
     panelError.hidden = !error; panelError.textContent = error ? text : '';
   };
   const changed = () => {
+    if (!editable) return;
     document.querySelectorAll('[data-calendar-save]').forEach(b => { b.disabled = saving || actionPending || !moves.length; });
     root.querySelector('[data-calendar-undo]').disabled = saving || actionPending || !moves.length;
   };
@@ -50,7 +53,8 @@
         const result = await response.json().catch(() => ({error:'Your session expired. Reload the calendar.'}));
         if (!response.ok) throw Error(result.error || 'Unable to load the calendar.');
         for (const week of result.weeks) if (!weeks.has(week.key)) {
-          week.original = structuredClone(week.plan); weeks.set(week.key, week);
+          if (editable) week.original = structuredClone(week.plan);
+          weeks.set(week.key, week);
         }
       })().finally(() => loading.delete(cacheKey)));
     }
@@ -130,19 +134,20 @@
       card.append(top,el('span',day.items.length+' scheduled '+(day.items.length===1?'item':'items'),'bf-cal-event-title'));
       card.append(el('span',day.items.slice(0,3).map(i=>i.title).join(' · ')+(day.items.length>3?' +'+(day.items.length-3)+' more':''),'bf-calendar-items-preview'));
       if(pending.length){card.classList.add('needs-attention');card.append(el('span',pending.length+' fixed visits need arrangement','bf-cal-event-warning'));}
-      if(day.items.length)list.append(grip(week.state,day.date));list.append(card);
+      if(editable && day.items.length)list.append(grip(week.state,day.date));list.append(card);
     }
     if(expanded)drawPanel();changed();
     root.dispatchEvent(new Event('calendar-progress-redraw'));
   }
   async function openDay(state,day) {
     if(saving || actionPending)return;
+    if(panel.hidden) opener = document.activeElement;
     const sequence=++openSequence;
     try {
       say('Loading '+state+' day…');await ensure(state,day);
       if(sequence!==openSequence)return;
       expanded={state,day};panel.hidden=false;root.classList.add('has-expanded-day');root.classList.toggle('has-expanded-wide',panel.classList.contains('is-wide'));
-      draw();say(moves.length?'Unsaved moves — Save changes when ready.':'Drag stops onto a date, or use Move to choose another date.');
+      draw();say(!editable?'':moves.length?'Unsaved moves — Save changes when ready.':'Drag stops onto a date, or use Move to choose another date.');
       panel.querySelector('[data-expanded-close]').focus({preventScroll:true});
     } catch(error){say(error.message||'Unable to open this day.',true);}
   }
@@ -152,21 +157,24 @@
     panel.querySelector('[data-expanded-state]').textContent=state+' · '+day.items.length+' scheduled items';
     panel.querySelector('[data-expanded-region]').value=state;
     panel.querySelector('[data-expanded-status]').textContent=(week.status==='published'?'Published to '+week.driver:'Draft · approval required')+' · '+(day.estimate_valid&&day.estimate_minutes?(day.estimate_minutes/60).toFixed(1)+'h original estimate':'Review route and working hours after changes');
-    panel.querySelector('[data-whole-day-target]').value=date;
+    if(editable) panel.querySelector('[data-whole-day-target]').value=date;
     panel.querySelector('[data-expanded-notes]').textContent=day.notes||'';
     const list=panel.querySelector('[data-expanded-stops]');list.replaceChildren();
     day.items.forEach((item,n)=>{
       const card=el('article',undefined,'bf-expanded-stop');card.dataset.stopId=item.id;
-      card.append(grip(state,date,item),el('small','Stop '+(n+1)+(item.time?' · '+item.time:'')),el('strong',item.title),el('p',item.address),el('p',item.detail));
+      if (editable) card.append(grip(state,date,item));
+      card.append(el('small','Stop '+(n+1)+(item.time?' · '+item.time:'')),el('strong',item.title),el('p',item.address),el('p',item.detail));
       if(item.notes)card.append(el('p',item.notes));
+      list.append(card);
+      if (!editable) return;
       const actions=el('div',undefined,'bf-expanded-stop-actions');
       const up=button('↑',()=>stage({kind:'item',state,source:date,target:date,item_id:item.id,before:day.items[n-1]?.id}));
       up.disabled=n===0;up.setAttribute('aria-label','Move '+item.title+' earlier');
       const down=button('↓',()=>stage({kind:'item',state,source:date,target:date,item_id:item.id,before:day.items[n+2]?.id||null}));
       down.disabled=n===day.items.length-1;down.setAttribute('aria-label','Move '+item.title+' later');
-      actions.append(up,down,button('Move…',()=>openMove(state,date,item.id)),button('Edit',()=>requestAction('edit',item.id)));card.append(actions);list.append(card);
+      actions.append(up,down,button('Move…',()=>openMove(state,date,item.id)),button('Edit',()=>requestAction('edit',item.id)));card.append(actions);
     });
-    if(!day.items.length)list.append(el('p','No work scheduled. Drop a stop here or choose Add work.','bf-muted'));
+    if(!day.items.length)list.append(el('p',editable?'No work scheduled. Drop a stop here or choose Add work.':'No work scheduled.','bf-muted'));
     const loads=panel.querySelector('[data-expanded-loads]');loads.replaceChildren();
     if(day.estimate_valid&&day.loads?.length){
       const details=el('details',undefined,'bf-week-loads');details.append(el('summary','Depot loads · '+day.loads.length));
@@ -183,6 +191,33 @@
   }
   function requestAction(action,item) {
     document.dispatchEvent(new CustomEvent('bf-calendar-action',{detail:{action,item,state:expanded.state,date:expanded.day,fromDay:true}}));
+  }
+  root.addEventListener('click',event=>{
+    const expand=event.target.closest('[data-expand-date]');
+    if(expand)openDay(expand.dataset.expandState||root.dataset.state||expanded?.state||'QLD',expand.dataset.expandDate);
+    const handle=event.target.closest('[data-drag-date]');
+    // Server-rendered day handles do not yet have a direct click listener.
+    if(handle&&!weeks.has(identity(handle.dataset.dragState,handle.dataset.dragDate)))openDay(handle.dataset.dragState,handle.dataset.dragDate);
+  });
+  panel.querySelector('[data-expanded-close]').addEventListener('click',()=>{
+    openSequence++;expanded=null;panel.hidden=true;root.classList.remove('has-expanded-day','has-expanded-wide');
+    const focusTarget = opener?.isConnected ? opener : root.querySelector('[data-expand-date]');
+    focusTarget?.focus({preventScroll:true});
+  });
+  panel.querySelector('[data-expanded-wide]').addEventListener('click',event=>{
+    const wide=panel.classList.toggle('is-wide');event.currentTarget.setAttribute('aria-pressed',String(wide));event.currentTarget.textContent=wide?'Compact':'Expand';root.classList.toggle('has-expanded-wide',wide);
+  });
+  panel.querySelector('[data-expanded-previous]').addEventListener('click',()=>openDay(expanded.state,shift(expanded.day,-1)));
+  panel.querySelector('[data-expanded-next]').addEventListener('click',()=>openDay(expanded.state,shift(expanded.day,1)));
+  panel.querySelector('[data-expanded-region]').addEventListener('change',event=>openDay(event.target.value,expanded.day));
+  const loadSelectedState = () => {
+    if(root.dataset.state && root.dataset.last >= '2026-10-26') {
+      ensure(root.dataset.state,root.dataset.last).then(draw).catch(error=>say(error.message,true));
+    }
+  };
+  if (!editable) {
+    loadSelectedState();
+    return;
   }
   panel.querySelectorAll('[data-day-action]').forEach(b=>b.addEventListener('click',()=>requestAction(b.dataset.dayAction)));
   document.addEventListener('bf-calendar-before-action',event=>{
@@ -217,23 +252,6 @@
     event.preventDefault();const op={...dragged,target:expanded.day,before:event.target.closest('[data-stop-id]')?.dataset.stopId||null};
     dragged=null;clearDrop();stage(op);
   });
-  root.addEventListener('click',event=>{
-    const expand=event.target.closest('[data-expand-date]');
-    if(expand)openDay(expand.dataset.expandState||root.dataset.state||expanded?.state||'QLD',expand.dataset.expandDate);
-    const handle=event.target.closest('[data-drag-date]');
-    // Server-rendered day handles do not yet have a direct click listener.
-    if(handle&&!weeks.has(identity(handle.dataset.dragState,handle.dataset.dragDate)))openDay(handle.dataset.dragState,handle.dataset.dragDate);
-  });
-  panel.querySelector('[data-expanded-close]').addEventListener('click',()=>{
-    openSequence++;expanded=null;panel.hidden=true;root.classList.remove('has-expanded-day','has-expanded-wide');
-    root.querySelector('[data-calendar-save]').focus({preventScroll:true});
-  });
-  panel.querySelector('[data-expanded-wide]').addEventListener('click',event=>{
-    const wide=panel.classList.toggle('is-wide');event.currentTarget.setAttribute('aria-pressed',String(wide));event.currentTarget.textContent=wide?'Compact':'Expand';root.classList.toggle('has-expanded-wide',wide);
-  });
-  panel.querySelector('[data-expanded-previous]').addEventListener('click',()=>openDay(expanded.state,shift(expanded.day,-1)));
-  panel.querySelector('[data-expanded-next]').addEventListener('click',()=>openDay(expanded.state,shift(expanded.day,1)));
-  panel.querySelector('[data-expanded-region]').addEventListener('change',event=>openDay(event.target.value,expanded.day));
   panel.querySelector('[data-whole-day-move]').addEventListener('submit',async event=>{
     event.preventDefault();const target=panel.querySelector('[data-whole-day-target]').value;
     const op={kind:'day',state:expanded.state,source:expanded.day,target};
@@ -268,5 +286,5 @@
   const saved=sessionStorage.getItem('bf-calendar-saved');if(saved){say(saved);sessionStorage.removeItem('bf-calendar-saved');}
   const restore=sessionStorage.getItem('bf-calendar-expanded');sessionStorage.removeItem('bf-calendar-expanded');
   if(restore){try{const value=JSON.parse(restore);openDay(value.state,value.day).then(()=>{if(saved)say(saved);});}catch(_){/* Ignore an obsolete view preference. */}}
-  else if(root.dataset.state&&root.dataset.last>='2026-10-26')ensure(root.dataset.state,root.dataset.last).then(draw).catch(error=>say(error.message,true));
+  else loadSelectedState();
 })();

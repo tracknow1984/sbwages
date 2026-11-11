@@ -1,5 +1,6 @@
 """Client-facing national site directory. Permission checks are shared with the portal."""
 import sqlite3
+from collections import defaultdict
 from flask import abort, g, redirect, render_template, request, url_for
 
 from binflow_client_profiles import (FIELDS, KEYS, STATES, create_site, filter_register,
@@ -25,8 +26,20 @@ def register(app, db, client_access, now):
         if view not in ('current','archived','all'):
             abort(400)
         rows=[row for row in register_rows(db()) if view=='all' or bool(row['archived'])==(view=='archived')]
-        return show('client_directory',states=STATES,view=view,
-                    **filter_register(rows,request.args,'bf_client_profiles_portal'))
+        data=filter_register(rows,request.args,'bf_client_profiles_portal',allow_all=True)
+        location_ids={r['location_id'] for r in data['profiles'] if r['location_id'] is not None}
+        bins=defaultdict(list)
+        # Query requirements in batches to handle both paginated and full-register views.
+        ids=sorted(location_ids)
+        for start in range(0,len(ids),500):
+            batch=ids[start:start+500]
+            marks=','.join('?' for _ in batch)
+            for item in db().execute(f"""SELECT r.location_id,r.quantity,s.name FROM bf_site_requirements r
+                JOIN bf_sizes s ON s.id=r.size_id WHERE r.quantity>0 AND r.location_id IN ({marks})
+                ORDER BY r.location_id,s.litres,s.name""",batch):
+                bins[item['location_id']].append(item)
+        return show('client_directory',states=STATES,view=view,bins=bins,
+                    show_all=request.args.get('per_page')=='all',**data)
 
     @app.get('/binflow/client/profiles/<int:pid>')
     @client_access

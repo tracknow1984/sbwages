@@ -3,3 +3,26 @@
 .bf-directory-details {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(15rem,100%),1fr));gap:1rem}
 .bf-directory-details dt {font-weight:700}
 .bf-directory-details dd {margin:.25rem 0 0;white-space:pre-line;overflow-wrap:anywhere}
+
+.bf-portal:has(.bf-client-register),.bf-portal:has(.bf-portal-calendar) {max-width:1540px}
+.bf-directory-filters {flex-wrap:wrap}
+.bf-portal .bf-client-register table {table-layout:fixed;width:100%;white-space:normal}
+.bf-client-register thead th:first-child {width:20%}
+.bf-client-register thead th:nth-child(2) {width:20%}
+.bf-client-register thead th:nth-child(3) {width:23%}
+.bf-client-register thead th:nth-child(6) {width:10%}
+.bf .bf-client-register tbody th,.bf .bf-client-register td {padding:.85rem .7rem;border-bottom:1px solid #dce5ed;background:transparent;font-size:.87rem;text-transform:none;letter-spacing:normal;font-weight:400;vertical-align:top;color:#18344d;white-space:normal;overflow-wrap:anywhere}
+.bf-client-register tbody tr:nth-child(even) {background:#f6f9fc}
+.bf-client-register tbody th>a:first-child {font-weight:700}
+.bf-client-register tbody span,.bf-client-register td div {display:block;white-space:pre-line}
+.bf-client-register tbody small,.bf-directory-edit {display:block;font-size:.76rem;margin-top:.25rem}
+@media(max-width:800px) {
+ .bf-portal .bf-client-register table,.bf-client-register tbody,.bf-client-register tbody tr {display:block}
+ .bf-client-register thead {position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+ .bf-client-register tbody tr {padding:.65rem .85rem;border-bottom:1px solid #ccd9e3}
+ .bf .bf-client-register tbody th {display:block;padding:.3rem 0 .6rem;border:0}
+ .bf .bf-client-register td {display:grid;grid-template-columns:6.8rem minmax(0,1fr);gap:0 .65rem;padding:.25rem 0;border:0}
+ .bf-client-register td::before {content:attr(data-label);grid-column:1;grid-row:1;color:#4e6379;font-size:.77rem;font-weight:600}
+ .bf-client-register td>* {grid-column:2}
+ .bf .bf-client-register .bf-directory-empty {display:block}
+}

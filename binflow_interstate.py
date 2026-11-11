@@ -23,7 +23,7 @@ PLACES = {
 LANES = {'QLD-VIC': 3, 'NSW-QLD': 2, 'SA-VIC': 2, 'QLD-SA': 4, 'QLD-WA': 5}
 FIELDS = ('job_type','handling','origin','destination','pickup_date','delivery_date','client_name',
           'pickup_address','pickup_contact','pickup_phone','delivery_address','delivery_contact',
-          'delivery_phone','email','goods','vehicle')
+          'delivery_phone','email','goods','vehicle','pickup_company','delivery_company')
 PROGRESS = {'loading':'Loading','transit':'In transit','received':'Received','handed_over':'Handed over'}
 
 
@@ -51,6 +51,10 @@ def migrate(conn):
             blocktexx_handover INTEGER NOT NULL DEFAULT 0);
         CREATE INDEX IF NOT EXISTS bf_interstate_booking_manifest ON bf_interstate_manifests(booking_id,transfer_id);
     """)
+    columns = {r[1] for r in conn.execute('PRAGMA table_info(bf_interstate_bookings)')}
+    for field in ('pickup_company', 'delivery_company'):
+        if field not in columns:
+            conn.execute(f"ALTER TABLE bf_interstate_bookings ADD COLUMN {field} TEXT NOT NULL DEFAULT ''")
     freight.migrate(conn)
 
 
@@ -58,11 +62,17 @@ def route_days(origin, destination):
     return LANES.get('-'.join(sorted((PLACES[origin][1], PLACES[destination][1]))))
 
 
-def parse_booking(form, client=False, previous=None):
+def parse_booking(form, client=False, previous=None, billing_name=None):
     from app import valid_email
     data = {field:form.get(field,'').strip() for field in FIELDS}
+    if billing_name is not None:
+        data['client_name'] = billing_name
     if client:
         data['handling']='bulk'
+        data['job_type'] = previous['job_type'] if previous is not None else 'internal'
+        for field, label in [('pickup_company', 'Pick Up Company Name'), ('delivery_company', 'Delivery Company Name')]:
+            if not data[field]:
+                raise ValueError(label+' is required.')
     same_legacy_rigid = (previous is not None and previous['rigid_hours_units'] is None
                          and previous['vehicle']==data['vehicle']=='RIGID'
                          and all(PLACES.get(data[k], ('',''))[1]==PLACES[previous[k]][1] for k in ('origin','destination')))
@@ -147,10 +157,12 @@ def confirmation(conn, config, row, now):
                         f"Total: AUD ${price['total']/100:,.2f} ex GST\n")
                 else:
                     freight_details += "Freight price to be confirmed\n"
+        pickup_company = row['pickup_company']+'\n' if row['pickup_company'] else ''
+        delivery_company = row['delivery_company']+'\n' if row['delivery_company'] else ''
         msg.set_content(f"Hi {row['pickup_contact']},\n\nSB Empire has confirmed transfer IT-{row['id']:06d} for {row['client_name']}.\n\n"
-            f"Pickup: {dated(row['pickup_date']):%a %d %b %Y} · {PLACES[row['origin']][0]}\n{row['pickup_address']}\n"
+            f"Pickup: {dated(row['pickup_date']):%a %d %b %Y} · {PLACES[row['origin']][0]}\n{pickup_company}{row['pickup_address']}\n"
             f"Pickup contact: {row['pickup_contact']} {row['pickup_phone']}\n\n"
-            f"Delivery: {dated(row['delivery_date']):%a %d %b %Y} · {PLACES[row['destination']][0]}\n{row['delivery_address']}\n"
+            f"Delivery: {dated(row['delivery_date']):%a %d %b %Y} · {PLACES[row['destination']][0]}\n{delivery_company}{row['delivery_address']}\n"
             f"Delivery contact: {row['delivery_contact']} {row['delivery_phone']}\n\n"
             f"{freight_details}Goods: {row['goods'] or 'Bales on a scanned manifest'}\n\nSB Empire Operations")
         send_smtp(config, msg)
@@ -225,6 +237,11 @@ def register(app, db, access, require, render, client_access, now, actor):
     def form_page(external, row=None):
         values = dict(row) if row else dict(job_type='internal',handling='bulk' if external else 'scanned',client_name=g.bf_client['name'] if external else '')
         aid = g.bf_client['id'] if external else (row['account_id'] if row else None)
+        billing_name = None
+        if external:
+            billing_name = g.bf_client['name']
+        elif aid is not None:
+            billing_name = db().execute('SELECT name FROM bf_client_accounts WHERE id=?',(aid,)).fetchone()['name']
         if row and row['rigid_hours_units'] is not None:
             values['hours'] = f"{row['rigid_hours_units']/100:g}"
 
@@ -242,7 +259,7 @@ def register(app, db, access, require, render, client_access, now, actor):
             return page('interstate_form',external,values=values,key=key,row=row,error=error,rates=rate_card(db()),
                         hourly=hourly,bps=bps,minimum=freight.MIN_RIGID_HOURS,
                         booking_vehicles=('RIGID', *freight.MATRIX_VEHICLES),
-                        legacy_route=legacy_route,
+                        legacy_route=legacy_route,billing_name=billing_name,
                         priced=aid is not None,bulk_only=external)
         if not row and request.method=='GET' and request.args.get('pickup'):
             try:
@@ -254,7 +271,7 @@ def register(app, db, access, require, render, client_access, now, actor):
             values = request.form
             key = values.get('request_key','')
             try:
-                data = parse_booking(values,client=external,previous=row)
+                data = parse_booking(values,client=external,previous=row,billing_name=billing_name)
                 conn = db()
                 conn.execute('BEGIN IMMEDIATE')
                 route = ':'.join((PLACES[data['origin']][1], PLACES[data['destination']][1], data['vehicle']))

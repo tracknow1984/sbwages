@@ -95,7 +95,7 @@
     }
     estimate();
   }));
-  job.addEventListener('change', () => {
+  job?.addEventListener('change', () => {
     if (handling) handling.value = isLocal() || job.value === 'external' ? 'bulk' : 'scanned';
     updateHandling();
   });

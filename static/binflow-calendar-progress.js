@@ -24,8 +24,9 @@
    for(const entry of day.entries){
     const row=node('li',''),icon=node('span',symbols[entry.status],'bf-progress-chip is-'+entry.status);
     icon.title=labels[entry.status];icon.setAttribute('aria-label',labels[entry.status]);row.append(icon);
-    const name=node(entry.job_id?'a':'span',entry.title);name.title=labels[entry.status]+' · '+entry.note;
-    if(entry.job_id)name.href='/binflow/pickups/'+entry.job_id;
+    const link=entry.job_id && !root.hasAttribute('data-calendar-readonly');
+    const name=node(link?'a':'span',entry.title);name.title=labels[entry.status]+' · '+entry.note;
+    if(link)name.href='/binflow/pickups/'+entry.job_id;
     name.dataset.noIcon='';row.append(name);list.append(row);
    }
    details.append(list);

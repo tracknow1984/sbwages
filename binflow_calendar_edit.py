@@ -75,6 +75,49 @@ def apply_move(plans, operation):
     source['estimate_valid'] = target['estimate_valid'] = False
 
 
+def calendar_progress_response(conn):
+    from binflow_schedule import STATES
+    from binflow_calendar_progress import progress
+    try:
+        first = date.fromisoformat(request.args.get('first',''))
+        last = date.fromisoformat(request.args.get('last',''))
+        state = request.args.get('state','')
+        if not 0 <= (last-first).days <= 41 or state not in ('',*STATES):
+            raise ValueError('Choose one calendar month and a valid state.')
+        response = jsonify(days=progress(conn,first,last,state))
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+    except (ValueError,TypeError) as exc:
+        return jsonify(error=str(exc)),400
+
+
+def calendar_weeks_response(conn, editable=False):
+    from binflow_schedule import STATES, monday, get_plan
+    try:
+        state = request.args.get('state')
+        if state not in STATES:
+            raise ValueError('Choose a calendar state.')
+        first = date.fromisoformat(monday(request.args.get('first')))
+        last = date.fromisoformat(monday(request.args.get('last')))
+        if not 0 <= (last-first).days <= 42:
+            raise ValueError('Load one calendar month at a time.')
+        from binflow_route_calendar import START
+        weeks = []
+        while first <= last:
+            if first >= START:
+                start = first.isoformat()
+                row, plan = get_plan(conn, state, start)
+                weeks.append(dict(key=key(state, start), state=state, start=start, plan=plan,
+                                  status=row['status'] if row else 'draft',
+                                  driver=row['driver_name'] if row else None))
+                if editable:
+                    weeks[-1]['token'] = fingerprint(row,plan)
+            first += timedelta(days=7)
+        return jsonify(weeks=weeks)
+    except (ValueError, TypeError) as exc:
+        return jsonify(error=str(exc)), 400
+
+
 def register_calendar_edit(app, db, require, now, actor):
     from binflow_schedule import (STATES, monday, get_plan, clean_plan, drivers,
                                   job_positions, ensure_job_editable, sync_jobs, refresh_runs)
@@ -82,43 +125,12 @@ def register_calendar_edit(app, db, require, now, actor):
     @app.get('/binflow/schedule/calendar-progress')
     @require('admin')
     def bf_calendar_progress():
-        from binflow_calendar_progress import progress
-        try:
-            first = date.fromisoformat(request.args.get('first',''))
-            last = date.fromisoformat(request.args.get('last',''))
-            state = request.args.get('state','')
-            if not 0 <= (last-first).days <= 41 or state not in ('',*STATES):
-                raise ValueError('Choose one calendar month and a valid state.')
-            response = jsonify(days=progress(db(),first,last,state))
-            response.headers['Cache-Control'] = 'no-store'
-            return response
-        except (ValueError,TypeError) as exc:
-            return jsonify(error=str(exc)),400
+        return calendar_progress_response(db())
 
     @app.get('/binflow/schedule/calendar-data')
     @require('admin')
     def bf_calendar_edit_data():
-        try:
-            state = request.args.get('state')
-            if state not in STATES:
-                raise ValueError('Choose a state to edit.')
-            first = date.fromisoformat(monday(request.args.get('first')))
-            last = date.fromisoformat(monday(request.args.get('last')))
-            if not 0 <= (last-first).days <= 42:
-                raise ValueError('Load one calendar month at a time.')
-            from binflow_route_calendar import START
-            weeks = []
-            while first <= last:
-                if first >= START:
-                    start = first.isoformat()
-                    row, plan = get_plan(db(), state, start)
-                    weeks.append(dict(key=key(state, start), state=state, start=start, plan=plan,
-                                      token=fingerprint(row, plan), status=row['status'] if row else 'draft',
-                                      driver=row['driver_name'] if row else None))
-                first += timedelta(days=7)
-            return jsonify(weeks=weeks)
-        except (ValueError, TypeError) as exc:
-            return jsonify(error=str(exc)), 400
+        return calendar_weeks_response(db(), editable=True)
 
     @app.post('/binflow/schedule/calendar-save')
     @require('admin')

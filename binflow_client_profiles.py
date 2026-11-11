@@ -231,7 +231,7 @@ def register_counts(conn):
                 workbook=conn.execute('SELECT COUNT(*) FROM bf_allocation_workbook_rows WHERE active=1').fetchone()[0])
 
 
-def filter_register(rows, args, endpoint, endpoint_args=None, supplier=False):
+def filter_register(rows, args, endpoint, endpoint_args=None, supplier=False, allow_all=False):
     """Shared search, filters, sorting and bounded pagination for site registers."""
     query = args.get('q', '').strip()[:200]
     filters = {name: args.get(name, '').strip()[:500]
@@ -268,6 +268,8 @@ def filter_register(rows, args, endpoint, endpoint_args=None, supplier=False):
     except ValueError:
         per_page, page = 20, 1
     filtered = len(rows)
+    if allow_all and args.get('per_page')=='all':
+        per_page = max(1,filtered)
     pages = max(1, (filtered + per_page - 1) // per_page)
     page = min(page, pages)
     offset = (page - 1) * per_page

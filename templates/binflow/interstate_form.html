@@ -10,17 +10,18 @@
 <form method="post" class="bf-form it-form" data-it-booking data-rigid="{{ {'hourly':hourly,'bps':bps,'minimum':minimum,'legacyRoute':legacy_route}|tojson|forceescape }}" data-rates="{{ rates|tojson|forceescape }}" data-lanes="{{ lanes|tojson|forceescape }}">
   <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="request_key" value="{{ key }}">
   {% if row %}<input type="hidden" name="version" value="{{ row.version }}">{% endif %}
+  {% if billing_name is not none %}<label>Client Name (billing)<input value="{{ billing_name }}" readonly></label>{% else %}{{ entry('client_name','Client Name (billing)') }}{% endif %}
   <label>Vehicle type<select name="vehicle" {{ 'required' if external }}><option value="">Select vehicle</option>{% for v in booking_vehicles %}<option value="{{ v }}" {{ 'selected' if values.vehicle==v }}>{{ 'B DOUBLE' if v=='B-DOUBLE' else v }}</option>{% endfor %}</select></label>
   <div data-rigid-hours>
     <label>Requested hours<input type="number" min="0.01" max="10000" step=".01" inputmode="decimal" name="hours" value="{{ values.get('hours',minimum) }}"></label>
     <small class="bf-muted">Local RIGID · {{ minimum }}-hour minimum{% if hourly is not none %} · {{ hourly|money }}/hour ex GST{% endif %}</small>
   </div>
-  <div class="bf-grid two"><label>Job type<select name="job_type" required><option value="internal" {{ 'selected' if values.job_type=='internal' }}>Internal · SB Empire</option><option value="external" {{ 'selected' if values.job_type=='external' }}>External · subcontractor</option></select></label>
+  <div class="bf-grid two">{% if not external %}<label>Job type<select name="job_type" required><option value="internal" {{ 'selected' if values.job_type=='internal' }}>Internal · SB Empire</option><option value="external" {{ 'selected' if values.job_type=='external' }}>External · subcontractor</option></select></label>{% endif %}
   {% if bulk_only %}<div><strong>Goods recording</strong><p>Bulk movement</p></div>{% else %}<label>Goods recording<select name="handling" required><option value="scanned" {{ 'selected' if values.handling=='scanned' }}>Scan each bale</option><option value="bulk" {{ 'selected' if bulk_only or values.handling=='bulk' }}>Bulk movement · list goods</option></select></label>{% endif %}</div>
-  <h3>Pickup location</h3><div class="bf-grid two">{{ entry('pickup_address','Pickup address',limit=500) }}{{ state_select('origin','Pickup state') }}
-  {{ entry('client_name','Client name') }}{{ entry('pickup_contact','Primary contact name') }}{{ entry('pickup_phone','Pickup contact number',false,'tel',50) }}
+  <h3>Pickup location</h3>{{ entry('pickup_company','Pick Up Company Name',external) }}<div class="bf-grid two">{{ entry('pickup_address','Pickup address',limit=500) }}{{ state_select('origin','Pickup state') }}
+  {{ entry('pickup_contact','Primary contact name') }}{{ entry('pickup_phone','Pickup contact number',false,'tel',50) }}
   <label>Pickup date<input type="date" name="pickup_date" min="2000-01-01" max="2100-12-31" value="{{ values.get('pickup_date','') }}"></label></div>
-  <h3>Delivery location</h3><div class="bf-grid two">{{ entry('delivery_address','Delivery address',limit=500) }}{{ state_select('destination','Delivery state') }}
+  <h3>Delivery location</h3>{{ entry('delivery_company','Delivery Company Name',external) }}<div class="bf-grid two">{{ entry('delivery_address','Delivery address',limit=500) }}{{ state_select('destination','Delivery state') }}
   {{ entry('delivery_contact','Delivery contact name') }}{{ entry('delivery_phone','Delivery contact number',false,'tel',50) }}
   <label>Delivery date (ETA)<input type="date" name="delivery_date" min="2000-01-01" max="2100-12-31" value="{{ values.get('delivery_date','') }}"></label></div>
   <p data-transit-hint class="bf-muted" aria-live="polite">Enter a pickup date or delivery date to estimate the other.</p>

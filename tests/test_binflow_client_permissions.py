@@ -89,15 +89,10 @@ class PortalPermissionTests(unittest.TestCase):
         main=self.visit('blocktexx1')
         other=self.visit('another-client')
         national='/binflow/client/local-pickups?week=2026-10-19'
-        plan={'days':[{'date':'2026-10-19','items':[{'kind':'visit','site_id':3,'notes':'PRIVATE'}]}]}
-        with sqlite3.connect(self.path) as conn:
-            conn.execute("""INSERT INTO bf_schedule_weeks(id,state,week_start,revision,status,plan_json,updated_at,updated_by)
-                VALUES(1,'QLD','2026-10-19',1,'draft',?,'now',1)""",(json.dumps(plan),))
-        self.assertNotIn('Alpha QLD',main.get(national).text)
-        with sqlite3.connect(self.path) as conn:
-            conn.execute("UPDATE bf_schedule_weeks SET status='published'")
-        self.assertIn('Alpha QLD',main.get(national).text)
-        self.assertNotIn('PRIVATE',main.get(national).text)
+        page=main.get(national).text
+        self.assertIn('Alpha QLD',page)
+        self.assertIn('Client collection profiles',page)
+        self.assertNotIn('Allocate bins',page)
         self.assertNotIn('Alpha QLD',main.get(national+'&state=NSW').text)
         self.assertEqual(other.get(national).status_code,403)
         self.assertEqual(main.get('/binflow/client/profiles/new').status_code,403)
@@ -126,6 +121,95 @@ class PortalPermissionTests(unittest.TestCase):
             conn.execute("UPDATE bf_jobs SET pod_deleted_at='now' WHERE id=1")
         self.assertEqual(main.get(pdf).status_code,404)
         self.assertEqual(main.get(docket).status_code,404)
+
+    def test_national_calendar_shares_draft_and_published_days_but_cannot_change_them(self):
+        from binflow_route_calendar import RESET_ID
+        from binflow_schedule import get_plan
+        self.account('viewer',custom_permissions='yes',permission=['national.view'])
+        self.account('ordinary')
+        viewer=self.visit('viewer')
+        ordinary=self.visit('ordinary')
+        national='/binflow/client/local-pickups'
+        office='/binflow/collection-calendar'
+        query='?state=NSW&date=2026-11-09'
+        bounds='?state=NSW&first=2026-11-09&last=2026-11-15'
+        with sqlite3.connect(self.path) as conn:
+            conn.row_factory=sqlite3.Row
+            conn.execute("INSERT OR IGNORE INTO bf_calendar_rebuilds VALUES(?,'2026-10-26','{}','{}','now')",(RESET_ID,))
+            _,plan=get_plan(conn,'NSW','2026-11-09')
+            plan['days'][0]['items']=[dict(id='test-visit',kind='visit',title='West Sydney pickup',site_id=5,
+                time='08:30',address='123 Depot Road',detail='2 × 1100L',notes='Use gate B')]
+            conn.execute("""INSERT INTO bf_schedule_weeks(state,week_start,revision,status,plan_json,updated_at,updated_by)
+                  VALUES('NSW','2026-11-09',1,'draft',?,'now',1)""",(json.dumps(plan),))
+        for status in ('draft','published'):
+            with sqlite3.connect(self.path) as conn:
+                conn.execute('UPDATE bf_schedule_weeks SET status=?',(status,))
+            for mode in ('week','month'):
+                staff=self.client.get(office+query+'&view='+mode)
+                page=viewer.get(national+query+'&view='+mode)
+                self.assertEqual(page.status_code,200)
+                for title in ['State collection calendar','West Sydney pickup',status.capitalize(),'Pickup progress']:
+                    self.assertIn(title,page.text)
+                    self.assertIn(title,staff.text)
+                self.assertIn('data-expand-date',page.text)
+                self.assertIn('data-calendar-readonly',page.text)
+                for token in ['data-calendar-save','draggable="true"','APPROVE WEEK','/schedule/calendar-save','/binflow/admin','data-day-action']:
+                    self.assertNotIn(token,page.text)
+            weeks=viewer.get(national+'/weeks'+bounds).json['weeks']
+            staff_weeks=self.client.get('/binflow/schedule/calendar-data'+bounds).json['weeks']
+            self.assertEqual(weeks[0]['plan'],staff_weeks[0]['plan'])
+            self.assertNotIn('token',weeks[0])
+            self.assertEqual(viewer.get(national+'/progress'+bounds).json,self.client.get('/binflow/schedule/calendar-progress'+bounds).json)
+        with viewer.session_transaction() as session:
+            csrf=session['csrf']
+        for part in ('','/weeks','/progress'):
+            self.assertEqual(ordinary.get(national+part+bounds).status_code,403)
+            self.assertEqual(viewer.post(national+part+bounds,data=dict(csrf=csrf)).status_code,405)
+        self.assertNotEqual(viewer.get('/binflow/schedule/calendar-data'+bounds).status_code,200)
+        self.assertIn(viewer.post('/binflow/schedule/calendar-save',data=dict(csrf=csrf,moves='[]')).status_code,(302,403))
+        self.assertEqual(self.rows("SELECT revision FROM bf_schedule_weeks WHERE state='NSW'"),[dict(revision=1)])
+
+    def test_profile_directory_shows_all_site_information_together(self):
+        self.account('directory',custom_permissions='yes',permission=['profiles.view'])
+        reader=self.visit('directory')
+        path='/binflow/client/profiles'
+        reader.get(path)
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("""UPDATE bf_client_site_profiles SET contact_name='Pat Taylor',contact_email='pat@example.invalid',
+                contact_number='0400 000 000',contact_verified='yes',asic_required='yes',group_name='Linen group',
+                suburb='Silverwater',postcode='2141',schedule='Every Tuesday' WHERE location_id=5""")
+            conn.execute('INSERT OR REPLACE INTO bf_site_requirements VALUES(5,1,7)')
+        body=reader.get(path+'?state=NSW&per_page=all').text
+        row=body.split('<tbody>')[1].split('</tr>')[0]
+        for value in ['Alpha NSW','Client Alpha','Linen group','3 Client Road','Silverwater NSW 2141',
+                'Pat Taylor','pat@example.invalid','0400 000 000','Contact verified · Yes','Every Tuesday','7 ×','ASIC required']:
+            self.assertIn(value,row)
+        self.assertNotIn('Edit profile',body)
+        self.assertNotIn('Alpha QLD',body)
+        self.assertIn('No sites match',reader.get(path+'?q=missing-site-name').text)
+
+    def test_billing_is_bound_to_login_and_companies_are_separate(self):
+        aid=self.account('billing-user',custom_permissions='yes',permission=['bookings.add','bookings.edit'])
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("UPDATE bf_client_accounts SET name='Billing Pty Ltd' WHERE id=?",(aid,))
+        client=self.visit('billing-user')
+        page=client.get(CLIENT+'/new').text
+        self.assertIn('value="Billing Pty Ltd" readonly',page)
+        self.assertNotIn('name="job_type"',page)
+        self.assertNotIn('name="client_name"',page)
+        form=data(client_name='Unrelated business',job_type='external')
+        for key in ('pickup_company','delivery_company'):
+            self.assertEqual(self.send(client,CLIENT+'/new',dict(form,**{key:' '})).status_code,400)
+        response=self.send(client,CLIENT+'/new',form)
+        self.assertEqual(response.status_code,200)
+        for name in ('Billing Pty Ltd','Sending Co','Receiving Co'):
+            self.assertIn(name,response.text)
+        self.assertEqual(self.rows('SELECT account_id,client_name,job_type FROM bf_interstate_bookings'),
+                         [dict(account_id=aid,client_name='Billing Pty Ltd',job_type='internal')])
+        self.post(CAL+'/1/edit',dict(form,version=1))
+        self.send(client,CLIENT+'/1/edit',dict(form,version=2,job_type='internal',pickup_company='New sender'))
+        self.assertEqual(self.rows('SELECT client_name,job_type,pickup_company,delivery_company FROM bf_interstate_bookings'),
+                         [dict(client_name='Billing Pty Ltd',job_type='external',pickup_company='New sender',delivery_company='Receiving Co')])
 
     def test_rate_card_snapshot_client_isolation_and_bulk_vehicle_rules(self):
         aid=self.account('freight-client',custom_permissions='yes',permission=['bookings.add','bookings.edit'])

@@ -246,26 +246,32 @@ def calendar_period(chosen, view):
     return start,end,previous,following,title,weeks
 
 
+def collection_calendar_view(conn, args, today):
+    from binflow_route_calendar import enabled, view_data
+    state = args.get('state','')
+    view = args.get('view','week')
+    if state not in ('',)+STATES or view not in ('month','week'):
+        abort(400)
+    try:
+        chosen = dated(args.get('date') or args.get('week') or today)
+    except ValueError:
+        abort(400,'Choose a valid calendar date.')
+    start,end,previous,following,title,weeks = calendar_period(chosen,view)
+    common = dict(selected=state,view=view,chosen=chosen,title=title,previous=previous.isoformat(),
+                  following=following.isoformat(),today=today)
+    if enabled(conn):
+        return 'route_calendar', {**common, **view_data(conn,start,end,state)}
+    counts = {r['state']:r['n'] for r in conn.execute("SELECT state,COUNT(*) n FROM bf_locations WHERE kind='client' GROUP BY state")}
+    return 'collection_calendar', dict(common, weeks=weeks, days=DAYS, state_counts=counts,
+                                       **calendar_data(conn,start,end,state))
+
+
 def register_collections(app,db,access,require,render,success,now,actor):
     @app.get('/binflow/collection-calendar')
     @access
     def bf_collection_calendar():
-        from binflow_route_calendar import enabled, view_data
-        rebuilt=enabled(db())
-        state=request.args.get('state','');view=request.args.get('view','week')
-        if state not in ('',)+STATES or view not in ('month','week'): abort(400)
-        try: chosen=dated(request.args.get('date') or now()[:10])
-        except ValueError: abort(400,'Choose a valid calendar date.')
-        start,end,previous,following,title,weeks = calendar_period(chosen,view)
-        if rebuilt:
-            return render('route_calendar',section='collection_calendar',selected=state,view=view,chosen=chosen,
-                title=title,previous=previous.isoformat(),following=following.isoformat(),today=now()[:10],
-                **view_data(db(),start,end,state))
-        data=calendar_data(db(),start,end,state)
-        state_counts={r['state']:r['n'] for r in db().execute("SELECT state,COUNT(*) n FROM bf_locations WHERE kind='client' GROUP BY state")}
-        return render('collection_calendar',section='collection_calendar',selected=state,view=view,chosen=chosen,
-            weeks=weeks,title=title,previous=previous.isoformat(),following=following.isoformat(),days=DAYS,
-            today=now()[:10],state_counts=state_counts,**data)
+        template, data = collection_calendar_view(db(), request.args, now()[:10])
+        return render(template, section='collection_calendar', **data)
 
     @app.route('/binflow/locations/<int:location_id>/collection-profile',methods=['GET','POST'])
     @require('admin')

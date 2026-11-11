@@ -1,4 +1,4 @@
-"""BlockTexx management: explicit site access and published collections only."""
+"""BlockTexx management: scoped collections and permission-gated national views."""
 import json
 from datetime import date, timedelta
 
@@ -116,14 +116,6 @@ def register(app, db, client_access, now):
     @app.get('/binflow/client/calendar')
     @client_access
     def bf_client_calendar():
-        return week_view(False)
-
-    @app.get('/binflow/client/local-pickups')
-    @client_access
-    def bf_client_national():
-        return week_view(True)
-
-    def week_view(national):
         try:start=monday(request.args.get('week',now()[:10]))
         except ValueError as error:abort(400,str(error))
         state=request.args.get('state','')
@@ -131,7 +123,27 @@ def register(app, db, client_access, now):
         first=date.fromisoformat(start)
         return render_template('binflow/client_calendar.html',account=g.bf_client,states=STATES,state=state,
           week=start,previous=(first-timedelta(days=7)).isoformat(),following=(first+timedelta(days=7)).isoformat(),
-          national=national,days=calendar(db(),None if national else g.bf_client['id'],start,state))
+          national=False,days=calendar(db(),g.bf_client['id'],start,state))
+
+    @app.get('/binflow/client/local-pickups')
+    @client_access
+    def bf_client_national():
+        from binflow_collections import collection_calendar_view, STATES as calendar_states
+        template, data = collection_calendar_view(db(), request.args, now()[:10])
+        return render_template('binflow/'+template+'.html',account=g.bf_client,states=calendar_states,
+                               portal_calendar=True, **data)
+
+    @app.get('/binflow/client/local-pickups/progress')
+    @client_access
+    def bf_client_national_progress():
+        from binflow_calendar_edit import calendar_progress_response
+        return calendar_progress_response(db())
+
+    @app.get('/binflow/client/local-pickups/weeks')
+    @client_access
+    def bf_client_national_weeks():
+        from binflow_calendar_edit import calendar_weeks_response
+        return calendar_weeks_response(db())
 
     @app.get('/binflow/client/requests')
     @client_access

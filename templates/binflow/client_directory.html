@@ -1,7 +1,26 @@
 {% extends 'binflow/client_layout.html' %}{% block content %}
 <div class="bf-toolbar"><h1>Client profiles</h1>{% if 'profiles.add' in g.client_rights %}<a class="button primary" href="{{ url_for('bf_client_site_new') }}">Add client profile</a>{% endif %}</div>
-<form method="get" class="bf-filters"><label>Search<input type="search" name="q" value="{{ query }}" placeholder="Site, address or contact"></label>
-<label>State<select name="state"><option value="">All states</option>{% for s in states %}<option {{ 'selected' if filters.state==s }}>{{ s }}</option>{% endfor %}</select></label>
-<label>Sites<select name="view">{% for v in ['current','archived','all'] %}<option value="{{ v }}" {{ 'selected' if view==v }}>{{ v|capitalize }}</option>{% endfor %}</select></label><button class="primary">Search</button></form>
-<section class="bf-panel bf-pad"><p>{{ filtered }} matching sites</p>{% for p in profiles %}<p><a href="{{ url_for('bf_client_site_portal',pid=p.id) }}"><strong>{{ p.customer_site }}</strong></a><br>{{ [p.group_name,p.suburb,p.state]|select|join(' · ') }}</p>{% else %}<p>No sites match your search.</p>{% endfor %}</section>
-{% if pages>1 %}<nav class="bf-chips">{% if previous_url %}<a href="{{ previous_url }}">Previous</a>{% endif %} Page {{ page }} of {{ pages }} {% if next_url %}<a href="{{ next_url }}">Next</a>{% endif %}</nav>{% endif %}{% endblock %}
+<form method="get" class="bf-filters bf-directory-filters">
+  <label>Search<input type="search" name="q" value="{{ query }}" placeholder="Site, address or contact"></label>
+  <label>State<select name="state"><option value="">All states</option>{% for s in states %}<option {{ 'selected' if filters.state==s }}>{{ s }}</option>{% endfor %}</select></label>
+  <label>Sites<select name="view">{% for v in ['current','archived','all'] %}<option value="{{ v }}" {{ 'selected' if view==v }}>{{ v|capitalize }}</option>{% endfor %}</select></label>
+  <label>Rows<select name="per_page">{% for n in [10,20,50] %}<option {{ 'selected' if not show_all and per_page==n }}>{{ n }}</option>{% endfor %}<option value="all" {{ 'selected' if show_all }}>All</option></select></label>
+  <button class="primary">Search</button>
+</form>
+<section class="bf-panel bf-client-register">
+  <div class="bf-panel-head"><span>{% if filtered %}{{ first }}–{{ last }} of {{ filtered }} sites{% else %}0 sites{% endif %}</span></div>
+  <table aria-label="Client site profiles"><thead><tr>{% for heading in ['Client / site','Address','Contact','Schedule','Bin requirements','ASIC required'] %}<th scope="col">{{ heading }}</th>{% endfor %}</tr></thead>
+  <tbody>{% for p in profiles %}<tr>
+    <th scope="row"><a href="{{ url_for('bf_client_site_portal',pid=p.id) }}">{{ p.customer_site }}</a>
+      {% if p.client_name and p.client_name!=p.customer_site %}<span>{{ p.client_name }}</span>{% endif %}
+      <small>Group · {{ p.group_name or '—' }}</small>{% if view=='all' or p.archived %}<small>{{ 'Archived' if p.archived else 'Current' }}</small>{% endif %}
+      {% if 'profiles.edit' in g.client_rights %}<a class="bf-directory-edit" aria-label="Edit {{ p.customer_site }}" href="{{ url_for('bf_client_site_edit',pid=p.id) }}">Edit profile</a>{% endif %}</th>
+    <td data-label="Address"><div>{{ p.address or '—' }}</div><span>{{ [p.suburb,p.state,p.postcode]|select|join(' ') }}</span></td>
+    <td data-label="Contact"><div>{{ p.contact_name or '—' }}</div><span>{{ p.contact_number }}</span><span>{{ p.contact_email }}</span>
+      <small>Contact verified · {{ 'Yes' if p.contact_verified=='yes' else 'No' }}</small></td>
+    <td data-label="Schedule"><div>{{ p.schedule or '—' }}</div></td>
+    <td data-label="Bin requirements"><div>{% for b in bins.get(p.location_id,[]) %}<span>{{ b.quantity }} × {{ b.name }}</span>{% else %}None recorded{% endfor %}</div></td>
+    <td data-label="ASIC required"><div>{{ {'yes':'Yes','no':'No','unknown':'Not confirmed'}.get(p.asic_required,'Not confirmed') }}</div></td>
+  </tr>{% else %}<tr><td colspan="6" class="bf-directory-empty">No sites match your search.</td></tr>{% endfor %}</tbody></table>
+</section>
+{% if pages>1 %}<nav aria-label="Client profile pages" class="bf-chips">{% if previous_url %}<a href="{{ previous_url }}">Previous</a>{% endif %} Page {{ page }} of {{ pages }} {% if next_url %}<a href="{{ next_url }}">Next</a>{% endif %}</nav>{% endif %}{% endblock %}
