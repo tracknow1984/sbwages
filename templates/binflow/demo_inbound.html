@@ -2,6 +2,7 @@
 {% block title %}Sample warehouse &amp; baling{% endblock %}
 {% block subtitle %}Follow the returned bins from the scales to the signed storage handover.{% endblock %}
 {% block body %}
+{% include 'binflow/warehouse_scanner.html' %}
 <section class="bf-panel bf-pad"><h2>1. Weigh returns and sign the PODs</h2>
   {% for job in jobs %}
   <div class="bf-toolbar"><div><strong>{{ job.code }} · {{ job.site_name }}</strong>

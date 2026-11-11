@@ -21,7 +21,7 @@ DEMO_ENDPOINTS = frozenset({
 })
 # These routes get a distinct sample URL. Losing a session never turns that URL into a live operation.
 WAREHOUSE_ENDPOINTS = frozenset({
-    'bf_weigh', 'bf_pod_materials', 'bf_pod_sign', 'bf_bales', 'bf_bale_new', 'bf_bale_source_scan',
+    'bf_warehouse_scan', 'bf_weigh', 'bf_pod_materials', 'bf_pod_sign', 'bf_bales', 'bf_bale_new', 'bf_bale_source_scan',
     'bf_bale', 'bf_bale_correct', 'bf_bale_qr', 'bf_bale_label', 'bf_bale_image', 'bf_bale_transfer_new',
     'bf_bale_transfer', 'bf_bale_scan', 'bf_bale_transfer_action', 'bf_bale_note', 'bf_bale_signature',
     'bf_bale_storage_export',
@@ -68,6 +68,9 @@ def install_demo_database(app, real_db, now):
         migrate_bin_condition(conn)
         from binflow_pod_records import migrate as migrate_pod_records
         migrate_pod_records(conn)
+        if not conn.execute('SELECT 1 FROM bf_material_classes LIMIT 1').fetchone():
+            conn.executemany("INSERT OR IGNORE INTO bf_material_classes(name,updated_at,updated_by) VALUES(?,?,'Sample run')",
+                             [(name, now()) for name in SAMPLE_MATERIALS])
         if request.endpoint == 'bf_workday':
             conn.execute("""INSERT OR IGNORE INTO bf_trucks(id,name,state,created_at)
                 SELECT 2,'SAMPLE · interstate spare',CASE WHEN state='QLD' THEN 'NSW' ELSE 'QLD' END,created_at
@@ -77,6 +80,7 @@ def install_demo_database(app, real_db, now):
         g.bf_demo_token = token
         g.bf_demo_warehouse = warehouse
         g.bf_demo_state = saved['state']
+        g.bf_demo_practice = PRACTICE_LOADS
         # Use the sample's operating state only after validating its session and endpoint.
         g.user = dict(g.user, working_state=saved['state'])
         if warehouse or request.endpoint in ('bf_demo_inbound', 'bf_demo_docket'):
@@ -148,8 +152,6 @@ def prepare_warehouse(conn, stamp):
         return
     conn.execute("""INSERT OR IGNORE INTO bf_locations(id,kind,name,state,address,created_at)
         VALUES(4,'warehouse','SAMPLE · Brisbane receiving depot','QLD','Brisbane, QLD, Australia',?)""", (stamp,))
-    conn.executemany("INSERT OR IGNORE INTO bf_material_classes(name,updated_at,updated_by) VALUES(?,?,'Sample run')",
-                     [(name, stamp) for name in SAMPLE_MATERIALS])
     conn.executemany("""INSERT OR IGNORE INTO bf_bale_settings(warehouse_id,target_g,receiving_hub,updated_at,updated_by)
         VALUES(?,?,?,?,'Sample run')""", [(1,200000,0,stamp),(4,None,1,stamp)])
 

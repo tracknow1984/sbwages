@@ -1,3 +1,4 @@
+from binflow_helpers import pickup_material
 import re
 import sqlite3
 import unittest
@@ -59,7 +60,7 @@ class DriverWorkdayTests(unittest.TestCase):
         return self.client.get('/binflow/driver/1/day/state?date='+RUN_DATE).json['stage']
 
     def scan(self,action,bid):
-        return self.post('/binflow/driver/1/scan',dict(job_id=2,action=action,code=f'BF{bid:06d}'))
+        return self.post('/binflow/driver/1/scan',dict(job_id=2,action=action,code=f'BF{bid:06d}',material_id=pickup_material(self)))
 
     def test_complete_phone_day_updates_timesheet_and_all_bins_without_waiting_for_weight(self):
         self.assertEqual(self.stage(),'startday')

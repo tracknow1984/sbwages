@@ -13,10 +13,10 @@ from urllib.parse import urlparse
 from xml.sax.saxutils import escape
 from zoneinfo import ZoneInfo
 
-from flask import abort, flash, g, redirect, render_template, request, send_file, session, url_for
+from flask import abort, flash, g, jsonify, redirect, render_template, request, send_file, session, url_for
 from prestart_media import photo_jpeg, signature_png
 from binflow_driver import migrate_driver, register_driver
-from binflow_permissions import (DRIVER_ENDPOINTS, is_driver, is_manager, is_warehouse, is_office, workspaces, can_view_job,
+from binflow_permissions import (DRIVER_ENDPOINTS, WAREHOUSE_ENDPOINTS, is_driver, is_manager, is_warehouse, is_office, workspaces, can_view_job,
     has_binflow_access, state_scope, eligible_driver, available_drivers)
 from binflow_runs import migrate_runs, register_runs, guard_movement, check_owner
 from binflow_gps import migrate_gps, register_gps
@@ -205,7 +205,7 @@ def register_binflow(app, db, require):
                         return fn(*args, **kwargs)
                     if fn.__name__ == 'bf_dashboard':
                         return redirect(url_for('bf_bales'))
-                    if not getattr(fn, 'warehouse_work', False):
+                    if fn.__name__ not in WAREHOUSE_ENDPOINTS and not getattr(fn, 'warehouse_work', False):
                         abort(403, 'Use your warehouse workspace to continue.')
                     return fn(*args, **kwargs)
                 if fn.__name__ == 'bf_dashboard':
@@ -711,6 +711,8 @@ def register_binflow(app, db, require):
     def bf_job(job_id):
         j = job(job_id)
         rows = items(job_id)
+        if is_warehouse(g.user) and not getattr(g,'bf_demo_token',None):
+            return render('warehouse_docket', section='warehouse', job=j, items=rows)
         if not is_office(g.user) or getattr(g,'bf_demo_token',None):
             return render('driver_job', section='pods' if j['collected_at'] else 'calendar',
                           job=j, items=rows, net=sum(i['net_g'] or 0 for i in rows))
@@ -807,9 +809,11 @@ def register_binflow(app, db, require):
                         else:
                             if b['status'] not in ('at_client','full') or b['location_id'] != j['site_id']:
                                 raise ValueError('A collection bin is no longer at this client site.')
+                            from binflow_pod_records import confirm_pickup_material
+                            material = confirm_pickup_material(db(),item['id'],request.form.get('material_'+str(item['id']),type=int))
                             db().execute("UPDATE bf_bins SET location_id=NULL,status='transit' WHERE id=?", (b['id'],))
                             pickup_requests(db(),job_id,b['id'],actor(),now())
-                            event(b['id'], 'Full bin collected; returning to warehouse', job_id, j['site_id'], notes=f'Destination: {j["warehouse_name"]}')
+                            event(b['id'], 'Full bin collected; returning to warehouse', job_id, j['site_id'], notes=f'{j["warehouse_name"]} · Material confirmed at client pickup · {material}')
                 has_collections = any(i['direction'] == 'collect' for i in rows)
                 db().execute('UPDATE bf_jobs SET status=?,collected_at=?,collected_by=?,receiver_name=?,confirmation=?,confirmation_note=?,signature=?,photo=?,completed_at=? WHERE id=?',
                              ('collected' if has_collections else 'complete',now(),actor(),receiver,confirmation,note,signature,photo,None if has_collections else now(),job_id))
@@ -862,6 +866,7 @@ def register_binflow(app, db, require):
             b = bins('b.id=?', (item['bin_id'],))[0]
             if b['status'] != 'received' or b['location_id'] != j['warehouse_id'] or b['reserved_job'] != job_id:
                 raise ValueError('This bin is not waiting for weighing on this docket.')
+            db().execute('UPDATE bf_jobs SET pod_version=pod_version+1 WHERE id=?', (job_id,))
             db().execute('UPDATE bf_job_bins SET gross_g=?,tare_g=?,net_g=?,weighed_at=?,weighed_by=?,active=0 WHERE id=?', (gross,tare,gross-tare,now(),actor(),item_id))
             db().execute("UPDATE bf_bins SET status='weighed',tare_g=? WHERE id=?", (tare,item['bin_id']))
             event(item['bin_id'], 'Warehouse weight recorded', job_id, j['warehouse_id'], j['warehouse_id'], f'Gross {kg(gross)} kg; tare {kg(tare)} kg; net {kg(gross-tare)} kg')
@@ -871,10 +876,43 @@ def register_binflow(app, db, require):
         except ValueError as error:
             return failure(error, 'bf_job', job_id=job_id)
 
+    @app.post('/binflow/warehouse/scan')
+    @access
+    def bf_warehouse_scan():
+        from urllib.parse import urlparse
+        if not (is_office(g.user) or is_warehouse(g.user) or getattr(g,'bf_demo_warehouse',False)):
+            abort(403)
+        value = request.form.get('code','').strip()[:1000]
+        if value.startswith(('http://','https://')):
+            value = urlparse(value).path.rstrip('/').split('/')[-1]
+        matches = bins("(b.code=? COLLATE NOCASE OR b.token=?) AND b.status IN ('received','weighed')", (value,value))
+        if matches:
+            b = matches[0]
+            item = db().execute("""SELECT i.id AS item_id,i.weighed_at AS item_weighed,j.* FROM bf_job_bins i JOIN bf_jobs j ON j.id=i.job_id
+                WHERE i.bin_id=? AND i.direction='collect' AND j.warehouse_id=? AND j.pod_deleted_at IS NULL
+                AND j.approval_status='approved' AND j.status IN ('collected','received','complete')
+                AND (i.returned_at IS NOT NULL OR j.received_at IS NOT NULL) ORDER BY j.id DESC LIMIT 1""",
+                (b['id'],b['location_id'])).fetchone()
+            if item and can_view_job(db(),g.user,item):
+                endpoint = 'bf_demo_docket' if getattr(g,'bf_demo_warehouse',False) else 'bf_job'
+                anchor = 'pod-finalisation' if item['item_weighed'] else 'weigh-'+str(item['item_id'])
+                target = url_for(endpoint,job_id=item['id'],_anchor=anchor)
+                return jsonify(ok=True,redirect=target)
+        return jsonify(ok=False,message='Scan a returned bin waiting at your warehouse for weighing.'),409
+
     @app.get('/binflow/warehouse')
     @access
     def bf_warehouse():
         stock = bins("b.status IN ('transit','received','weighed') AND (b.truck_load IS NULL OR b.truck_load='full')")
+        if is_warehouse(g.user):
+            visible = []
+            for b in stock:
+                docket = db().execute("""SELECT j.* FROM bf_jobs j JOIN bf_job_bins i ON i.job_id=j.id
+                    WHERE i.bin_id=? AND i.direction='collect' AND j.pod_deleted_at IS NULL
+                    ORDER BY j.id DESC LIMIT 1""", (b['id'],)).fetchone()
+                if docket and can_view_job(db(),g.user,docket):
+                    visible.append(dict(b,weight_job_id=docket['id']))
+            stock = visible
         return render('warehouse', section='warehouse', stock=stock)
 
     @app.get('/binflow/pickups/<int:job_id>/pod')

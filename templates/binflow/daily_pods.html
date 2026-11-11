@@ -17,7 +17,7 @@
   <td data-label="Net weight">{{ j.net|bfkg }} kg</td>
   <td data-label="Actions"><div class="bf-pod-actions">
     {% if not j.pod_deleted_at %}
-      {% if j.collected_at and not pod_final(j) and (current_user.role=='admin' or binflow_manager) %}<a class="button primary" href="{{ url_for('bf_job',job_id=j.id,_anchor='pod-finalisation') }}">{{ 'Review & sign off' if j.status=='complete' else 'Weigh & classify' }}</a>{% endif %}
+      {% if j.collected_at and not pod_final(j) and (current_user.role=='admin' or binflow_manager or binflow_warehouse) %}<a class="button primary" href="{{ url_for('bf_job',job_id=j.id,_anchor='pod-finalisation') }}">{{ 'Review & sign off' if j.status=='complete' else 'Record weights' }}</a>{% endif %}
       {% if j.collected_at %}<a class="button secondary" href="{{ url_for('bf_pod',job_id=j.id) }}">View {{ 'POD' if pod_final(j) else 'provisional POD' }}</a><a class="button secondary" href="{{ url_for('bf_pod_pdf',job_id=j.id) }}">Export PDF</a>{% else %}<a class="button secondary" href="{{ url_for('bf_job',job_id=j.id) }}">Open job</a>{% endif %}
       {% if current_user.role=='admin' and not driver_demo and pod_final(j) %}<a class="button secondary" href="{{ url_for('bf_email_pod',job_id=j.id) }}">Email</a>{% endif %}
     {% endif %}
@@ -30,5 +30,5 @@
   </div></td>
 </tr>{% else %}<tr><td colspan="5">No {{ view }} PODs for this date.</td></tr>{% endfor %}
 </tbody></table></div></section>
-<p class="bf-muted">{% if current_user.role=='admin' and not driver_demo %}Email, Archive and Delete are available once the POD is complete. {% endif %} Collected bins require warehouse receipt, final weights, material classification and a dated warehouse signature before the POD closes.</p>
+<p class="bf-muted">{% if current_user.role=='admin' and not driver_demo %}Email, Archive and Delete are available once the POD is complete. {% endif %} Pickup materials are recorded at the client. Each POD closes after warehouse receipt, final weights and the dated run signature.</p>
 {% endblock %}

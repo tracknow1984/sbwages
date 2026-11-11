@@ -1,3 +1,4 @@
+from binflow_helpers import pickup_material
 import re
 import sqlite3
 import unittest
@@ -36,7 +37,8 @@ class DriverJourneyTests(unittest.TestCase):
         return self.post(f'/binflow/driver/{self.truck_id}/test-prestart'+suffix,dict(date=RUN_DATE))
 
     def scan(self, action, code, suffix=''):
-        return self.post(f'/binflow/driver/{self.truck_id}/day/scan-bin'+suffix,dict(date=RUN_DATE,action=action,code=code),follow=False)
+        material = (2 if code=='DEMO-660-F06' else 1) if suffix else pickup_material(self)
+        return self.post(f'/binflow/driver/{self.truck_id}/day/scan-bin'+suffix,dict(date=RUN_DATE,action=action,code=code,material_id=material),follow=False)
 
     def action(self, action, suffix='', **values):
         return self.post(f'/binflow/driver/{self.truck_id}/day/'+action+suffix,dict(date=RUN_DATE,**values))
@@ -64,6 +66,12 @@ class DriverJourneyTests(unittest.TestCase):
         self.assertEqual(self.scan('collect','BF000001').status_code,409)
         self.scan('deliver','BF000003');self.scan('deliver','BF000004')
         self.assertEqual(self.stage(),'collect')
+        rejected = self.post('/binflow/driver/1/day/scan-bin',dict(date=RUN_DATE,action='collect',code='BF000001'),follow=False)
+        self.assertEqual(rejected.status_code,409)
+        self.assertIn('Choose the material',rejected.json['message'])
+        self.assertIsNone(self.rows('SELECT picked_up_at FROM bf_job_bins WHERE job_id=2 AND bin_id=1')[0]['picked_up_at'])
+        invalid = self.post('/binflow/driver/1/day/scan-bin',dict(date=RUN_DATE,action='collect',code='BF000001',material_id=99999),follow=False)
+        self.assertEqual(invalid.status_code,409)
         self.scan('collect','BF000001');self.scan('collect','BF000002')
         self.assertEqual(self.stage(),'navigate_depot')
         job=self.rows('SELECT * FROM bf_jobs WHERE id=2')[0]
@@ -82,12 +90,33 @@ class DriverJourneyTests(unittest.TestCase):
         self.time+=timedelta(hours=8)
         self.assertIn(b'Your work is saved',self.finish().data)
         self.assertTrue(self.rows('SELECT committed_at FROM entries')[0]['committed_at'])
-        self.post('/logout');self.login()
+        with sqlite3.connect(self.path) as conn:
+            warehouse_user = conn.execute("""INSERT INTO users(role,first_name,last_name,email,username,password_hash,
+                business_role,extra_business_roles,working_state) VALUES('employee','Warehouse','Operator','warehouse@example.com','warehouseperson',?,
+                '','warehouse','QLD')""", (workday_tests.generate_password_hash('test-admin-password'),)).lastrowid
+            conn.execute('INSERT INTO bf_bale_managers(user_id,warehouse_id) VALUES(?,1)',(warehouse_user,))
+        self.post('/logout');self.login('employee','warehouseperson')
         self.assertIn(b'TO BE WEIGHED',self.client.get('/binflow/warehouse').data)
-        for item in self.rows("SELECT id FROM bf_job_bins WHERE job_id=2 AND direction='collect'"):
+        page = self.client.get('/binflow/pickups/2')
+        self.assertIn('Pickup material',page.text)
+        self.assertNotIn('name="material_',page.text)
+        version = self.rows('SELECT pod_version FROM bf_jobs WHERE id=2')[0]['pod_version']
+        self.assertIn('all weights',self.post('/binflow/pickups/2/pod/sign',dict(version=version,confirm='yes',signature=SIGNATURE)).text)
+        before = self.rows('SELECT material_id,material_name FROM bf_job_bins WHERE job_id=2 ORDER BY id')
+        for item in self.rows("SELECT * FROM bf_job_bins WHERE job_id=2 AND direction='collect'"):
+            scanned = self.post('/binflow/warehouse/scan',dict(code=item['bin_code']),follow=False)
+            self.assertTrue(scanned.json['ok'])
+            self.assertIn('#weigh-'+str(item['id']),scanned.json['redirect'])
+            self.assertEqual(self.client.get(scanned.json['redirect']).status_code,200)
             self.post(f'/binflow/pickups/2/weigh/{item["id"]}',dict(gross='50',tare='5',confirm_tare='yes'))
         self.assertEqual(self.rows('SELECT status FROM bf_jobs WHERE id=2')[0]['status'],'complete')
-        self.assertIn(b'SIGN-OFF PENDING',self.client.get('/binflow/pickups/2/pod').data)
+        self.assertEqual(self.rows('SELECT material_id,material_name FROM bf_job_bins WHERE job_id=2 ORDER BY id'),before)
+        version = self.rows('SELECT pod_version FROM bf_jobs WHERE id=2')[0]['pod_version']
+        self.assertIn('POD signed off.',self.post('/binflow/pickups/2/pod/sign',dict(version=version,confirm='yes',signature=SIGNATURE)).text)
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("UPDATE users SET working_state='NSW' WHERE id=?",(warehouse_user,))
+        self.assertEqual(self.client.get('/binflow/pickups/2').status_code,403)
+        self.assertEqual(self.post('/binflow/warehouse/scan',dict(code='BF000001'),follow=False).status_code,409)
 
     def test_stale_overview_and_other_state_cannot_select_vehicle(self):
         self.start();self.accept_overview()
@@ -204,6 +233,10 @@ class DriverJourneyTests(unittest.TestCase):
         materials = {}
         for jid, material in ((1, 'COTTON'), (2, 'PC MIX')):
             desk = inbound + '/' + str(jid) + suffix
+            for code in (('DEMO-1100-F04','DEMO-240-F05') if jid==1 else ('DEMO-660-F06',)):
+                scanned = self.post(base+'/warehouse/scan',dict(code=code),follow=False)
+                self.assertTrue(scanned.json['ok'])
+                self.assertIn('/demo/inbound/'+str(jid),scanned.json['redirect'])
             page = self.client.get(desk)
             actions = re.findall(r'<form method="post" action="([^"]+/weigh/\d+)"', page.text)
             gross = (165, 30) if jid == 1 else (115,)
@@ -213,14 +246,24 @@ class DriverJourneyTests(unittest.TestCase):
                 self.assertTrue(action.startswith(base + '/pickups/'))
                 page = self.post(action, dict(gross=weight,tare=tare,confirm_tare='yes'))
                 self.assertIn('Weight saved', page.text)
-            materials[material] = re.search(r'<option value="(\d+)"[^>]*>'+material+'</option>',page.text)[1]
-            fields = re.findall(r'<select name="(material_\d+)"',page.text)
-            version = re.search(r'name="version" value="(\d+)"',page.text)[1]
-            page = self.post(base+f'/pickups/{jid}/pod/materials',
-                             dict(version=version,**{field:materials[material] for field in fields}))
-            version = re.search(r'name="version" value="(\d+)"',page.text)[1]
-            page = self.post(base+f'/pickups/{jid}/pod/sign',dict(version=version,confirm='yes',signature=SIGNATURE))
-            self.assertIn('Signed by <strong>',page.text)
+            self.assertNotIn('name="material_',page.text)
+            self.assertIn(material,page.text)
+            if jid==1:
+                self.assertNotIn('name="run_version"',page.text)
+                version = re.search(r'name="version" value="(\d+)"',page.text)
+                blocked = self.post(base+'/pickups/1/pod/sign',dict(scope='run',version=version[1] if version else 0,
+                                                                     confirm='yes',signature=SIGNATURE))
+                self.assertNotIn('Signed by <strong>',blocked.text)
+        version = re.search(r'name="version" value="(\d+)"',page.text)[1]
+        run_version = re.search(r'name="run_version" value="([^"]+)"',page.text)[1]
+        signed = self.post(base+'/pickups/2/pod/sign',dict(version=version,run_version=run_version,
+                                                           scope='run',confirm='yes',signature=SIGNATURE))
+        self.assertIn('Signed by <strong>',signed.text)
+        for jid in (1,2):
+            self.assertIn('Signed by <strong>',self.client.get(inbound+'/'+str(jid)+suffix).text)
+        form = self.client.get(base+'/bales/new?warehouse=1')
+        for material in ('COTTON','PC MIX'):
+            materials[material] = re.search(r'<option value="(\d+)"[^>]*>'+material+'</option>',form.text)[1]
         created = []
         wrong = self.post(base+'/bales/source-scan',dict(warehouse_id=1,material_id=materials['COTTON'],code='DEMO-660-F06'))
         self.assertEqual(wrong.status_code,409)

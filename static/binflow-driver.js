@@ -1,11 +1,11 @@
 'use strict';
 (() => {
   const stock = document.querySelector('[data-driver-stock]');
-  if (!stock) return;
   const form = document.querySelector('[data-scan-form]');
+  if (!stock && !form) return;
   let busy = false;
   async function refreshStock() {
-    if (busy || document.hidden || !stock.dataset.stateUrl) return;
+    if (busy || document.hidden || !stock?.dataset.stateUrl) return;
     try {
       const response = await fetch(stock.dataset.stateUrl, {headers: {Accept: 'application/json'}, cache: 'no-store'});
       if (response.ok && response.headers.get('content-type')?.includes('application/json')) {
@@ -17,6 +17,7 @@
   window.setInterval(refreshStock, 20000);
   if (!form) return;
   const input = form.querySelector('[data-scan-code]');
+  const material = form.querySelector('[data-pickup-material]');
   const feedback = form.querySelector('[data-scan-feedback]');
   const context = form.querySelector('[data-scan-context]');
   const video = form.querySelector('[data-camera]');
@@ -48,6 +49,11 @@
   setAction();
   async function scan(code) {
     if (busy || !code.trim()) return;
+    if (material && !material.value) {
+      say('Choose the material in this bin before confirming its pickup.', true);
+      material.focus();
+      return;
+    }
     busy = true;
     input.value = code;
     const data = new FormData(form);
@@ -62,7 +68,8 @@
       }
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.message || 'Scan could not be saved. Try again.');
-      if (result.html) stock.innerHTML = result.html;
+      if (form.dataset.lookup && result.redirect) { stopCamera(); location.assign(result.redirect); return; }
+      if (result.html && stock) stock.innerHTML = result.html;
       if (form.dataset.guided && (form.dataset.guided.includes(':') ? result.step_key : result.stage) !== form.dataset.guided) { stopCamera(); location.assign(result.redirect); return; }
       say(result.message);
       input.value = '';
@@ -99,6 +106,7 @@
   }
   start.addEventListener('click', async () => {
     if (opening || stream) return;
+    if (material && !material.reportValidity()) return;
     if (!navigator.mediaDevices?.getUserMedia || !window.jsQR) {
       say('Camera scanning is unavailable here. Use a handheld scanner or enter the bin ID below.', true);
       return;

@@ -1,3 +1,4 @@
+from binflow_helpers import pickup_material
 import sqlite3
 import unittest
 from concurrent.futures import ThreadPoolExecutor
@@ -28,7 +29,7 @@ class DriverScanTests(unittest.TestCase):
         with self.client.session_transaction() as session:
             csrf = session['csrf']
         response = self.client.post(f'/binflow/driver/{truck}/scan',
-            data={'csrf':csrf,'job_id':jid,'action':action,'code':f'BF{bid:06d}' if isinstance(bid,int) else bid},
+            data={'material_id':pickup_material(self),'csrf':csrf,'job_id':jid,'action':action,'code':f'BF{bid:06d}' if isinstance(bid,int) else bid},
             headers={'Accept':'application/json'})
         self.assertEqual(response.status_code, expected, response.json)
         return response.json

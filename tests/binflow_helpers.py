@@ -1,5 +1,6 @@
 import json
 import re
+import sqlite3
 from binflow_runs import CHECKS
 
 SIGNATURE=json.dumps([[[20,20],[90,100],[180,40],[260,120]]])
@@ -25,3 +26,9 @@ def prestart(case, truck=1, fail=False):
 
 def depart(case, truck=1):
     return case.post(f'/binflow/driver/{truck}/day/depart',{'date':RUN_DATE})
+
+
+def pickup_material(case):
+    with sqlite3.connect(case.path) as conn:
+        conn.execute("INSERT OR IGNORE INTO bf_material_classes(name,updated_at,updated_by) VALUES('COTTON','2026-10-19','Test fixture')")
+        return conn.execute("SELECT id FROM bf_material_classes WHERE name='COTTON'").fetchone()[0]

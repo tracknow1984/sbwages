@@ -1,3 +1,4 @@
+from binflow_helpers import pickup_material
 """Acceptance regression: claims, stale schedules, custody and deployed-run migration."""
 import json
 import re
@@ -35,7 +36,7 @@ class AcceptanceTests(unittest.TestCase):
 
     def scan(self,action='load',bin_id=1):
         with self.client.session_transaction() as s: csrf=s['csrf']
-        return self.client.post('/binflow/driver/1/scan',data={'csrf':csrf,'job_id':1,'action':action,'code':f'BF{bin_id:06d}'},headers={'Accept':'application/json'})
+        return self.client.post('/binflow/driver/1/scan',data={'material_id':pickup_material(self),'csrf':csrf,'job_id':1,'action':action,'code':f'BF{bin_id:06d}'},headers={'Accept':'application/json'})
 
     def driver(self,name):
         with sqlite3.connect(self.path) as conn:

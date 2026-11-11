@@ -68,7 +68,7 @@ class DailyPODTests(unittest.TestCase):
         for key,value in job.items():
             if key!='pod_version':self.assertEqual(after[key],value,key)
         for table,value in before.items():self.assertEqual(self.rows('SELECT * FROM '+table),value)
-        self.assertEqual([h['action'] for h in self.rows('SELECT * FROM bf_pod_history')],['POD weighed, classified and signed off','archive','delete','restore'])
+        self.assertEqual([h['action'] for h in self.rows('SELECT * FROM bf_pod_history')],['Warehouse weights checked and POD signed off','archive','delete','restore'])
 
     def test_only_completed_pods_and_admin_with_csrf_can_be_filed(self):
         self.job(deliver=(1,2))

@@ -1,3 +1,4 @@
+from binflow_helpers import pickup_material
 import sqlite3
 import time
 import unittest
@@ -31,7 +32,7 @@ class DriverDayTests(unittest.TestCase):
 
     def scan(self,bid,status=200):
         with self.client.session_transaction() as session: csrf=session['csrf']
-        response=self.client.post('/binflow/driver/1/day/scan-bin',data={'csrf':csrf,'date':RUN_DATE,'code':f'BF{bid:06d}'},headers={'Accept':'application/json'})
+        response=self.client.post('/binflow/driver/1/day/scan-bin',data={'material_id':pickup_material(self),'csrf':csrf,'date':RUN_DATE,'code':f'BF{bid:06d}'},headers={'Accept':'application/json'})
         self.assertEqual(response.status_code,status,response.data)
         return response.json
 

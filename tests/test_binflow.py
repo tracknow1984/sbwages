@@ -74,7 +74,10 @@ class BinFlowTests(unittest.TestCase):
         return result
 
     def exchange(self, jid, ids):
-        return self.post(f'/binflow/pickups/{jid}/exchange',{'confirmed':list(ids),'confirmation':'not_present','confirmation_note':'Driver completed the agreed unattended exchange.'})
+        from binflow_helpers import pickup_material
+        unclassified=self.rows("SELECT id FROM bf_job_bins WHERE job_id=? AND direction='collect' AND material_id IS NULL",(jid,))
+        materials={'material_'+str(i['id']):pickup_material(self) for i in unclassified}
+        return self.post(f'/binflow/pickups/{jid}/exchange',{**materials,'confirmed':list(ids),'confirmation':'not_present','confirmation_note':'Driver completed the agreed unattended exchange.'})
 
     def initial_delivery(self):
         response=self.job(deliver=(1,2))

@@ -23,6 +23,10 @@ class PODRecordTests(unittest.TestCase):
         self.job(collect=(1,2))
         self.exchange(2,(1,2))
         self.post('/binflow/pickups/2/receive',dict(confirmed=[1,2]))
+        # Emulate a warehouse return collected before pickup material was recorded.
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("UPDATE bf_job_bins SET material_id=NULL,material_name='' WHERE job_id=2")
+            conn.execute("DELETE FROM bf_material_classes WHERE updated_by='Test fixture'")
         return self.rows("SELECT * FROM bf_job_bins WHERE job_id=2 ORDER BY id")
 
     def weigh(self,items):

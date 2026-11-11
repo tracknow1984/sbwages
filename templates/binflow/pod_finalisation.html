@@ -1,21 +1,39 @@
 <section class="bf-panel bf-pad" id="pod-finalisation">
-<h2>Material & POD sign-off</h2>
+<h2>POD sign-off</h2>
 {% if job.pod_signed_at %}
-<p class="bf-note">Signed by <strong>{{ job.pod_signed_name }}</strong> · {{ job.pod_signed_at|display_datetime }}. Material classifications and final weights are locked.</p>
-{% elif current_user.role=='admin' or binflow_manager or driver_demo %}
-<p class="bf-muted">Classify each collected bin, finish warehouse weighing, then sign the final POD. Client handover confirmation is separate from this warehouse approval.</p>
+<p class="bf-note">Signed by <strong>{{ job.pod_signed_name }}</strong> · {{ job.pod_signed_at|display_datetime }}.</p>
+{% elif not job.collected_at %}<p>Confirm each full bin’s material at the client pickup. Warehouse weighing follows the depot return.</p>
+{% elif current_user.role=='admin' or binflow_manager or binflow_warehouse or driver_demo %}
 {% set collected=items|selectattr('direction','equalto','collect')|list %}
-{% if collected %}<form method="post" action="{{ url_for('bf_pod_materials',job_id=job.id) }}" class="bf-form">
+{% set missing=collected|rejectattr('material_id')|list %}
+{% if collected %}
+<p>Material was selected at the client pickup. Record all warehouse weights before signing off.</p>
+<div class="bf-table-wrap"><table><thead><tr><th>Bin</th><th>Pickup material</th><th>Net kg</th></tr></thead><tbody>
+{% for i in collected %}<tr><td>{{ i.bin_code }}</td><td>{{ i.material_name or 'Missing pickup classification' }}</td><td>{{ i.net_g|bfkg }}</td></tr>{% endfor %}
+</tbody></table></div>
+{% if missing %}
+<details class="bf-panel bf-pad"><summary>Complete missing classifications for earlier collections</summary>
+<p>Confirm the material with the collecting driver for these earlier records.</p>
+<form method="post" action="{{ url_for('bf_pod_materials',job_id=job.id) }}" class="bf-form">
 <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ job.pod_version }}">
-<div class="bf-grid">{% for i in collected %}<label>{{ i.bin_code }} · material<select name="material_{{ i.id }}" required><option value="">Choose material</option>{% for m in material_classes if m.active or m.id==i.material_id %}<option value="{{ m.id }}" {{ 'selected' if m.id==i.material_id }}>{{ i.material_name if m.id==i.material_id else m.name }}{{ ' (inactive)' if not m.active }}</option>{% endfor %}</select></label>{% endfor %}</div>
-<button class="secondary">Save materials</button>{% if current_user.role=='admin' and not driver_demo %} <a href="{{ url_for('bf_setup',_anchor='materials') }}">Manage classifications</a>{% endif %}</form>
-{% else %}<p>No material collected — empty delivery only. Weighing and material classification are not applicable; sign-off is still required.</p>{% endif %}
-{% if job.status=='complete' %}<form method="post" action="{{ url_for('bf_pod_sign',job_id=job.id) }}" class="bf-form">
+{% for i in collected %}{% if i.material_id %}<input type="hidden" name="material_{{ i.id }}" value="{{ i.material_id }}">
+{% else %}<label>{{ i.bin_code }} · missing material<select name="material_{{ i.id }}" required><option value="">Choose material</option>{% for m in material_classes if m.active %}<option value="{{ m.id }}">{{ m.name }}</option>{% endfor %}</select></label>{% endif %}{% endfor %}
+<button class="secondary">Save missing classifications</button></form>
+</details>
+{% endif %}
+{% else %}<p>Empty delivery completed. Sign off this delivery POD.</p>{% endif %}
+{% set run=pod_run_signoff(job) %}
+{% if run %}<h3>Run sign-off · {{ job.scheduled_date|display_date }}</h3>
+<p>Sign the customer PODs together after the last warehouse weight is saved.</p>
+{% for stop in run.stops %}<p><strong>{{ stop.code }} · {{ stop.site_name }}</strong> · {{ stop.weighed_bins }}/{{ stop.collected_bins }} weighed · {{ stop.net|bfkg }} kg net{{ ' · Signed' if stop.pod_signed_at }}</p>{% endfor %}
+{% endif %}
+{% if job.status=='complete' and not missing and (not run or run.ready) %}<form method="post" action="{{ url_for('bf_pod_sign',job_id=job.id) }}" class="bf-form">
 <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ job.pod_version }}">
-<h3>Final warehouse approval</h3><p>Signing as <strong>{{ current_user.first_name }} {{ current_user.last_name }}</strong>. The server records the date and time when you sign.</p>
-<label class="bf-check"><input type="checkbox" name="confirm" value="yes" required><span>I have checked the material classifications, gross, tare and net weights and approve this final POD.</span></label>
+{% if run %}<input type="hidden" name="scope" value="run"><input type="hidden" name="run_version" value="{{ run.version }}">{% endif %}
+<h3>Final warehouse approval</h3><p>Signing as <strong>{{ current_user.first_name }} {{ current_user.last_name }}</strong>. Your signature is dated and timed.</p>
+<label class="bf-check"><input type="checkbox" name="confirm" value="yes" required><span>I have checked the gross, tare and net weights and approve {{ "the listed PODs for this run" if run else "this final POD" }}.</span></label>
 <div class="bf-signature" data-signature><div class="bf-toolbar"><strong>Warehouse signature</strong><button type="button" class="secondary" data-clear-signature>Clear</button></div><canvas width="600" height="200" aria-label="Draw warehouse sign-off signature"></canvas><input type="hidden" name="signature" value="[]"><small>Draw your signature with your finger or mouse.</small></div>
-<button class="primary">Sign off final POD</button></form>
-{% else %}<p class="bf-note">Sign-off becomes available after handover and all warehouse weights are recorded.</p>{% endif %}
-{% else %}<p class="bf-note">Warehouse staff will classify, weigh and sign off this POD.</p>{% endif %}
+<button class="primary">{{ "Sign off run · "+(run.unsigned|string)+" PODs" if run else "Sign off final POD" }}</button></form>
+{% else %}<p class="bf-note">Complete the warehouse weights for all collected bins before signing off.{% if missing %} The earlier records above also need their missing classifications.{% endif %}</p>{% endif %}
+{% else %}<p class="bf-note">Warehouse staff will weigh the returned bins and sign the final POD.</p>{% endif %}
 </section>

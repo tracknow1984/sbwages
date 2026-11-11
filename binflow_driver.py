@@ -6,6 +6,7 @@ from binflow_qr import pickup_requests
 from binflow_approvals import ensure_approved
 from binflow_acceptance import schedule_cards, ensure_run_unstarted, schedule_changed
 from binflow_workday import driver_today
+from binflow_pod_records import confirm_pickup_material
 from binflow_permissions import run_operating_state, is_driver, is_office
 
 from flask import abort, g, jsonify, redirect, render_template, request, url_for
@@ -217,6 +218,7 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
                     target, from_truck = j['site_id'], truck_id
                     label = 'Empty bin scanned to client'
                 elif action == 'collect':
+                    material = confirm_pickup_material(db(),i['id'],request.form.get('material_id',type=int))
                     if b['location_id'] != j['site_id'] or b['status'] not in ('at_client','full') or b['truck_id']:
                         raise ValueError('This bin is not at the selected client site.')
                     status, load, target_truck = 'transit', 'full', truck_id
@@ -243,10 +245,12 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
                              (target,target_truck,load,status,b['id']))
                 column = columns.get(action, 'loaded_at')
                 db().execute(f'UPDATE bf_job_bins SET {column}=? WHERE id=?', (None if action=='unload' else now(),i['id']))
-                event(b['id'], label, j['id'], origin, target, from_truck=from_truck, to_truck=to_truck)
+                event(b['id'], label, j['id'], origin, target, notes='Material confirmed at client pickup · '+material if action=='collect' else '',
+                      from_truck=from_truck, to_truck=to_truck)
                 if action == 'return' and not db().execute("SELECT 1 FROM bf_job_bins WHERE job_id=? AND direction='collect' AND returned_at IS NULL", (j['id'],)).fetchone():
                     db().execute("UPDATE bf_jobs SET status='received',received_at=? WHERE id=?", (now(),j['id']))
                 if action == 'collect':
+                    db().execute('UPDATE bf_jobs SET pod_version=pod_version+1 WHERE id=?', (j['id'],))
                     pickup_requests(db(),j['id'],b['id'],(g.user['first_name']+' '+g.user['last_name']).strip(),now())
                 if action in ('deliver','collect'):
                     from binflow_journey import complete_scanned_client

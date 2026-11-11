@@ -1,0 +1,9 @@
+<label>Material in this bin
+  <select name="material_id" required data-pickup-material>
+    <option value="">Choose material before pickup</option>
+    {% for material in material_classes if material.active %}
+    <option value="{{ material.id }}">{{ material.name }}</option>
+    {% endfor %}
+  </select>
+</label>
+{% if not material_classes|selectattr('active')|list %}<p class="bf-note">Ask the office to add material classifications in Setup before collecting these bins.</p>{% endif %}

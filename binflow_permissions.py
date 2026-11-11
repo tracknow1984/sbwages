@@ -18,6 +18,13 @@ DRIVER_ENDPOINTS = frozenset({
 })
 
 
+WAREHOUSE_ENDPOINTS = frozenset({
+    'bf_warehouse', 'bf_warehouse_scan', 'bf_job', 'bf_weigh', 'bf_pod', 'bf_pod_pdf',
+    'bf_pod_materials', 'bf_pod_sign', 'bf_daily_pods', 'bf_pod_record', 'bf_pod_qr',
+    'bf_pod_signature', 'bf_pod_journey', 'bf_evidence',
+})
+
+
 def assigned_roles(user):
     if not user:
         return ()
@@ -140,6 +147,11 @@ def can_view_job(conn, user, job):
         return False
     if is_office(user):
         return True
+    if is_warehouse(user):
+        assigned = conn.execute('SELECT warehouse_id FROM bf_bale_managers WHERE user_id=?',
+                                (user['id'],)).fetchone()
+        return (job['approval_status'] == 'approved' and job['status'] in ('collected','received','complete')
+                and (not assigned or assigned['warehouse_id'] == job['warehouse_id']))
     if not job['schedule_live'] or job['approval_status'] != 'approved' or job['status'] == 'cancelled':
         return False
     if job['driver_id'] and job['driver_id'] != user['id']:

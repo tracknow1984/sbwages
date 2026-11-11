@@ -1,3 +1,4 @@
+from binflow_helpers import pickup_material
 import secrets
 import sqlite3
 import unittest
@@ -101,7 +102,7 @@ class PublicQrTests(unittest.TestCase):
         self.post(delivery,dict(job_id=2))
         self.assertEqual(self.rows('SELECT * FROM bf_events'),events)
         self.assertEqual(self.rows('SELECT delivered_at FROM bf_job_bins WHERE job_id=2 AND bin_id=3')[0]['delivered_at'],stamp)
-        result=self.post(pickup,dict(job_id=2,code='BF000002'))
+        result=self.post(pickup,dict(job_id=2,code='BF000002',material_id=pickup_material(self)))
         self.assertIn(b'Pickup recorded',result.data)
         self.assertEqual(self.rows('SELECT status FROM bf_collection_requests')[0]['status'],'collected')
         self.assertEqual(self.rows('SELECT truck_id FROM bf_bins WHERE id=1')[0]['truck_id'],1)

@@ -1,10 +1,11 @@
 """Material classification, explicit POD finalisation and collection traceability."""
+import hashlib
 import io
 import json
 import sqlite3
 from datetime import datetime
 from flask import abort, g, redirect, render_template, request, send_file, session, url_for
-from binflow_permissions import can_view_job, is_office
+from binflow_permissions import can_view_job, is_office, is_warehouse
 from binflow_pods import ensure_pod_available
 from prestart_media import signature_png
 
@@ -111,11 +112,48 @@ def qr_bytes(url):
     return output.getvalue()
 
 
+def confirm_pickup_material(conn, item_id, material_id):
+    material = conn.execute('SELECT id,name FROM bf_material_classes WHERE id=? AND active=1',
+                            (material_id,)).fetchone()
+    if not material:
+        raise ValueError('Choose the material in this bin before confirming its pickup.')
+    conn.execute('UPDATE bf_job_bins SET material_id=?,material_name=? WHERE id=?',
+                 (material['id'],material['name'],item_id))
+    return material['name']
+
+
+def run_signoff(conn, job, user):
+    """The PODs received by this warehouse from one truck on one date."""
+    if not job['truck_id']:
+        return None
+    stops = conn.execute("""SELECT j.*, COUNT(i.id) AS collected_bins,
+            COUNT(i.weighed_at) AS weighed_bins, COALESCE(SUM(i.net_g),0) AS net,
+            COUNT(CASE WHEN i.id IS NOT NULL AND (i.material_id IS NULL OR i.material_name='') THEN 1 END) AS missing
+        FROM bf_jobs j LEFT JOIN bf_job_bins i ON i.job_id=j.id AND i.direction='collect'
+        WHERE j.truck_id=? AND j.scheduled_date=? AND j.warehouse_id=? AND j.schedule_live=1
+          AND j.approval_status='approved' AND j.status!='cancelled' AND j.pod_deleted_at IS NULL
+        GROUP BY j.id ORDER BY j.run_order,j.id""",
+        (job['truck_id'],job['scheduled_date'],job['warehouse_id'])).fetchall()
+    if len(stops)<2 or not any(r['id']==job['id'] for r in stops):
+        return None
+    if any(not can_view_job(conn,user,r) for r in stops):
+        # An authorised warehouse can see a stop once it has been collected.
+        # Pending stops still block this run's sign-off without revealing their details.
+        return dict(stops=[],ready=False,version='',unsigned=0)
+    pending = [r for r in stops if not r['pod_signed_at']]
+    version = hashlib.sha256(json.dumps([(r['id'],r['pod_version'],r['status'],r['pod_signed_at'])
+                                         for r in stops]).encode()).hexdigest()
+    ready = bool(pending) and all(r['status']=='complete' and r['collected_at'] and not r['missing']
+                                  and r['collected_bins']==r['weighed_bins'] for r in pending)
+    return dict(stops=stops,ready=ready,version=version,unsigned=len(pending))
+
+
 def register(app,db,access,require,render,job,items,success,failure,now,actor):
+    app.jinja_env.globals['pod_run_signoff']=lambda j: run_signoff(db(),j,g.user)
     app.jinja_env.globals['pod_status']=status
     app.jinja_env.globals['pod_final']=lambda j:bool(j['pod_signed_at'])
     app.context_processor(lambda:dict(material_classes=db().execute(
-        'SELECT * FROM bf_material_classes ORDER BY active DESC,name').fetchall()) if request.endpoint in ('bf_setup','bf_job','bf_pod') else {})
+        'SELECT * FROM bf_material_classes ORDER BY active DESC,name').fetchall()) if request.endpoint in ('bf_setup','bf_job','bf_pod','bf_run','bf_qr_driver') else {})
 
     @app.post('/binflow/setup/materials')
     @require('admin')
@@ -146,14 +184,16 @@ def register(app,db,access,require,render,job,items,success,failure,now,actor):
     def bf_pod_materials(job_id):
         try:
             db().execute('BEGIN IMMEDIATE');j=job(job_id);ensure_pod_available(j)
-            if not is_office(g.user) and not getattr(g,'bf_demo_warehouse',False):abort(403)
+            if not (is_office(g.user) or is_warehouse(g.user) or getattr(g,'bf_demo_warehouse',False)):abort(403)
             if j['pod_signed_at']:raise ValueError('This POD is signed. Its material record is locked.')
-            if j['status']=='cancelled':raise ValueError('This job is cancelled.')
+            if not j['collected_at'] or j['status']=='cancelled':raise ValueError('Select the material at the client when collecting each full bin.')
             if request.form.get('version',type=int)!=j['pod_version']:raise ValueError('This POD changed. Refresh before saving.')
             for row in items(job_id):
                 if row['direction']!='collect':continue
                 mid=request.form.get('material_'+str(row['id']),type=int)
                 if mid==row['material_id']:continue
+                if row['material_id']:
+                    raise ValueError('This bin’s material was confirmed at client pickup and is already recorded on the POD.')
                 material=db().execute('SELECT * FROM bf_material_classes WHERE id=? AND active=1',(mid,)).fetchone()
                 if not material:raise ValueError('Choose an active material classification for every collected bin.')
                 db().execute('UPDATE bf_job_bins SET material_id=?,material_name=? WHERE id=?',(mid,material['name'],row['id']))
@@ -168,27 +208,42 @@ def register(app,db,access,require,render,job,items,success,failure,now,actor):
     def bf_pod_sign(job_id):
         try:
             db().execute('BEGIN IMMEDIATE');j=job(job_id);ensure_pod_available(j)
-            if not is_office(g.user) and not getattr(g,'bf_demo_warehouse',False):abort(403)
+            if not (is_office(g.user) or is_warehouse(g.user) or getattr(g,'bf_demo_warehouse',False)):abort(403)
             if j['pod_signed_at']:raise ValueError('This POD has already been signed off.')
             if request.form.get('version',type=int)!=j['pod_version']:raise ValueError('This POD changed. Refresh and review it before signing.')
-            rows=items(job_id)
-            if not j['collected_at'] or j['status']!='complete' or j['approval_status']!='approved':
-                raise ValueError('Finish the handover, warehouse receipt and all weights before signing off.')
-            collected=[i for i in rows if i['direction']=='collect']
-            if any(i['weighed_at'] is None or i['net_g'] is None for i in collected):
-                raise ValueError('Every collected bin must be weighed before signing off.')
-            if any(not i['material_id'] or not i['material_name'] for i in collected):
-                raise ValueError('Classify the material in every collected bin before signing off.')
-            if request.form.get('confirm')!='yes':raise ValueError('Confirm that you have checked the materials and weights.')
+            targets = [j]
+            if request.form.get('scope')=='run':
+                run = run_signoff(db(),j,g.user)
+                if not run or not run['ready']:
+                    raise ValueError('Finish the warehouse receipts and all weights for this run before signing off.')
+                if run['version'] != request.form.get('run_version'):
+                    raise ValueError('The run changed. Refresh and review the PODs before signing.')
+                targets = [r for r in run['stops'] if not r['pod_signed_at']]
+            elif run_signoff(db(),j,g.user):
+                raise ValueError('Review all PODs for this run and sign once the warehouse weights are complete.')
+            snapshots = []
+            for target in targets:
+                rows = items(target['id'])
+                if not target['collected_at'] or target['status']!='complete' or target['approval_status']!='approved':
+                    raise ValueError('Finish the handover, warehouse receipt and all weights before signing off.')
+                collected=[i for i in rows if i['direction']=='collect']
+                if any(i['weighed_at'] is None or i['net_g'] is None for i in collected):
+                    raise ValueError('Every collected bin must be weighed before signing off.')
+                if any(not i['material_id'] or not i['material_name'] for i in collected):
+                    raise ValueError('Classify the material missing from the earlier pickup record before signing off.')
+                snapshots.append(dict(items=[dict(i) for i in rows],journeys={
+                    str(i['id']):journey(db(),target,i) for i in rows}))
+            if request.form.get('confirm')!='yes':raise ValueError('Confirm that you have checked the warehouse weights.')
             signature=signature_png(request.form.get('signature',''))
             stamp=now()
-            snapshot=dict(items=[dict(i) for i in rows],journeys={str(i['id']):journey(db(),j,i) for i in rows},
-                          signed_at=stamp,signed_by=actor())
-            db().execute('UPDATE bf_jobs SET pod_signed_at=?,pod_signed_by=?,pod_signed_name=?,pod_signature=?,pod_snapshot=?,pod_version=pod_version+1 WHERE id=?',
-                         (stamp,g.user['id'],actor(),signature,json.dumps(snapshot),job_id))
-            db().execute('INSERT INTO bf_pod_history(job_id,action,user_id,created_at) VALUES(?,?,?,?)',
-                         (job_id,'POD weighed, classified and signed off',g.user['id'],stamp))
-            return success('POD signed off. The final record is now available to the client.','bf_pod',job_id=job_id)
+            for target,snapshot in zip(targets,snapshots):
+                snapshot.update(signed_at=stamp,signed_by=actor())
+                db().execute('UPDATE bf_jobs SET pod_signed_at=?,pod_signed_by=?,pod_signed_name=?,pod_signature=?,pod_snapshot=?,pod_version=pod_version+1 WHERE id=?',
+                             (stamp,g.user['id'],actor(),signature,json.dumps(snapshot),target['id']))
+                db().execute('INSERT INTO bf_pod_history(job_id,action,user_id,created_at) VALUES(?,?,?,?)',
+                             (target['id'],'Warehouse weights checked and POD signed off',g.user['id'],stamp))
+            message = f"{len(targets)} PODs signed off for this run." if len(targets)>1 else 'POD signed off. The final record is now available to the client.'
+            return success(message,'bf_pod',job_id=job_id)
         except ValueError as error:return failure(error,'bf_job',job_id=job_id,_anchor='pod-finalisation')
 
     def authorised(token):
