@@ -4,7 +4,7 @@
     {% for key,label,endpoint in [('driver','BINFLOW · Driver day','bf_workday'),('pods','Daily PODs','bf_daily_pods')] %}
     <a href="{{ url_for(endpoint) }}"{% if tab=='binflow' and section==key %} aria-current="page"{% endif %}>{{ label }}</a>
     {% endfor %}
-    {% for key,label,endpoint in [('hit-me','Empire Wire','employee_hit_me'),('timesheet','My timesheet','employee_timesheet'),('prestart','Prestart','employee_prestart'),('details','My details','employee_details'),('payslips','Pay slips','employee_payslips'),('history','History','history'),('documents','Documents','employee_documents'),('leave','Annual leave','employee_leave')] %}
+    {% for key,label,endpoint in [('hit-me','Empire Wire','employee_hit_me'),('timesheet','My timesheet','employee_timesheet'),('prestart','Prestart','employee_prestart'),('details','My details','employee_details'),('payslips','Pay slips','employee_payslips'),('history','History','history'),('induction','My induction','employee_induction'),('documents','Documents','employee_documents'),('leave','Annual leave','employee_leave')] %}
     <a href="{{ url_for(endpoint) }}"{% if tab==key %} aria-current="page"{% endif %}>{{ label }}</a>
     {% endfor %}
   </nav>

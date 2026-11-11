@@ -1,0 +1,25 @@
+{
+  "items": [
+    [
+      "fitness",
+      "Fit for duty",
+      "I will check that I am fit for each shift. If fatigue, illness, injury, alcohol, drugs or medication effects could make my work unsafe, I will pause the task and tell my supervisor or a key contact before starting or continuing."
+    ],
+    [
+      "clean",
+      "Equipment cleanliness",
+      "I will leave the equipment, vehicles and shared areas I use clean and ready for the next person. I will follow the cleaning procedure and report any contamination or defect I cannot safely address."
+    ],
+    [
+      "wear",
+      "Workwear and presentation",
+      "I will present for work in clean, serviceable clothing and footwear suited to the task. I will wear the required personal protective equipment and ask for a suitable replacement if it is missing, damaged or does not fit."
+    ],
+    [
+      "report",
+      "Incident and unsafe behaviour reporting",
+      "I will promptly report injuries, incidents, near misses and unsafe behaviour, including conduct I witness. I know how to get emergency help and how to raise a concern directly with either key contact."
+    ]
+  ],
+  "consent": "I have read the handbook, understand the responsibilities above and have had the opportunity to ask questions. By signing, I acknowledge this edition electronically. My signature records this induction and does not waive my employment rights."
+}

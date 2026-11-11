@@ -6,3 +6,4 @@ qrcode==8.2
 reportlab==4.4.4
 cryptography==50.0.2
 py-vapid==1.9.2
+pypdf==6.21.4

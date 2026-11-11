@@ -1,0 +1,39 @@
+.staff-directory,.induction-page {width:100%;min-width:0;margin-inline:auto;box-sizing:border-box}
+.staff-directory {max-width:1160px}
+.staff-directory .page-heading,.staff-directory .metrics,.staff-directory .staff-list {width:100%;max-width:100%;box-sizing:border-box}
+.staff-directory .page-heading {align-items:center}
+.staff-directory .page-heading h1 {margin:0}
+.staff-directory .staff-list {padding:0;overflow:visible}
+.staff-list .panel-head {display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;padding:18px}
+.staff-list .search {margin:0;min-width:0;width:min(100%,280px)}
+.staff-member {display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1.25fr) minmax(0,.75fr) minmax(0,1fr) auto;gap:8px 16px;border-top:1px solid #dbe3eb;padding:16px 18px;color:#253447;font-size:.94rem;align-items:start}
+.staff-member[hidden] {display:none}
+.staff-member :is(div,details,small,strong) {min-width:0;overflow-wrap:anywhere}
+.staff-member small,.staff-member .field-caption {display:block;color:#536478;font-size:.82rem;line-height:1.45}
+.staff-person strong {font-size:1.02rem}
+.staff-more {grid-column:1/-1}
+.staff-more summary,.induction-card summary {cursor:pointer;color:#274e7a;padding:5px 0;font-weight:600}
+.staff-extra {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;padding:12px;background:#f4f7fa;border-radius:8px}
+.staff-extra form {margin:6px 0 0}
+.induction-page {max-width:780px}
+.induction-card {padding:clamp(16px,3vw,28px);margin-bottom:16px}
+.induction-card h2 {margin:5px 0 14px}
+.induction-card details {margin-top:12px}
+.induction-card .ack-row {display:flex;align-items:flex-start;gap:12px;margin:0 0 14px;font-size:1rem;font-weight:400;line-height:1.5}
+.induction-card .ack-row input {width:20px;height:20px;min-width:20px;min-height:20px;margin:3px 0 0}
+.ack-row strong,.signature-name input {display:block}
+.induction-card .signature-name {margin:12px 0}
+.staff-directory .metrics {display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+@media(max-width:760px) {
+  .staff-member {grid-template-columns:repeat(2,minmax(0,1fr))}
+  .staff-person {grid-column:1/-1}
+  .staff-extra {grid-template-columns:repeat(2,minmax(0,1fr))}
+  .staff-directory .metrics {gap:6px}
+  .staff-directory .metrics>div {min-width:0;padding:10px 7px}
+  .staff-directory .metrics span {font-size:.78rem;line-height:1.3}
+  .staff-directory .page-heading {align-items:flex-start}
+}
+@media(max-width:440px) {
+  .staff-list .search,.staff-list .panel-head input {width:100%}
+  .staff-extra {grid-template-columns:minmax(0,1fr)}
+}

@@ -1,6 +1,6 @@
 const search = document.querySelector('#staff-search');
 if (search) search.addEventListener('input', () => {
-  const rows = [...document.querySelectorAll('#staff-table tbody tr')];
+  const rows = [...document.querySelectorAll('#staff-table [data-staff-row]')];
   let visible = 0;
   for (const row of rows) {
     row.hidden = !row.textContent.toLowerCase().includes(search.value.toLowerCase().trim());

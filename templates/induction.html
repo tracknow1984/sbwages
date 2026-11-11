@@ -1,0 +1,31 @@
+{% extends 'base.html' %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static',filename='staff-induction.css') }}">
+<div class="induction-page">
+  <div class="page-heading"><div><h1>My induction</h1><p>Employee handbook · Edition {{ version }}</p></div></div>
+  {% if terms %}
+  <section class="panel induction-card"><h2>SB Empire employee handbook</h2>
+    <a class="button secondary" href="{{ url_for('employee_handbook') }}" target="_blank" rel="noopener">Read handbook (PDF)</a>
+    <details><summary>Key contacts</summary>
+    {% for contact,phone in contacts %}<p>{{ contact }} · <a href="tel:{{ phone|replace(' ','') }}">{{ phone }}</a></p>{% endfor %}
+    </details>
+  </section>
+  {% if signed %}<section class="panel induction-card"><h2>Induction signed</h2>
+    <p>{{ signed.signature }} · {{ signed.signed_at|display_datetime }} Brisbane time</p>
+    <a class="button primary" href="{{ url_for('induction_record',record_id=signed.id) }}">Download my signed handbook</a>
+  </section>{% else %}
+  <form method="post" class="panel induction-card">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ version }}">
+    <h2>Employee acknowledgements</h2>
+    {% for key,title,body in terms['items'] %}
+    <label class="ack-row"><input type="checkbox" name="ack" value="{{ key }}" required {% if key in request.form.getlist('ack') %}checked{% endif %}>
+    <span><strong>{{ title }}</strong>{{ body }}</span></label>{% endfor %}
+    <h2>Electronic signature</h2>
+    <label class="ack-row"><input type="checkbox" required name="consent" value="yes"{% if request.form.get('consent')=='yes' %} checked{% endif %}><span>{{ terms['consent'] }}</span></label>
+    <label class="signature-name">Type your full name as shown · {{ name }}<input name="signature" type="text" autocomplete="name" maxlength="401" required value="{{ request.form.get('signature','') }}"></label>
+    <button type="submit" class="primary">Sign induction</button>
+  </form>{% endif %}
+  {% else %}<section class="panel induction-card"><h2>Handbook being prepared</h2><p>Your handbook will appear here when the edition is available.</p></section>{% endif %}
+  {% for record in records if record.version!=version %}<p><a href="{{ url_for('induction_record',record_id=record.id) }}">My signed handbook · Edition {{ record.version }}</a></p>{% endfor %}
+</div>
+{% endblock %}

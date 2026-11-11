@@ -253,7 +253,9 @@ def create_app(test_config=None):
 
     @app.before_request
     def protect():
-        if request.endpoint == 'import_blocktexx_weights':
+        if request.endpoint == 'install_induction_edition':
+            request.max_content_length = 2 * 1024 * 1024
+        elif request.endpoint == 'import_blocktexx_weights':
             request.max_content_length = 6 * 1024 * 1024
         elif request.endpoint in ('save_blocktexx', 'validate_blocktexx', 'preview_blocktexx_capacity'):
             request.max_content_length = 4 * 1024 * 1024
@@ -479,7 +481,10 @@ def create_app(test_config=None):
     @app.get('/admin/staff')
     @require('admin')
     def admin_staff():
-        people = db().execute("SELECT * FROM users WHERE role='employee' ORDER BY status,first_name,last_name").fetchall()
+        from employee_induction import EDITION
+        people = db().execute("""SELECT u.*,s.id AS induction_id,s.signed_at AS induction_signed_at
+            FROM users u LEFT JOIN handbook_signatures s ON s.user_id=u.id AND s.version=?
+            WHERE u.role='employee' ORDER BY u.status,u.first_name,u.last_name""",(EDITION,)).fetchall()
         return render_template('staff.html', people=people, active=sum(p['status'] == 'active' for p in people), tab='staff')
 
     @app.route('/admin/staff/new', methods=['GET', 'POST'])
@@ -1603,6 +1608,8 @@ def create_app(test_config=None):
     register_binflow(app, db, require)
     from binflow_lunch import register_lunch
     register_lunch(app, db)
+    from employee_induction import register_induction
+    register_induction(app, db, require)
     from traxpress import register_traxpress
     register_traxpress(app, db, require)
     return app

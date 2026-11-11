@@ -35,7 +35,7 @@ class DriverPortalTests(unittest.TestCase):
         expected = ['/binflow/driver/my-day', '/binflow/pods',
                     '/employee/hit-me', '/employee/timesheet', '/employee/prestart',
                     '/employee/details', '/employee/payslips', '/employee/history',
-                    '/employee/documents', '/employee/leave']
+                    '/employee/induction', '/employee/documents', '/employee/leave']
         for path in expected:
             page = self.client.get(path)
             self.assertEqual(page.status_code, 200, path)
