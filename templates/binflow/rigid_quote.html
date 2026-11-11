@@ -1,0 +1,8 @@
+{% extends 'binflow/client_layout.html' %}{% from 'binflow/freight_amounts.html' import breakdown %}{% block content %}
+<link rel="stylesheet" href="{{ url_for('static',filename='binflow-interstate.css') }}">
+<h1>Local RIGID quote</h1><p>{{ account.name }} · All amounts in AUD ex GST</p>
+<section class="bf-panel bf-pad"><form method="get" class="bf-filters">
+<label>Hours required<input type="number" name="hours" min="0" max="10000" step=".01" inputmode="decimal" value="{{ hours }}" required></label>
+<button class="primary">Calculate quote</button></form>
+<p>{{ minimum }}-hour minimum. {% if hourly is not none %}{{ billed|hours }} billable hours at {{ hourly|money }} per hour ex GST.{% endif %}</p>
+{{ breakdown(price) }}</section>{% endblock %}

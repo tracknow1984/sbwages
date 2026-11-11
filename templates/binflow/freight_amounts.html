@@ -1,0 +1,7 @@
+{% macro breakdown(price) -%}
+{% if price %}<dl class="it-quote">
+<div><dt>Base freight</dt><dd>{{ price.base|money }}</dd></div>
+<div><dt>Fuel surcharge ({{ price.bps|hours }}%)</dt><dd>{{ price.fuel|money }}</dd></div>
+<div><dt>Total ex GST</dt><dd><strong>{{ price.total|money }}</strong></dd></div>
+</dl>{% else %}<p>Price to be confirmed</p>{% endif %}
+{%- endmacro %}

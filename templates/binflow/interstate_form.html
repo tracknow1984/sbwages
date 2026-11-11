@@ -12,7 +12,7 @@
   {% if row %}<input type="hidden" name="version" value="{{ row.version }}">{% endif %}
   <div class="bf-grid two"><label>Job type<select name="job_type" required><option value="internal" {{ 'selected' if values.job_type=='internal' }}>Internal · SB Empire</option><option value="external" {{ 'selected' if values.job_type=='external' }}>External · subcontractor</option></select></label>
   {% if bulk_only %}<div><strong>Goods recording</strong><p>Bulk movement</p></div>{% else %}<label>Goods recording<select name="handling" required><option value="scanned" {{ 'selected' if values.handling=='scanned' }}>Scan each bale</option><option value="bulk" {{ 'selected' if bulk_only or values.handling=='bulk' }}>Bulk movement · list goods</option></select></label>{% endif %}</div>
-  <label>Vehicle type<select name="vehicle" {{ 'required' if external }}><option value="">Select vehicle</option>{% for v in vehicles %}<option {{ 'selected' if values.vehicle==v }}>{{ v }}</option>{% endfor %}</select></label>
+  <label>Vehicle type<select name="vehicle" {{ 'required' if external }}><option value="">Select vehicle</option>{% if row and row.vehicle=='RIGID' %}<option value="RIGID" {{ 'selected' if values.vehicle=='RIGID' }}>RIGID (existing booking)</option>{% endif %}{% for v in vehicles %}<option {{ 'selected' if values.vehicle==v }}>{{ v }}</option>{% endfor %}</select></label>
   <h3>Pickup location</h3><div class="bf-grid two">{{ entry('pickup_address','Pickup address',limit=500) }}{{ state_select('origin','Pickup state') }}
   {{ entry('client_name','Client name') }}{{ entry('pickup_contact','Primary contact name') }}{{ entry('pickup_phone','Pickup contact number',false,'tel',50) }}
   <label>Pickup date<input type="date" name="pickup_date" min="2000-01-01" max="2100-12-31" value="{{ values.get('pickup_date','') }}"></label></div>
@@ -20,7 +20,7 @@
   {{ entry('delivery_contact','Delivery contact name') }}{{ entry('delivery_phone','Delivery contact number',false,'tel',50) }}
   <label>Delivery date (ETA)<input type="date" name="delivery_date" min="2000-01-01" max="2100-12-31" value="{{ values.get('delivery_date','') }}"></label></div>
   <p data-transit-hint class="bf-muted" aria-live="polite">Enter a pickup date or delivery date to estimate the other.</p>
-  {% if priced %}<p><strong>Freight price</strong> · <output data-rate>Price to be confirmed</output><input type="hidden" name="shown_rate" disabled></p>{% endif %}
+  {% if priced %}<p><strong>Freight price · AUD ex GST</strong> · <output data-rate>Price to be confirmed</output><input type="hidden" name="shown_rate" disabled></p>{% endif %}
   {{ entry('email','Booking confirmation email',true,'email') }}
   <label><span data-goods-label>{{ 'Goods and quantities' if bulk_only or values.handling=='bulk' else 'Load notes (optional)' }}</span><textarea rows="3" name="goods" maxlength="4000" placeholder="e.g. 24 pallets of mixed textiles" {{ 'required' if bulk_only or values.handling=='bulk' }}>{{ values.get('goods','') }}</textarea></label>
   <button type="submit" class="primary">{{ 'Save changes' if row else 'Submit transfer request' }}</button>

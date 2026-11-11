@@ -7,9 +7,12 @@
   const price = form.querySelector('[data-rate]');
   function updatePrice() {
     if (!price) return;
-    const cents = rates[[origin.value, destination.value, vehicle.value].join(':')];
-    price.textContent = cents == null ? 'Price to be confirmed' : new Intl.NumberFormat('en-AU', {style: 'currency', currency: 'AUD'}).format(cents / 100) + ' AUD ex GST';
-    form.elements.shown_rate.value = cents == null ? '' : String(cents);
+    const quote = rates[[origin.value, destination.value, vehicle.value].join(':')];
+    const money = cents => new Intl.NumberFormat('en-AU', {style: 'currency', currency: 'AUD'}).format(cents / 100);
+    price.textContent = quote
+      ? 'Base freight ' + money(quote.base) + ' · Fuel surcharge (' + quote.bps / 100 + '%) ' + money(quote.fuel) + ' · Total ' + money(quote.total) + ' ex GST'
+      : 'Price to be confirmed';
+    form.elements.shown_rate.value = quote ? String(quote.base) + (quote.bps ? '+' + quote.bps : '') : '';
     form.elements.shown_rate.disabled = false;
   }
   [origin, destination, vehicle].forEach(el => el.addEventListener('change', updatePrice));

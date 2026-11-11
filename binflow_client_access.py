@@ -12,7 +12,7 @@ MODULES = (
     ('requests','Approved-site collection requests',('view',)),
 )
 ENDPOINTS = {
-    'bf_client_interstate':'bookings.view', 'bf_client_interstate_detail':'bookings.view',
+    'bf_client_rigid_quote':'bookings.view', 'bf_client_interstate':'bookings.view', 'bf_client_interstate_detail':'bookings.view',
     'bf_client_interstate_new':'bookings.add','bf_client_interstate_edit':'bookings.edit',
     'bf_client_national':'national.view','bf_client_profiles_portal':'profiles.view',
     'bf_client_site_portal':'profiles.view','bf_client_site_new':'profiles.add','bf_client_site_edit':'profiles.edit',

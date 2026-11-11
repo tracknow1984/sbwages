@@ -1,0 +1,10 @@
+{% extends 'binflow/layout.html' %}{% block title %}Weekly fuel surcharge{% endblock %}
+{% block subtitle %}Applies to new freight quotes for all clients.{% endblock %}
+{% block body %}<a href="{{ url_for('bf_interstate_accounts') }}">← Client pricing matrices</a>
+<section class="bf-panel bf-pad"><form method="post" class="bf-form bf-narrow">
+<input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ setting.id }}">
+{% if error %}<p role="alert" class="notice error">{{ error }}</p>{% endif %}
+<label>Weekly fuel surcharge (%)<input name="percent" type="number" min="0" max="10000" step=".01" value="{{ value }}" inputmode="decimal" required></label>
+<p class="bf-muted">Calculated on base freight ex GST. The saved percentage applies immediately and stays in effect until updated.</p>
+{% if setting.changed_at %}<small>Last updated {{ setting.changed_at|display_datetime }} · {{ setting.changed_by }}</small>{% endif %}
+<button class="primary">Save weekly surcharge</button></form></section>{% endblock %}

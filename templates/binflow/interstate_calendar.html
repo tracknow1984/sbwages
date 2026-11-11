@@ -4,6 +4,7 @@
 {% set can_add=not external or 'bookings.add' in g.client_rights %}
 {% set detail='bf_client_interstate_detail' if external else 'bf_interstate_detail' %}
 <div class="it-tools">
+  {% if external %}<a class="button secondary" href="{{ url_for('bf_client_rigid_quote') }}">Local RIGID quote</a>{% endif %}
   {% if can_add %}<a class="button primary" href="{{ url_for('bf_client_interstate_new' if external else 'bf_interstate_new') }}">{{ 'Request a transfer' if external else 'New transfer booking' }}</a>{% endif %}
   {% if not external and current_user.role=='admin' %}<a class="button secondary" href="{{ url_for('bf_interstate_accounts') }}">External booking logins</a>{% endif %}
 </div>

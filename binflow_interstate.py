@@ -58,13 +58,15 @@ def route_days(origin, destination):
     return LANES.get('-'.join(sorted((PLACES[origin][1], PLACES[destination][1]))))
 
 
-def parse_booking(form, client=False):
+def parse_booking(form, client=False, previous=None):
     from app import valid_email
     data = {field:form.get(field,'').strip() for field in FIELDS}
     if client:
         data['handling']='bulk'
-    if (client or data['vehicle']) and data['vehicle'] not in freight.VEHICLES:
-        raise ValueError('Choose RIGID, SEMI TRAILER or B-DOUBLE.')
+    same_legacy_rigid = (previous is not None and previous['vehicle']==data['vehicle']=='RIGID'
+                         and all(PLACES.get(data[k], ('',''))[1]==PLACES[previous[k]][1] for k in ('origin','destination')))
+    if (client or data['vehicle']) and data['vehicle'] not in freight.VEHICLES and not same_legacy_rigid:
+        raise ValueError('Choose SEMI TRAILER or B-DOUBLE for an interstate transfer. RIGID is a local hourly service.')
     if data['job_type'] not in ('internal','external') or data['handling'] not in ('scanned','bulk'):
         raise ValueError('Choose a job type and how the goods will be recorded.')
     origin, destination = data['origin'], data['destination']
@@ -121,7 +123,13 @@ def confirmation(conn, config, row, now):
         if row['vehicle']:
             freight_details = f"Vehicle: {row['vehicle']}\n"
             if row['account_id'] is not None:
-                freight_details += (f"Freight: AUD ${row['rate_cents']/100:,.2f} ex GST\n" if row['rate_cents'] is not None else "Freight price to be confirmed\n")
+                price=freight.quote(row['rate_cents'],row['fuel_bps'])
+                if price:
+                    freight_details += (f"Base freight: AUD ${price['base']/100:,.2f} ex GST\n"
+                        f"Fuel surcharge ({price['bps']/100:g}%): AUD ${price['fuel']/100:,.2f} ex GST\n"
+                        f"Total: AUD ${price['total']/100:,.2f} ex GST\n")
+                else:
+                    freight_details += "Freight price to be confirmed\n"
         msg.set_content(f"Hi {row['pickup_contact']},\n\nSB Empire has confirmed transfer IT-{row['id']:06d} for {row['client_name']}.\n\n"
             f"Pickup: {dated(row['pickup_date']):%a %d %b %Y} · {PLACES[row['origin']][0]}\n{row['pickup_address']}\n"
             f"Pickup contact: {row['pickup_contact']} {row['pickup_phone']}\n\n"
@@ -139,7 +147,7 @@ def confirmation(conn, config, row, now):
 
 
 def register(app, db, access, require, render, client_access, now, actor):
-    freight.register(app,db,require,render)
+    freight.register(app,db,require,render,client_access,now,actor)
     portal.register_site_scope(app,db,require,render,now,actor)
 
     def page(template, external, **data):
@@ -200,11 +208,14 @@ def register(app, db, access, require, render, client_access, now, actor):
     def form_page(external, row=None):
         values = dict(row) if row else dict(job_type='internal',handling='bulk' if external else 'scanned',client_name=g.bf_client['name'] if external else '')
         aid = g.bf_client['id'] if external else (row['account_id'] if row else None)
-        def show(error=None):
-            card=freight.rates_for(db(),aid) if aid else {}
+        def rate_card(conn):
+            card=freight.rates_for(conn,aid) if aid else {}
             if row and row['vehicle'] and row['rate_cents'] is not None:
-                card[f"{PLACES[row['origin']][1]}:{PLACES[row['destination']][1]}:{row['vehicle']}"]=row['rate_cents']
-            return page('interstate_form',external,values=values,key=key,row=row,error=error,rates=card,
+                card[f"{PLACES[row['origin']][1]}:{PLACES[row['destination']][1]}:{row['vehicle']}"]=freight.quote(row['rate_cents'],row['fuel_bps'])
+            return card
+
+        def show(error=None):
+            return page('interstate_form',external,values=values,key=key,row=row,error=error,rates=rate_card(db()),
                         priced=aid is not None,bulk_only=external)
         if not row and request.method=='GET' and request.args.get('pickup'):
             try:
@@ -216,18 +227,17 @@ def register(app, db, access, require, render, client_access, now, actor):
             values = request.form
             key = values.get('request_key','')
             try:
-                data = parse_booking(values,client=external)
+                data = parse_booking(values,client=external,previous=row)
                 conn = db()
                 conn.execute('BEGIN IMMEDIATE')
-                price=None
-                if aid and data['vehicle']:
-                    key_fields = (PLACES[data['origin']][1],PLACES[data['destination']][1],data['vehicle'])
-                    if row and row['rate_cents'] is not None and key_fields==(PLACES[row['origin']][1],PLACES[row['destination']][1],row['vehicle']):
-                        price=row['rate_cents']
-                    else:
-                        price=freight.rates_for(conn,aid).get(':'.join(key_fields))
-                data['rate_cents']=price
-                if aid and 'shown_rate' in values and values['shown_rate']!=('' if price is None else str(price)):
+                route = ':'.join((PLACES[data['origin']][1], PLACES[data['destination']][1], data['vehicle']))
+                price = rate_card(conn).get(route) if aid and data['vehicle'] else None
+                data['rate_cents'] = price['base'] if price else None
+                data['fuel_bps'] = price['bps'] if price else 0
+                shown = str(price['base']) if price else ''
+                if price and price['bps']:
+                    shown += '+'+str(price['bps'])
+                if aid and 'shown_rate' in values and values['shown_rate']!=shown:
                     already_saved=not row and conn.execute('SELECT 1 FROM bf_interstate_bookings WHERE request_key=? AND account_id=?',(key,aid)).fetchone()
                     if not already_saved:
                         raise ValueError('The freight rate has changed. Review the updated price before submitting.')
@@ -293,7 +303,8 @@ def register(app, db, access, require, render, client_access, now, actor):
             status = PROGRESS.get(manifest['status'],status)
         if row['bulk_dispatched_at']:
             status = 'Delivered' if row['bulk_delivered_at'] else 'In transit'
-        return page('interstate_detail',external,b=row,manifest=manifest,status=status)
+        return page('interstate_detail',external,b=row,manifest=manifest,status=status,
+                    price=freight.quote(row['rate_cents'],row['fuel_bps']))
 
     @app.get('/binflow/interstate-transfers/<int:bid>')
     @access
@@ -313,11 +324,12 @@ def register(app, db, access, require, render, client_access, now, actor):
         if not row['locked_at']:
             if request.form.get('version',type=int)!=row['version']:
                 abort(409,'The request has changed. Review the updated dates before confirming.')
-            price=row['rate_cents']
+            price=freight.quote(row['rate_cents'],row['fuel_bps'])
             if price is None and row['account_id'] and row['vehicle']:
                 key=f"{PLACES[row['origin']][1]}:{PLACES[row['destination']][1]}:{row['vehicle']}"
                 price=freight.rates_for(db(),row['account_id']).get(key)
-            db().execute('UPDATE bf_interstate_bookings SET locked_at=?,locked_by=?,rate_cents=?,version=version+1 WHERE id=?',(now(),actor(),price,bid))
+            db().execute('UPDATE bf_interstate_bookings SET locked_at=?,locked_by=?,rate_cents=?,fuel_bps=?,version=version+1 WHERE id=?',
+                         (now(),actor(),price['base'] if price else None,price['bps'] if price else 0,bid))
             db().commit()
             confirmation(db(),app.config,booking(bid),now)
         else:

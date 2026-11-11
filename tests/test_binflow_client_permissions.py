@@ -120,7 +120,7 @@ class PortalPermissionTests(unittest.TestCase):
         def save_rate(value):
             page=self.client.get(path)
             fields={state+':'+vehicle:'' for state in STATES if state!='VIC' for vehicle in VEHICLES}
-            fields.update({'QLD:RIGID':value,'version':re.search('name="version" value="([^"]+)"',page.text)[1]})
+            fields.update({'QLD:SEMI TRAILER':value,'version':re.search('name="version" value="([^"]+)"',page.text)[1]})
             self.assertEqual(self.post(path,fields).status_code,200)
         save_rate('123.45')
         first=self.visit('freight-client')
@@ -131,7 +131,7 @@ class PortalPermissionTests(unittest.TestCase):
         self.assertEqual(self.send(first,CLIENT+'/new',dict(form,goods='')).status_code,400)
         self.assertEqual(self.send(first,CLIENT+'/new',form).status_code,200)
         self.assertEqual(self.rows('SELECT handling,vehicle,rate_cents FROM bf_interstate_bookings'),
-                         [dict(handling='bulk',vehicle='RIGID',rate_cents=12345)])
+                         [dict(handling='bulk',vehicle='SEMI TRAILER',rate_cents=12345)])
         self.assertEqual(second.get(CLIENT+'/1').status_code,404)
         self.assertEqual(second.get(CLIENT+'/1/edit').status_code,403)
         save_rate('0.00')
@@ -144,3 +144,70 @@ class PortalPermissionTests(unittest.TestCase):
         self.assertIn('Price to be confirmed',self.send(first,CLIENT+'/new',reverse).text)
         self.post(CAL+'/1/lock',dict(version=2))
         self.assertEqual(self.send(first,CLIENT+'/1/edit',dict(form,version=3)).status_code,409)
+
+    def test_weekly_fuel_is_shared_and_booked_prices_are_preserved(self):
+        from unittest.mock import patch
+        fuel_path=CAL+'/access/fuel'
+        self.assertEqual(self.post(fuel_path,dict(version=0,percent='-1')).status_code,400)
+        self.assertEqual(self.post(fuel_path,dict(version=0,percent='12.50')).status_code,200)
+        self.assertEqual(self.post(fuel_path,dict(version=0,percent='10')).status_code,409)
+        self.assertEqual(self.post(fuel_path,dict(version=1,percent='1.001')).status_code,400)
+
+        def configure(name,hourly):
+            aid=self.account(name)
+            path=f'{CAL}/access/{aid}/rates?origin=VIC'
+            page=self.client.get(path).text
+            self.assertIn('12.5%',page)
+            fields={state+':'+vehicle:'' for state in STATES if state!='VIC' for vehicle in VEHICLES}
+            fields.update({'QLD:SEMI TRAILER':'100.04','rigid_hourly':hourly,
+                           'version':re.search('name="version" value="([^"]+)"',page)[1]})
+            self.assertEqual(self.post(path,fields).status_code,200)
+            return self.visit(name)
+
+        first=configure('first-fuel','100.00')
+        second=configure('second-fuel','200.00')
+        local='/binflow/client/local-rigid/quote'
+        self.assertEqual(first.get(fuel_path).status_code,302)
+        self.assertEqual(self.send(first,CLIENT+'/new',data(vehicle='RIGID')).status_code,400)
+        self.assertNotIn('value="RIGID"',first.get(CLIENT+'/new').text)
+        self.assertEqual(self.post(CAL+'/new',data(vehicle='RIGID')).status_code,400)
+        self.assertIn('$450.00',first.get(local+'?hours=2').text)
+        self.assertIn('$450.00',first.get(local+'?hours=4').text)
+        self.assertIn('$506.25',first.get(local+'?hours=4.5').text)
+        self.assertIn('$900.00',second.get(local+'?hours=2').text)
+        self.assertEqual(second.get(local+'?hours=-1').status_code,400)
+        # Half-cent surcharge rounds up using the booked base amount.
+        form=data(shown_rate='10004+1250')
+        response=self.send(first,CLIENT+'/new',form)
+        self.assertIn('$112.55',response.text)
+        self.assertEqual(self.post(fuel_path,dict(version=1,percent='20')).status_code,200)
+        self.assertEqual(self.send(second,CLIENT+'/new',data(shown_rate='10004+1250')).status_code,400)
+        self.assertIn('$480.00',first.get(local+'?hours=1').text)
+        self.assertIn('$960.00',second.get(local+'?hours=1').text)
+        self.assertIn('$112.55',self.send(first,CLIENT+'/new',form).text)
+        self.assertIn('$120.05',self.send(second,CLIENT+'/new',data(shown_rate='10004+2000')).text)
+        self.app.config.update(SMTP_HOST='smtp.example.invalid',SMTP_FROM='operations@example.invalid')
+        with patch('binflow_interstate.send_smtp') as send:
+            self.post(CAL+'/1/lock',dict(version=1))
+            body=send.call_args.args[1].get_content()
+            for line in ('Base freight: AUD $100.04 ex GST','Fuel surcharge (12.5%): AUD $12.51 ex GST','Total: AUD $112.55 ex GST'):
+                self.assertIn(line,body)
+
+    def test_preexisting_rigid_freight_is_not_converted_to_hourly(self):
+        from binflow_freight_rates import migrate
+        aid=self.account('legacy-rigid',custom_permissions='yes',permission=['bookings.add','bookings.edit'])
+        client=self.visit('legacy-rigid')
+        self.send(client,CLIENT+'/new',data())
+        with sqlite3.connect(self.path) as conn:
+            conn.row_factory=sqlite3.Row
+            conn.execute("UPDATE bf_interstate_bookings SET rate_cents=180000,vehicle='RIGID' WHERE id=1")
+            conn.execute("INSERT INTO bf_interstate_rates VALUES(?,'VIC','QLD','RIGID',180000)",(aid,))
+            migrate(conn)
+        self.assertIn('Price to be confirmed',client.get('/binflow/client/local-rigid/quote').text)
+        self.assertNotIn('180000',client.get(CLIENT+'/new').text)
+        self.assertIn('$1,800.00',client.get(CLIENT+'/1').text)
+        self.post(CAL+'/access/fuel',dict(version=0,percent='25'))
+        response=self.send(client,CLIENT+'/1/edit',data(vehicle='RIGID',version='1',shown_rate='180000',origin='VIC',destination='QLD'))
+        self.assertEqual(response.status_code,200)
+        self.assertEqual(self.send(client,CLIENT+'/1/edit',data(vehicle='RIGID',version='2',destination='NSW')).status_code,400)
+        self.assertEqual(self.rows('SELECT rate_cents,fuel_bps FROM bf_interstate_bookings'),[dict(rate_cents=180000,fuel_bps=0)])
