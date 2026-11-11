@@ -9,6 +9,7 @@
 {% set can_add=not external or 'bookings.add' in g.client_rights %}
 <div class="it-tools">
   {% if can_add %}<a class="button primary" href="{{ url_for('bf_client_interstate_new' if external else 'bf_interstate_new') }}">{{ 'Request a transfer' if external else 'New transfer booking' }}</a>{% endif %}
+  <a class="button secondary" href="{{ url_for(cal, date=chosen, export='month') }}" data-bf-icon="download" title="Download all {{ chosen.strftime('%B %Y') }} transfers across all states as an Excel table">Export month</a>
   {% if not external and current_user.role=='admin' %}<a class="button secondary" href="{{ url_for('bf_interstate_accounts') }}">External booking logins</a>{% endif %}
 </div>
 <section class="bf-calendar-shell it-dispatch-calendar{{ ' it-client-po-calendar' if external }}">

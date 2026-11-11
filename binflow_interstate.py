@@ -4,6 +4,7 @@ import re
 import secrets
 import smtplib
 import sqlite3
+from calendar import monthrange
 from collections import defaultdict
 from datetime import datetime, timedelta
 from email.message import EmailMessage
@@ -232,22 +233,37 @@ def register(app, db, access, require, render, client_access, now, actor):
             chosen = dated(request.args.get('date') or now()[:10])
         except ValueError:
             abort(400)
-        start,end,previous,following,title,weeks = calendar_period(chosen,view)
         scope = ' AND b.account_id=?' if external else ''
         args = (g.bf_client['id'],) if external else ()
+        select = """SELECT b.*, COALESCE(a.name,b.client_name) AS billing_name,
+                       t.status AS manifest_status, t.code AS manifest_code, m.expected_bales,
+                       po.booking_id IS NOT NULL AS po_received, po.number AS po_number, po.filename AS po_filename
+                FROM bf_interstate_bookings b LEFT JOIN bf_client_accounts a ON a.id=b.account_id
+                LEFT JOIN bf_interstate_manifests m ON m.transfer_id=(
+                    SELECT MAX(x.transfer_id) FROM bf_interstate_manifests x WHERE x.booking_id=b.id)
+                LEFT JOIN bf_bale_transfers t ON t.id=m.transfer_id
+                LEFT JOIN bf_interstate_purchase_orders po ON po.booking_id=b.id"""
+        if request.args.get('export') == 'month':
+            from binflow_transfer_export import monthly_workbook
+            first = chosen.replace(day=1).isoformat()
+            last = chosen.replace(day=monthrange(chosen.year, chosen.month)[1]).isoformat()
+            bookings = db().execute(select + """ WHERE
+                (b.pickup_date BETWEEN ? AND ? OR b.delivery_date BETWEEN ? AND ?)""" + scope +
+                ' ORDER BY b.pickup_date,b.delivery_date,b.id', (first,last,first,last,*args))
+            records = (dict(b, status=booking_status(b, b['manifest_status'])) for b in bookings)
+            response = send_file(monthly_workbook(records, chosen, PLACES, external),
+                                 download_name=f"BinFlow-All-Transfers-{chosen:%Y-%m}.xlsx",
+                                 mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                                 as_attachment=True)
+            response.cache_control.no_store = True
+            return response
+        start,end,previous,following,title,weeks = calendar_period(chosen,view)
         if state:
             points = [key for key,(_,region) in PLACES.items() if region==state]
             marks = ','.join('?' for _ in points)
             scope += f' AND (origin IN ({marks}) OR destination IN ({marks}))'
             args += (*points,*points)
         limits = (start.isoformat(),end.isoformat())
-        select = """SELECT b.*, COALESCE(a.name,b.client_name) AS billing_name,
-                       t.status AS manifest_status, m.expected_bales, po.booking_id IS NOT NULL AS po_received, po.number AS po_number
-                FROM bf_interstate_bookings b LEFT JOIN bf_client_accounts a ON a.id=b.account_id
-                LEFT JOIN bf_interstate_manifests m ON m.transfer_id=(
-                    SELECT MAX(x.transfer_id) FROM bf_interstate_manifests x WHERE x.booking_id=b.id)
-                LEFT JOIN bf_bale_transfers t ON t.id=m.transfer_id
-                LEFT JOIN bf_interstate_purchase_orders po ON po.booking_id=b.id"""
         rows = db().execute(select+""" WHERE b.locked_at IS NOT NULL
             AND (pickup_date BETWEEN ? AND ? OR delivery_date BETWEEN ? AND ?)"""+scope+
             ' ORDER BY b.client_name,b.id',(*limits,*limits,*args)).fetchall()
