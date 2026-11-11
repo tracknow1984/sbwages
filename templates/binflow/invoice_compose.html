@@ -1,0 +1,25 @@
+{% extends 'binflow/layout.html' %}
+{% block title %}Prepare invoice{% endblock %}
+{% block subtitle %}{% endblock %}
+{% block body %}
+<div class="bf-actions"><a class="button secondary" href="{{ url_for('bf_invoices') }}">All invoices</a><a class="button secondary" href="{{ url_for('bf_invoices',_anchor='contacts') }}">Client billing contacts &amp; Xero choices</a></div>
+{% if not booking %}<p>To invoice a booked transfer at its agreed rate, open the booking in <a href="{{ url_for('bf_interstate_calendar') }}">Interstate Transfers</a> and select “Prepare transport invoice”.</p>{% endif %}
+<section class="bf-panel bf-pad">{% if error %}<p class="notice error" role="alert">{{ error }}</p>{% endif %}
+{% if not connected %}<p><a href="{{ url_for('bf_xero_settings') }}">Connect Xero</a> to prepare a draft.</p>{% else %}
+<form class="bf-form" method="post"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="draft_key" value="{{ key }}">
+{% if booking %}<input type="hidden" name="booking" value="{{ booking.id }}"><h2>Transport · IT-{{ '%06d'|format(booking.id) }}</h2>
+{% for a in accounts if a.id==booking.account_id %}<p>Bill to <strong>{{ a.name }}</strong> · {{ a.contact_name or 'Link a Xero contact first' }}</p>{% endfor %}
+{% else %}<div class="bf-grid"><label>Category<select required name="category">{% for c in categories if c.id!=1 %}<option value="{{ c.id }}"{% if request.form.get('category',type=int)==c.id %} selected{% endif %}>{{ c.name }}</option>{% endfor %}</select></label>
+<label>Bill to<select required name="client"><option value="">Choose linked client</option>{% for a in accounts if a.contact_id %}<option value="{{ a.id }}"{% if request.form.get('client',type=int)==a.id %} selected{% endif %}>{{ a.name }} ({{ a.username }}) · {{ a.contact_name }}</option>{% endfor %}</select></label></div>{% endif %}
+<div class="bf-grid"><label>Invoice date<input type="date" name="invoice_date" value="{{ request.form.get('invoice_date',stamp) }}" required></label><label>Due date<input type="date" name="due_date" value="{{ request.form.get('due_date',due) }}" required></label></div>
+<div class="bf-grid"><label>Income account<select name="account_code" required><option value="">Choose account</option>{% for a in options.get('accounts',[]) %}<option value="{{ a.code }}"{% if request.form.get('account_code')==a.code %} selected{% endif %}>{{ a.code }} · {{ a.name }}</option>{% endfor %}</select></label>
+<label>Tax rate<select name="tax_type" required><option value="">Choose tax</option>{% for t in options.get('taxes',[]) %}<option value="{{ t.code }}"{% if request.form.get('tax_type')==t.code %} selected{% endif %}>{{ t.name }} ({{ t.rate }}%)</option>{% endfor %}</select></label></div>
+<h2>Invoice lines</h2>
+{% if booked_lines %}{% for description,qty,rate in booked_lines %}<p>{{ description }} · <strong>{{ rate|money }} ex GST</strong></p>{% endfor %}
+{% else %}{% if booking %}<p>This booking has no saved price. Enter the agreed charges below.</p>{% endif %}
+{% macro line(desc,qty,rate) %}<fieldset class="bf-grid"><label>Description<input name="description" maxlength="1000" value="{{ desc }}"></label><label>Quantity<input name="quantity" type="number" step=".01" min=".01" value="{{ qty }}"></label><label>Unit rate ex GST ($)<input name="unit_rate" type="number" min=".01" step=".01" value="{{ rate }}"></label></fieldset>{% endmacro %}
+<div id="invoice-lines">{% for desc,qty,rate in entries %}{{ line(desc,qty,rate) }}{% endfor %}</div>
+<template id="invoice-line">{{ line('','','') }}</template><button id="add-invoice-line" type="button" class="secondary" hidden>Add line</button>
+<script src="{{ url_for('static',filename='binflow-invoice-lines.js') }}" defer></script>{% endif %}
+<button class="primary">Review draft invoice</button></form>{% endif %}</section>
+{% endblock %}

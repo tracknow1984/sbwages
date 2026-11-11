@@ -2,7 +2,7 @@
 {% block title %}Rental invoices{% endblock %}
 {% block subtitle %}Review a fortnight and create one consolidated draft in Xero.{% endblock %}
 {% block body %}
-<div class="bf-actions"><a class="button secondary" href="{{ url_for('bf_rental_income') }}">Rental income</a><a class="button secondary" href="{{ url_for('bf_xero_settings') }}">Xero connection</a></div>
+<div class="bf-actions"><a class="button secondary" href="{{ url_for('bf_invoices') }}">All invoices</a><a class="button secondary" href="{{ url_for('bf_rental_income') }}">Rental income</a><a class="button secondary" href="{{ url_for('bf_xero_settings') }}">Xero connection</a></div>
 {% if error %}<p role="alert" class="bf-rental-warning">{{ error }}</p>{% endif %}
 {% if not connected %}<section class="bf-panel bf-pad"><h2>Connect Xero to get started</h2><p>Connect your organisation, then select the billing contact, income account and tax rate.</p><a class="button primary" href="{{ url_for('bf_xero_settings') }}">Set up Xero</a></section>
 {% else %}

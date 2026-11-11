@@ -1,0 +1,7 @@
+{% extends 'binflow/client_layout.html' %}
+{% block content %}<h1>Invoices</h1>
+{% if error %}<p class="notice error" role="alert">{{ error }}</p>{% endif %}
+{% for c in groups %}<section class="bf-panel bf-pad"><h2>{{ c.name }} invoices</h2>
+{% if c.rows %}<div class="bf-table-wrap"><table><thead><tr><th>Invoice</th><th>Issued</th><th>Due</th><th>Status</th><th>Total incl. GST</th><th>Balance</th><th>Document</th></tr></thead><tbody>
+{% for r in c.rows %}<tr><td><strong>{{ r.number }}</strong></td><td>{{ r.date|display_date }}</td><td>{{ r.due|display_date }}</td><td>{{ r.status }}</td><td>{{ r.currency }} {{ '{:,.2f}'.format(r.total) }}</td><td>{{ r.currency }} {{ '{:,.2f}'.format(r.outstanding) }}</td><td><a href="{{ url_for('bf_client_invoice_pdf',identifier=r.key) }}" aria-label="Download {{ r.number }} PDF">Download PDF</a></td></tr>{% endfor %}
+</tbody></table></div>{% elif not error %}<p>No issued invoices in this category.</p>{% endif %}</section>{% endfor %}{% endblock %}

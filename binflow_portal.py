@@ -81,7 +81,7 @@ def register_portal(app, db, access, require, render, success, failure, now, act
                 booking_first=request.args.get('transfers')=='1' or db().execute(
                     'SELECT 1 FROM bf_interstate_accounts WHERE account_id=?',(account['id'],)).fetchone()
                 homes=['bf_client_interstate','bf_client_calendar'] if booking_first else ['bf_client_calendar','bf_client_interstate']
-                for endpoint in homes+['bf_client_national','bf_client_pods','bf_client_profiles_portal','bf_client_requests']:
+                for endpoint in homes+['bf_client_national','bf_client_pods','bf_client_profiles_portal','bf_client_requests','bf_client_invoices']:
                     if portal.ENDPOINTS[endpoint] in rights:
                         return redirect(url_for(endpoint))
                 return render_template('binflow/client_inactive.html',account=account)
@@ -126,6 +126,8 @@ def register_portal(app, db, access, require, render, success, failure, now, act
 
     from binflow_interstate import register as register_interstate
     register_interstate(app,db,access,require,render,client_access,now,actor)
+    from binflow_invoices import register as register_invoices
+    register_invoices(app,db,require,render,client_access,now,actor)
     register_management(app, db, client_access, now)
     from binflow_client_directory import register as register_directory
     register_directory(app,db,client_access,now)

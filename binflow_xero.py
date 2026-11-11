@@ -50,8 +50,6 @@ def migrate(conn):
       created_by TEXT NOT NULL, created_at TEXT NOT NULL, attempted_at TEXT,
       invoice_id TEXT NOT NULL DEFAULT '', invoice_number TEXT NOT NULL DEFAULT '',
       xero_status TEXT NOT NULL DEFAULT '', error TEXT NOT NULL DEFAULT '');
-    CREATE UNIQUE INDEX IF NOT EXISTS bf_rental_invoice_period ON bf_rental_invoices(tenant_id,period_start,period_end)
-      WHERE mode='actual' AND status!='cancelled';
     ''')
 
 
@@ -216,6 +214,19 @@ def choices(app, conn, search='Blocktexx'):
     return result
 
 
+def billing_choices(conn, values, linked_contact=None):
+    cfg = config(conn)
+    opts = json.loads(cfg['choices_json'])
+    contact = linked_contact or next((x for x in opts.get('contacts', []) if x['id'] == values.get('contact_id')), None)
+    account = next((x for x in opts.get('accounts', []) if x['code'] == values.get('account_code')), None)
+    tax = next((x for x in opts.get('taxes', []) if x['code'] == values.get('tax_type')), None)
+    if not contact or not account or not tax or not cfg['tenant_id']:
+        raise XeroError('Choose a connected organisation, Xero contact, income account and tax rate.')
+    if cfg['choices_at'] < int(time.time()) - 3600:
+        raise XeroError('Refresh the Xero billing choices before preparing this invoice.')
+    return contact, account, tax
+
+
 def prepare_snapshot(conn, values):
     try:
         start, end = date.fromisoformat(values.get('period_start', '')), date.fromisoformat(values.get('period_end', ''))
@@ -226,15 +237,7 @@ def prepare_snapshot(conn, values):
     mode = values.get('mode', '')
     if mode not in ('actual', 'test'):
         raise XeroError('Choose actual rentals or a labelled test draft.')
-    cfg = config(conn)
-    opts = json.loads(cfg['choices_json'])
-    contact = next((x for x in opts.get('contacts', []) if x['id'] == values.get('contact_id')), None)
-    account = next((x for x in opts.get('accounts', []) if x['code'] == values.get('account_code')), None)
-    tax = next((x for x in opts.get('taxes', []) if x['code'] == values.get('tax_type')), None)
-    if not contact or not account or not tax or not cfg['tenant_id']:
-        raise XeroError('Choose a connected organisation, Xero contact, income account and tax rate.')
-    if cfg['choices_at'] < int(time.time()) - 3600:
-        raise XeroError('Refresh the Xero billing choices before preparing this invoice.')
+    contact, account, tax = billing_choices(conn, values)
     data = report(conn)
     counts = data['totals']['billable']
     if mode == 'actual':
@@ -439,7 +442,7 @@ def register(app, db, require, render, now, actor):
             except XeroError as exc:
                 error = str(exc)
         stamp = date.fromisoformat(now()[:10])
-        history = db().execute('SELECT id,reference,period_start,period_end,mode,status,invoice_number FROM bf_rental_invoices ORDER BY created_at DESC,rowid DESC LIMIT 30').fetchall()
+        history = db().execute('SELECT id,reference,period_start,period_end,mode,status,invoice_number FROM bf_rental_invoices WHERE category_id=1 ORDER BY created_at DESC,rowid DESC LIMIT 30').fetchall()
         return render('rental_invoices', section='rental', connected=bool(cfg['tenant_id'] and cfg['token_cipher']),
                       tenant_name=cfg['tenant_name'], options=opts, error=error, history=history,
                       period_start=(stamp - timedelta(days=13)).isoformat(), period_end=stamp.isoformat(),
@@ -460,7 +463,7 @@ def register(app, db, require, render, now, actor):
             payload = invoice_payload(snapshot, reference, date.fromisoformat(now()[:10]))
             # Prevent overlapping actual bills, including two simultaneous submissions.
             if snapshot['mode'] == 'actual' and db().execute("""SELECT 1 FROM bf_rental_invoices
-                WHERE tenant_id=? AND mode='actual' AND status!='cancelled' AND period_start<=? AND period_end>=?""",
+                WHERE tenant_id=? AND category_id=1 AND mode='actual' AND status!='cancelled' AND period_start<=? AND period_end>=?""",
                 (cfg['tenant_id'], snapshot['end'], snapshot['start'])).fetchone():
                 raise XeroError('An actual rental invoice already covers some or all of this period. Open it from the invoice history.')
             db().execute('''INSERT INTO bf_rental_invoices(id,tenant_id,tenant_name,period_start,period_end,mode,status,
@@ -480,7 +483,7 @@ def register(app, db, require, render, now, actor):
         item = saved_invoice(identifier)
         snapshot = json.loads(item['snapshot_json'])
         payload = json.loads(item['payload_json'])['Invoices'][0]
-        return render('rental_invoice', section='rental', invoice=item, snapshot=snapshot,
+        return render('rental_invoice', section='rental' if item['category_id']==1 else 'invoices', invoice=item, snapshot=snapshot,
                       invoice_date=payload['Date'], due_date=payload['DueDate'],
                       total=snapshot['subtotal'] + snapshot['gst'])
 

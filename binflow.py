@@ -146,6 +146,8 @@ def register_binflow(app, db, require):
         migrate_bales(db())
         from binflow_interstate import migrate as migrate_interstate
         migrate_interstate(db())
+        from binflow_invoices import migrate as migrate_invoices
+        migrate_invoices(db())
         db().commit()
         tare_update = apply_standard_tares(db(), now())
         if tare_update:

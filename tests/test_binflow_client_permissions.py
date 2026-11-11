@@ -108,7 +108,7 @@ class PortalPermissionTests(unittest.TestCase):
         self.assertEqual(main.get(docket).status_code,200)
         self.assertEqual(other.get(pdf).status_code,403)
         self.assertEqual(other.get(docket).status_code,404)
-        all_rights=['bookings.view','bookings.add','pods.view','pods.all','profiles.view','national.view']
+        all_rights=['invoices.view','bookings.view','bookings.add','pods.view','pods.all','profiles.view','national.view']
         self.rights(aid,all_rights,['pods.view'])
         self.assertEqual(main.get(pdf).status_code,404)
         self.assertEqual(main.get(docket+'/signature.png').status_code,404)
@@ -267,7 +267,7 @@ class PortalPermissionTests(unittest.TestCase):
             page=client.get(CLIENT+'?date=2026-11-13&view='+view).text
             self.assertEqual(page.count('data-po-status="received"'),4)
             self.assertIn('Purchase order legend',page)
-        self.rights(aid,['bookings.view','bookings.add'],['bookings.view'])
+        self.rights(aid,['invoices.view','bookings.view','bookings.add'],['bookings.view'])
         self.assertNotIn('Save PO',client.get(CLIENT+'/1').text)
         self.assertEqual(self.send(client,path,dict(fields,po_revision=3)).status_code,403)
         self.assertEqual(client.get(path+'/file').data,document)

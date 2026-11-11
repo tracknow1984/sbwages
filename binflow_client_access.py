@@ -7,6 +7,7 @@ MODULES = (
     ('bookings','Own interstate bookings',('view','add','edit')),
     ('national','National local pickups',('view',)),
     ('profiles','National client profiles',('view','add','edit')),
+    ('invoices','Own client invoices',('view',)),
     ('pods','Completed PODs',('view',)),
     ('calendar','Approved-site collection calendar',('view',)),
     ('requests','Approved-site collection requests',('view',)),
@@ -19,7 +20,7 @@ ENDPOINTS = {
     'bf_client_national_weeks':'national.view','bf_client_profiles_portal':'profiles.view',
     'bf_client_site_portal':'profiles.view','bf_client_site_new':'profiles.add','bf_client_site_edit':'profiles.edit',
     'bf_client_pods':'pods.view','bf_client_pdf':'pods.view','bf_client_calendar':'calendar.view',
-    'bf_client_requests':'requests.view',
+    'bf_client_requests':'requests.view', 'bf_client_invoices':'invoices.view', 'bf_client_invoice_pdf':'invoices.view',
 }
 
 def migrate(conn):
@@ -36,7 +37,7 @@ def bind_named_default(conn):
         SELECT 'blocktexx1',id FROM bf_client_accounts WHERE username='blocktexx1'""")
 
 def defaults(booking_login, national_reader=False):
-    rights = {'bookings.view','bookings.add'}
+    rights = {'bookings.view','bookings.add','invoices.view'}
     if not booking_login:
         rights.update(('calendar.view','requests.view','pods.view'))
     if national_reader:

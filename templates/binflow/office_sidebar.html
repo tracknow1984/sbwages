@@ -12,12 +12,13 @@
       ('requests','Bin Collection Requests','bf_collection_requests','requests'),
       ('pods','Daily PODs','bf_daily_pods','pod'),
       ('allocations','State allocations','bf_allocations','allocations'),
+      ('invoices','Invoices','bf_invoices','reports'),
       ('rental','Rental Income','bf_rental_income','reports'),
       ('reports','Reports','bf_reports','reports'),
       ('profiles','Client profiles','bf_client_profiles','clients'),
       ('suppliers','Supplier Site Register','bf_supplier_register','clients'),
       ('setup','Setup','bf_setup','settings')
-    ] if (key!='driver' or current_user.role!='admin') and (key not in ('rental','reports','profiles','suppliers','setup') or current_user.role=='admin') %}
+    ] if (key!='driver' or current_user.role!='admin') and (key not in ('invoices','rental','reports','profiles','suppliers','setup') or current_user.role=='admin') %}
     <a href="{{ url_for(endpoint) }}" data-bf-icon="{{ icon }}" {% if section==key %}class="active" aria-current="page"{% endif %}>{{ label }}{% if key=='requests' and bf_request_count %} <strong class="bf-request-badge">{{ bf_request_count }}</strong>{% endif %}</a>
     {% endfor %}
   </nav>
