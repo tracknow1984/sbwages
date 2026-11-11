@@ -9,7 +9,10 @@
       <h1>Individual bin QR labels</h1>
       <p>Print at actual size on 150 × 200 mm stock. Select two copies for the front and lid.</p>
     </div>
-    <button class="primary" data-print>Print labels</button>
+    <div class="bf-actions">
+      <a class="button secondary" href="{{ url_for('bf_inventory') }}">← Back to bin register</a>
+      <button class="primary" data-print>Print labels</button>
+    </div>
   </div>
   <div class="bin-stickers">
     {% for b in stock %}
