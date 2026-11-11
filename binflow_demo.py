@@ -84,6 +84,8 @@ def install_demo_database(app, real_db, now):
         # Use the sample's operating state only after validating its session and endpoint.
         g.user = dict(g.user, working_state=saved['state'])
         if warehouse or request.endpoint in ('bf_demo_inbound', 'bf_demo_docket'):
+            from binflow_bales import migrate_bale_scans
+            migrate_bale_scans(conn)
             prepare_warehouse(conn, now())
             conn.commit()
 
@@ -233,8 +235,10 @@ def register_demo(app, db, access, render, now):
         jobs = db().execute("""SELECT j.*, COUNT(i.id) AS expected, COUNT(i.returned_at) AS returned,
             COUNT(i.weighed_at) AS weighed FROM bf_jobs j JOIN bf_job_bins i ON i.job_id=j.id
             WHERE i.direction='collect' GROUP BY j.id ORDER BY j.id""").fetchall()
-        sources = db().execute("""SELECT i.bin_code,i.material_name,i.net_g,b.status,bs.bale_id,ba.code AS bale_code
-            FROM bf_job_bins i JOIN bf_bins b ON b.id=i.bin_id LEFT JOIN bf_bale_sources bs ON bs.item_id=i.id
+        sources = db().execute("""SELECT i.bin_code,i.material_name,i.net_g,b.status,bs.bale_id,ba.code AS bale_code,
+            j.pod_signed_at,s.draft_key FROM bf_job_bins i JOIN bf_jobs j ON j.id=i.job_id
+            JOIN bf_bins b ON b.id=i.bin_id LEFT JOIN bf_open_bale_sources s ON s.item_id=i.id
+            LEFT JOIN bf_bale_sources bs ON bs.item_id=i.id
             LEFT JOIN bf_bales ba ON ba.id=bs.bale_id WHERE i.direction='collect' ORDER BY i.bin_id""").fetchall()
         transfers = db().execute('SELECT * FROM bf_bale_transfers ORDER BY id DESC').fetchall()
         bales = db().execute('SELECT * FROM bf_bales ORDER BY id').fetchall()

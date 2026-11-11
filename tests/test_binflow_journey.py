@@ -256,6 +256,15 @@ class DriverJourneyTests(unittest.TestCase):
                 self.assertIn('Weight saved', page.text)
             self.assertNotIn('name="material_',page.text)
             self.assertIn(material,page.text)
+            # Read the classification from the sample, whose IDs are isolated from live stock.
+            form = self.client.get(base+'/bales/new?warehouse=1')
+            mid = re.search(r'<option value="(\d+)"[^>]*>COTTON</option>',form.text)[1]
+            key = re.search(r'name="request_key" value="([^"]+)"',form.text)[1]
+            blocked_scan = self.post(base+'/bales/source-scan',dict(warehouse_id=1,material_id=mid,
+                request_key=key,code='DEMO-1100-F04'))
+            self.assertEqual(blocked_scan.status_code,409)
+            self.assertIn('sign off',blocked_scan.json['message'])
+            self.assertIn('Awaiting POD sign-off',self.client.get(inbound+suffix).text)
             if jid==1:
                 driver_page = self.client.get('/binflow/driver/my-day'+suffix)
                 driver_page = self.client.get(driver_page.location)
@@ -285,13 +294,15 @@ class DriverJourneyTests(unittest.TestCase):
         for material in ('COTTON','PC MIX'):
             materials[material] = re.search(r'<option value="(\d+)"[^>]*>'+material+'</option>',form.text)[1]
         created = []
-        wrong = self.post(base+'/bales/source-scan',dict(warehouse_id=1,material_id=materials['COTTON'],code='DEMO-660-F06'))
+        wrong = self.post(base+'/bales/source-scan',dict(warehouse_id=1,material_id=materials['COTTON'],
+            request_key=key,code='DEMO-660-F06'))
         self.assertEqual(wrong.status_code,409)
         for material, codes, weight in [('COTTON',['DEMO-1100-F04','DEMO-240-F05'],125),('PC MIX',['DEMO-660-F06'],75)]:
             form = self.client.get(base+'/bales/new?warehouse=1')
             key = re.search(r'name="request_key" value="([^"]+)"',form.text)[1]
-            scans = [self.post(base+'/bales/source-scan',dict(warehouse_id=1,material_id=materials[material],code=c)).json for c in codes]
+            scans = [self.post(base+'/bales/source-scan',dict(warehouse_id=1,material_id=materials[material],request_key=key,code=c)).json for c in codes]
             self.assertTrue(all(s['ok'] for s in scans))
+            self.assertIn('Bin released',self.client.get(inbound+suffix).text)
             response = self.post(base+'/bales/new',dict(warehouse_id=1,material_id=materials[material],
                 request_key=key,source_code=codes,source_item=[s['item_id'] for s in scans],weight=weight,confirm_sources='yes'))
             self.assertIn('Print bale label',response.text)
