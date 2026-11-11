@@ -86,6 +86,30 @@ class BinFlowTests(unittest.TestCase):
         version = self.rows('SELECT COALESCE(MAX(id),0) AS n FROM bf_events WHERE bin_id=?', (bid,))[0]['n']
         return self.post(f'/binflow/bins/{bid}/edit', {'location_id':destination,'version':str(version),**values})
 
+    def test_archiving_removes_active_stock_and_restores_the_same_bin_and_condition(self):
+        route = '/binflow/bins/1/condition'
+        token = self.rows('SELECT token FROM bf_bins WHERE id=1')[0]['token']
+        self.post(route, dict(service_version=1,service_status='damaged'))
+        self.post(route, dict(service_version=2,service_status='archived'))
+        self.assertNotIn('BF000001', self.client.get('/binflow/bins').text)
+        self.assertIn('BF000001', self.client.get('/binflow/bins?condition=archived').text)
+        self.assertIn('Bin archived', self.client.get('/binflow/bins/1').text)
+        self.assertEqual(self.client.get('/binflow/qr/'+token).status_code,410)
+        self.assertNotIn('BF000001', self.client.get('/binflow/export.csv').text)
+        self.assertFalse(self.rows('SELECT * FROM bf_jobs'))
+        self.job(deliver=(1,))
+        self.assertFalse(self.rows('SELECT * FROM bf_jobs'))
+        self.post(route, dict(service_version=2,service_status='restore'))
+        self.assertEqual(self.rows('SELECT archived FROM bf_bins WHERE id=1')[0]['archived'],1)
+        self.post(route, dict(service_version=3,service_status='restore'))
+        self.assertEqual(self.rows('SELECT archived,service_status,token FROM bf_bins WHERE id=1')[0],
+                         dict(archived=0,service_status='damaged',token=token))
+        self.assertIn('BF000001', self.client.get('/binflow/bins?condition=damaged').text)
+        self.assertEqual(self.client.get('/binflow/qr/'+token).status_code,200)
+        self.job(deliver=(1,))
+        self.post(route, dict(service_version=4,service_status='archived'))
+        self.assertEqual(self.rows('SELECT archived FROM bf_bins WHERE id=1')[0]['archived'],0)
+
     def test_register_location_edits_preserve_qr_and_record_stock_movements(self):
         original = self.rows('SELECT * FROM bf_bins WHERE id=1')[0]
         self.assertIn(b'Edit location for BF000001', self.client.get('/binflow/bins').data)

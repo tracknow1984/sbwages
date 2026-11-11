@@ -22,7 +22,8 @@ from lunch import deduct_lunch, migrate_lunch
 from entry_recording import migrate_recording, stamp_entry, recording_details, recording_datetime
 from work_weeks import WORK_WEEKS, profile_end, profile_start, saved_period
 from binflow_workday import active_entry
-from binflow_permissions import is_driver, is_manager, has_binflow_access, BUSINESS_ROLES, WORKING_STATES
+from binflow_permissions import (is_driver, is_manager, is_warehouse, has_binflow_access, assigned_roles,
+    role_fields, workspaces, current_workspace, BUSINESS_ROLES, WORKING_STATES)
 from prestart_config import ASSETS, DECLARATION, checklist
 from prestart_media import signature_png, photo_jpeg
 
@@ -207,6 +208,8 @@ def create_app(test_config=None):
             # Preserve the existing driver designation, but never guess a working state.
             if db().execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='bf_access'").fetchone():
                 db().execute("UPDATE users SET business_role='driver' WHERE role='employee' AND id IN (SELECT user_id FROM bf_access)")
+        if 'extra_business_roles' not in user_columns:
+            db().execute("ALTER TABLE users ADD COLUMN extra_business_roles TEXT NOT NULL DEFAULT ''")
         if 'working_state' not in user_columns:
             db().execute("ALTER TABLE users ADD COLUMN working_state TEXT NOT NULL DEFAULT '' CHECK(working_state IN ('','QLD','NSW','VIC','SA','WA','ACT'))")
         if 'emergency_phone' not in user_columns:
@@ -270,7 +273,9 @@ def create_app(test_config=None):
         if session.get('uid'):
             user = db().execute('SELECT * FROM users WHERE id=?', (session['uid'],)).fetchone()
             if user and user['status'] == 'active' and user['auth_version'] == session.get('version'):
-                g.user = user
+                modes = workspaces(user)
+                selected = session.get('binflow_workspace')
+                g.user = dict(user, binflow_workspace=selected if selected in modes else next(iter(modes), None))
             else:
                 session.clear()
         if request.method == 'POST':
@@ -327,7 +332,8 @@ def create_app(test_config=None):
     app.jinja_env.filters.update(money=money, hours=hours, display_date=display_date, display_datetime=display_datetime,
                                 recording_datetime=recording_datetime)
     app.context_processor(lambda: dict(csrf_token=csrf_token, current_user=g.user, today=today(), mail_ready=mail_ready(), work_weeks=WORK_WEEKS,
-                                       business_roles=BUSINESS_ROLES, working_states=WORKING_STATES))
+                                       business_roles=BUSINESS_ROLES, working_states=WORKING_STATES, assigned_roles=assigned_roles,
+                                       staff_workspaces=workspaces(g.user), active_workspace=current_workspace(g.user)))
 
     def mail_ready():
         return bool(app.config['SMTP_HOST'] and app.config['SMTP_FROM'] and app.config['APP_URL'].startswith('https://'))
@@ -350,12 +356,23 @@ def create_app(test_config=None):
     @app.get('/')
     def index():
         if g.user:
+            if is_warehouse(g.user):
+                return redirect(url_for('bf_bales'))
             if is_driver(db(), g.user):
                 return redirect(url_for('bf_workday'))
             if is_manager(g.user) and has_binflow_access(g.user):
                 return redirect(url_for('bf_dashboard'))
             return redirect(url_for('admin_dashboard' if g.user['role'] == 'admin' else 'employee_dashboard'))
         return redirect(url_for('login', audience='employee'))
+
+    @app.post('/binflow/workspace')
+    @require('employee')
+    def bf_switch_workspace():
+        mode = request.form.get('workspace')
+        if mode not in workspaces(g.user):
+            abort(403)
+        session['binflow_workspace'] = mode
+        return redirect(url_for({'manager':'bf_dashboard','driver':'bf_workday','warehouse':'bf_bales'}[mode]))
 
     @app.route('/<audience>/login', methods=['GET', 'POST'])
     def login(audience):
@@ -393,10 +410,11 @@ def create_app(test_config=None):
         return redirect(url_for('index'))
 
     def parse_staff_assignment():
-        values = {key: request.form.get(key, '').strip() for key in ('business_role', 'working_state')}
-        if values['business_role'] not in BUSINESS_ROLES or values['working_state'] not in WORKING_STATES:
+        roles = set(request.form.getlist('business_role'))
+        state = request.form.get('working_state','').strip()
+        if not roles or not roles.issubset(BUSINESS_ROLES) or state not in WORKING_STATES:
             raise ValueError('Choose a business role and working state for this employee.')
-        return values
+        return dict(role_fields(roles), working_state=state)
 
     def parse_details(admin=False):
         fields = ['first_name', 'last_name', 'email', 'mobile', 'emergency_name', 'emergency_email']
@@ -467,7 +485,8 @@ def create_app(test_config=None):
                     raise ValueError('Passwords must have at least 12 characters.')
                 db().execute('BEGIN IMMEDIATE')
                 if person:
-                    profile_changed = any(key in values and values[key] != person[key] for key in ('business_role', 'working_state'))
+                    person = staff(user_id)
+                    profile_changed = any(key in values and values[key] != person[key] for key in ('business_role', 'extra_business_roles', 'working_state'))
                     active_day = db().execute('''SELECT d.*,t.state AS truck_state FROM bf_workdays d
                         LEFT JOIN bf_trucks t ON t.id=d.truck_id WHERE d.user_id=? AND d.finished_at IS NULL''', (user_id,)).fetchone() if profile_changed else None
                     if active_day:
@@ -475,7 +494,7 @@ def create_app(test_config=None):
                         # Assigning their existing state must not leave them locked out of finishing it.
                         initial_state = (not person['working_state'] and
                             person['business_role'] in ('driver', 'contractor') and
-                            values['business_role'] == person['business_role'] and
+                            assigned_roles(values) == assigned_roles(person) and
                             active_day['state'] in ('', values['working_state']) and
                             (not active_day['truck_id'] or active_day['truck_state'] == values['working_state']))
                         if not initial_state:
@@ -501,7 +520,11 @@ def create_app(test_config=None):
             except (ValueError, sqlite3.IntegrityError) as error:
                 db().rollback()
                 flash(str(error) if isinstance(error, ValueError) else 'That username or email is already in use.', 'error')
-                person = {**dict(person), **{key: request.form.get(key,'') for key in ('business_role','working_state')}} if assignment_only else {**dict(person or {}), **dict(request.form)}
+                person = dict(person or {})
+                if not assignment_only:
+                    person.update(request.form)
+                if assignment_only or 'working_state' in request.form or 'business_role' in request.form:
+                    person.update(role_fields(request.form.getlist('business_role')), working_state=request.form.get('working_state',''))
         return render_template('staff_form.html', person=person, editing=bool(user_id), tab='staff', licence_user_id=user_id, licence_photos=licence_photo_rows(user_id))
 
     @app.post('/admin/staff/<int:user_id>/invite')

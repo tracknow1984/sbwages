@@ -269,3 +269,13 @@
 .bf-rental-site p{margin:6px 0;font-size:12px}.bf-rental-lines-wrap{overflow:auto}
 .bf .bf-rental-lines{min-width:650px;width:100%;font-size:12px}.bf .bf-rental-lines th{background:#f5f8fc;font-size:11px}
 @media(max-width:850px){.bf-rental-metrics{grid-template-columns:1fr}.bf-rental-metrics .bf-panel{margin-bottom:0}.bf-rental-metrics{margin-bottom:20px}.bf-rental-billing{grid-template-columns:1fr}.bf-rental-metrics h2{font-size:25px}.bf-rental-filters label{flex:1;min-width:140px}}
+
+.bf-condition-label, .bf-condition-options button {display:inline-flex;align-items:center;gap:.4em}
+.bf-condition-label {font-size:.78rem;font-weight:700;cursor:default}
+summary.bf-condition-label {cursor:pointer;min-height:36px}
+.bf-condition-label.in_service {color:#226342}
+.bf-condition-label.damaged {color:#764900}
+.bf-condition-label.lost {color:#923b42}
+.bf-condition-label.archived {color:#455366}
+.bf-condition-options {display:grid;gap:4px;margin-bottom:8px}
+.bf-condition-options button {justify-content:flex-start;font-size:.8rem}

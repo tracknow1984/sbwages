@@ -8,7 +8,7 @@ import uuid
 from datetime import date, timedelta
 
 from flask import abort, g, jsonify, request, redirect, url_for
-from binflow_permissions import is_office, state_scope
+from binflow_permissions import is_office, state_scope, workspaces
 from binflow_acceptance import ensure_run_unstarted, schedule_changed
 
 STATES = ('QLD', 'NSW', 'VIC', 'SA', 'WA', 'TAS', 'ACT', 'NT')
@@ -51,10 +51,10 @@ def monday(raw):
 
 
 def drivers(conn, state):
-    # Dispatch is for active drivers/contractors in this state, never an office role.
-    return [dict(r) for r in conn.execute("""SELECT id,first_name,last_name,working_state FROM users
-        WHERE role='employee' AND status='active' AND business_role IN ('driver','contractor')
-        AND working_state=? ORDER BY first_name,last_name""", (state,))]
+    people = conn.execute("""SELECT id,role,first_name,last_name,business_role,extra_business_roles,working_state
+        FROM users WHERE role='employee' AND status='active' AND working_state=? ORDER BY first_name,last_name""", (state,))
+    return [dict(id=p['id'], first_name=p['first_name'], last_name=p['last_name'], working_state=p['working_state'])
+            for p in people if 'driver' in workspaces(p)]
 
 
 def saved_week(conn, state, start):

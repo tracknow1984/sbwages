@@ -116,6 +116,8 @@ def register_qr(app,db,access,require,allowed,render,success,failure,now,actor):
         row=db().execute('''SELECT b.*,s.name AS size_name,l.kind,l.client_id FROM bf_bins b JOIN bf_sizes s ON s.id=b.size_id
             LEFT JOIN bf_locations l ON l.id=b.location_id WHERE b.token=?''',(token,)).fetchone()
         if not row: abort(404)
+        if row['archived']:
+            abort(410, 'This bin has been archived and is no longer available for collections or deliveries.')
         return row
 
     def public_render(name,b,**values):

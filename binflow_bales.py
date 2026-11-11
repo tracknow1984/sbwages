@@ -5,7 +5,7 @@ import json
 import math
 import secrets
 from decimal import Decimal, InvalidOperation
-from functools import wraps
+from binflow_permissions import assigned_roles
 from urllib.parse import urlparse
 
 from flask import abort, g, jsonify, redirect, render_template, request, send_file, session, url_for
@@ -98,13 +98,9 @@ def readiness(conn,wid,stamp):
 
 
 def register(app,db,access,require,render,success,failure,now,actor):
-    def manager(fn):
-        @wraps(fn)
-        @access
-        def wrapped(*args,**kwargs):
-            if g.user['role']!='admin' and g.user['business_role']!='manager':abort(403)
-            return fn(*args,**kwargs)
-        return wrapped
+    def warehouse_staff(fn):
+        fn.warehouse_work = True
+        return access(fn)
 
     def allowed(wid):
         w=db().execute("SELECT * FROM bf_locations WHERE id=? AND kind='warehouse'",(wid,)).fetchone()
@@ -146,7 +142,7 @@ def register(app,db,access,require,render,success,failure,now,actor):
         return render(name,section='bales',bale_mode=True,**values)
 
     @app.get('/binflow/bales')
-    @manager
+    @warehouse_staff
     def bf_bales():
         ws=warehouses();selected=request.args.get('warehouse',type=int)
         if selected:allowed(selected)
@@ -166,7 +162,7 @@ def register(app,db,access,require,render,success,failure,now,actor):
     def source_bin(code,wid,mid):
         code=str(code).strip()
         if '/binflow/qr/' in code:code=urlparse(code).path.rstrip('/').split('/')[-1]
-        b=db().execute('SELECT * FROM bf_bins WHERE code=? OR token=?',(code.upper(),code)).fetchone()
+        b=db().execute('SELECT * FROM bf_bins WHERE archived=0 AND (code=? OR token=?)',(code.upper(),code)).fetchone()
         if not b:raise ValueError('Bin QR code not recognised. Scan a physical bin label.')
         if b['location_id']!=wid or b['truck_id'] or b['status']!='weighed':
             raise ValueError(f"{b['code']}: receive and weigh this bin at the selected warehouse first.")
@@ -182,7 +178,7 @@ def register(app,db,access,require,render,success,failure,now,actor):
         return b,i
 
     @app.post('/binflow/bales/source-scan')
-    @manager
+    @warehouse_staff
     def bf_bale_source_scan():
         try:
             wid=int(request.form.get('warehouse_id','0'));allowed(wid);m=material()
@@ -191,7 +187,7 @@ def register(app,db,access,require,render,success,failure,now,actor):
         except ValueError as error:return jsonify(ok=False,message=str(error)),409
 
     @app.route('/binflow/bales/new',methods=['GET','POST'])
-    @manager
+    @warehouse_staff
     def bf_bale_new():
         if request.method=='POST':
             try:
@@ -237,7 +233,7 @@ def register(app,db,access,require,render,success,failure,now,actor):
         return b
 
     @app.get('/binflow/bales/<int:bid>')
-    @manager
+    @warehouse_staff
     def bf_bale(bid):
         b=bale(bid)
         return view('bale',bale=b,warehouse=db().execute('SELECT * FROM bf_locations WHERE id=?',(b['warehouse_id'],)).fetchone(),
@@ -246,7 +242,7 @@ def register(app,db,access,require,render,success,failure,now,actor):
           materials=db().execute('SELECT * FROM bf_material_classes WHERE active=1 ORDER BY name').fetchall())
 
     @app.post('/binflow/bales/<int:bid>/correct')
-    @manager
+    @warehouse_staff
     def bf_bale_correct(bid):
         try:
             db().execute('BEGIN IMMEDIATE');b=bale(bid);allowed(b['warehouse_id']);check_version(b)
@@ -267,21 +263,21 @@ def register(app,db,access,require,render,success,failure,now,actor):
         except ValueError as error:return failure(error,'bf_bale',bid=bid)
 
     @app.get('/binflow/bales/qr/<token>')
-    @manager
+    @warehouse_staff
     def bf_bale_qr(token):
         b=db().execute('SELECT id FROM bf_bales WHERE token=?',(token,)).fetchone()
         if not b:abort(404)
         bale(b['id']);return redirect(url_for('bf_bale',bid=b['id']))
 
     @app.get('/binflow/bales/<int:bid>/label')
-    @manager
+    @warehouse_staff
     def bf_bale_label(bid):
         b=bale(bid)
         if b['status']=='void':abort(410)
         return view('bale_label',bale=b)
 
     @app.get('/binflow/bales/<int:bid>/qr.png')
-    @manager
+    @warehouse_staff
     def bf_bale_image(bid):
         import qrcode
         b=bale(bid);out=io.BytesIO()
@@ -313,23 +309,24 @@ def register(app,db,access,require,render,success,failure,now,actor):
                 return success('Warehouse limits saved.','bf_bale_settings')
             except ValueError as error:return failure(error,'bf_bale_settings')
         cfg={r['warehouse_id']:dict(r) for r in db().execute('SELECT * FROM bf_bale_settings')}
-        managers=db().execute("SELECT u.id,u.first_name,u.last_name,u.working_state,m.warehouse_id FROM users u LEFT JOIN bf_bale_managers m ON m.user_id=u.id WHERE u.role='employee' AND u.business_role='manager' AND u.status='active' ORDER BY u.first_name").fetchall()
-        return view('bale_settings',warehouses=warehouses(),configs=cfg,managers=managers)
+        managers=db().execute("SELECT u.id,u.first_name,u.last_name,u.working_state,u.business_role,u.extra_business_roles,m.warehouse_id FROM users u LEFT JOIN bf_bale_managers m ON m.user_id=u.id WHERE u.role='employee' AND u.status='active' ORDER BY u.first_name").fetchall()
+        return view('bale_settings',warehouses=warehouses(),configs=cfg,managers=[m for m in managers if {'manager','warehouse'}.intersection(assigned_roles(m))])
 
     @app.post('/binflow/bales/managers')
     @require('admin')
     def bf_bale_managers():
         try:
             uid=int(request.form.get('user_id','0'));wid=int(request.form.get('warehouse_id','0'));w=allowed(wid)
-            u=db().execute("SELECT * FROM users WHERE id=? AND role='employee' AND business_role='manager' AND status='active'",(uid,)).fetchone()
-            if not u or u['working_state']!=w['state']:raise ValueError('Choose an active MANAGER whose working state matches the warehouse.')
+            u=db().execute("SELECT * FROM users WHERE id=? AND role='employee' AND status='active'",(uid,)).fetchone()
+            if not u or not {'manager','warehouse'}.intersection(assigned_roles(u)) or u['working_state']!=w['state']:
+                raise ValueError('Choose an active manager or warehouse employee in the warehouse’s state.')
             db().execute('INSERT INTO bf_bale_managers VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET warehouse_id=excluded.warehouse_id',(uid,wid))
             event('Warehouse manager assigned',wid=wid,details=str(uid))
-            return success('Warehouse manager assigned. They use their own staff login.','bf_bale_settings')
+            return success('Warehouse assigned. They use their own staff login.','bf_bale_settings')
         except ValueError as error:return failure(error,'bf_bale_settings')
 
     @app.route('/binflow/bales/transfers/new',methods=['GET','POST'])
-    @manager
+    @warehouse_staff
     def bf_bale_transfer_new():
         if request.method=='POST':
             try:
@@ -357,14 +354,14 @@ def register(app,db,access,require,render,success,failure,now,actor):
           destinations=db().execute("SELECT l.* FROM bf_locations l JOIN bf_bale_settings s ON s.warehouse_id=l.id WHERE s.receiving_hub=1 AND l.state='QLD' AND l.kind='warehouse'").fetchall())
 
     @app.get('/binflow/bales/transfers/<int:tid>')
-    @manager
+    @warehouse_staff
     def bf_bale_transfer(tid):
         t=transfer(tid);rows=items(tid);own={w['id'] for w in warehouses()}
         return view('bale_transfer',transfer=t,items=rows,total=sum(i['net_g'] for i in rows),
           origin_access=t['origin_id'] in own,destination_access=t['destination_id'] in own)
 
     @app.post('/binflow/bales/transfers/<int:tid>/scan')
-    @manager
+    @warehouse_staff
     def bf_bale_scan(tid):
         try:
             db().execute('BEGIN IMMEDIATE');t=transfer(tid)
@@ -404,7 +401,7 @@ def register(app,db,access,require,render,success,failure,now,actor):
             db().rollback();return jsonify(ok=False,message=str(error)),409
 
     @app.post('/binflow/bales/transfers/<int:tid>/action')
-    @manager
+    @warehouse_staff
     def bf_bale_transfer_action(tid):
         try:
             db().execute('BEGIN IMMEDIATE');t=transfer(tid);check_version(t)
@@ -456,21 +453,21 @@ def register(app,db,access,require,render,success,failure,now,actor):
         except ValueError as error:return failure(error,'bf_bale_transfer',tid=tid)
 
     @app.get('/binflow/bales/transfers/<int:tid>/note')
-    @manager
+    @warehouse_staff
     def bf_bale_note(tid):
         t=transfer(tid)
         if not t['signed_at']:abort(409,'The delivery note becomes final after the signed BlockTexx storage handover.')
         return view('bale_note',transfer=t,note=json.loads(t['snapshot']))
 
     @app.get('/binflow/bales/transfers/<int:tid>/signature.png')
-    @manager
+    @warehouse_staff
     def bf_bale_signature(tid):
         t=transfer(tid)
         if not t['signature']:abort(404)
         return send_file(io.BytesIO(t['signature']),mimetype='image/png')
 
     @app.get('/binflow/bales/storage.csv')
-    @manager
+    @warehouse_staff
     def bf_bale_storage_export():
         own={w['id'] for w in warehouses()};out=io.StringIO();writer=csv.writer(out)
         writer.writerow(['Delivery note','Bale','Material','Net kg','Origin','Brisbane depot','Storage handover','Recipient','Recorded by'])

@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo
 from flask import abort, flash, g, redirect, render_template, request, send_file, session, url_for
 from prestart_media import photo_jpeg, signature_png
 from binflow_driver import migrate_driver, register_driver
-from binflow_permissions import (DRIVER_ENDPOINTS, is_driver, is_manager, is_office, can_view_job,
+from binflow_permissions import (DRIVER_ENDPOINTS, is_driver, is_manager, is_warehouse, is_office, workspaces, can_view_job,
     has_binflow_access, state_scope, eligible_driver, available_drivers)
 from binflow_runs import migrate_runs, register_runs, guard_movement, check_owner
 from binflow_gps import migrate_gps, register_gps
@@ -187,7 +187,7 @@ def register_binflow(app, db, require):
         return has_binflow_access(g.user)
 
     app.context_processor(lambda: dict(driver_demo=getattr(g, 'bf_demo_token', ''), driver_server_now=now(), binflow_allowed=allowed(), binflow_driver=is_driver(db(), g.user),
-                                      binflow_manager=is_manager(g.user), binflow_state=state_scope(g.user)))
+                                      binflow_manager=is_manager(g.user), binflow_warehouse=is_warehouse(g.user), binflow_state=state_scope(g.user)))
 
     def access(fn):
         @wraps(fn)
@@ -196,8 +196,14 @@ def register_binflow(app, db, require):
                 session['binflow_next'] = request.path
                 return redirect(url_for('bf_signin'))
             if not allowed():
-                abort(403, 'BINFLOW requires a DRIVER, MANAGER or CONTRACTOR profile with an allocated working state. Ask the office to update Staff details.')
+                abort(403, 'BINFLOW requires a DRIVER, MANAGER, WAREHOUSE or CONTRACTOR profile with an allocated working state. Ask the office to update Staff details.')
             if not is_office(g.user):
+                if is_warehouse(g.user):
+                    if fn.__name__ == 'bf_dashboard':
+                        return redirect(url_for('bf_bales'))
+                    if not getattr(fn, 'warehouse_work', False):
+                        abort(403, 'Use your warehouse workspace to continue.')
+                    return fn(*args, **kwargs)
                 if fn.__name__ == 'bf_dashboard':
                     return redirect(url_for('bf_workday'))
                 if fn.__name__ not in DRIVER_ENDPOINTS:
@@ -245,7 +251,9 @@ def register_binflow(app, db, require):
     def items(job_id):
         return db().execute('SELECT i.*,b.token FROM bf_job_bins i JOIN bf_bins b ON b.id=i.bin_id WHERE i.job_id=? ORDER BY i.direction,i.bin_code', (job_id,)).fetchall()
 
-    def bins(where='1=1', args=()):
+    def bins(where='1=1', args=(), include_archived=False):
+        if not include_archived:
+            where = '(' + where + ') AND b.archived=0'
         scope = state_scope(g.user)
         if scope is not None:
             where, args = '(' + where + ') AND b.state=?', (*args, scope)
@@ -295,7 +303,7 @@ def register_binflow(app, db, require):
     @app.get('/admin/bin-management')
     @access
     def bf_dashboard():
-        if is_manager(g.user) and db().execute('SELECT 1 FROM bf_bale_managers WHERE user_id=?',(g.user['id'],)).fetchone():
+        if is_manager(g.user) and len(workspaces(g.user)) == 1 and db().execute('SELECT 1 FROM bf_bale_managers WHERE user_id=?',(g.user['id'],)).fetchone():
             return redirect(url_for('bf_bales'))
         state = request.args.get('state', '')
         if state and state not in STATES:
@@ -430,7 +438,9 @@ def register_binflow(app, db, require):
         clauses, args = [], []
         state, status, client, size_id, query = [request.args.get(k, '').strip() for k in ('state','status','client','size','q')]
         condition=request.args.get('condition','').strip()
-        if condition:
+        if condition == 'archived':
+            clauses.append('b.archived=1')
+        elif condition:
             clauses.append('b.service_status=?');args.append(condition)
         if state:
             clauses.append('b.state=?'); args.append(state)
@@ -442,7 +452,7 @@ def register_binflow(app, db, require):
             clauses.append('b.size_id=?'); args.append(size_id)
         if query:
             clauses.append('(b.code LIKE ? OR l.name LIKE ? OR c.name LIKE ? OR al.name LIKE ? OR ac.name LIKE ?)'); args.extend(['%' + query[:100] + '%'] * 5)
-        stock = bins(' AND '.join(clauses) or '1=1', args)
+        stock = bins(' AND '.join(clauses) or '1=1', args, include_archived=condition=='archived')
         return render('inventory', section='bins', stock=stock, state=state, status=status, client=client, size_id=size_id, condition=condition, query=query, request_key=secrets.token_urlsafe(24),
                       sizes=db().execute('SELECT * FROM bf_sizes ORDER BY litres').fetchall(), clients=db().execute('SELECT * FROM bf_clients ORDER BY name').fetchall(),
                       warehouses=db().execute("SELECT * FROM bf_locations WHERE kind='warehouse' ORDER BY state,name").fetchall())
@@ -464,13 +474,15 @@ def register_binflow(app, db, require):
     @app.route('/binflow/bins/<int:bin_id>', methods=['GET','POST'])
     @access
     def bf_bin(bin_id):
-        stock = bins('b.id=?', (bin_id,))
+        stock = bins('b.id=?', (bin_id,), include_archived=True)
         if not stock:
             abort(404)
         if request.method == 'POST':
             try:
                 db().execute('BEGIN IMMEDIATE')
-                b = bins('b.id=?', (bin_id,))[0]
+                b = bins('b.id=?', (bin_id,), include_archived=True)[0]
+                if b['archived']:
+                    raise ValueError('Restore this bin before recording a movement.')
                 action = text_field('action')
                 if action == 'full':
                     if b['status'] != 'at_client':
@@ -571,7 +583,7 @@ def register_binflow(app, db, require):
         raw = request.args.getlist('bin')
         if not raw or len(raw) > 200 or any(not v.isdigit() for v in raw):
             abort(400, 'Select 1–200 bins to print labels.')
-        stock = bins('b.id IN (' + ','.join('?' for _ in raw) + ')', raw)
+        stock = bins('b.id IN (' + ','.join('?' for _ in raw) + ')', raw, include_archived=True)
         return render('labels', section='bins', stock=stock)
 
     @app.get('/binflow/pickups')
@@ -963,7 +975,8 @@ def register_binflow(app, db, require):
         def safe(value):
             value = '' if value is None else str(value)
             return "'"+value if value.startswith(('=','+','-','@','\t','\r')) else value
-        for b in bins():
+        archived = request.args.get('condition') == 'archived'
+        for b in bins('b.archived=?', (int(archived),), include_archived=archived):
             writer.writerow([safe(v) for v in (b['code'],b['size_name'],b['state'],STATUSES[b['status']],b['client_name'],b['location_name'] or 'In transit',kg(b['tare_g']),f'BF-{b["reserved_job"]:06d}' if b['reserved_job'] else '')])
         return send_file(io.BytesIO(stream.getvalue().encode('utf-8-sig')),mimetype='text/csv',as_attachment=True,download_name='binflow-inventory.csv')
 

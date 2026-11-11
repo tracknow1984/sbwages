@@ -50,9 +50,9 @@ class StaffRoleTests(unittest.TestCase):
     def test_admin_profile_form_saves_roles_states_and_employee_cannot_change_them(self):
         route=f'/admin/staff/{self.ids["qlddriver"]}/edit'
         page=self.client.get(route).text
-        roles=re.search(r'<select name="business_role".*?</select>',page,re.S).group()
+        roles=re.search(r'<fieldset class="staff-role-picker".*?</fieldset>',page,re.S).group()
         states=re.search(r'<select name="working_state".*?</select>',page,re.S).group()
-        for label in ('DRIVER','LABOUR','MANAGER','CONTRACTOR'): self.assertIn(label,roles)
+        for label in ('DRIVER','LABOUR','MANAGER','CONTRACTOR','WAREHOUSE'): self.assertIn(label,roles)
         for state in WORKING_STATES: self.assertIn(f'value="{state}"',states)
         for state in ('NT','TAS'): self.assertNotIn(f'value="{state}"',states)
         result=self.post(route,self.profile(business_role='contractor',working_state='SA'))
@@ -100,7 +100,7 @@ class StaffRoleTests(unittest.TestCase):
         values=self.profile();values.pop('business_role');values.pop('working_state');values['email']='invalid'
         result=self.post(route,values)
         self.assertIn(b'Enter valid contact',result.data)
-        self.assertIn(b'value="driver" selected',result.data)
+        self.assertIn(b'value="driver" checked',result.data)
         self.assertIn(b'value="QLD" selected',result.data)
 
     def test_initial_state_can_match_legacy_active_day_without_changing_clock_or_vehicle(self):
@@ -133,6 +133,39 @@ class StaffRoleTests(unittest.TestCase):
         self.assertIn(b'Role and working state saved.',result.data)
         day=self.rows('SELECT * FROM bf_workdays')[0]
         self.assertEqual(day['state'],'QLD');self.assertIsNone(day['finished_at']);self.assertIsNone(day['truck_id'])
+
+    def test_combined_roles_can_switch_workspaces_and_only_drive_in_their_state(self):
+        uid = self.ids['manager']
+        route = f'/admin/staff/{uid}/edit'
+        result = self.post(route, dict(action='save_assignment', working_state='QLD',
+                                       business_role=['manager','driver','warehouse']))
+        for role in ('manager','driver','warehouse'):
+            self.assertIn(f'value="{role}" checked', result.text)
+        def candidates(state):
+            return [d['id'] for d in self.client.get('/binflow/schedule/options?state='+state).json['drivers']]
+        self.assertIn(uid, candidates('QLD'))
+        self.assertNotIn(uid, candidates('NSW'))
+        self.assertIn('manager Test', self.client.get('/binflow/bales/settings').text)
+        self.post('/binflow/bales/managers', dict(user_id=uid,warehouse_id=1))
+        self.assertIn('National overview', self.sign_in('manager').text)
+        self.assertEqual(self.post('/binflow/workspace', dict(workspace='driver')).request.path,'/binflow/driver/my-day')
+        self.assertEqual(self.client.get('/binflow/driver/my-day?state=NSW').status_code,403)
+        self.assertEqual(self.post('/binflow/workspace', dict(workspace='warehouse')).request.path,'/binflow/bales')
+        self.assertEqual(self.client.get('/binflow/bales/new?warehouse=1').status_code,200)
+        self.assertEqual(self.client.get('/binflow/bales?warehouse=2').status_code,403)
+        self.assertEqual(self.client.get('/binflow/bales/settings').status_code,403)
+        self.assertEqual(self.post('/binflow/workspace',dict(workspace='admin')).status_code,403)
+        self.assertEqual(self.post('/binflow/workspace',dict(workspace='manager')).request.path,'/admin/bin-management')
+        self.assertEqual(self.client.get('/admin/staff').status_code,403)
+        old = self.client
+        self.client = self.app.test_client()
+        self.login()
+        self.post(route,dict(action='save_assignment',working_state='QLD',business_role=['warehouse']))
+        self.assertEqual(old.get('/binflow/bales').status_code,302)
+        self.assertNotIn(uid, candidates('QLD'))
+        self.assertEqual(self.sign_in('manager').request.path, '/binflow/bales')
+        self.assertEqual(self.post('/binflow/workspace',dict(workspace='manager')).status_code,403)
+        self.assertEqual(self.client.get('/binflow/driver/my-day').status_code,403)
 
     def test_driver_and_contractor_cannot_read_or_operate_other_state(self):
         self.prepare_runs()
@@ -180,13 +213,11 @@ class StaffRoleTests(unittest.TestCase):
                 conn.execute('UPDATE users SET working_state=? WHERE id=?',(state,self.ids['qlddriver']))
             response=self.client.get('/binflow/driver/my-day?summary=1')
             self.assertEqual(response.status_code,200)
-            picker=re.search(r'<select name="state".*?</select>',response.text,re.S).group()
-            self.assertNotIn('All states',picker)
+            self.assertIn(f'<p>{state}</p>',response.text)
+            self.assertNotIn('<select name="state"',response.text)
             for other in WORKING_STATES:
-                if other==state: self.assertIn(other,picker)
-                else:
-                    self.assertNotIn(other,picker)
-                    self.assertEqual(self.client.get('/binflow/driver/my-day/plan-state?state='+other).status_code,403)
+                expected = 200 if other == state else 403
+                self.assertEqual(self.client.get('/binflow/driver/my-day/plan-state?state='+other).status_code,expected)
 
     def test_labour_and_unprofiled_accounts_have_no_binflow_even_with_old_access_checkbox(self):
         with sqlite3.connect(self.path) as conn:

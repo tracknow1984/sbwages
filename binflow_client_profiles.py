@@ -218,7 +218,7 @@ def site_bins(conn, location_id=None):
         LEFT JOIN bf_job_bins i ON i.bin_id=b.id AND i.active=1 AND i.direction='deliver'
         LEFT JOIN bf_jobs j ON j.id=i.job_id AND j.site_id=p.location_id
             AND j.status NOT IN ('cancelled','complete') AND j.approval_status IN ('pending','approved')
-        WHERE p.location_id IS NOT NULL""" + where + """
+        WHERE p.location_id IS NOT NULL AND b.archived=0""" + where + """
         ORDER BY relationship DESC,s.litres,b.code""",
         (location_id,) if location_id is not None else ()).fetchall()
 

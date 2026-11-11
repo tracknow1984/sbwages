@@ -49,6 +49,8 @@ def install_demo_database(app, real_db, now):
         conn.execute('PRAGMA foreign_keys=ON')
         from binflow_reports import migrate_timings
         migrate_timings(conn)
+        from binflow_bin_condition import migrate as migrate_bin_condition
+        migrate_bin_condition(conn)
         from binflow_pod_records import migrate as migrate_pod_records
         migrate_pod_records(conn)
         conn.commit()
@@ -79,9 +81,9 @@ def seed_demo(source, target, user, state, stamp):
         ORDER BY CASE type WHEN 'table' THEN 0 WHEN 'index' THEN 1 WHEN 'view' THEN 2 ELSE 3 END,name""").fetchall()
     target.executescript(';\n'.join(row['sql'] for row in schema)+';')
     target.execute('PRAGMA foreign_keys=ON')
-    target.execute('''INSERT INTO users(id,role,first_name,last_name,email,username,business_role,working_state)
-        VALUES(?,?,?,?,?,?,?,?)''', (user['id'],user['role'],user['first_name'],user['last_name'],
-                                   'sample@example.invalid','sample-driver',user['business_role'],state))
+    target.execute('''INSERT INTO users(id,role,first_name,last_name,email,username,business_role,extra_business_roles,working_state)
+        VALUES(?,?,?,?,?,?,?,?,?)''', (user['id'],user['role'],user['first_name'],user['last_name'],
+                                   'sample@example.invalid','sample-driver',user['business_role'],user['extra_business_roles'],state))
     places = SUBURBS[state]
     target.execute("INSERT INTO bf_locations(id,kind,name,state,address,created_at) VALUES(1,'warehouse',?,?,?,?)",
                    ('SAMPLE · '+places[0]+' depot',state,places[0]+', '+state+', Australia',stamp))

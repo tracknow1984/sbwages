@@ -41,5 +41,5 @@
 {% include 'binflow/size_setup.html' %}
 </div>
 
-<details class="bf-panel bf-pad"><summary>Team access <small>Employee roles and working states</small></summary><p class="bf-muted">Set each employee’s role and working state in their staff profile. Manage warehouse assignments under Bale capacity & access.</p><a class="button primary" href="{{ url_for('admin_staff') }}">Manage employee profiles</a><a class="button secondary" href="{{ url_for('bf_bale_settings') }}">Bale capacity & access</a></details>
+<details class="bf-panel bf-pad"><summary>Team access <small>Employee roles and working states</small></summary><p class="bf-muted">Set each employee’s roles and working state in their staff profile. Manage warehouse assignments under Bale capacity & access.</p><a class="button primary" href="{{ url_for('admin_staff') }}">Manage employee profiles</a><a class="button secondary" href="{{ url_for('bf_bale_settings') }}">Bale capacity & access</a></details>
 <details class="bf-panel bf-pad bf-material-settings" id="materials"><summary>Material classifications <small>Material types for PODs and bales</small></summary>{% include 'binflow/material_setup.html' %}</details><script src="{{ url_for('static',filename='binflow-setup.js') }}" defer></script>{% endblock %}

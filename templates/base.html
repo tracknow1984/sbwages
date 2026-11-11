@@ -13,9 +13,9 @@
 <body class="{{ 'bf-ui ' if bf_surface }}{{ 'employee-app' if current_user and current_user.role == 'employee' else 'admin-app' }}{{ ' binflow-app' if current_user and tab == 'binflow' else '' }}{{ ' driver-mode' if driver_mode else '' }}{{ ' driver-journey' if journey_mode else '' }}{{ ' driver-account' if binflow_driver else '' }}">
 {% if journey_mode %}<header class="driver-appbar"><a class="brand" href="{{ url_for('bf_workday') }}">{{ binflow_brand() }}</a><div class="driver-appbar-menu"><details><summary aria-label="Open driver menu">Menu <span aria-hidden="true">☰</span></summary><nav aria-label="Driver menu"><a href="{{ url_for('bf_workday') }}">Driver day</a><a href="{{ url_for('bf_daily_pods') }}">Daily PODs</a>{% if binflow_driver %}{% for label,endpoint in [('Empire Wire','employee_hit_me'),('My timesheet','employee_timesheet'),('Prestart','employee_prestart'),('My details','employee_details'),('Pay slips','employee_payslips'),('History','history'),('Documents','employee_documents'),('Annual leave','employee_leave')] %}<a href="{{ url_for(endpoint) }}">{{ label }}</a>{% endfor %}{% else %}<a href="{{ url_for('bf_dashboard',demo=None) }}">Back to office</a>{% endif %}<form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="secondary">Sign out</button></form></nav></details></div></header>{% else %}
 <header class="topbar"><a class="brand" href="{{ url_for('index') }}">{% if bf_surface %}{{ binflow_brand() }}{% else %}<img class="brand-logo" src="{{ url_for('static', filename='sb-empire-header.webp') }}" alt="SB Empire — Building Opportunities and Delivering Solutions" width="320" height="56">{% endif %}</a>
-{% if current_user %}<div class="user-menu"><span>{{ current_user.first_name }}<small>{{ 'Administrator' if current_user.role == 'admin' else business_roles.get(current_user.business_role, 'Employee') }}</small></span><form action="{{ url_for('logout') }}" method="post"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="ghost" type="submit">Sign out</button></form></div>{% endif %}</header>
+{% if current_user %}<div class="user-menu"><span>{{ current_user.first_name }}<small>{{ 'Administrator' if current_user.role == 'admin' else (assigned_roles(current_user)|map('upper')|join(' · ') or 'Employee') }}</small></span><form action="{{ url_for('logout') }}" method="post"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="ghost" type="submit">Sign out</button></form></div>{% endif %}</header>
 {% if binflow_driver %}{% include 'binflow/driver_menu.html' %}
-{% elif current_user and not (bale_mode and binflow_manager) %}<nav class="tabs" aria-label="Main navigation">
+{% elif current_user and not (bale_mode and (binflow_manager or binflow_warehouse)) %}<nav class="tabs" aria-label="Main navigation">
 {% if current_user.role == 'admin' %}
 <a class="{{ 'selected' if tab == 'dashboard' }}" href="{{ url_for('admin_dashboard') }}">DASHBOARD</a>
 <a class="{{ 'selected' if tab == 'binflow' }}" href="{{ url_for('bf_dashboard') }}">BINFLOW</a>
@@ -29,7 +29,7 @@
 <a class="{{ 'selected' if tab == 'settings' }}" href="{{ url_for('admin_settings') }}">SETTINGS</a>
 {% else %}
 <a class="{{ 'selected' if tab == 'home' }}" href="{{ url_for('employee_dashboard') }}">HOME</a>
-{% if binflow_allowed %}<a class="{{ 'selected' if tab == 'binflow' }}" href="{{ url_for('bf_dashboard') if binflow_manager else url_for('bf_workday') }}">BINFLOW</a>{% endif %}
+{% if binflow_allowed %}<a class="{{ 'selected' if tab == 'binflow' }}" href="{{ url_for('bf_dashboard') if binflow_manager else url_for('bf_bales') if binflow_warehouse else url_for('bf_workday') }}">BINFLOW</a>{% endif %}
 <a class="{{ 'selected' if tab == 'hit-me' }}" href="{{ url_for('employee_hit_me') }}">EMPIRE WIRE</a>
 <a class="{{ 'selected' if tab == 'timesheet' }}" href="{{ url_for('employee_timesheet') }}">MY TIMESHEET</a>
 <a class="{{ 'selected' if tab == 'prestart' }}" href="{{ url_for('employee_prestart') }}">PRESTART</a>
@@ -41,6 +41,13 @@
 {% endif %}</nav>{% endif %}
 {% endif %}
 <main class="{{ 'auth-main' if not current_user else 'main' }}">
+ {% if staff_workspaces|length > 1 and (bf_surface or current_user.role=='employee') %}
+<form class="bf-workspaces no-print" method="post" action="{{ url_for('bf_switch_workspace') }}" aria-label="BinFlow workspace">
+  <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+  <strong>Work as</strong>
+  {% for mode in staff_workspaces %}<button type="submit" name="workspace" value="{{ mode }}" class="{{ 'primary' if mode==active_workspace else 'secondary' }}" aria-pressed="{{ 'true' if mode==active_workspace else 'false' }}">{{ mode|capitalize }}</button>{% endfor %}
+</form>
+{% endif %}
 {% if binflow_driver and tab == 'binflow' and not journey_mode %}<nav class="driver-quick-nav no-print" aria-label="BINFLOW navigation">
 {% for key,label,endpoint in [('driver','Driver day','bf_workday'),('pods','Daily PODs','bf_daily_pods')] %}<a href="{{ url_for(endpoint) }}" class="{{ 'active' if section==key }}"{% if section==key %} aria-current="page"{% endif %}>{{ label }}</a>{% endfor %}
 </nav>{% endif %}

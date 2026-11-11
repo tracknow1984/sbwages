@@ -68,7 +68,7 @@ def report(conn):
         if row['location_id'] in sites:
             sites[row['location_id']]['proposed'][row['size_id']] += row['quantity']
     # Current custody only: reservations and rotation pools do not create rent.
-    for row in conn.execute('''SELECT b.* FROM bf_bins b JOIN bf_locations l ON l.id=b.location_id
+    for row in conn.execute('''SELECT b.* FROM bf_bins b JOIN bf_locations l ON l.id=b.location_id AND b.archived=0
         WHERE l.kind='client' AND b.truck_id IS NULL AND b.status IN ('at_client','full')'''):
         site = sites[row['location_id']]
         if row['service_status'] != 'lost':

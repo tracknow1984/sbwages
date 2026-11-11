@@ -1,7 +1,7 @@
 """Business roles and state boundaries for BINFLOW and staff profiles."""
 from flask import abort
 
-BUSINESS_ROLES = {'driver': 'DRIVER', 'labour': 'LABOUR', 'manager': 'MANAGER', 'contractor': 'CONTRACTOR'}
+BUSINESS_ROLES = {'driver': 'DRIVER', 'labour': 'LABOUR', 'manager': 'MANAGER', 'contractor': 'CONTRACTOR', 'warehouse': 'WAREHOUSE'}
 WORKING_STATES = ('QLD', 'NSW', 'VIC', 'SA', 'WA', 'ACT')
 
 # Supporting routes belong to Driver day or Daily PODs.
@@ -18,12 +18,47 @@ DRIVER_ENDPOINTS = frozenset({
 })
 
 
+def assigned_roles(user):
+    if not user:
+        return ()
+    keys = user.keys()
+    primary = user['business_role'] if 'business_role' in keys else ''
+    extra = user['extra_business_roles'] if 'extra_business_roles' in keys else ''
+    selected = {primary, *extra.split()}
+    return tuple(role for role in BUSINESS_ROLES if role in selected)
+
+
+def role_fields(selected):
+    primary = next((r for r in ('manager', 'driver', 'contractor', 'labour') if r in selected), '')
+    return dict(business_role=primary,
+                extra_business_roles=' '.join(r for r in BUSINESS_ROLES if r in selected and r != primary))
+
+
+def workspaces(user):
+    if not user or user['role'] != 'employee' or user['working_state'] not in WORKING_STATES:
+        return ()
+    roles = set(assigned_roles(user))
+    return tuple(mode for mode, enabled in (
+        ('manager', 'manager' in roles), ('driver', bool(roles & {'driver', 'contractor'})),
+        ('warehouse', 'warehouse' in roles)) if enabled)
+
+
+def current_workspace(user):
+    if user and 'binflow_workspace' in user.keys():
+        return user['binflow_workspace']
+    return next(iter(workspaces(user)), None)
+
+
 def is_driver(conn, user):
-    return bool(user and user['role'] == 'employee' and user['business_role'] in ('driver', 'contractor') and has_binflow_access(user))
+    return current_workspace(user) == 'driver'
 
 
 def is_manager(user):
-    return bool(user and user['role'] == 'employee' and user['business_role'] == 'manager')
+    return current_workspace(user) == 'manager'
+
+
+def is_warehouse(user):
+    return current_workspace(user) == 'warehouse'
 
 
 def is_office(user):
@@ -31,12 +66,11 @@ def is_office(user):
 
 
 def has_binflow_access(user):
-    return bool(user and (user['role'] == 'admin' or
-        (user['business_role'] in ('driver', 'manager', 'contractor') and user['working_state'] in WORKING_STATES)))
+    return bool(user and (user['role'] == 'admin' or workspaces(user)))
 
 
 def state_scope(user):
-    return user['working_state'] if user and user['role'] == 'employee' and user['business_role'] in ('driver', 'contractor') else None
+    return user['working_state'] if current_workspace(user) in ('driver', 'warehouse') else None
 
 
 def state_allowed(user, state):
@@ -58,12 +92,19 @@ def selected_state(user, supplied=''):
 
 def eligible_driver(conn, user_id, state):
     user = conn.execute('SELECT * FROM users WHERE id=? AND status=\'active\'', (user_id,)).fetchone()
-    return bool(user and state_allowed(user, state))
+    return bool(user and driver_available(user, state))
+
+
+def driver_available(user, state):
+    modes = workspaces(user)
+    if 'driver' in modes:
+        return not state or user['working_state'] == state
+    return user['role'] == 'admin' or 'manager' in modes
 
 
 def available_drivers(conn, state=''):
     users = conn.execute('SELECT * FROM users WHERE status=\'active\' ORDER BY first_name,last_name').fetchall()
-    return [u for u in users if has_binflow_access(u) and (not state or state_allowed(u, state))]
+    return [u for u in users if driver_available(u, state)]
 
 
 def can_view_run(conn, user, truck_id, run_date, include_available=True):

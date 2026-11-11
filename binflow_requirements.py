@@ -150,7 +150,7 @@ def site_plan(conn, site_id, warehouse_id, collections=None, run_date=None):
         return None, []
     rows = conn.execute('''SELECT r.*,s.name,s.litres FROM bf_site_requirements r
         JOIN bf_sizes s ON s.id=r.size_id WHERE r.location_id=? ORDER BY s.litres,s.id''', (site_id,)).fetchall()
-    onsite = Counter({r['size_id']:r['n'] for r in conn.execute('SELECT size_id,COUNT(*) AS n FROM bf_bins WHERE location_id=? GROUP BY size_id', (site_id,))})
+    onsite = Counter({r['size_id']:r['n'] for r in conn.execute('SELECT size_id,COUNT(*) AS n FROM bf_bins WHERE archived=0 AND location_id=? GROUP BY size_id', (site_id,))})
     outgoing, incoming = Counter(), Counter()
     for r in conn.execute('''SELECT b.size_id,i.direction,b.location_id FROM bf_job_bins i
         JOIN bf_jobs j ON j.id=i.job_id JOIN bf_bins b ON b.id=i.bin_id
@@ -161,10 +161,10 @@ def site_plan(conn, site_id, warehouse_id, collections=None, run_date=None):
         elif r['direction']=='collect' and r['location_id'] == site_id:
             outgoing[r['size_id']] += 1
     available = Counter({r['size_id']:r['n'] for r in conn.execute('''SELECT b.size_id,COUNT(*) AS n FROM bf_bins b
-        WHERE b.location_id=? AND b.status='empty' AND NOT EXISTS(SELECT 1 FROM bf_job_bins i WHERE i.bin_id=b.id AND i.active=1)
+        WHERE b.archived=0 AND b.location_id=? AND b.status='empty' AND NOT EXISTS(SELECT 1 FROM bf_job_bins i WHERE i.bin_id=b.id AND i.active=1)
         GROUP BY b.size_id''', (warehouse_id,))})
     collectable = Counter({r['size_id']:r['n'] for r in conn.execute('''SELECT b.size_id,COUNT(*) AS n FROM bf_bins b
-        WHERE b.location_id=? AND b.status IN ('full','at_client') AND NOT EXISTS(SELECT 1 FROM bf_job_bins i WHERE i.bin_id=b.id AND i.active=1)
+        WHERE b.archived=0 AND b.location_id=? AND b.status IN ('full','at_client') AND NOT EXISTS(SELECT 1 FROM bf_job_bins i WHERE i.bin_id=b.id AND i.active=1)
         GROUP BY b.size_id''', (site_id,))})
     result, collection_slots, delivery_slots = [], 200, 200
     for r in rows:
@@ -354,7 +354,7 @@ def register_requirements(app, db, require, access, location, render, success, a
         for item in sites.values():
             if item['review'] or not item['profile']:
                 review_counts[item['state']] += 1
-        for r in db().execute('SELECT state,size_id,COUNT(*) AS n FROM bf_bins GROUP BY state,size_id'):
+        for r in db().execute('SELECT state,size_id,COUNT(*) AS n FROM bf_bins WHERE archived=0 GROUP BY state,size_id'):
             stock[(r['state'],r['size_id'])] = r['n']
         sizes = db().execute('SELECT * FROM bf_sizes WHERE litres IN (240,1100) OR id IN (SELECT size_id FROM bf_site_requirements WHERE quantity>0) ORDER BY litres,id').fetchall()
         pools = []

@@ -66,3 +66,10 @@
 /* Server-recorded timesheet entry timestamps. */
 .entry-recording{min-width:215px;font-size:.75rem;overflow-wrap:anywhere}.recording-stamp+.recording-stamp{margin-top:10px}.recording-stamp>strong,.recording-stamp>time,.recording-stamp>span{display:block}.recording-stamp>strong{color:#1e40af}.recording-stamp time{font-variant-numeric:tabular-nums}.recording-stamp small{margin-top:2px}.recording-summary{font-variant-numeric:tabular-nums}.recording-note{padding-top:6px}
 @media(max-width:640px){.timesheet-table td:nth-child(7){grid-column:1/-1}.timesheet-table .entry-recording{min-width:0}.recording-stamp time{white-space:normal}}
+
+.staff-role-picker,.bf-workspaces{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px}
+.staff-role-picker{border:0;padding:0;margin:0 0 16px}
+.staff-role-picker legend{font-weight:600;margin-bottom:8px}
+.staff-role-picker label{display:inline-flex;align-items:center;gap:8px;min-height:40px;margin:0}
+.staff-role-picker input[type=checkbox]{width:18px;height:18px;margin:0;min-height:0}
+.bf-workspaces{margin-bottom:16px}.bf-workspaces button{min-height:36px}
