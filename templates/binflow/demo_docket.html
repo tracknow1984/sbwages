@@ -1,0 +1,22 @@
+{% extends 'binflow/layout.html' %}
+{% block title %}{{ job.code }} · Sample weigh-in{% endblock %}
+{% block subtitle %}{{ job.site_name }} · {{ job.warehouse_name }}{% endblock %}
+{% block body %}
+<p><a href="{{ url_for('bf_demo_inbound') }}">← Warehouse &amp; baling</a></p>
+{% for i in items %}{% set material, net = practice[i.bin_code] %}
+<section class="bf-panel bf-pad"><h2>{{ i.bin_code }}</h2>
+  <p>Practice load · {{ material }} · {{ net }} kg of textiles</p>
+  {% if i.weighed_at %}<p class="bf-note">Weight saved · {{ i.net_g|bfkg }} kg net</p>
+  {% elif i.returned_at %}
+  <form method="post" action="{{ url_for('bf_weigh',job_id=job.id,item_id=i.id) }}" class="bf-form">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+    <div class="bf-grid"><label>Sample gross weight (kg)<input type="number" name="gross" value="{{ net + i.tare_g / 1000 }}" min="0" step="0.001" required></label>
+    <label>Sample tare (kg)<input type="number" name="tare" value="{{ i.tare_g / 1000 }}" min="0" step="0.001" required></label></div>
+    <label class="bf-check"><input type="checkbox" name="confirm_tare" value="yes" required>Confirm the sample tare</label>
+    <button class="secondary">Save weight for {{ i.bin_code }}</button>
+  </form>
+  {% else %}<p>Return this bin at the depot to weigh it.</p>{% endif %}
+</section>{% endfor %}
+{% include 'binflow/pod_finalisation.html' %}
+{% if job.pod_signed_at %}<p><a class="button primary" href="{{ url_for('bf_demo_inbound') }}">Continue to baling</a> <a class="button secondary" href="{{ url_for('bf_pod',job_id=job.id) }}">View signed POD</a></p>{% endif %}
+{% endblock %}

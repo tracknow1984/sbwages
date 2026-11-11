@@ -197,8 +197,12 @@ def register_binflow(app, db, require):
                 return redirect(url_for('bf_signin'))
             if not allowed():
                 abort(403, 'BINFLOW requires a DRIVER, MANAGER, WAREHOUSE or CONTRACTOR profile with an allocated working state. Ask the office to update Staff details.')
+            if getattr(g, 'bf_demo_warehouse', False):
+                return fn(*args, **kwargs)
             if not is_office(g.user):
                 if is_warehouse(g.user):
+                    if getattr(g,'bf_demo_token',None) or fn.__name__ in ('bf_demo_cycle','bf_demo_start'):
+                        return fn(*args, **kwargs)
                     if fn.__name__ == 'bf_dashboard':
                         return redirect(url_for('bf_bales'))
                     if not getattr(fn, 'warehouse_work', False):
@@ -284,15 +288,20 @@ def register_binflow(app, db, require):
         return render_template('binflow/' + name + '.html', tab='binflow', states=(scope,) if scope else STATES, statuses=STATUSES,
                                job_statuses=JOB_STATUSES, **values)
 
+    def action_redirect(endpoint, values):
+        if getattr(g, 'bf_demo_warehouse', False) and request.endpoint in ('bf_weigh','bf_pod_materials','bf_pod_sign'):
+            return redirect(url_for('bf_demo_docket', job_id=request.view_args['job_id']))
+        return redirect(url_for(endpoint, **values))
+
     def success(message, endpoint, **values):
         db().commit()
         flash(message, 'success')
-        return redirect(url_for(endpoint, **values))
+        return action_redirect(endpoint, values)
 
     def failure(error, endpoint, **values):
         db().rollback()
         flash(str(error), 'error')
-        return redirect(url_for(endpoint, **values))
+        return action_redirect(endpoint, values)
 
     @app.get('/binflow/sign-in')
     def bf_signin():

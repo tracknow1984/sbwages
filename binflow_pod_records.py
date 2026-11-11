@@ -146,7 +146,7 @@ def register(app,db,access,require,render,job,items,success,failure,now,actor):
     def bf_pod_materials(job_id):
         try:
             db().execute('BEGIN IMMEDIATE');j=job(job_id);ensure_pod_available(j)
-            if not is_office(g.user):abort(403)
+            if not is_office(g.user) and not getattr(g,'bf_demo_warehouse',False):abort(403)
             if j['pod_signed_at']:raise ValueError('This POD is signed. Its material record is locked.')
             if j['status']=='cancelled':raise ValueError('This job is cancelled.')
             if request.form.get('version',type=int)!=j['pod_version']:raise ValueError('This POD changed. Refresh before saving.')
@@ -168,7 +168,7 @@ def register(app,db,access,require,render,job,items,success,failure,now,actor):
     def bf_pod_sign(job_id):
         try:
             db().execute('BEGIN IMMEDIATE');j=job(job_id);ensure_pod_available(j)
-            if not is_office(g.user):abort(403)
+            if not is_office(g.user) and not getattr(g,'bf_demo_warehouse',False):abort(403)
             if j['pod_signed_at']:raise ValueError('This POD has already been signed off.')
             if request.form.get('version',type=int)!=j['pod_version']:raise ValueError('This POD changed. Refresh and review it before signing.')
             rows=items(job_id)

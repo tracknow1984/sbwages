@@ -17,8 +17,21 @@ DEMO_ENDPOINTS = frozenset({
     'bf_overview_state','bf_workday_break','bf_clock_state','bf_test_prestart','bf_run','bf_run_state',
     'bf_run_prestart','bf_accept_run','bf_run_action','bf_run_scan','bf_truck','bf_truck_scan',
     'bf_workday_plan_state','bf_load_list','bf_job','bf_pod_record','bf_pod_qr','bf_pod_signature','bf_pod_journey','bf_pod','bf_pod_pdf','bf_daily_pods',
-    'bf_demo_labels','bf_demo_qr','bf_demo_inbound',
+    'bf_demo_labels','bf_demo_qr','bf_demo_inbound','bf_demo_docket',
 })
+# These routes get a distinct sample URL. Losing a session never turns that URL into a live operation.
+WAREHOUSE_ENDPOINTS = frozenset({
+    'bf_weigh', 'bf_pod_materials', 'bf_pod_sign', 'bf_bales', 'bf_bale_new', 'bf_bale_source_scan',
+    'bf_bale', 'bf_bale_correct', 'bf_bale_qr', 'bf_bale_label', 'bf_bale_image', 'bf_bale_transfer_new',
+    'bf_bale_transfer', 'bf_bale_scan', 'bf_bale_transfer_action', 'bf_bale_note', 'bf_bale_signature',
+    'bf_bale_storage_export',
+})
+SAMPLE_MATERIALS = ('COTTON', 'PC MIX', 'PEF', 'FLAG')
+PRACTICE_LOADS = {
+    'DEMO-1100-F04': ('COTTON', 100),
+    'DEMO-240-F05': ('COTTON', 25),
+    'DEMO-660-F06': ('PC MIX', 75),
+}
 SUBURBS = {
     'QLD': ('North Maclean','Logan Central','Browns Plains'),
     'NSW': ('Wetherill Park','Smithfield','Fairfield'),
@@ -33,11 +46,13 @@ def install_demo_database(app, real_db, now):
 
     @app.before_request
     def select_driver_demo():
-        token = request.args.get('demo')
+        sample_key = (request.view_args or {}).pop('sample_key', None)
+        token = sample_key if sample_key is not None else request.args.get('demo')
         if token is None:
             return
         saved = session.get('driver_demo', {})
-        if (not g.user or not has_binflow_access(g.user) or request.endpoint not in DEMO_ENDPOINTS or
+        warehouse = sample_key is not None and request.endpoint in WAREHOUSE_ENDPOINTS
+        if (not g.user or not has_binflow_access(g.user) or (not warehouse and request.endpoint not in DEMO_ENDPOINTS) or
                 not token or not secrets.compare_digest(token, saved.get('token', '')) or saved.get('uid') != g.user['id'] or
                 (state_scope(g.user) and state_scope(g.user) != saved.get('state'))):
             abort(403, 'This sample run is not available in your session. Open Driver day and start a new sample run.')
@@ -56,11 +71,18 @@ def install_demo_database(app, real_db, now):
         conn.commit()
         g.bf_demo_db = conn
         g.bf_demo_token = token
+        g.bf_demo_warehouse = warehouse
+        if warehouse or request.endpoint in ('bf_demo_inbound', 'bf_demo_docket'):
+            prepare_warehouse(conn, now())
+            conn.commit()
 
     @app.url_defaults
     def preserve_driver_demo(endpoint, values):
         if has_request_context() and getattr(g, 'bf_demo_token', None) and endpoint.startswith('bf_') and endpoint!='bf_demo_start' and 'demo' not in values:
-            values['demo'] = g.bf_demo_token
+            if endpoint in WAREHOUSE_ENDPOINTS:
+                values.setdefault('sample_key', g.bf_demo_token)
+            else:
+                values['demo'] = g.bf_demo_token
 
     @app.teardown_appcontext
     def close_driver_demo(error):
@@ -113,7 +135,29 @@ def seed_demo(source, target, user, state, stamp):
     target.commit()
 
 
+def prepare_warehouse(conn, stamp):
+    # The first three locations are the sample origin and its two sample client sites.
+    if conn.execute('SELECT 1 FROM bf_bale_settings WHERE warehouse_id=4 AND receiving_hub=1').fetchone():
+        return
+    conn.execute("""INSERT OR IGNORE INTO bf_locations(id,kind,name,state,address,created_at)
+        VALUES(4,'warehouse','SAMPLE · Brisbane receiving depot','QLD','Brisbane, QLD, Australia',?)""", (stamp,))
+    conn.executemany("INSERT OR IGNORE INTO bf_material_classes(name,updated_at,updated_by) VALUES(?,?,'Sample run')",
+                     [(name, stamp) for name in SAMPLE_MATERIALS])
+    conn.executemany("""INSERT OR IGNORE INTO bf_bale_settings(warehouse_id,target_g,receiving_hub,updated_at,updated_by)
+        VALUES(?,?,?,?,'Sample run')""", [(1,200000,0,stamp),(4,None,1,stamp)])
+
+
 def register_demo(app, db, access, render, now):
+    for rule in list(app.url_map.iter_rules()):
+        if rule.endpoint in WAREHOUSE_ENDPOINTS:
+            app.add_url_rule('/training/<sample_key>' + rule.rule, endpoint=rule.endpoint,
+                             view_func=app.view_functions[rule.endpoint], methods=rule.methods)
+
+    @app.get('/binflow/driver/test-cycle')
+    @access
+    def bf_demo_cycle():
+        return render('demo_cycle', section='driver', selected_state=state_scope(g.user) or 'NSW')
+
     @app.post('/binflow/driver/demo')
     @access
     def bf_demo_start():
@@ -171,7 +215,24 @@ def register_demo(app, db, access, render, now):
     @access
     def bf_demo_inbound():
         require_demo()
-        return render('demo_inbound',section='driver',driver_mode=True,
-                      inbound=db().execute('''SELECT b.*,s.name AS size_name,l.name AS warehouse_name FROM bf_bins b
-                        JOIN bf_sizes s ON s.id=b.size_id JOIN bf_locations l ON l.id=b.location_id
-                        WHERE b.status='received' ORDER BY b.code''').fetchall())
+        jobs = db().execute("""SELECT j.*, COUNT(i.id) AS expected, COUNT(i.returned_at) AS returned,
+            COUNT(i.weighed_at) AS weighed FROM bf_jobs j JOIN bf_job_bins i ON i.job_id=j.id
+            WHERE i.direction='collect' GROUP BY j.id ORDER BY j.id""").fetchall()
+        sources = db().execute("""SELECT i.bin_code,i.material_name,i.net_g,b.status,bs.bale_id,ba.code AS bale_code
+            FROM bf_job_bins i JOIN bf_bins b ON b.id=i.bin_id LEFT JOIN bf_bale_sources bs ON bs.item_id=i.id
+            LEFT JOIN bf_bales ba ON ba.id=bs.bale_id WHERE i.direction='collect' ORDER BY i.bin_id""").fetchall()
+        transfers = db().execute('SELECT * FROM bf_bale_transfers ORDER BY id DESC').fetchall()
+        bales = db().execute('SELECT * FROM bf_bales ORDER BY id').fetchall()
+        return render('demo_inbound', section='driver', jobs=jobs, sources=sources, bales=bales, transfers=transfers)
+
+    @app.get('/binflow/driver/demo/inbound/<int:job_id>')
+    @access
+    def bf_demo_docket(job_id):
+        require_demo()
+        job = db().execute('SELECT * FROM bf_jobs WHERE id=?', (job_id,)).fetchone()
+        if not job:
+            abort(404)
+        items = db().execute("SELECT * FROM bf_job_bins WHERE direction='collect' AND job_id=? ORDER BY bin_id",
+                             (job_id,)).fetchall()
+        return render('demo_docket', section='driver', job=job, items=items, practice=PRACTICE_LOADS,
+                      material_classes=db().execute('SELECT * FROM bf_material_classes ORDER BY name').fetchall())

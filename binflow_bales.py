@@ -105,14 +105,14 @@ def register(app,db,access,require,render,success,failure,now,actor):
     def allowed(wid):
         w=db().execute("SELECT * FROM bf_locations WHERE id=? AND kind='warehouse'",(wid,)).fetchone()
         if not w:abort(404)
-        if g.user['role']!='admin':
+        if g.user['role']!='admin' and not getattr(g,'bf_demo_warehouse',False):
             assigned=db().execute('SELECT warehouse_id FROM bf_bale_managers WHERE user_id=?',(g.user['id'],)).fetchone()
             if w['state']!=g.user['working_state'] or (assigned and assigned['warehouse_id']!=wid):abort(403)
         return w
 
     def warehouses():
         rows=db().execute("SELECT * FROM bf_locations WHERE kind='warehouse' ORDER BY state,name").fetchall()
-        if g.user['role']=='admin':return rows
+        if g.user['role']=='admin' or getattr(g,'bf_demo_warehouse',False):return rows
         assigned=db().execute('SELECT warehouse_id FROM bf_bale_managers WHERE user_id=?',(g.user['id'],)).fetchone()
         return [w for w in rows if w['state']==g.user['working_state'] and (not assigned or assigned['warehouse_id']==w['id'])]
 

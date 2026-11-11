@@ -5,7 +5,7 @@ from datetime import timedelta
 from urllib.parse import urlsplit, parse_qs
 
 import test_binflow_workday as workday_tests
-from binflow_helpers import RUN_DATE, prestart
+from binflow_helpers import RUN_DATE, SIGNATURE, prestart
 
 
 class DriverJourneyTests(unittest.TestCase):
@@ -25,12 +25,12 @@ class DriverJourneyTests(unittest.TestCase):
     def start(self):
         return self.post('/binflow/driver/start-day',dict(flow_version='2',**self.stamp()))
 
-    def accept_overview(self, suffix=''):
+    def accept_overview(self, suffix='', state='QLD'):
         page=self.client.get('/binflow/driver/my-day'+suffix)
         version=re.search(rb'name="version" value="([^"]+)"',page.data)
         self.assertIsNotNone(version,page.data[-5000:])
         wid=re.search(rb'/my-day/(\d+)/overview',page.data)[1].decode()
-        return self.post(f'/binflow/driver/my-day/{wid}/overview'+suffix,dict(state='QLD',version=version[1].decode()))
+        return self.post(f'/binflow/driver/my-day/{wid}/overview'+suffix,dict(state=state,version=version[1].decode()))
 
     def simple_prestart(self,suffix=''):
         return self.post('/binflow/driver/1/test-prestart'+suffix,dict(date=RUN_DATE))
@@ -159,9 +159,76 @@ class DriverJourneyTests(unittest.TestCase):
         self.assertEqual(self.post('/binflow/pickups/1/weigh/1'+suffix,dict(gross='50')).status_code,403)
         self.assertEqual(self.client.get('/binflow/pods/1/email'+suffix).status_code,403)
 
+    def complete_sample_warehouse(self, token):
+        suffix = '?demo=' + token
+        base = '/training/' + token + '/binflow'
+        inbound = '/binflow/driver/demo/inbound'
+        hub = self.client.get(inbound + suffix)
+        self.assertIn(base + '/bales/new', hub.text)
+        materials = {}
+        for jid, material in ((1, 'COTTON'), (2, 'PC MIX')):
+            desk = inbound + '/' + str(jid) + suffix
+            page = self.client.get(desk)
+            actions = re.findall(r'<form method="post" action="([^"]+/weigh/\d+)"', page.text)
+            gross = (165, 30) if jid == 1 else (115,)
+            tares = (65, 5) if jid == 1 else (40,)
+            self.assertEqual(len(actions),len(gross))
+            for action, weight, tare in zip(actions,gross,tares):
+                self.assertTrue(action.startswith(base + '/pickups/'))
+                page = self.post(action, dict(gross=weight,tare=tare,confirm_tare='yes'))
+                self.assertIn('Weight saved', page.text)
+            materials[material] = re.search(r'<option value="(\d+)"[^>]*>'+material+'</option>',page.text)[1]
+            fields = re.findall(r'<select name="(material_\d+)"',page.text)
+            version = re.search(r'name="version" value="(\d+)"',page.text)[1]
+            page = self.post(base+f'/pickups/{jid}/pod/materials',
+                             dict(version=version,**{field:materials[material] for field in fields}))
+            version = re.search(r'name="version" value="(\d+)"',page.text)[1]
+            page = self.post(base+f'/pickups/{jid}/pod/sign',dict(version=version,confirm='yes',signature=SIGNATURE))
+            self.assertIn('Signed by <strong>',page.text)
+        created = []
+        wrong = self.post(base+'/bales/source-scan',dict(warehouse_id=1,material_id=materials['COTTON'],code='DEMO-660-F06'))
+        self.assertEqual(wrong.status_code,409)
+        for material, codes, weight in [('COTTON',['DEMO-1100-F04','DEMO-240-F05'],125),('PC MIX',['DEMO-660-F06'],75)]:
+            form = self.client.get(base+'/bales/new?warehouse=1')
+            key = re.search(r'name="request_key" value="([^"]+)"',form.text)[1]
+            scans = [self.post(base+'/bales/source-scan',dict(warehouse_id=1,material_id=materials[material],code=c)).json for c in codes]
+            self.assertTrue(all(s['ok'] for s in scans))
+            response = self.post(base+'/bales/new',dict(warehouse_id=1,material_id=materials[material],
+                request_key=key,source_code=codes,source_item=[s['item_id'] for s in scans],weight=weight,confirm_sources='yes'))
+            self.assertIn('Print bale label',response.text)
+            created.append(re.search(r'BA\d{7}',response.text)[0])
+            self.assertEqual(self.client.get(base+f'/bales/{len(created)}/qr.png').mimetype,'image/png')
+        self.assertEqual(self.client.get(inbound+suffix).text.count('Emptied into'),3)
+        form = self.client.get(base+'/bales/transfers/new')
+        key = re.search(r'name="request_key" value="([^"]+)"',form.text)[1]
+        page = self.post(base+'/bales/transfers/new',dict(origin_id=1,destination_id=4,carrier='Sample carrier',
+            vehicle='TEST-01',payload=1000,request_key=key))
+        transfer = base+'/bales/transfers/1'
+        self.assertEqual(page.request.path,transfer)
+        for action in ('load','receive'):
+            for code in created:
+                resp = self.post(transfer+'/scan',dict(action=action,code=code))
+                self.assertEqual(resp.status_code,200,resp.text)
+            version = resp.json['version']
+            if action=='load':
+                self.post(transfer+'/action',dict(action='depart',confirm='yes',version=version))
+        self.post(transfer+'/action',dict(action='handover',version=version,recipient='Sample receiver',confirm='yes',signature=SIGNATURE))
+        note = self.client.get(transfer+'/note')
+        self.assertEqual(note.status_code,200)
+        for text in ['Sample receiver','200','Wetherill Park','Brisbane',*created]:
+            self.assertIn(text,note.text)
+        self.assertIn('View signed storage note',self.client.get(inbound+suffix).text)
+        self.assertEqual(self.client.get('/binflow/bales/new').status_code,403)
+        other=self.app.test_client()
+        with other.session_transaction() as session: session.update(uid=self.uid,version=0,csrf='other')
+        self.assertEqual(other.get(transfer+'/note').status_code,403)
+        self.assertEqual(self.client.get('/training/invalid/binflow/bales/new').status_code,403)
+
     def test_today_sample_uses_same_flow_without_changing_real_stock_or_payroll(self):
-        before={table:self.rows('SELECT * FROM '+table) for table in ('bf_bins','bf_jobs','bf_job_bins','bf_workdays','bf_events','entries','sheets','bf_step_timings')}
-        opened=self.post('/binflow/driver/demo',dict(state='QLD'),follow=False)
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("UPDATE users SET working_state='NSW' WHERE id=?", (self.uid,))
+        before={table:self.rows('SELECT * FROM '+table) for table in ('bf_bins','bf_jobs','bf_job_bins','bf_workdays','bf_events','entries','sheets','bf_step_timings','bf_bale_storage','bf_bales','bf_bale_sources','bf_bale_transfers','bf_rental_invoices')}
+        opened=self.post('/binflow/driver/demo',dict(state='NSW'),follow=False)
         self.assertEqual(opened.status_code,302)
         token=parse_qs(urlsplit(opened.location).query)['demo'][0]
         suffix='?demo='+token
@@ -171,8 +238,8 @@ class DriverJourneyTests(unittest.TestCase):
         self.assertIn(b'DEMO-1100-E01',self.client.get('/binflow/driver/demo/labels'+suffix).data)
         self.assertEqual(self.client.get('/binflow/driver/demo/qr/1'+suffix).mimetype,'image/png')
         self.post('/binflow/driver/start-day'+suffix,dict(flow_version='2',**self.stamp()))
-        self.accept_overview(suffix)
-        selected=self.post('/binflow/driver/my-day/1/vehicle'+suffix,dict(state='QLD',truck_id=1))
+        self.accept_overview(suffix, 'NSW')
+        selected=self.post('/binflow/driver/my-day/1/vehicle'+suffix,dict(state='NSW',truck_id=1))
         self.assertIn(b'OK',selected.data)
         self.simple_prestart(suffix)
         self.assertEqual(self.scan('load','DEMO-660-E03',suffix).status_code,409)
@@ -194,14 +261,15 @@ class DriverJourneyTests(unittest.TestCase):
         self.time+=timedelta(hours=8)
         finished=self.post('/binflow/driver/my-day/1/finish'+suffix,self.stamp())
         self.assertIn(b'Sample run complete',finished.data)
+        self.complete_sample_warehouse(token)
         for table,data in before.items():self.assertEqual(self.rows('SELECT * FROM '+table),data,table)
         # A second authenticated session cannot use the owner's sample token.
         second=self.app.test_client()
         with second.session_transaction() as session: session.update(uid=self.uid,version=0,csrf='x')
         self.assertEqual(second.get('/binflow/driver/my-day'+suffix).status_code,403)
-        resumed=self.post('/binflow/driver/demo',dict(state='QLD'),follow=False)
+        resumed=self.post('/binflow/driver/demo',dict(state='NSW'),follow=False)
         self.assertIn(token,resumed.location)
-        reset=self.post('/binflow/driver/demo',dict(state='QLD',reset='yes'),follow=False)
+        reset=self.post('/binflow/driver/demo',dict(state='NSW',reset='yes'),follow=False)
         self.assertNotIn(token,reset.location)
         self.assertEqual(self.client.get('/binflow/driver/my-day'+suffix).status_code,403)
 
