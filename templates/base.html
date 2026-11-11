@@ -4,7 +4,7 @@
 <html lang="en-AU">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ "BinFlow · SB Empire" if bf_surface else "SB EMPIRE · Staff, Timesheets & Operations" }}</title>
+  <title>{% block browser_title %}{{ "BinFlow · SB Empire" if bf_surface else "SB EMPIRE · Staff, Timesheets & Operations" }}{% endblock %}</title>
   <meta name="description" content="{{ 'BinFlow bin management, collections, driver runs and warehouse operations.' if bf_surface else 'SB EMPIRE staff, timesheets and operations.' }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   {% if binflow_driver %}<link rel="stylesheet" href="{{ url_for('static', filename='driver-portal.css') }}">{% endif %}

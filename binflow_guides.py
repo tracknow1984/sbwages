@@ -1,6 +1,6 @@
 """Short, page-specific guidance for the existing BinFlow workflows."""
 GUIDES = {
- 'dashboard': ('Your operations overview', 'Choose a state to focus the stock and collection overview.', 'Use Collection calendar to plan work and Collection requests to review incoming requests.', 'Open a bin or docket for its recorded movements. Fleet locations depend on the latest GPS update.'),
+ 'dashboard': ('Your operations overview', 'Choose a state to focus the stock and collection overview.', 'Use Collection calendar to plan work and BIN Collection Req to review incoming requests.', 'Open a bin or docket for its recorded movements. Fleet locations depend on the latest GPS update.'),
  'inventory': ('Find, register and label bins', 'Filter by state, size, client or status to find the physical bins you need.', 'Open a bin to check its location and movement history before making changes.', 'Print the same permanent QR label for the front and lid of each bin.'),
  'bin': ('One bin, one permanent identity', 'Check the current location, status and any linked docket.', 'Use the movement history to trace custody and recorded scans.', 'Use the QR page for requests or authorised driver actions. Location corrections are recorded.'),
  'bin_edit': ('Correct a bin location', 'Confirm the bin ID and its current location before editing.', 'Choose the correct destination within its state. Active allocations may prevent a change.', 'Save the correction, then check the bin history. Its permanent QR code stays the same.'),

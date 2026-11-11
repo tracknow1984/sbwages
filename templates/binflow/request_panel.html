@@ -1,5 +1,5 @@
 <section class="bf-panel bf-pad" id="collection-requests">
-  <div class="bf-toolbar"><div><h2>Collection requests</h2><p class="bf-muted">{{ request_counts.attention }} need action · {{ request_counts.referred }} referred to BLOCKTEXX · {{ request_counts.approved }} schedules approved · {{ request_counts.closed }} dismissed</p></div>
+  <div class="bf-toolbar"><div><h2>BIN Collection Req</h2><p class="bf-muted">{{ request_counts.attention }} need action · {{ request_counts.referred }} referred to BLOCKTEXX · {{ request_counts.approved }} schedules approved · {{ request_counts.closed }} dismissed</p></div>
     {% if request_dashboard %}<a href="{{ url_for('bf_collection_requests',state=state,status=request_selected) }}">View all requests</a>{% endif %}
   </div>
   <form method="get" action="{{ url_for('bf_dashboard' if request_dashboard else 'bf_collection_requests') }}#collection-requests" class="bf-filters">
