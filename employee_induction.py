@@ -8,22 +8,44 @@ from pathlib import Path
 from xml.sax.saxutils import escape
 from zoneinfo import ZoneInfo
 
-from flask import abort, flash, g, redirect, render_template, request, send_file, url_for
+from flask import abort, flash, g, redirect, render_template, request, send_file, session, url_for
 from pypdf import PdfReader, PdfWriter
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer
 
-EDITION = '1.1'
-# Edition 1.1 adds contractor guidance. The induction declarations are unchanged.
-PREVIOUS_EQUIVALENT_EDITION = '1.0'
+EDITION = '1.2'
+PREVIOUS_EDITION = '1.1'
 ROOT = Path(__file__).resolve().parent
 TERMS = (ROOT / 'handbooks/acknowledgements.json').read_text()
 # Only this exact release package can be installed. Private handbook bytes and
 # employee contact details live on the application's persistent database.
-PACKAGE_DIGEST = '48fc3a74cff581e9152840eefe7bdec3a5da5425b1a49e98c75193488bb15a33'
-PUBLISH_KEY_DIGEST = '2d3e1fa14e6e56a57ed2544f4f31a2a906fa65e70a11267927afc82c972b4632'
+PACKAGE_DIGEST = 'c9a8b99a4c2ea01fcc6336e64ff76a8bd53a9871c5fef5ff4d1ecbde6e11abf4'
+PUBLISH_KEY_DIGEST = 'b2263451950d12f24cc244320c9d64b3b939595a7c1bbfebf033c12e83b47d8c'
+
+
+def needs_signature(conn, user_id):
+    """An issued edition requires its own signature before work can continue."""
+    return conn.execute("""SELECT 1 FROM handbook_editions e WHERE e.version=?
+        AND NOT EXISTS (SELECT 1 FROM handbook_signatures s
+                        WHERE s.user_id=? AND s.version=e.version)""",
+                        (EDITION, user_id)).fetchone() is not None
+
+
+def enforce_employee_induction(db):
+    if not g.user or g.user['role'] != 'employee' or request.endpoint in {
+        None, 'static', 'health', 'login', 'logout', 'activate', 'employee_induction',
+        'employee_handbook', 'induction_record', 'bf_lunch_worker', 'install_induction_edition'
+    }:
+        return None
+    if not needs_signature(db(), g.user['id']):
+        return None
+    destination = url_for('employee_induction')
+    if request.is_json or request.accept_mimetypes.best == 'application/json':
+        return {'ok':False, 'induction_url':destination,
+                'message':'Sign the employee handbook in My induction to continue.'}, 428
+    return redirect(destination, code=303 if request.method not in ('GET','HEAD') else 302)
 
 
 def receipt_pdf(record, edition):
@@ -66,15 +88,9 @@ def register_induction(app, db, require):
             username TEXT NOT NULL, signed_at TEXT NOT NULL, UNIQUE(user_id,version));
         """)
 
-    def own_signature():
-        return db().execute('''SELECT * FROM handbook_signatures WHERE user_id=? AND version IN (?,?)
-            ORDER BY id DESC LIMIT 1''',(g.user['id'],EDITION,PREVIOUS_EQUIVALENT_EDITION)).fetchone()
-
-    @app.context_processor
-    def induction_status():
-        if not g.user or g.user['role']!='employee' or g.get('bf_demo_token'):
-            return {}
-        return {'induction_pending':own_signature() is None}
+    def own_signature(version):
+        return db().execute('SELECT * FROM handbook_signatures WHERE user_id=? AND version=?',
+                            (g.user['id'], version)).fetchone()
 
     @app.post('/induction/install-edition')
     def install_induction_edition():
@@ -99,13 +115,15 @@ def register_induction(app, db, require):
     @require('employee')
     def employee_induction():
         edition = db().execute('''SELECT version,contacts,terms FROM handbook_editions WHERE version IN (?,?)
-            ORDER BY (version=?) DESC LIMIT 1''',(EDITION,PREVIOUS_EQUIVALENT_EDITION,EDITION)).fetchone()
+            ORDER BY (version=?) DESC LIMIT 1''',(EDITION,PREVIOUS_EDITION,EDITION)).fetchone()
         terms = json.loads(edition['terms']) if edition else None
+        version = edition['version'] if edition else EDITION
+        signed = own_signature(version)
         name = ' '.join((g.user['first_name']+' '+g.user['last_name']).split())
         if request.method=='POST':
             if not edition or request.form.get('version')!=edition['version']:
                 abort(409,'The handbook edition changed. Reopen My induction before signing.')
-            if not own_signature():
+            if not signed:
                 typed = ' '.join(request.form.get('signature','').split())
                 expected = {item[0] for item in terms['items']}
                 if set(request.form.getlist('ack'))!=expected or request.form.get('consent')!='yes':
@@ -117,19 +135,25 @@ def register_induction(app, db, require):
                         VALUES(?,?,?,?,?) ON CONFLICT(user_id,version) DO NOTHING""",
                         (g.user['id'],edition['version'],typed,g.user['username'],datetime.now(timezone.utc).isoformat()))
                     db().commit()
-                    return redirect(url_for('employee_induction'))
+                    flash('Induction signed. Your signed copy is in My induction.', 'success')
+                    destination = session.pop('induction_return', None)
+                    if not destination:
+                        from binflow_resume import restore_driver
+                        destination = restore_driver(db(), g.user) or url_for('index')
+                    return redirect(destination, code=303)
             else:
-                return redirect(url_for('employee_induction'))
+                return redirect(session.pop('induction_return', None) or url_for('employee_induction'), code=303)
         records = db().execute('SELECT * FROM handbook_signatures WHERE user_id=? ORDER BY id DESC',(g.user['id'],)).fetchall()
-        return render_template('induction.html',tab='induction',version=edition['version'] if edition else EDITION,terms=terms,
+        return render_template('induction.html',tab='induction',version=version,terms=terms,
                                contacts=json.loads(edition['contacts']) if edition else [],
-                               name=name,signed=own_signature(),records=records)
+                               name=name,signed=signed,records=records,
+                               induction_gate=bool(edition and version==EDITION and not signed))
 
     @app.get('/employee/induction/handbook.pdf')
     @require('employee')
     def employee_handbook():
         row=db().execute('''SELECT pdf FROM handbook_editions WHERE version IN (?,?)
-            ORDER BY (version=?) DESC LIMIT 1''',(EDITION,PREVIOUS_EQUIVALENT_EDITION,EDITION)).fetchone()
+            ORDER BY (version=?) DESC LIMIT 1''',(EDITION,PREVIOUS_EDITION,EDITION)).fetchone()
         if not row: abort(404)
         return send_file(io.BytesIO(row['pdf']),mimetype='application/pdf',download_name='SB-Empire-Employee-Handbook.pdf')
 

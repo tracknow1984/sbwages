@@ -2,10 +2,13 @@
 {% block content %}
 <link rel="stylesheet" href="{{ url_for('static',filename='staff-induction.css') }}">
 <div class="induction-page">
-  <div class="page-heading"><div><h1>My induction</h1><p>Employee handbook · Edition {{ version }}</p></div></div>
+  <div class="page-heading"><div><h1>{{ 'Induction sign-off required' if induction_gate else 'My induction' }}</h1><p>Employee handbook · Edition {{ version }}</p></div></div>
   {% if terms %}
-  <section class="panel induction-card"><h2>SB Empire employee handbook</h2>
-    <a class="button secondary" href="{{ url_for('employee_handbook') }}" target="_blank" rel="noopener">Read handbook (PDF)</a>
+  <section class="panel induction-card">
+    <div class="induction-book"><img src="{{ url_for('static',filename='employee-handbook-cover.webp') }}" width="108" height="140" alt="SB Empire employee handbook cover">
+    <div><h2>SB Empire employee handbook</h2>
+    {% if induction_gate %}<p>Read the handbook and sign below to continue to work.</p>{% endif %}
+    <a class="button secondary" href="{{ url_for('employee_handbook') }}" target="_blank" rel="noopener">Read handbook (PDF)</a></div></div>
     <details><summary>Key contacts</summary>
     {% for contact,phone in contacts %}<p>{{ contact }} · <a href="tel:{{ phone|replace(' ','') }}">{{ phone }}</a></p>{% endfor %}
     </details>

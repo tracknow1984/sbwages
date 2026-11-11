@@ -19,6 +19,7 @@ from flask import Flask, abort, flash, g, redirect, render_template, request, se
 from werkzeug.utils import secure_filename
 from werkzeug.security import check_password_hash, generate_password_hash
 from lunch import deduct_lunch, migrate_lunch
+from employee_induction import EDITION, enforce_employee_induction, needs_signature, register_induction
 from entry_recording import migrate_recording, stamp_entry, recording_details, recording_datetime
 from work_weeks import WORK_WEEKS, profile_end, profile_start, saved_period
 from binflow_workday import active_entry
@@ -294,6 +295,7 @@ def create_app(test_config=None):
         if request.method == 'POST':
             if not secrets.compare_digest(session.get('csrf', ''), request.form.get('csrf', '')) or not session.get('csrf'):
                 abort(400, 'Your form expired. Refresh the page and try again.')
+        return enforce_employee_induction(db)
 
     @app.after_request
     def headers(response):
@@ -320,6 +322,8 @@ def create_app(test_config=None):
             @wraps(fn)
             def wrapped(*args, **kwargs):
                 if not g.user:
+                    if request.endpoint == 'employee_induction':
+                        return redirect(url_for('login', audience=role, handbook=1))
                     return redirect(url_for('login', audience=role))
                 if g.user['role'] != role:
                     abort(403)
@@ -411,11 +415,15 @@ def create_app(test_config=None):
                 db().commit()
                 from binflow_resume import restore_driver
                 resume = restore_driver(db(), user)
-                if resume and not binflow_next:
-                    return redirect(resume)
+                destination = resume or url_for('index')
                 if binflow_next.startswith('/binflow/') or binflow_next == '/admin/bin-management':
-                    return redirect(binflow_next)
-                return redirect(url_for('index'))
+                    destination = binflow_next
+                if user['role'] == 'employee' and needs_signature(db(), user['id']):
+                    session['induction_return'] = destination
+                    return redirect(url_for('employee_induction'))
+                if user['role'] == 'employee' and request.args.get('handbook') == '1':
+                    return redirect(url_for('employee_induction'))
+                return redirect(destination)
             flash('Username or password is incorrect, or your account is inactive.', 'error')
         return render_template('login.html', audience=audience)
 
@@ -481,11 +489,9 @@ def create_app(test_config=None):
     @app.get('/admin/staff')
     @require('admin')
     def admin_staff():
-        from employee_induction import EDITION, PREVIOUS_EQUIVALENT_EDITION
         people = db().execute("""SELECT u.*,s.id AS induction_id,s.signed_at AS induction_signed_at
-            FROM users u LEFT JOIN handbook_signatures s ON s.id=(SELECT MAX(h.id) FROM handbook_signatures h
-                WHERE h.user_id=u.id AND h.version IN (?,?))
-            WHERE u.role='employee' ORDER BY u.status,u.first_name,u.last_name""",(EDITION,PREVIOUS_EQUIVALENT_EDITION)).fetchall()
+            FROM users u LEFT JOIN handbook_signatures s ON s.user_id=u.id AND s.version=?
+            WHERE u.role='employee' ORDER BY u.status,u.first_name,u.last_name""",(EDITION,)).fetchall()
         return render_template('staff.html', people=people, active=sum(p['status'] == 'active' for p in people), tab='staff')
 
     @app.route('/admin/staff/new', methods=['GET', 'POST'])
@@ -1609,7 +1615,6 @@ def create_app(test_config=None):
     register_binflow(app, db, require)
     from binflow_lunch import register_lunch
     register_lunch(app, db)
-    from employee_induction import register_induction
     register_induction(app, db, require)
     from traxpress import register_traxpress
     register_traxpress(app, db, require)

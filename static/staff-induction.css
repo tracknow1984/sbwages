@@ -37,3 +37,7 @@
   .staff-list .search,.staff-list .panel-head input {width:100%}
   .staff-extra {grid-template-columns:minmax(0,1fr)}
 }
+
+.induction-book {display:flex;align-items:center;gap:clamp(12px,3vw,24px)}
+.induction-book img {width:clamp(78px,19vw,108px);height:auto;border:1px solid #ccd7e3;border-radius:3px;flex-shrink:0}
+.induction-book>div {min-width:0}
