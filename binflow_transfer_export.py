@@ -65,8 +65,10 @@ def booking_values(booking, places):
     b['job_type'] = 'Subcontracted' if b['job_type'] == 'external' else 'Internal'
     b['handling'] = 'Scanned bales' if b['handling'] == 'scanned' else 'Bulk movement'
     b['po_status'] = 'Awaiting confirmation'
-    if b['locked_at']:
-        b['po_status'] = 'PO received' if b['po_received'] else 'PO required'
+    if b['po_received']:
+        b['po_status'] = 'PO received'
+    elif b['locked_at']:
+        b['po_status'] = 'PO required'
     b['email_status'] = b['email_status'].capitalize() if b['locked_at'] else None
     if b['rigid_hours_units'] is not None:
         b['hours'] = b['rigid_hours_units'] / 100

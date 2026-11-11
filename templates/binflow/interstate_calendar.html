@@ -53,6 +53,7 @@
 {% for b in pending %}{% set info=previews[b.id] %}
 <a class="it-pending it-awaiting-transfer" {{ preview_link(info) }}>
   <strong>{{ info.billing_name }}</strong><span>{{ reference(b) }} · {{ route(b) }}{% if b.vehicle and not b.rigid_hours_units %} · {{ vehicle(b) }}{% endif %}</span>
+  {% if b.date_change_id %}<strong>Date change requested</strong>{% if b.po_received %}{{ po_badge(true) }}{% endif %}{% endif %}
   <span>Pickup {{ b.pickup_date|display_date }} · Delivery {{ b.delivery_date|display_date }}</span>
 </a>{% else %}<p>No pending requests.</p>{% endfor %}</section>
 {% if previews %}
@@ -72,10 +73,16 @@
   <section class="it-preview-goods"><h4>{{ 'Bulk movement' if b.handling=='bulk' else 'Scanned bales' }}{% if b.expected_bales %} · {{ b.expected_bales }} {{ 'bale' if b.expected_bales==1 else 'bales' }}{% endif %}</h4>
     {% if b.goods %}<p class="it-goods">{{ b.goods }}</p>{% endif %}
   </section>
-  {% if b.locked_at %}<section class="it-preview-po">{{ po_badge(b.po_received) }}
+  {% if b.locked_at or b.po_received %}<section class="it-preview-po">{{ po_badge(b.po_received) }}
     {% if b.po_number %}<span>{{ b.po_number }}</span>{% endif %}
-    <a href="{{ url_for('bf_client_interstate_detail' if external else 'bf_interstate_detail',bid=id,_anchor='purchase-order') }}">{{ 'Add PO' if not b.po_received and can_supply_po else 'View purchase order' }}</a>
+    <a href="{{ url_for('bf_client_interstate_detail' if external else 'bf_interstate_detail',bid=id,_anchor='purchase-order') }}">{{ 'Add PO' if not b.po_received and can_update_booking else 'View purchase order' }}</a>
   </section>{% endif %}
+  {% if external %}
+  <div class="it-share-actions">
+    <a href="{{ bf_share_dates_link(b) }}" data-bf-icon="mail">Share by email</a>
+    {% if can_update_booking and b.movable %}<a href="{{ url_for('bf_client_interstate_detail',bid=id,reschedule=1,_anchor='reschedule') }}">Request a date change</a>{% endif %}
+  </div>
+  {% endif %}
   <footer><span>{{ 'Subcontracted' if b.job_type=='external' else 'Internal job' }}</span><a href="{{ url_for('bf_client_interstate_detail' if external else 'bf_interstate_detail',bid=id) }}">Open booking</a></footer>
 </template>
 {% endfor %}

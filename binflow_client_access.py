@@ -13,6 +13,7 @@ MODULES = (
     ('requests','Approved-site collection requests',('view',)),
 )
 ENDPOINTS = {
+    'bf_client_interstate_reschedule':'bookings.view',
     'bf_client_rigid_quote':'bookings.view', 'bf_client_interstate':'bookings.view', 'bf_client_interstate_detail':'bookings.view',
     'bf_client_interstate_po':'bookings.view','bf_client_interstate_po_file':'bookings.view',
     'bf_client_interstate_new':'bookings.add','bf_client_interstate_edit':'bookings.edit',

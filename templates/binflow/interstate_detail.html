@@ -6,15 +6,42 @@
 <section class="bf-panel bf-pad"><div class="bf-toolbar"><div><small>IT-{{ '%06d'|format(b.id) }}</small>{% if b.account_id %}<small> · Billing client</small>{% endif %}<h2>{{ b.client_name }}</h2></div><span class="bf-badge">{{ status }}</span></div>
 <p>{% if b.rigid_hours_units %}Local transfer · {{ places[b.origin][1] }}{% else %}{{ places[b.origin][0] }} → {{ places[b.destination][0] }}{% endif %} · {{ 'Internal' if b.job_type=='internal' else 'External · subcontractor' }} · {{ 'Scan each bale' if b.handling=='scanned' else 'Bulk movement' }}</p>
  {% if b.vehicle %}<p>Vehicle <strong>{{ 'B DOUBLE' if b.vehicle=='B-DOUBLE' else b.vehicle }}</strong></p>{% if b.rigid_hours_units %}<p>Requested {{ b.rigid_hours_units|hours }} hours · Billable {{ [minimum*100,b.rigid_hours_units]|max|hours }} hours{% if b.rigid_hourly_cents is not none %} at {{ b.rigid_hourly_cents|money }} per hour ex GST{% endif %}</p>{% endif %}{% if b.account_id %}<h3>Freight price · AUD ex GST</h3>{{ breakdown(price) }}{% endif %}{% endif %}
-{% if external and not b.locked_at and 'bookings.edit' in g.client_rights %}<a class="button secondary" href="{{ url_for('bf_client_interstate_edit',bid=b.id) }}">Edit request</a>{% endif %}
+{% if change %}
+<section class="bf-note it-date-change" aria-label="Date change awaiting confirmation">
+  <h3>Date change awaiting confirmation</h3>
+  <p>Previously confirmed: pickup {{ change.original_pickup|display_date }} · delivery {{ change.original_delivery|display_date }}.</p>
+  <p><strong>Requested: pickup {{ b.pickup_date|display_date }} · delivery {{ b.delivery_date|display_date }}.</strong></p>
+  <p>Transport is on hold until SB Empire confirms the dates.</p>
+</section>
+{% endif %}
+{% if external %}
+<div class="it-tools"><a class="button secondary" data-bf-icon="mail" href="{{ bf_share_dates_link(b) }}">Share by email</a></div>
+{% if can_update_booking and movable %}
+<form class="bf-form it-reschedule" method="post" action="{{ url_for('bf_client_interstate_reschedule', bid=b.id) }}">
+  <details {% if date_error or request.args.get('reschedule') %}open{% endif %}>
+    <summary id="reschedule">Request a date change</summary>
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ b.version }}">
+    {% if date_error %}<p class="notice error" role="alert">{{ date_error }}</p>{% endif %}
+    <p>SB Empire must approve the new dates before dispatch. Any existing purchase order stays with this booking.</p>
+    <div class="bf-grid two">
+      <label>Requested pickup date<input type="date" name="pickup_date" value="{{ request.form.get('pickup_date') if date_error else b.pickup_date }}" required></label>
+      <label>Requested delivery date (optional)<input type="date" name="delivery_date" value="{{ request.form.get('delivery_date','') if date_error else '' }}"></label>
+    </div>
+    <p class="bf-muted">Leave delivery blank to keep the same number of days between pickup and delivery.</p>
+    <button class="primary" type="submit">Submit date change</button>
+  </details>
+</form>
+{% endif %}
+{% endif %}
+{% if external and not b.locked_at and not change and 'bookings.edit' in g.client_rights %}<a class="button secondary" href="{{ url_for('bf_client_interstate_edit',bid=b.id) }}">Edit request</a>{% endif %}
 <div class="bf-grid two"><div><h3>Pickup · {{ b.pickup_date|display_date }}</h3><p>{% if b.pickup_company %}<strong>{{ b.pickup_company }}</strong><br>{% endif %}{{ b.pickup_address }}<br>{{ b.pickup_contact }} {{ b.pickup_phone }}</p></div>
 <div><h3>Delivery · {{ b.delivery_date|display_date }}</h3><p>{% if b.delivery_company %}<strong>{{ b.delivery_company }}</strong><br>{% endif %}{{ b.delivery_address }}<br>{{ b.delivery_contact }} {{ b.delivery_phone }}</p></div></div>
-{% if b.locked_at %}
+{% if b.locked_at or po %}
 <section data-record-text id="purchase-order" class="it-po-section" aria-labelledby="it-po-title">
   <div class="it-po-heading"><h3 id="it-po-title">Purchase order</h3>{{ po_badge(po) }}</div>
   {% if po and po.number %}<p><strong>PO number</strong> · {{ po.number }}</p>{% endif %}
   {% if po and po.filename %}<p><a href="{{ url_for('bf_client_interstate_po_file' if external else 'bf_interstate_po_file',bid=b.id) }}" download>Download PO · {{ po.filename }}</a></p>{% endif %}
-  {% if can_supply_po %}
+  {% if can_update_booking and b.locked_at %}
   <details {{ 'open' if not po or po_error }}>
     <summary>{{ 'Update purchase order' if po else 'Add purchase order' }}</summary>
     <form class="bf-form" method="post" enctype="multipart/form-data" action="{{ url_for('bf_client_interstate_po' if external else 'bf_interstate_po',bid=b.id) }}#purchase-order">
@@ -32,8 +59,11 @@
 <p>Booking confirmation · {{ b.email }}{% if b.locked_at %} · {{ {'pending':'Pending','sending':'Sending','failed':'Email not sent','sent':'Email sent'}[b.email_status] }}{% endif %}</p>
 {% if not external %}<p class="bf-muted">Requested by {{ b.created_by }}{% if b.locked_at %} · Locked by {{ b.locked_by }} on {{ b.locked_at|display_datetime }}{% endif %}</p>{% endif %}
 {% if not external and current_user.role=='admin' %}
-  {% if not b.locked_at %}<div class="it-tools"><a class="button secondary" href="{{ url_for('bf_interstate_edit',bid=b.id) }}">Edit request</a>
-    <form method="post" action="{{ url_for('bf_interstate_lock',bid=b.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ b.version }}"><button class="primary">Lock dates &amp; email confirmation</button></form></div>
+  {% if not b.locked_at %}<div class="it-tools">{% if not change %}<a class="button secondary" href="{{ url_for('bf_interstate_edit',bid=b.id) }}">Edit request</a>{% endif %}
+    <form method="post" action="{{ url_for('bf_interstate_lock',bid=b.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ b.version }}">{% if change %}
+      <button class="primary" name="decision" value="approved">Approve new dates &amp; email client</button>
+      <button class="secondary" name="decision" value="original">Keep original dates &amp; email client</button>
+    {% else %}<button class="primary">Lock dates &amp; email confirmation</button>{% endif %}</form></div>
   {% elif b.email_status!='sent' %}<form method="post" action="{{ url_for('bf_interstate_email',bid=b.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="secondary">Retry confirmation email</button>{% if b.email_status=='sending' %}<small> If sending is interrupted, check the recipient before retrying after 10 minutes.</small>{% else %}<small> Check the email connection before retrying.</small>{% endif %}</form>{% endif %}
 {% endif %}
 {% if not external and b.locked_at and b.account_id and current_user.role=='admin' %}<p><a class="button secondary" href="{{ url_for('bf_invoice_compose',booking=b.id) }}">Prepare transport invoice</a></p>{% endif %}

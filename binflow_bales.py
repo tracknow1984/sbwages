@@ -136,8 +136,9 @@ def readiness(conn,wid,stamp):
     elif current:conn.execute("UPDATE bf_bale_pickups SET status='cleared',updated_at=? WHERE id=?",(stamp,current['id']))
 
 
-TRANSFER_SELECT = """SELECT t.*,m.booking_id,m.expected_bales,COALESCE(m.blocktexx_handover,1) AS requires_handover
-    FROM bf_bale_transfers t LEFT JOIN bf_interstate_manifests m ON m.transfer_id=t.id"""
+TRANSFER_SELECT = """SELECT t.*,m.booking_id,m.expected_bales,b.locked_at AS booking_confirmed_at,COALESCE(m.blocktexx_handover,1) AS requires_handover
+    FROM bf_bale_transfers t LEFT JOIN bf_interstate_manifests m ON m.transfer_id=t.id
+    LEFT JOIN bf_interstate_bookings b ON b.id=m.booking_id"""
 
 
 def register(app,db,access,require,render,success,failure,now,actor):
@@ -506,6 +507,9 @@ def register(app,db,access,require,render,success,failure,now,actor):
                 if not 20<=len(key)<=100:raise ValueError('Refresh the transfer form and try again.')
                 db().execute('BEGIN IMMEDIATE')
                 if booking:
+                    if not db().execute('SELECT 1 FROM bf_interstate_bookings WHERE id=? AND version=? AND locked_at IS NOT NULL',
+                                        (bid,booking['version'])).fetchone():
+                        raise ValueError('The booking changed. Review its confirmed dates before creating a manifest.')
                     active = db().execute(TRANSFER_SELECT+" WHERE m.booking_id=? AND t.status!='cancelled'",(bid,)).fetchone()
                     if active:
                         allowed(active['origin_id'])
@@ -557,6 +561,8 @@ def register(app,db,access,require,render,success,failure,now,actor):
             existing=db().execute('SELECT * FROM bf_bale_transfer_items WHERE transfer_id=? AND bale_id=?',(tid,b['id'])).fetchone()
             duplicate=bool(existing and (action=='load' or existing['received_at']))
             if action=='load':
+                if t['booking_id'] and not t['booking_confirmed_at']:
+                    raise ValueError('Loading is on hold until SB Empire confirms the booking dates.')
                 if t['status']!='loading':raise ValueError('This manifest is locked after dispatch.')
                 if not duplicate:
                     if b['status']!='stored' or b['warehouse_id']!=t['origin_id']:raise ValueError('This bale is not available at the departure warehouse.')
@@ -608,6 +614,8 @@ def register(app,db,access,require,render,success,failure,now,actor):
                         event('Loading cancelled; returned to stock',i['bale_id'],tid,t['origin_id'])
                     db().execute("UPDATE bf_bale_transfers SET status='cancelled' WHERE id=?",(tid,))
                 else:
+                    if t['booking_id'] and not t['booking_confirmed_at']:
+                        raise ValueError('Dispatch is on hold until SB Empire confirms the booking dates.')
                     if t['expected_bales'] and len(rows)!=t['expected_bales']:
                         raise ValueError(f"Scan all {t['expected_bales']} booked bales before dispatch.")
                     if not rows or request.form.get('confirm')!='yes':raise ValueError('Load at least one bale and confirm the truck manifest.')

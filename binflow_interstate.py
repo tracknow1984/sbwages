@@ -8,6 +8,7 @@ from calendar import monthrange
 from collections import defaultdict
 from datetime import datetime, timedelta
 from email.message import EmailMessage
+from urllib.parse import quote, urlencode
 
 from flask import abort, flash, g, redirect, render_template, request, send_file, url_for
 from werkzeug.security import generate_password_hash
@@ -45,6 +46,14 @@ def migrate(conn):
             email TEXT NOT NULL,goods TEXT NOT NULL,version INTEGER NOT NULL DEFAULT 1,
             locked_at TEXT, locked_by TEXT, bulk_dispatched_at TEXT, bulk_delivered_at TEXT,
             email_status TEXT NOT NULL DEFAULT 'pending',email_attempt_at TEXT);
+        CREATE TABLE IF NOT EXISTS bf_interstate_date_changes (
+            id INTEGER PRIMARY KEY, booking_id INTEGER NOT NULL REFERENCES bf_interstate_bookings(id),
+            original_pickup TEXT NOT NULL, original_delivery TEXT NOT NULL,
+            proposed_pickup TEXT NOT NULL, proposed_delivery TEXT NOT NULL,
+            requested_at TEXT NOT NULL, requested_by TEXT NOT NULL,
+            decision TEXT CHECK(decision IN ('approved','original')), reviewed_at TEXT, reviewed_by TEXT);
+        CREATE UNIQUE INDEX IF NOT EXISTS bf_interstate_open_change
+            ON bf_interstate_date_changes(booking_id) WHERE decision IS NULL;
         CREATE TABLE IF NOT EXISTS bf_interstate_purchase_orders (
             booking_id INTEGER PRIMARY KEY REFERENCES bf_interstate_bookings(id),
             number TEXT NOT NULL DEFAULT '', filename TEXT, mime_type TEXT, document BLOB,
@@ -68,12 +77,31 @@ def migrate(conn):
     freight.migrate(conn)
 
 
-def booking_status(row, manifest_status=None):
+def booking_status(row, manifest_status=None, date_change=False):
+    if date_change:
+        return 'Awaiting confirmation'
     if row['bulk_delivered_at']:
         return 'Delivered'
     if row['bulk_dispatched_at']:
         return 'In transit'
     return PROGRESS.get(manifest_status, 'Scheduled' if row['locked_at'] else 'Requested')
+
+
+def share_dates_link(row):
+    reference = f"IT-{row['id']:06d}"
+    status = 'Confirmed' if row['locked_at'] else 'Awaiting confirmation from SB Empire'
+    lines = [f"Transfer {reference}", status, '']
+    for stop, place in (('pickup', 'origin'), ('delivery', 'destination')):
+        day = dated(row[stop + '_date'])
+        company = row[stop + '_company'] or PLACES[row[place]][0]
+        lines.append(f"{stop.title()}: {day:%A %d %B %Y} · {company}, {PLACES[row[place]][1]}")
+    return 'mailto:?' + urlencode({'subject': f'{reference} · Booking dates · {status}',
+                                   'body': '\r\n'.join(lines)}, quote_via=quote)
+
+
+def can_move_dates(row, manifest_status):
+    return not (row['bulk_dispatched_at'] or row['bulk_delivered_at']
+                or manifest_status in ('transit', 'received', 'handed_over'))
 
 
 def dispatch_colours(conn):
@@ -159,8 +187,8 @@ def confirmation(conn, config, row, now):
     stamp = now()
     stale = (datetime.fromisoformat(stamp)-timedelta(minutes=10)).isoformat(timespec='seconds')
     claimed = conn.execute("""UPDATE bf_interstate_bookings SET email_status='sending',email_attempt_at=?
-        WHERE id=? AND locked_at IS NOT NULL AND (email_status IN ('pending','failed')
-        OR (email_status='sending' AND email_attempt_at<?))""",(stamp,row['id'],stale)).rowcount
+        WHERE id=? AND version=? AND locked_at IS NOT NULL AND (email_status IN ('pending','failed')
+        OR (email_status='sending' AND email_attempt_at<?))""",(stamp,row['id'],row['version'],stale)).rowcount
     conn.commit()
     if not claimed:
         return
@@ -187,10 +215,17 @@ def confirmation(conn, config, row, now):
                         f"Total: AUD ${price['total']/100:,.2f} ex GST\n")
                 else:
                     freight_details += "Freight price to be confirmed\n"
+        latest = conn.execute("""SELECT decision FROM bf_interstate_date_changes WHERE booking_id=?
+            AND decision IS NOT NULL ORDER BY id DESC LIMIT 1""", (row['id'],)).fetchone()
+        review_note = ''
+        if latest:
+            review_note = ('SB Empire approved your requested date change.' if latest['decision'] == 'approved'
+                           else 'SB Empire has kept your originally confirmed dates.')
+            review_note += '\n\n'
         pickup_company = row['pickup_company']+'\n' if row['pickup_company'] else ''
         delivery_company = row['delivery_company']+'\n' if row['delivery_company'] else ''
         msg.set_content(f"Hi {row['pickup_contact']},\n\nSB Empire has confirmed transfer IT-{row['id']:06d} for {row['client_name']}.\n\n"
-            f"Pickup: {dated(row['pickup_date']):%a %d %b %Y} · {PLACES[row['origin']][0]}\n{pickup_company}{row['pickup_address']}\n"
+            f"{review_note}Pickup: {dated(row['pickup_date']):%a %d %b %Y} · {PLACES[row['origin']][0]}\n{pickup_company}{row['pickup_address']}\n"
             f"Pickup contact: {row['pickup_contact']} {row['pickup_phone']}\n\n"
             f"Delivery: {dated(row['delivery_date']):%a %d %b %Y} · {PLACES[row['destination']][0]}\n{delivery_company}{row['delivery_address']}\n"
             f"Delivery contact: {row['delivery_contact']} {row['delivery_phone']}\n\n"
@@ -200,12 +235,13 @@ def confirmation(conn, config, row, now):
         status = 'failed'
     else:
         status = 'sent'
-    conn.execute('UPDATE bf_interstate_bookings SET email_status=? WHERE id=? AND email_attempt_at=?',
-                 (status,row['id'],stamp))
+    conn.execute('UPDATE bf_interstate_bookings SET email_status=? WHERE id=? AND version=? AND email_attempt_at=?',
+                 (status,row['id'],row['version'],stamp))
     conn.commit()
 
 
 def register(app, db, access, require, render, client_access, now, actor):
+    app.add_template_global(share_dates_link, 'bf_share_dates_link')
     freight.register(app,db,require,render,client_access,now,actor)
     portal.register_site_scope(app,db,require,render,now,actor)
 
@@ -236,13 +272,14 @@ def register(app, db, access, require, render, client_access, now, actor):
         scope = ' AND b.account_id=?' if external else ''
         args = (g.bf_client['id'],) if external else ()
         select = """SELECT b.*, COALESCE(a.name,b.client_name) AS billing_name,
-                       t.status AS manifest_status, t.code AS manifest_code, m.expected_bales,
+                       t.status AS manifest_status, t.code AS manifest_code, m.expected_bales, changes.id AS date_change_id,
                        po.booking_id IS NOT NULL AS po_received, po.number AS po_number, po.filename AS po_filename
                 FROM bf_interstate_bookings b LEFT JOIN bf_client_accounts a ON a.id=b.account_id
                 LEFT JOIN bf_interstate_manifests m ON m.transfer_id=(
                     SELECT MAX(x.transfer_id) FROM bf_interstate_manifests x WHERE x.booking_id=b.id)
                 LEFT JOIN bf_bale_transfers t ON t.id=m.transfer_id
-                LEFT JOIN bf_interstate_purchase_orders po ON po.booking_id=b.id"""
+                LEFT JOIN bf_interstate_purchase_orders po ON po.booking_id=b.id
+                LEFT JOIN bf_interstate_date_changes changes ON changes.booking_id=b.id AND changes.decision IS NULL"""
         if request.args.get('export') == 'month':
             from binflow_transfer_export import monthly_workbook
             first = chosen.replace(day=1).isoformat()
@@ -250,7 +287,7 @@ def register(app, db, access, require, render, client_access, now, actor):
             bookings = db().execute(select + """ WHERE
                 (b.pickup_date BETWEEN ? AND ? OR b.delivery_date BETWEEN ? AND ?)""" + scope +
                 ' ORDER BY b.pickup_date,b.delivery_date,b.id', (first,last,first,last,*args))
-            records = (dict(b, status=booking_status(b, b['manifest_status'])) for b in bookings)
+            records = (dict(b, status=booking_status(b, b['manifest_status'], b['date_change_id'])) for b in bookings)
             response = send_file(monthly_workbook(records, chosen, PLACES, external),
                                  download_name=f"BinFlow-All-Transfers-{chosen:%Y-%m}.xlsx",
                                  mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -277,7 +314,9 @@ def register(app, db, access, require, render, client_access, now, actor):
         for booking in (*rows,*pending):
             name = booking['billing_name']
             key = ' '.join(name.casefold().split())
-            preview = dict(booking,colour=colours.get(key,0),status=booking_status(booking,booking['manifest_status']))
+            preview = dict(booking, colour=colours.get(key,0),
+                           movable=can_move_dates(booking, booking['manifest_status']),
+                           status=booking_status(booking, booking['manifest_status'], booking['date_change_id']))
             previews[booking['id']] = preview
             if not external and booking['locked_at']:
                 legend.setdefault(preview['colour'],name)
@@ -288,7 +327,7 @@ def register(app, db, access, require, render, client_access, now, actor):
                     counts[label] += 1
         return page('interstate_calendar',external,view=view,state=state,chosen=chosen,
                     previous=previous,following=following,title=title,weeks=weeks,events=events,pending=pending,
-                    previews=previews,legend=legend,counts=counts,today=now()[:10],can_supply_po=can_supply_po(external))
+                    previews=previews,legend=legend,counts=counts,today=now()[:10],can_update_booking=can_update_booking(external))
 
     @app.get('/binflow/interstate-transfers')
     @access
@@ -399,14 +438,14 @@ def register(app, db, access, require, render, client_access, now, actor):
     @client_access
     def bf_client_interstate_edit(bid):
         row=booking(bid,True)
-        if row['locked_at']: abort(409)
+        if row['locked_at'] or pending_change(bid): abort(409)
         return form_page(True,row)
 
     @app.route('/binflow/interstate-transfers/<int:bid>/edit',methods=['GET','POST'])
     @require('admin')
     def bf_interstate_edit(bid):
         row = booking(bid)
-        if row['locked_at']:
+        if row['locked_at'] or pending_change(bid):
             abort(409)
         return form_page(False,row)
 
@@ -414,16 +453,26 @@ def register(app, db, access, require, render, client_access, now, actor):
         return db().execute("""SELECT number,filename,revision FROM bf_interstate_purchase_orders
                                WHERE booking_id=?""",(bid,)).fetchone()
 
-    def can_supply_po(external):
+    def can_update_booking(external):
         return bool(g.client_rights & {'bookings.add','bookings.edit'}) if external else g.user['role']=='admin'
 
-    def detail(bid,external,po_error=None):
-        row = booking(bid,external)
-        manifest = db().execute("""SELECT t.id,t.code,t.status,m.expected_bales FROM bf_interstate_manifests m
+    def pending_change(bid):
+        return db().execute('SELECT * FROM bf_interstate_date_changes WHERE booking_id=? AND decision IS NULL',
+                            (bid,)).fetchone()
+
+    def current_manifest(bid):
+        return db().execute("""SELECT t.id,t.code,t.status,m.expected_bales FROM bf_interstate_manifests m
             JOIN bf_bale_transfers t ON t.id=m.transfer_id WHERE m.booking_id=? ORDER BY t.id DESC LIMIT 1""",(bid,)).fetchone()
-        status = booking_status(row, manifest['status'] if manifest else None)
+
+    def detail(bid,external,po_error=None,date_error=None):
+        row = booking(bid,external)
+        manifest = current_manifest(bid)
+        change = pending_change(bid)
+        manifest_status = manifest['status'] if manifest else None
+        status = booking_status(row, manifest_status, change)
         return page('interstate_detail',external,b=row,manifest=manifest,status=status,po=po_metadata(bid),
-                    po_error=po_error,can_supply_po=can_supply_po(external),
+                    po_error=po_error,can_update_booking=can_update_booking(external), change=change,
+                    movable=can_move_dates(row, manifest_status), date_error=date_error,
                     price=freight.quote(row['rate_cents'],row['fuel_bps']), minimum=freight.MIN_RIGID_HOURS)
 
     @app.get('/binflow/interstate-transfers/<int:bid>')
@@ -436,9 +485,51 @@ def register(app, db, access, require, render, client_access, now, actor):
     def bf_client_interstate_detail(bid):
         return detail(bid,True)
 
+    @app.post('/binflow/client/interstate-transfers/<int:bid>/reschedule')
+    @client_access
+    def bf_client_interstate_reschedule(bid):
+        if not can_update_booking(True):
+            abort(403)
+        conn = db()
+        conn.execute('BEGIN IMMEDIATE')
+        row = booking(bid, True)
+        manifest = current_manifest(bid)
+        if not can_move_dates(row, manifest['status'] if manifest else None):
+            abort(409, 'This transfer has already been dispatched.')
+        if request.form.get('version', type=int) != row['version']:
+            abort(409, 'This booking changed. Reopen it before requesting new dates.')
+        try:
+            pickup = dated(request.form.get('pickup_date', ''))
+            delivery_value = request.form.get('delivery_date', '')
+            duration = dated(row['delivery_date']) - dated(row['pickup_date'])
+            delivery = dated(delivery_value) if delivery_value else dated((pickup + duration).isoformat())
+            if delivery < pickup:
+                raise ValueError('Delivery must be on or after pickup.')
+            dates = (pickup.isoformat(), delivery.isoformat())
+            if dates == (row['pickup_date'], row['delivery_date']):
+                raise ValueError('Choose a different pickup or delivery date.')
+        except (ValueError, OverflowError) as error:
+            conn.rollback()
+            return detail(bid, True, date_error=str(error)),400
+
+        change = pending_change(bid)
+        who = g.bf_client['username']
+        if change:
+            conn.execute("""UPDATE bf_interstate_date_changes SET proposed_pickup=?,proposed_delivery=?,
+                requested_at=?,requested_by=? WHERE id=?""", (*dates, now(), who, change['id']))
+        elif row['locked_at']:
+            conn.execute("""INSERT INTO bf_interstate_date_changes
+                (booking_id,original_pickup,original_delivery,proposed_pickup,proposed_delivery,requested_at,requested_by)
+                VALUES(?,?,?,?,?,?,?)""", (bid,row['pickup_date'],row['delivery_date'],*dates,now(),who))
+        conn.execute("""UPDATE bf_interstate_bookings SET pickup_date=?,delivery_date=?,locked_at=NULL,
+            locked_by=NULL,email_status='pending',email_attempt_at=NULL,version=version+1 WHERE id=?""",
+            (*dates,bid))
+        conn.commit()
+        return redirect(details_url(bid, True))
+
     def save_po(bid, external):
         row = booking(bid,external)
-        if not can_supply_po(external):
+        if not can_update_booking(external):
             abort(403)
         if not row['locked_at']:
             abort(409,'A purchase order can be supplied once the booking dates are confirmed.')
@@ -455,6 +546,8 @@ def register(app, db, access, require, render, client_access, now, actor):
 
         conn=db()
         conn.execute('BEGIN IMMEDIATE')
+        if not booking(bid,external)['locked_at']:
+            abort(409,'The dates have changed. Review the booking before updating its purchase order.')
         previous=po_metadata(bid)
         revision=previous['revision'] if previous else 0
         if request.form.get('po_revision',type=int)!=revision:
@@ -473,9 +566,7 @@ def register(app, db, access, require, render, client_access, now, actor):
         return redirect(details_url(bid,external)+'#purchase-order')
 
     def download_po(bid, external):
-        row=booking(bid,external)
-        if not row['locked_at']:
-            abort(404)
+        booking(bid,external)
         po=db().execute("""SELECT filename,mime_type,document FROM bf_interstate_purchase_orders
                            WHERE booking_id=? AND filename IS NOT NULL""",(bid,)).fetchone()
         if not po:
@@ -511,6 +602,16 @@ def register(app, db, access, require, render, client_access, now, actor):
         if not row['locked_at']:
             if request.form.get('version',type=int)!=row['version']:
                 abort(409,'The request has changed. Review the updated dates before confirming.')
+            change = pending_change(bid)
+            decision = request.form.get('decision', 'approved')
+            if decision not in ('approved', 'original') or (decision == 'original' and not change):
+                abort(400)
+            if change:
+                if decision == 'original':
+                    db().execute('UPDATE bf_interstate_bookings SET pickup_date=?,delivery_date=? WHERE id=?',
+                                 (change['original_pickup'],change['original_delivery'],bid))
+                db().execute('UPDATE bf_interstate_date_changes SET decision=?,reviewed_at=?,reviewed_by=? WHERE id=?',
+                             (decision,now(),actor(),change['id']))
             price=freight.quote(row['rate_cents'],row['fuel_bps'])
             hourly = row['rigid_hourly_cents']
             if price is None and row['rigid_hours_units'] is not None:
@@ -539,6 +640,7 @@ def register(app, db, access, require, render, client_access, now, actor):
     @app.post('/binflow/interstate-transfers/<int:bid>/bulk')
     @access
     def bf_interstate_bulk(bid):
+        db().execute('BEGIN IMMEDIATE')
         row = booking(bid)
         if not row['locked_at'] or row['handling']!='bulk':
             abort(409)
