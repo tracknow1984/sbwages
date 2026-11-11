@@ -1,0 +1,6 @@
+{% extends 'binflow/client_layout.html' if external else 'binflow/layout.html' %}
+{% block content %}{{ super() }}{% if external %}<h1>Interstate Transfers</h1>{{ self.body() }}{% endif %}{% endblock %}
+{% block title %}Interstate Transfers{% endblock %}
+{% block subtitle %}{% endblock %}
+{% block browser_title %}Interstate Transfers · BinFlow{% endblock %}
+{% block body %}<link rel="stylesheet" href="{{ url_for('static',filename='binflow-interstate.css') }}">{% block transfer_content %}{% endblock %}{% endblock %}

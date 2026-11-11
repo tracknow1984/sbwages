@@ -108,6 +108,10 @@ def readiness(conn,wid,stamp):
     elif current:conn.execute("UPDATE bf_bale_pickups SET status='cleared',updated_at=? WHERE id=?",(stamp,current['id']))
 
 
+TRANSFER_SELECT = """SELECT t.*,m.booking_id,m.expected_bales,COALESCE(m.blocktexx_handover,1) AS requires_handover
+    FROM bf_bale_transfers t LEFT JOIN bf_interstate_manifests m ON m.transfer_id=t.id"""
+
+
 def register(app,db,access,require,render,success,failure,now,actor):
     def warehouse_staff(fn):
         fn.warehouse_work = True
@@ -128,7 +132,7 @@ def register(app,db,access,require,render,success,failure,now,actor):
         return [w for w in rows if w['state']==g.user['working_state'] and (not assigned or assigned['warehouse_id']==w['id'])]
 
     def transfer(tid,side=None):
-        t=db().execute('SELECT * FROM bf_bale_transfers WHERE id=?',(tid,)).fetchone()
+        t=db().execute(TRANSFER_SELECT+' WHERE t.id=?',(tid,)).fetchone()
         if not t:abort(404)
         if side:allowed(t[side+'_id'])
         elif g.user['role']!='admin' and not {t['origin_id'],t['destination_id']} & {w['id'] for w in warehouses()}:abort(403)
@@ -166,9 +170,16 @@ def register(app,db,access,require,render,success,failure,now,actor):
             cards.append(dict(warehouse=w,stock=s,config=cfg,pickup=pending))
             totals.setdefault(w['state'],dict(count=0,grams=0));totals[w['state']]['count']+=s['count'];totals[w['state']]['grams']+=s['grams']
         ids={w['id'] for w in shown}
-        transfers=[t for t in db().execute('SELECT * FROM bf_bale_transfers ORDER BY id DESC') if t['origin_id'] in ids or t['destination_id'] in ids]
+        transfers=[t for t in db().execute(TRANSFER_SELECT+' ORDER BY t.id DESC') if t['origin_id'] in ids or t['destination_id'] in ids]
         rows=[b for b in db().execute('SELECT * FROM bf_bales ORDER BY id DESC') if b['warehouse_id'] in ids and b['status'] in ('stored','loading','received')]
-        return view('bales',cards=cards,totals=totals,warehouses=ws,selected=selected,state=state,transfers=transfers,bales=rows)
+        from binflow_interstate import PLACES
+        regions = {w['state'] for w in shown}
+        booked = [r for r in db().execute("""SELECT b.* FROM bf_interstate_bookings b
+            WHERE b.locked_at IS NOT NULL AND b.handling='scanned' AND NOT EXISTS
+            (SELECT 1 FROM bf_interstate_manifests m JOIN bf_bale_transfers t ON t.id=m.transfer_id
+             WHERE m.booking_id=b.id AND t.status!='cancelled') ORDER BY b.pickup_date,b.id""")
+            if PLACES[r['origin']][1] in regions]
+        return view('bales',booked=booked,places=PLACES,cards=cards,totals=totals,warehouses=ws,selected=selected,state=state,transfers=transfers,bales=rows)
 
     def source_item(b, wid, mid):
         if b['location_id']!=wid or b['truck_id'] or b['status']!='weighed':
@@ -426,30 +437,64 @@ def register(app,db,access,require,render,success,failure,now,actor):
     @app.route('/binflow/bales/transfers/new',methods=['GET','POST'])
     @warehouse_staff
     def bf_bale_transfer_new():
+        from binflow_interstate import PLACES
+        bid = request.args.get('booking',type=int)
+        booking = None
+        origins = warehouses()
+        if 'booking' in request.args:
+            booking = db().execute("""SELECT * FROM bf_interstate_bookings WHERE id=?
+                AND locked_at IS NOT NULL AND handling='scanned'""",(bid,)).fetchone()
+            if not booking: abort(404)
+            origins = [w for w in origins if w['state']==PLACES[booking['origin']][1]]
+            if not origins and g.user['role']!='admin': abort(403)
+            destinations = db().execute("""SELECT l.*,COALESCE(s.receiving_hub,0) AS hub
+                FROM bf_locations l LEFT JOIN bf_bale_settings s ON s.warehouse_id=l.id
+                WHERE l.kind='warehouse' AND l.state=? ORDER BY l.name""",(PLACES[booking['destination']][1],)).fetchall()
+        else:
+            destinations = db().execute("""SELECT l.*,1 AS hub FROM bf_locations l JOIN bf_bale_settings s ON s.warehouse_id=l.id
+                WHERE s.receiving_hub=1 AND l.state='QLD' AND l.kind='warehouse' ORDER BY l.name""").fetchall()
         if request.method=='POST':
             try:
                 oid=int(request.form.get('origin_id','0'));origin=allowed(oid)
                 did=int(request.form.get('destination_id','0'))
-                dest=db().execute("SELECT l.* FROM bf_locations l JOIN bf_bale_settings s ON s.warehouse_id=l.id WHERE l.id=? AND l.kind='warehouse' AND l.state='QLD' AND s.receiving_hub=1",(did,)).fetchone()
-                if not dest or oid==did:raise ValueError('Choose a different configured Brisbane receiving depot.')
+                dest = next((w for w in destinations if w['id']==did),None)
+                if not dest or oid==did or oid not in {w['id'] for w in origins}:
+                    raise ValueError('Choose departure and receiving warehouses on this route.' if booking else 'Choose a different configured Brisbane receiving depot.')
+                if booking:
+                    expected = request.form.get('expected_bales',type=int)
+                    if not expected or not 1<=expected<=10000:
+                        raise ValueError('Enter the number of bales expected on this load (1–10,000).')
+                    handover = int(request.form.get('storage_handover')=='yes')
+                    if handover and not (dest['hub'] and dest['state']=='QLD'):
+                        raise ValueError('Select a Brisbane receiving hub for a BlockTexx storage handover.')
                 carrier=request.form.get('carrier','').strip();vehicle=request.form.get('vehicle','').strip()
                 if not carrier or not vehicle or max(len(carrier),len(vehicle))>150:raise ValueError('Enter the carrier and vehicle / trailer registration (up to 150 characters).')
                 payload=weight(request.form.get('payload',''));key=request.form.get('request_key','')
                 if not 20<=len(key)<=100:raise ValueError('Refresh the transfer form and try again.')
                 db().execute('BEGIN IMMEDIATE')
-                old=db().execute('SELECT * FROM bf_bale_transfers WHERE request_key=?',(key,)).fetchone()
+                if booking:
+                    active = db().execute(TRANSFER_SELECT+" WHERE m.booking_id=? AND t.status!='cancelled'",(bid,)).fetchone()
+                    if active:
+                        allowed(active['origin_id'])
+                        return success('This booking already has a manifest.','bf_bale_transfer',tid=active['id'])
+                old=db().execute(TRANSFER_SELECT+' WHERE t.request_key=?',(key,)).fetchone()
                 if old:
+                    if old['booking_id']!=bid: raise ValueError('Reopen this booking to start a manifest.')
                     allowed(old['origin_id']);return success('Transfer already created.','bf_bale_transfer',tid=old['id'])
                 pickup=db().execute("SELECT id FROM bf_bale_pickups WHERE warehouse_id=? AND status='ready'",(oid,)).fetchone()
                 tid=db().execute('''INSERT INTO bf_bale_transfers(request_key,origin_id,destination_id,origin_name,destination_name,carrier,vehicle,payload_g,created_at,created_by,pickup_id)
                   VALUES(?,?,?,?,?,?,?,?,?,?,?)''',(key,oid,did,origin['name'],dest['name'],carrier,vehicle,payload,now(),actor(),pickup['id'] if pickup else None)).lastrowid
                 db().execute('UPDATE bf_bale_transfers SET code=? WHERE id=?',(f'BT{tid:06d}',tid))
+                if booking:
+                    db().execute('INSERT INTO bf_interstate_manifests(transfer_id,booking_id,expected_bales,blocktexx_handover) VALUES(?,?,?,?)',
+                                 (tid,bid,expected,handover))
                 if pickup:db().execute("UPDATE bf_bale_pickups SET status='actioned',updated_at=? WHERE id=?",(now(),pickup['id']))
                 event('Transfer opened',tid=tid,wid=oid);readiness(db(),oid,now())
                 return success('Transfer ready. Scan each bale as it goes onto the truck.','bf_bale_transfer',tid=tid)
-            except ValueError as error:return failure(error,'bf_bale_transfer_new')
-        return view('bale_transfer_new',warehouses=warehouses(),selected=request.args.get('warehouse',type=int),request_key=secrets.token_urlsafe(24),
-          destinations=db().execute("SELECT l.* FROM bf_locations l JOIN bf_bale_settings s ON s.warehouse_id=l.id WHERE s.receiving_hub=1 AND l.state='QLD' AND l.kind='warehouse'").fetchall())
+            except ValueError as error:
+                return failure(error,'bf_bale_transfer_new',**({'booking':bid} if booking else {}))
+        return view('bale_transfer_new',warehouses=origins,selected=request.args.get('warehouse',type=int),
+                    request_key=secrets.token_urlsafe(24),destinations=destinations,booking=booking)
 
     @app.get('/binflow/bales/transfers/<int:tid>')
     @warehouse_staff
@@ -476,7 +521,10 @@ def register(app,db,access,require,render,success,failure,now,actor):
                 if t['status']!='loading':raise ValueError('This manifest is locked after dispatch.')
                 if not duplicate:
                     if b['status']!='stored' or b['warehouse_id']!=t['origin_id']:raise ValueError('This bale is not available at the departure warehouse.')
-                    total=sum(i['net_g'] for i in items(tid))
+                    loaded=items(tid)
+                    if t['expected_bales'] and len(loaded)>=t['expected_bales']:
+                        raise ValueError('All expected bales have been scanned for this load.')
+                    total=sum(i['net_g'] for i in loaded)
                     if total+b['net_g']>t['payload_g']:raise ValueError('This bale would exceed the confirmed truck payload limit.')
                     db().execute('INSERT INTO bf_bale_transfer_items VALUES(?,?,?,?,?,?,?,?,?)',(tid,b['id'],b['code'],b['material_name'],b['net_g'],now(),actor(),None,None))
                     db().execute("UPDATE bf_bales SET status='loading',version=version+1 WHERE id=?",(b['id'],))
@@ -487,8 +535,10 @@ def register(app,db,access,require,render,success,failure,now,actor):
                 if not duplicate:
                     if b['status']!='transit':raise ValueError('This bale is not in transit.')
                     db().execute('UPDATE bf_bale_transfer_items SET received_at=?,received_by=? WHERE transfer_id=? AND bale_id=?',(now(),actor(),tid,b['id']))
-                    db().execute("UPDATE bf_bales SET status='received',warehouse_id=?,version=version+1 WHERE id=?",(t['destination_id'],b['id']))
-                    event('Scanned into Brisbane depot',b['id'],tid,t['destination_id'])
+                    db().execute("UPDATE bf_bales SET status=?,warehouse_id=?,version=version+1 WHERE id=?",
+                                 ('received' if t['requires_handover'] else 'stored',t['destination_id'],b['id']))
+                    event('Scanned into Brisbane depot' if t['requires_handover'] else 'Scanned into receiving warehouse',b['id'],tid,t['destination_id'])
+                    if not t['requires_handover']: readiness(db(),t['destination_id'],now())
                     if not db().execute('SELECT 1 FROM bf_bale_transfer_items WHERE transfer_id=? AND received_at IS NULL',(tid,)).fetchone():
                         db().execute("UPDATE bf_bale_transfers SET status='received',received_at=? WHERE id=?",(now(),tid))
             if not duplicate:db().execute('UPDATE bf_bale_transfers SET version=version+1 WHERE id=?',(tid,))
@@ -519,6 +569,8 @@ def register(app,db,access,require,render,success,failure,now,actor):
                         event('Loading cancelled; returned to stock',i['bale_id'],tid,t['origin_id'])
                     db().execute("UPDATE bf_bale_transfers SET status='cancelled' WHERE id=?",(tid,))
                 else:
+                    if t['expected_bales'] and len(rows)!=t['expected_bales']:
+                        raise ValueError(f"Scan all {t['expected_bales']} booked bales before dispatch.")
                     if not rows or request.form.get('confirm')!='yes':raise ValueError('Load at least one bale and confirm the truck manifest.')
                     if sum(i['net_g'] for i in rows)>t['payload_g']:raise ValueError('Truck payload limit exceeded.')
                     for i in rows:
@@ -530,6 +582,7 @@ def register(app,db,access,require,render,success,failure,now,actor):
                 readiness(db(),t['origin_id'],now())
             elif action=='handover':
                 allowed(t['destination_id'])
+                if not t['requires_handover']: raise ValueError('This booking delivers into warehouse stock.')
                 if t['status']!='received' or not rows or any(not i['received_at'] for i in rows):raise ValueError('Scan every manifested bale into Brisbane before signing the handover.')
                 recipient=request.form.get('recipient','').strip()
                 if not recipient or len(recipient)>150 or request.form.get('confirm')!='yes':raise ValueError('Enter the BlockTexx recipient and confirm the storage handover.')

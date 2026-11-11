@@ -14,6 +14,14 @@ from binflow_permissions import can_view_job
 from binflow_runs import valid_date
 
 
+def send_smtp(config, msg):
+    cls = smtplib.SMTP_SSL if config['SMTP_SSL'] else smtplib.SMTP
+    with cls(config['SMTP_HOST'], config['SMTP_PORT'], timeout=15) as smtp:
+        if not config['SMTP_SSL']: smtp.starttls(context=ssl.create_default_context())
+        if config['SMTP_USERNAME']: smtp.login(config['SMTP_USERNAME'], config['SMTP_PASSWORD'])
+        smtp.send_message(msg)
+
+
 def migrate_pods(conn):
     columns = {r['name'] for r in conn.execute('PRAGMA table_info(bf_jobs)')}
     for name, definition in [('pod_archived_at', 'TEXT'), ('pod_deleted_at', 'TEXT'),
@@ -168,11 +176,7 @@ def register_pods(app, db, access, require, render, success, failure, now, pdf):
                 msg.set_content(note or 'Please find the attached proof of collection / delivery from SB EMPIRE.')
                 msg.add_attachment(attachment, maintype='application', subtype='pdf', filename=j['code'] + '-POD.pdf')
                 try:
-                    cls = smtplib.SMTP_SSL if app.config['SMTP_SSL'] else smtplib.SMTP
-                    with cls(app.config['SMTP_HOST'], app.config['SMTP_PORT'], timeout=15) as smtp:
-                        if not app.config['SMTP_SSL']: smtp.starttls(context=ssl.create_default_context())
-                        if app.config['SMTP_USERNAME']: smtp.login(app.config['SMTP_USERNAME'], app.config['SMTP_PASSWORD'])
-                        smtp.send_message(msg)
+                    send_smtp(app.config, msg)
                 except (OSError, smtplib.SMTPException):
                     db().execute("UPDATE bf_pod_emails SET status='failed' WHERE request_key=?", (key,)); db().commit()
                     flash('The POD could not be emailed. Check the email connection and try again.', 'error'); status = 502

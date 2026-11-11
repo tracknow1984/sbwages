@@ -1,0 +1,22 @@
+{% extends 'binflow/interstate_base.html' %}
+{% block transfer_content %}
+<a href="{{ url_for('bf_client_interstate' if external else 'bf_interstate_calendar',date=b.pickup_date) }}">← Transfer calendar</a>
+<section class="bf-panel bf-pad"><div class="bf-toolbar"><div><small>IT-{{ '%06d'|format(b.id) }}</small><h2>{{ b.client_name }}</h2></div><span class="bf-badge">{{ status }}</span></div>
+<p>{{ places[b.origin][0] }} → {{ places[b.destination][0] }} · {{ 'Internal' if b.job_type=='internal' else 'External · subcontractor' }} · {{ 'Scan each bale' if b.handling=='scanned' else 'Bulk movement' }}</p>
+<div class="bf-grid two"><div><h3>Pickup · {{ b.pickup_date|display_date }}</h3><p>{{ b.pickup_address }}<br>{{ b.pickup_contact }} {{ b.pickup_phone }}</p></div>
+<div><h3>Delivery · {{ b.delivery_date|display_date }}</h3><p>{{ b.delivery_address }}<br>{{ b.delivery_contact }} {{ b.delivery_phone }}</p></div></div>
+{% if b.goods %}<h3>{{ 'Goods and quantities' if b.handling=='bulk' else 'Load notes' }}</h3><p class="it-goods">{{ b.goods }}</p>{% endif %}
+<p>Booking confirmation · {{ b.email }}{% if b.locked_at %} · {{ {'pending':'Pending','sending':'Sending','failed':'Email not sent','sent':'Email sent'}[b.email_status] }}{% endif %}</p>
+{% if not external %}<p class="bf-muted">Requested by {{ b.created_by }}{% if b.locked_at %} · Locked by {{ b.locked_by }} on {{ b.locked_at|display_datetime }}{% endif %}</p>{% endif %}
+{% if not external and current_user.role=='admin' %}
+  {% if not b.locked_at %}<div class="it-tools"><a class="button secondary" href="{{ url_for('bf_interstate_edit',bid=b.id) }}">Edit request</a>
+    <form method="post" action="{{ url_for('bf_interstate_lock',bid=b.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ b.version }}"><button class="primary">Lock dates &amp; email confirmation</button></form></div>
+  {% elif b.email_status!='sent' %}<form method="post" action="{{ url_for('bf_interstate_email',bid=b.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="secondary">Retry confirmation email</button>{% if b.email_status=='sending' %}<small> If sending is interrupted, check the recipient before retrying after 10 minutes.</small>{% else %}<small> Check the email connection before retrying.</small>{% endif %}</form>{% endif %}
+{% endif %}
+{% if not external and b.locked_at %}
+  {% if b.handling=='scanned' %}
+    {% if manifest and manifest.status!='cancelled' %}<a class="button primary" href="{{ url_for('bf_bale_transfer',tid=manifest.id) }}">Open {{ manifest.code }} · {{ manifest.expected_bales }} bales</a>
+    {% else %}<a class="button primary" href="{{ url_for('bf_bale_transfer_new',booking=b.id) }}">Start bale manifest</a>{% endif %}
+  {% elif not b.bulk_delivered_at %}<form method="post" action="{{ url_for('bf_interstate_bulk',bid=b.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="action" value="{{ 'deliver' if b.bulk_dispatched_at else 'dispatch' }}"><button class="primary">{{ 'Mark bulk load delivered' if b.bulk_dispatched_at else 'Mark bulk load dispatched' }}</button></form>{% endif %}
+{% endif %}
+</section>{% endblock %}

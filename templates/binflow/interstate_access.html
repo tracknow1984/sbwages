@@ -1,0 +1,13 @@
+{% extends 'binflow/layout.html' %}{% block title %}External booking logins{% endblock %}{% block subtitle %}Each login can request transfers and view its own bookings.{% endblock %}
+{% macro fields(a) %}
+<input type="hidden" name="csrf" value="{{ csrf_token() }}">{% if a %}<input type="hidden" name="account_id" value="{{ a.id }}">{% endif %}
+<label>Organisation or contact name<input name="name" maxlength="150" value="{{ a.name if a }}" required></label>
+<label>Username<input name="username" value="{{ a.username if a }}" minlength="3" maxlength="100" required></label>
+<label>{{ 'New password (optional)' if a else 'Password' }}<input type="password" name="password" autocomplete="new-password" minlength="12" maxlength="200" {{ 'required' if not a }}></label>
+<label class="bf-check"><input type="checkbox" name="active" value="yes" {{ 'checked' if not a or a.active }}>Login enabled</label><button class="primary">{{ 'Save login' if a else 'Create login' }}</button>
+{% endmacro %}
+{% block body %}<a href="{{ url_for('bf_interstate_calendar') }}">← Transfer calendar</a>
+{% if error %}<p class="notice error" role="alert">{{ error }}</p>{% endif %}
+<section class="bf-panel bf-pad"><h2>Booking portal</h2><a href="{{ url_for('bf_client_login',transfers=1) }}">{{ url_for('bf_client_login',transfers=1,_external=true) }}</a></section>
+<section class="bf-panel bf-pad"><h2>Create booking login</h2><form method="post" class="bf-form">{{ fields(none) }}</form></section>
+<section class="bf-panel bf-pad"><h2>Existing logins</h2>{% for a in accounts %}<details><summary>{{ a.name }} · {{ a.username }} · {{ 'Enabled' if a.active else 'Disabled' }}</summary><form method="post" class="bf-form">{{ fields(a) }}</form></details>{% else %}<p>No booking-only logins yet.</p>{% endfor %}</section>{% endblock %}

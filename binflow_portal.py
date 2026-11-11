@@ -40,7 +40,10 @@ def register_portal(app, db, access, require, render, success, failure, now, act
             account=db().execute('SELECT * FROM bf_client_accounts WHERE id=? AND active=1', (session.get('bf_client_uid'),)).fetchone()
             if not account or account['auth_version']!=session.get('bf_client_version'):
                 session.pop('bf_client_uid',None);session.pop('bf_client_version',None)
-                return redirect(url_for('bf_client_login'))
+                return redirect(url_for('bf_client_login', transfers=1) if request.endpoint.startswith('bf_client_interstate') else url_for('bf_client_login'))
+            g.bf_transfer_only = db().execute('SELECT 1 FROM bf_interstate_accounts WHERE account_id=?',(account['id'],)).fetchone() is not None
+            if g.bf_transfer_only and not request.endpoint.startswith('bf_client_interstate'):
+                abort(403)
             g.bf_client=account
             return fn(*args,**kwargs)
         return wrapped
@@ -71,6 +74,8 @@ def register_portal(app, db, access, require, render, success, failure, now, act
                 session.update(bf_client_uid=account['id'],bf_client_version=account['auth_version'],csrf=secrets.token_urlsafe(32))
                 session.permanent=True
                 db().execute('DELETE FROM login_attempts WHERE key=?',(keys[0],));db().commit()
+                if request.args.get('transfers')=='1' or db().execute('SELECT 1 FROM bf_interstate_accounts WHERE account_id=?',(account['id'],)).fetchone():
+                    return redirect(url_for('bf_client_interstate'))
                 return redirect(pod_next if pod_next.startswith('/binflow/pod/') else url_for('bf_client_calendar'))
             return render_template('binflow/client_login.html',error='The username or password is incorrect.'),401
         return render_template('binflow/client_login.html',error=None)
@@ -102,6 +107,8 @@ def register_portal(app, db, access, require, render, success, failure, now, act
         if not permitted: abort(404)
         return pdf(job_id)
 
+    from binflow_interstate import register as register_interstate
+    register_interstate(app,db,access,require,render,client_access,now,actor)
     register_management(app, db, client_access, now)
 
     register_pods(app, db, access, require, render, success, failure, now, pdf)
@@ -129,7 +136,7 @@ def register_portal(app, db, access, require, render, success, failure, now, act
                 if any(not db().execute('SELECT 1 FROM bf_clients WHERE id=?',(cid,)).fetchone() for cid in scopes):
                     raise ValueError('Choose valid client accounts.')
                 if aid:
-                    previous=db().execute('SELECT * FROM bf_client_accounts WHERE id=?',(aid,)).fetchone()
+                    previous=db().execute('SELECT * FROM bf_client_accounts WHERE id=? AND id NOT IN (SELECT account_id FROM bf_interstate_accounts)',(aid,)).fetchone()
                     if not previous: abort(404)
                     hashed=generate_password_hash(password) if password else previous['password_hash']
                     db().execute('''UPDATE bf_client_accounts SET username=?,name=?,password_hash=?,active=?,auth_version=auth_version+1,
@@ -144,9 +151,9 @@ def register_portal(app, db, access, require, render, success, failure, now, act
                 return success('Client login saved. Share the portal address and password securely with that client.','bf_client_accounts')
             except (ValueError,sqlite3.IntegrityError) as error:
                 return failure(error if isinstance(error,ValueError) else ValueError('That username is already in use.'),'bf_client_accounts')
-        accounts=db().execute('SELECT id,username,name,active,updated_at FROM bf_client_accounts ORDER BY name').fetchall()
+        accounts=db().execute('SELECT id,username,name,active,updated_at FROM bf_client_accounts WHERE id NOT IN (SELECT account_id FROM bf_interstate_accounts) ORDER BY name').fetchall()
         selected=request.args.get('edit',type=int)
-        record=db().execute('SELECT id,username,name,active FROM bf_client_accounts WHERE id=?',(selected,)).fetchone() if selected else None
+        record=db().execute('SELECT id,username,name,active FROM bf_client_accounts WHERE id=? AND id NOT IN (SELECT account_id FROM bf_interstate_accounts)',(selected,)).fetchone() if selected else None
         if selected and not record: abort(404)
         scopes=[r['client_id'] for r in db().execute('SELECT client_id FROM bf_client_account_scope WHERE account_id=?',(selected,))]
         clients=db().execute('SELECT id,name FROM bf_clients ORDER BY name').fetchall()
@@ -162,7 +169,7 @@ def register_portal(app, db, access, require, render, success, failure, now, act
                 if any(not db().execute("SELECT 1 FROM bf_locations WHERE id=? AND kind='client'",(sid,)).fetchone() for sid in sites):
                     raise ValueError('Choose valid collection sites.')
                 aid=account['id']
-                db().execute("UPDATE bf_client_accounts SET active=0,auth_version=auth_version+1 WHERE id!=?",(aid,))
+                db().execute("UPDATE bf_client_accounts SET active=0,auth_version=auth_version+1 WHERE id!=? AND id NOT IN (SELECT account_id FROM bf_interstate_accounts)",(aid,))
                 db().execute('UPDATE bf_client_accounts SET password_hash=?,active=?,auth_version=auth_version+1,updated_at=?,updated_by=? WHERE id=?',
                   (generate_password_hash(password) if password else account['password_hash'],int(request.form.get('active')=='yes'),now(),actor(),aid))
                 db().execute('DELETE FROM bf_client_site_scope WHERE account_id=?',(aid,))

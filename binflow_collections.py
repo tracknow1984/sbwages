@@ -234,6 +234,18 @@ def calendar_data(conn,start,end,state=''):
                 undated=[p for p in profiles if not p['dated'] and p['cadence']!='paused'])
 
 
+def calendar_period(chosen, view):
+    if view=='month':
+        first=chosen.replace(day=1);last=chosen.replace(day=calendar.monthrange(chosen.year,chosen.month)[1])
+        start=first-timedelta(days=first.weekday());end=last+timedelta(days=6-last.weekday())
+        previous=first-timedelta(days=1);following=last+timedelta(days=1);title=chosen.strftime('%B %Y')
+    else:
+        start=chosen-timedelta(days=chosen.weekday());end=start+timedelta(days=6)
+        previous=start-timedelta(days=7);following=start+timedelta(days=7);title=start.strftime('%d %b')+' – '+end.strftime('%d %b %Y')
+    weeks=[[start+timedelta(days=n+d) for d in range(7)] for n in range(0,(end-start).days+1,7)]
+    return start,end,previous,following,title,weeks
+
+
 def register_collections(app,db,access,require,render,success,now,actor):
     @app.get('/binflow/collection-calendar')
     @access
@@ -244,14 +256,7 @@ def register_collections(app,db,access,require,render,success,now,actor):
         if state not in ('',)+STATES or view not in ('month','week'): abort(400)
         try: chosen=dated(request.args.get('date') or now()[:10])
         except ValueError: abort(400,'Choose a valid calendar date.')
-        if view=='month':
-            first=chosen.replace(day=1);last=chosen.replace(day=calendar.monthrange(chosen.year,chosen.month)[1])
-            start=first-timedelta(days=first.weekday());end=last+timedelta(days=6-last.weekday())
-            previous=first-timedelta(days=1);following=last+timedelta(days=1);title=chosen.strftime('%B %Y')
-        else:
-            start=chosen-timedelta(days=chosen.weekday());end=start+timedelta(days=6)
-            previous=start-timedelta(days=7);following=start+timedelta(days=7);title=start.strftime('%d %b')+' – '+end.strftime('%d %b %Y')
-        weeks=[[start+timedelta(days=n+d) for d in range(7)] for n in range(0,(end-start).days+1,7)]
+        start,end,previous,following,title,weeks = calendar_period(chosen,view)
         if rebuilt:
             return render('route_calendar',section='collection_calendar',selected=state,view=view,chosen=chosen,
                 title=title,previous=previous.isoformat(),following=following.isoformat(),today=now()[:10],

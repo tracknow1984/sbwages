@@ -144,6 +144,8 @@ def register_binflow(app, db, require):
         migrate_pod_records(db())
         from binflow_bales import migrate as migrate_bales
         migrate_bales(db())
+        from binflow_interstate import migrate as migrate_interstate
+        migrate_interstate(db())
         db().commit()
         tare_update = apply_standard_tares(db(), now())
         if tare_update:

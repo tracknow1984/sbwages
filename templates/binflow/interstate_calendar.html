@@ -1,0 +1,27 @@
+{% extends 'binflow/interstate_base.html' %}
+{% block transfer_content %}
+{% set cal='bf_client_interstate' if external else 'bf_interstate_calendar' %}
+{% set detail='bf_client_interstate_detail' if external else 'bf_interstate_detail' %}
+<div class="it-tools">
+  <a class="button primary" href="{{ url_for('bf_client_interstate_new' if external else 'bf_interstate_new') }}">{{ 'Request a transfer' if external else 'New transfer booking' }}</a>
+  {% if not external and current_user.role=='admin' %}<a class="button secondary" href="{{ url_for('bf_interstate_accounts') }}">External booking logins</a>{% endif %}
+</div>
+<section class="bf-calendar-shell">
+  <header class="bf-calendar-toolbar"><div class="bf-calendar-heading"><div class="bf-calendar-arrows">
+    <a class="button secondary" aria-label="Previous {{ view }}" href="{{ url_for(cal,state=state,date=previous,view=view) }}">‹</a>
+    <a class="button secondary" aria-label="Next {{ view }}" href="{{ url_for(cal,state=state,date=following,view=view) }}">›</a>
+  </div><h2>{{ title }}</h2></div>
+  <div class="bf-calendar-controls"><a class="button secondary" href="{{ url_for(cal,state=state,view=view) }}">Today</a>
+    <nav class="bf-calendar-switch" aria-label="Calendar view">{% for mode in ['week','month'] %}<a class="{{ 'active' if view==mode }}" href="{{ url_for(cal,state=state,date=chosen,view=mode) }}">{{ mode|capitalize }}</a>{% endfor %}</nav>
+    <form method="get" class="bf-calendar-jump"><input type="hidden" name="view" value="{{ view }}"><input type="date" aria-label="Calendar date" name="date" value="{{ chosen }}" required><select name="state" aria-label="Filter by state"><option value="">All states</option>{% for region in regions %}<option {{ 'selected' if state==region }}>{{ region }}</option>{% endfor %}</select><button class="secondary">Go</button></form>
+  </div></header>
+  <div class="bf-calendar-grid-wrap"><table class="bf-date-grid {{ 'bf-date-grid-week' if view=='week' }}" aria-label="Scheduled interstate pickups and deliveries">
+    <thead><tr>{% for day in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}<th scope="col">{{ day }}</th>{% endfor %}</tr></thead>
+    <tbody>{% for week in weeks %}<tr>{% for day in week %}{% set iso=day.isoformat() %}
+      <td class="{{ 'outside' if view=='month' and day.month!=chosen.month }} {{ 'today' if iso==today }}"><div class="bf-date-heading"><a href="{{ url_for('bf_client_interstate_new' if external else 'bf_interstate_new',pickup=iso) }}" aria-label="Request pickup on {{ day.strftime('%d %B %Y') }}"><time datetime="{{ iso }}">{{ day.day }}</time></a></div>
+        {% for kind,b in events[iso] %}<a class="it-event {{ kind|lower }}" href="{{ url_for(detail,bid=b.id) }}"><strong>{{ kind }} · {{ places[b.origin if kind=='Pickup' else b.destination][1] }}</strong><span>{{ b.client_name }}</span></a>{% endfor %}
+      </td>{% endfor %}</tr>{% endfor %}</tbody></table></div>
+</section>
+<section class="bf-panel bf-pad"><h2>Awaiting confirmation <small>({{ pending|length }})</small></h2>
+{% for b in pending %}<a class="it-pending" href="{{ url_for(detail,bid=b.id) }}"><strong>{{ b.client_name }}</strong><span>{{ places[b.origin][0] }} → {{ places[b.destination][0] }}</span><time>{{ b.pickup_date|display_date }}</time></a>{% else %}<p>No pending requests.</p>{% endfor %}</section>
+{% endblock %}

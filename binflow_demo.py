@@ -86,6 +86,9 @@ def install_demo_database(app, real_db, now):
         if warehouse or request.endpoint in ('bf_demo_inbound', 'bf_demo_docket'):
             from binflow_bales import migrate_bale_scans
             migrate_bale_scans(conn)
+            if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='bf_interstate_manifests'").fetchone():
+                from binflow_interstate import migrate as migrate_interstate
+                migrate_interstate(conn)
             prepare_warehouse(conn, now())
             conn.commit()
 
