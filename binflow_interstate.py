@@ -58,6 +58,26 @@ def migrate(conn):
     freight.migrate(conn)
 
 
+def booking_status(row, manifest_status=None):
+    if row['bulk_delivered_at']:
+        return 'Delivered'
+    if row['bulk_dispatched_at']:
+        return 'In transit'
+    return PROGRESS.get(manifest_status, 'Scheduled' if row['locked_at'] else 'Requested')
+
+
+def dispatch_colours(conn):
+    """Allocate colours in first-booking order so filters and new bookings do not reshuffle them."""
+    clients = conn.execute("""SELECT COALESCE(a.name,b.client_name) AS billing_name
+        FROM bf_interstate_bookings b LEFT JOIN bf_client_accounts a ON a.id=b.account_id
+        GROUP BY COALESCE(a.name,b.client_name) ORDER BY MIN(b.id)""")
+    colours = {}
+    for client in clients:
+        key = ' '.join(client['billing_name'].casefold().split())
+        colours.setdefault(key,len(colours))
+    return colours
+
+
 def route_days(origin, destination):
     return LANES.get('-'.join(sorted((PLACES[origin][1], PLACES[destination][1]))))
 
@@ -212,17 +232,40 @@ def register(app, db, access, require, render, client_access, now, actor):
             scope += f' AND (origin IN ({marks}) OR destination IN ({marks}))'
             args += (*points,*points)
         limits = (start.isoformat(),end.isoformat())
-        rows = db().execute("""SELECT * FROM bf_interstate_bookings WHERE locked_at IS NOT NULL
+        select = 'SELECT b.* FROM bf_interstate_bookings b'
+        if not external:
+            select = """SELECT b.*, COALESCE(a.name,b.client_name) AS billing_name,
+                       t.status AS manifest_status, m.expected_bales
+                FROM bf_interstate_bookings b LEFT JOIN bf_client_accounts a ON a.id=b.account_id
+                LEFT JOIN bf_interstate_manifests m ON m.transfer_id=(
+                    SELECT MAX(x.transfer_id) FROM bf_interstate_manifests x WHERE x.booking_id=b.id)
+                LEFT JOIN bf_bale_transfers t ON t.id=m.transfer_id"""
+        rows = db().execute(select+""" WHERE b.locked_at IS NOT NULL
             AND (pickup_date BETWEEN ? AND ? OR delivery_date BETWEEN ? AND ?)"""+scope+
-            ' ORDER BY client_name,id',(*limits,*limits,*args))
+            ' ORDER BY b.client_name,b.id',(*limits,*limits,*args)).fetchall()
+        pending = db().execute(select+' WHERE b.locked_at IS NULL'+scope+
+                               ' ORDER BY b.pickup_date,b.id',args).fetchall()
         events = defaultdict(list)
+        previews = {}
+        legend = {}
+        counts = {'Pickup':0,'Delivery':0}
+        if not external and (rows or pending):
+            colours = dispatch_colours(db())
+            for booking in (*rows,*pending):
+                name = booking['billing_name']
+                key = ' '.join(name.casefold().split())
+                preview = dict(booking,colour=colours[key],status=booking_status(booking,booking['manifest_status']))
+                previews[booking['id']] = preview
+                if booking['locked_at']:
+                    legend.setdefault(colours[key],name)
         for row in rows:
             for field,label in [('pickup_date','Pickup'),('delivery_date','Delivery')]:
-                events[row[field]].append((label,row))
-        pending = db().execute('SELECT * FROM bf_interstate_bookings WHERE locked_at IS NULL'+scope+
-                               ' ORDER BY pickup_date,id',args).fetchall()
+                if limits[0] <= row[field] <= limits[1]:
+                    events[row[field]].append((label,row))
+                    counts[label] += 1
         return page('interstate_calendar',external,view=view,state=state,chosen=chosen,
-                    previous=previous,following=following,title=title,weeks=weeks,events=events,pending=pending,today=now()[:10])
+                    previous=previous,following=following,title=title,weeks=weeks,events=events,pending=pending,
+                    previews=previews,legend=legend,counts=counts,today=now()[:10])
 
     @app.get('/binflow/interstate-transfers')
     @access
@@ -348,11 +391,7 @@ def register(app, db, access, require, render, client_access, now, actor):
         row = booking(bid,external)
         manifest = db().execute("""SELECT t.id,t.code,t.status,m.expected_bales FROM bf_interstate_manifests m
             JOIN bf_bale_transfers t ON t.id=m.transfer_id WHERE m.booking_id=? ORDER BY t.id DESC LIMIT 1""",(bid,)).fetchone()
-        status = 'Requested' if not row['locked_at'] else 'Scheduled'
-        if manifest:
-            status = PROGRESS.get(manifest['status'],status)
-        if row['bulk_dispatched_at']:
-            status = 'Delivered' if row['bulk_delivered_at'] else 'In transit'
+        status = booking_status(row, manifest['status'] if manifest else None)
         return page('interstate_detail',external,b=row,manifest=manifest,status=status,
                     price=freight.quote(row['rate_cents'],row['fuel_bps']), minimum=freight.MIN_RIGID_HOURS)
 

@@ -78,6 +78,27 @@ class BookingTests(unittest.TestCase):
         self.assertIn('Delivered',self.post(CAL+'/1/bulk',dict(action='deliver')).text)
         self.assertFalse(self.rows('SELECT * FROM bf_bale_transfer_items'))
 
+    def test_calendar_clients_keep_their_colours_and_preview_the_correct_booking(self):
+        import re
+        def colour(page,bid):
+            return re.search(fr'data-transfer-preview="{bid}" data-client-colour="(\d+)"',page)[1]
+        for name,day in [('First client','2026-11-12'),('Second client','2026-11-12'),(' First CLIENT ','2026-11-19')]:
+            self.post(CAL+'/new',data(client_name=name,pickup_date=day))
+        self.post(CAL+'/1/lock',dict(version=1))
+        self.post(CAL+'/2/lock',dict(version=1))
+        self.post(CAL+'/1/bulk',dict(action='dispatch'))
+        week=self.client.get(CAL+'?date=2026-11-12').text
+        self.assertNotEqual(colour(week,1),colour(week,2))
+        self.assertEqual(colour(week,1),colour(week,3))
+        details=week.split('<template id="it-booking-1">')[1].split('</template>')[0]
+        for field in ['IT-000001','In transit','First client','SEMI TRAILER','Sending Co','Receiving Co',
+                      '1 Depot Street','2 Depot Street','Pat','Kim','12 pallets linen','/interstate-transfers/1']:
+            self.assertIn(field,details)
+        self.post(CAL+'/3/lock',dict(version=1))
+        for params in ('?date=2026-11-19&state=VIC','?date=2026-11-12&view=month'):
+            self.assertEqual(colour(week,1),colour(self.client.get(CAL+params).text,3))
+        self.assertNotIn('it-booking-1',self.client.get(CAL+'?date=2026-11-12&state=WA').text)
+
     def test_scanned_reverse_lane_stock_and_dispatch_guards(self):
         self.prepare()
         self.create(wid=1);self.create(wid=1)
@@ -97,6 +118,9 @@ class BookingTests(unittest.TestCase):
         self.assertIn('Scan all 2 booked bales',self.action('depart',confirm='yes').text)
         self.scan('BA0000002');self.action('depart',confirm='yes')
         self.assertIn('In transit',self.client.get(CAL+'/1').text)
+        calendar=self.client.get(CAL+'?date=2026-11-13&state=QLD').text
+        self.assertIn('IT-000001 · In transit',calendar)
+        self.assertIn('Scanned bales · 2 bales',calendar)
         self.scan('BA0000001','receive')
         self.assertTrue(self.scan('BA0000001','receive').json['duplicate'])
         self.assertEqual(self.rows('SELECT status FROM bf_bale_transfers')[0]['status'],'transit')

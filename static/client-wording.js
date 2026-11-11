@@ -3,6 +3,9 @@
   const clean = value => value.replace(/\bBlockTexx\s*[-–—]\s*/gi, '').replace(/\bBlockTexx\b/gi, 'Client');
   const attributes = ['title', 'aria-label', 'placeholder', 'alt'];
   function visit(node) {
+    // Names and addresses displayed from a booking must match the saved record.
+    const element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+    if (element?.closest('[data-record-text]')) return;
     if (node.nodeType === Node.TEXT_NODE) {
       if (!node.parentElement?.closest('script,style,textarea,[contenteditable]')) {
         const text = clean(node.data);
