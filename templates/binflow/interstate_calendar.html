@@ -1,4 +1,5 @@
 {% extends 'binflow/interstate_base.html' %}
+{% from 'binflow/purchase_order_status.html' import badge as po_badge %}
 {% macro reference(b) %}IT-{{ '%06d'|format(b.id) }}{% endmacro %}
 {% macro route(b) %}{% if b.rigid_hours_units %}Local RIGID · {{ places[b.origin][1] }}{% else %}{{ places[b.origin][1] }} → {{ places[b.destination][1] }}{% endif %}{% endmacro %}
 {% macro vehicle(b) %}{{ 'B DOUBLE' if b.vehicle=='B-DOUBLE' else b.vehicle or 'Vehicle to confirm' }}{% endmacro %}
@@ -10,7 +11,7 @@
   {% if can_add %}<a class="button primary" href="{{ url_for('bf_client_interstate_new' if external else 'bf_interstate_new') }}">{{ 'Request a transfer' if external else 'New transfer booking' }}</a>{% endif %}
   {% if not external and current_user.role=='admin' %}<a class="button secondary" href="{{ url_for('bf_interstate_accounts') }}">External booking logins</a>{% endif %}
 </div>
-<section class="bf-calendar-shell it-dispatch-calendar">
+<section class="bf-calendar-shell it-dispatch-calendar{{ ' it-client-po-calendar' if external }}">
   <header class="bf-calendar-toolbar"><div class="bf-calendar-heading"><div class="bf-calendar-arrows">
     <a class="button secondary" aria-label="Previous {{ view }}" href="{{ url_for(cal,state=state,date=previous,view=view) }}">‹</a>
     <a class="button secondary" aria-label="Next {{ view }}" href="{{ url_for(cal,state=state,date=following,view=view) }}">›</a>
@@ -25,15 +26,20 @@
     {% if legend %}<details class="it-client-key" {{ 'open' if legend|length <= 6 }}><summary>Client colours</summary><ul>{% for colour,name in legend|dictsort(by='value') %}<li data-record-text data-client-colour="{{ colour }}"><i aria-hidden="true"></i>{{ name }}</li>{% endfor %}</ul></details>{% endif %}
   </div>
   {% endif %}
+  <div class="it-calendar-key it-po-legend" aria-label="Purchase order legend"><strong>Purchase orders</strong>
+    <span>{{ po_badge(false) }} Add a number or file</span>
+    <span>{{ po_badge(true) }} Number or file supplied</span>
+  </div>
   <div class="bf-calendar-grid-wrap"><table class="bf-date-grid {{ 'bf-date-grid-week' if view=='week' }}" aria-label="Scheduled interstate pickups and deliveries">
     <thead><tr>{% for day in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}<th scope="col">{{ day }}</th>{% endfor %}</tr></thead>
     <tbody>{% for week in weeks %}<tr>{% for day in week %}{% set iso=day.isoformat() %}
       <td class="{{ 'outside' if view=='month' and day.month!=chosen.month }} {{ 'today' if iso==today }}"><div class="bf-date-heading">{% if view=='week' %}<span class="it-mobile-day">{{ day.strftime('%a') }}</span>{% endif %}{% if can_add %}<a href="{{ url_for('bf_client_interstate_new' if external else 'bf_interstate_new',pickup=iso) }}" aria-label="Request pickup on {{ day.strftime('%d %B %Y') }}"><time datetime="{{ iso }}">{{ day.day }}</time></a>{% else %}<time datetime="{{ iso }}">{{ day.day }}</time>{% endif %}</div>
         {% for kind,b in events[iso] %}
           {% set info=previews[b.id] %}
-          <a class="it-event {{ kind|lower }}" {{ preview_link(info) }}>
+          <a class="it-event {{ kind|lower }}" data-po-status="{{ 'received' if info.po_received else 'required' }}" {{ preview_link(info) }}>
             <span class="it-leg">{{ 'Local RIGID · ' if external and b.rigid_hours_units }}{{ kind }} · {{ places[b.origin if kind=='Pickup' else b.destination][1] }}</span>
             <strong>{{ info.billing_name }}</strong>
+            {{ po_badge(info.po_received) }}
             {% set company=b.pickup_company if kind=='Pickup' else b.delivery_company %}
             {% if company and company!=info.billing_name %}<span>{{ company }}</span>{% endif %}
             <span class="it-card-meta">{{ route(b) }}{% if b.vehicle and not b.rigid_hours_units %} · {{ vehicle(b) }}{% endif %}</span>
@@ -65,6 +71,10 @@
   <section class="it-preview-goods"><h4>{{ 'Bulk movement' if b.handling=='bulk' else 'Scanned bales' }}{% if b.expected_bales %} · {{ b.expected_bales }} {{ 'bale' if b.expected_bales==1 else 'bales' }}{% endif %}</h4>
     {% if b.goods %}<p class="it-goods">{{ b.goods }}</p>{% endif %}
   </section>
+  {% if b.locked_at %}<section class="it-preview-po">{{ po_badge(b.po_received) }}
+    {% if b.po_number %}<span>{{ b.po_number }}</span>{% endif %}
+    <a href="{{ url_for('bf_client_interstate_detail' if external else 'bf_interstate_detail',bid=id,_anchor='purchase-order') }}">{{ 'Add PO' if not b.po_received and can_supply_po else 'View purchase order' }}</a>
+  </section>{% endif %}
   <footer><span>{{ 'Subcontracted' if b.job_type=='external' else 'Internal job' }}</span><a href="{{ url_for('bf_client_interstate_detail' if external else 'bf_interstate_detail',bid=id) }}">Open booking</a></footer>
 </template>
 {% endfor %}

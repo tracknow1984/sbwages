@@ -87,3 +87,22 @@
  .it-dispatch-calendar .bf-calendar-grid-wrap {max-width:100%;overflow-x:auto}
  .it-awaiting-transfer span:last-child {margin-left:0}
 }
+
+.it-dispatch-calendar .it-event[data-po-status=required] {background-color:#fce4e5}
+.it-dispatch-calendar .it-event[data-po-status=received] {background-color:#dcf4e4}
+.it-client-po-calendar .it-event[data-po-status=required] {border-left-color:#b52632}
+.it-client-po-calendar .it-event[data-po-status=received] {border-left-color:#16733b}
+.it-po-badge,.it-dispatch-calendar .it-event .it-po-badge {display:inline-block;font-size:.73rem;line-height:1.3;font-weight:700;border:1px solid currentColor;border-radius:.35rem;padding:.12rem .35rem}
+.it-po-badge.is-required {background:#ffe9e9;color:#8c1928}
+.it-po-badge.is-received {background:#e2f7e9;color:#105b32}
+.it-po-legend,.it-po-heading,.it-preview-po {display:flex;flex-wrap:wrap;align-items:center;gap:.5rem .85rem}
+.it-po-legend {justify-content:flex-start}
+.it-po-legend .it-po-badge {margin-right:.25rem}
+.it-po-section {margin:1rem 0;padding:1rem;border:1px solid #cdd9df;border-radius:.5rem;scroll-margin-top:1rem}
+.it-po-heading h3 {margin:0}
+.it-po-section details {margin-top:.65rem}
+.it-po-section summary {cursor:pointer;font-weight:650}
+.it-po-section .bf-form {max-width:32rem;margin:.6rem 0 0}
+.it-po-section input[type=file] {max-width:100%}
+.it-preview-po {padding:.65rem .85rem;border-top:1px solid #e2e9ee}
+.it-preview-po a {font-weight:650}

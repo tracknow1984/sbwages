@@ -217,6 +217,61 @@ class PortalPermissionTests(unittest.TestCase):
         self.assertIn('bf-date-grid-week',self.client.get(CAL).text)
         self.assertEqual(first.get(CLIENT+'/2').status_code,404)
 
+    def test_purchase_order_number_file_approval_and_account_permissions(self):
+        import io
+        from reportlab.pdfgen.canvas import Canvas
+        aid=self.account('po-client')
+        self.account('other-client')
+        client=self.visit('po-client')
+        other=self.visit('other-client')
+        for requester in (client,client,other):
+            self.assertEqual(self.send(requester,CLIENT+'/new',data(pickup_date='2026-11-12',delivery_date='2026-11-14')).status_code,200)
+        path=CLIENT+'/1/purchase-order'
+        fields=dict(po_revision=0,po_number='PO-100')
+        self.assertEqual(self.send(client,path,fields).status_code,409)
+        self.assertNotIn('id="purchase-order"',client.get(CLIENT+'/1').text)
+        for bid in (1,2,3):
+            self.post(f'{CAL}/{bid}/lock',dict(version=1))
+        week=CLIENT+'?date=2026-11-13&view=week'
+        self.assertEqual(client.get(week).text.count('data-po-status="required"'),4)
+        self.assertEqual(self.send(other,path,fields).status_code,404)
+        self.assertEqual(self.send(client,path,dict(po_revision=0,po_number=' ')).status_code,400)
+        self.assertEqual(self.send(client,path,dict(fields,po_file=(io.BytesIO(b'not a PDF'),'wrong.pdf'))).status_code,400)
+        self.assertEqual(self.send(client,path,dict(po_revision=0,po_file=(io.BytesIO(b'%PDF-1.7'),'incomplete.pdf'))).status_code,400)
+        self.assertEqual(self.send(client,path,dict(po_revision=0,po_file=(io.BytesIO(b'x'*(5*1024*1024+1)),'large.pdf'))).status_code,400)
+        self.assertEqual(self.rows('SELECT booking_id FROM bf_interstate_purchase_orders'),[])
+        self.assertIn('PO-100',self.send(client,path,fields).text)
+        self.assertEqual(client.get(path+'/file').status_code,404)
+        self.assertEqual(client.get(week).text.count('data-po-status="received"'),2)
+        out=io.BytesIO()
+        pdf=Canvas(out)
+        pdf.drawString(50,750,'Purchase order 100')
+        pdf.save()
+        document=out.getvalue()
+        def upload(revision):
+            return dict(po_revision=revision,po_file=(io.BytesIO(document),'purchase order.pdf'))
+        self.assertEqual(self.send(client,path,upload(0)).status_code,409)
+        self.assertEqual(self.send(client,path,upload(1)).status_code,200)
+        self.assertEqual(self.send(client,CLIENT+'/2/purchase-order',upload(0)).status_code,200)
+        self.assertEqual(self.rows('SELECT booking_id,number,revision FROM bf_interstate_purchase_orders ORDER BY booking_id'),
+            [dict(booking_id=1,number='PO-100',revision=2),dict(booking_id=2,number='',revision=1)])
+        self.assertEqual(self.send(client,path,dict(fields,po_revision=2,po_number='PO-101')).status_code,200)
+        response=client.get(path+'/file')
+        self.assertEqual(response.data,document)
+        self.assertEqual(response.mimetype,'application/pdf')
+        self.assertIn('attachment',response.headers['Content-Disposition'])
+        self.assertEqual(self.client.get(CAL+'/1/purchase-order/file').data,document)
+        self.assertNotIn('PO-101',other.get(week).text)
+        self.assertEqual(other.get(path+'/file').status_code,404)
+        for view in ['week','month']:
+            page=client.get(CLIENT+'?date=2026-11-13&view='+view).text
+            self.assertEqual(page.count('data-po-status="received"'),4)
+            self.assertIn('Purchase order legend',page)
+        self.rights(aid,['bookings.view','bookings.add'],['bookings.view'])
+        self.assertNotIn('Save PO',client.get(CLIENT+'/1').text)
+        self.assertEqual(self.send(client,path,dict(fields,po_revision=3)).status_code,403)
+        self.assertEqual(client.get(path+'/file').data,document)
+
     def test_address_suggestions_are_available_on_staff_and_client_booking_forms(self):
         self.account('address-user',custom_permissions='yes',permission=['bookings.add','bookings.edit'])
         client=self.visit('address-user')

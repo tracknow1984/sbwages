@@ -1,0 +1,3 @@
+{% macro badge(received) -%}
+<span class="it-po-badge {{ 'is-received' if received else 'is-required' }}">{{ 'PO received' if received else 'PO required' }}</span>
+{%- endmacro %}

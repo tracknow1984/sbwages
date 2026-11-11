@@ -13,6 +13,7 @@ MODULES = (
 )
 ENDPOINTS = {
     'bf_client_rigid_quote':'bookings.view', 'bf_client_interstate':'bookings.view', 'bf_client_interstate_detail':'bookings.view',
+    'bf_client_interstate_po':'bookings.view','bf_client_interstate_po_file':'bookings.view',
     'bf_client_interstate_new':'bookings.add','bf_client_interstate_edit':'bookings.edit',
     'bf_client_national':'national.view','bf_client_national_progress':'national.view',
     'bf_client_national_weeks':'national.view','bf_client_profiles_portal':'profiles.view',

@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 
 from flask import Flask, abort, flash, g, redirect, render_template, request, session, url_for, send_file
 from PIL import Image
-from werkzeug.utils import secure_filename
+from document_uploads import read_document
 from werkzeug.security import check_password_hash, generate_password_hash
 from lunch import deduct_lunch, migrate_lunch
 from employee_induction import EDITION, enforce_employee_induction, needs_signature, register_induction
@@ -271,7 +271,7 @@ def create_app(test_config=None):
             request.max_content_length = 32 * 1024 * 1024
         elif request.endpoint == 'upload_licence_photos':
             request.max_content_length = 12 * 1024 * 1024
-        elif request.endpoint != 'employee_documents':
+        elif request.endpoint not in ('employee_documents','bf_client_interstate_po','bf_interstate_po'):
             request.max_content_length = 128 * 1024
         g.user = None
         if session.get('uid'):
@@ -1414,21 +1414,9 @@ def create_app(test_config=None):
                 upload = request.files.get('document')
                 if not title or len(title) > 150:
                     raise ValueError('Enter a document title of up to 150 characters.')
-                if not upload or not upload.filename:
-                    raise ValueError('Choose a PDF, JPG or PNG file.')
-                filename = secure_filename(upload.filename)[:180]
-                suffix = Path(filename).suffix.lower()
-                data = upload.read(app.config['DOCUMENT_MAX_BYTES'] + 1)
-                if not data or len(data) > app.config['DOCUMENT_MAX_BYTES']:
-                    raise ValueError('Choose a non-empty document no larger than 5 MB.')
-                signatures = {'.pdf': ('application/pdf', data.startswith(b'%PDF-')),
-                              '.png': ('image/png', data.startswith(b'\x89PNG\r\n\x1a\n')),
-                              '.jpg': ('image/jpeg', data.startswith(b'\xff\xd8\xff')),
-                              '.jpeg': ('image/jpeg', data.startswith(b'\xff\xd8\xff'))}
-                if suffix not in signatures or not signatures[suffix][1]:
-                    raise ValueError('Upload a valid PDF, JPG or PNG file.')
+                filename, mime, data = read_document(upload,app.config['DOCUMENT_MAX_BYTES'])
                 db().execute('INSERT INTO documents(user_id,title,filename,mime_type,data,uploaded_at) VALUES(?,?,?,?,?,?)',
-                             (g.user['id'], title, filename, signatures[suffix][0], data, timestamp()))
+                             (g.user['id'], title, filename, mime, data, timestamp()))
                 db().commit()
                 flash('Document uploaded to the admin dashboard.', 'success')
                 return redirect(url_for('employee_documents'))

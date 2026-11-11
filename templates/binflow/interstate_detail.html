@@ -1,5 +1,6 @@
 {% extends 'binflow/interstate_base.html' %}
 {% from 'binflow/freight_amounts.html' import breakdown %}
+{% from 'binflow/purchase_order_status.html' import badge as po_badge %}
 {% block transfer_content %}
 <a href="{{ url_for('bf_client_interstate' if external else 'bf_interstate_calendar',date=b.pickup_date) }}">← Transfer calendar</a>
 <section class="bf-panel bf-pad"><div class="bf-toolbar"><div><small>IT-{{ '%06d'|format(b.id) }}</small>{% if b.account_id %}<small> · Billing client</small>{% endif %}<h2>{{ b.client_name }}</h2></div><span class="bf-badge">{{ status }}</span></div>
@@ -8,6 +9,25 @@
 {% if external and not b.locked_at and 'bookings.edit' in g.client_rights %}<a class="button secondary" href="{{ url_for('bf_client_interstate_edit',bid=b.id) }}">Edit request</a>{% endif %}
 <div class="bf-grid two"><div><h3>Pickup · {{ b.pickup_date|display_date }}</h3><p>{% if b.pickup_company %}<strong>{{ b.pickup_company }}</strong><br>{% endif %}{{ b.pickup_address }}<br>{{ b.pickup_contact }} {{ b.pickup_phone }}</p></div>
 <div><h3>Delivery · {{ b.delivery_date|display_date }}</h3><p>{% if b.delivery_company %}<strong>{{ b.delivery_company }}</strong><br>{% endif %}{{ b.delivery_address }}<br>{{ b.delivery_contact }} {{ b.delivery_phone }}</p></div></div>
+{% if b.locked_at %}
+<section data-record-text id="purchase-order" class="it-po-section" aria-labelledby="it-po-title">
+  <div class="it-po-heading"><h3 id="it-po-title">Purchase order</h3>{{ po_badge(po) }}</div>
+  {% if po and po.number %}<p><strong>PO number</strong> · {{ po.number }}</p>{% endif %}
+  {% if po and po.filename %}<p><a href="{{ url_for('bf_client_interstate_po_file' if external else 'bf_interstate_po_file',bid=b.id) }}" download>Download PO · {{ po.filename }}</a></p>{% endif %}
+  {% if can_supply_po %}
+  <details {{ 'open' if not po or po_error }}>
+    <summary>{{ 'Update purchase order' if po else 'Add purchase order' }}</summary>
+    <form class="bf-form" method="post" enctype="multipart/form-data" action="{{ url_for('bf_client_interstate_po' if external else 'bf_interstate_po',bid=b.id) }}#purchase-order">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="po_revision" value="{{ po.revision if po else 0 }}">
+      {% if po_error %}<p class="notice error" role="alert">{{ po_error }}</p>{% endif %}
+      <p>Enter a PO number or upload the purchase order. Either one marks the booking as received.</p>
+      <label>PO number<input name="po_number" maxlength="100" value="{{ request.form.get('po_number','') if po_error else po.number if po else '' }}"></label>
+      <label>{{ 'Replace PO file' if po and po.filename else 'Upload PO file' }}<input type="file" name="po_file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"></label>
+      <small>PDF, JPG or PNG · up to 5 MB</small>
+      <button class="primary" type="submit">Save PO</button>
+    </form>
+  </details>{% endif %}
+</section>{% endif %}
 {% if b.goods %}<h3>{{ 'Goods and quantities' if b.handling=='bulk' else 'Load notes' }}</h3><p class="it-goods">{{ b.goods }}</p>{% endif %}
 <p>Booking confirmation · {{ b.email }}{% if b.locked_at %} · {{ {'pending':'Pending','sending':'Sending','failed':'Email not sent','sent':'Email sent'}[b.email_status] }}{% endif %}</p>
 {% if not external %}<p class="bf-muted">Requested by {{ b.created_by }}{% if b.locked_at %} · Locked by {{ b.locked_by }} on {{ b.locked_at|display_datetime }}{% endif %}</p>{% endif %}

@@ -1,4 +1,5 @@
 """Dated interstate bookings and the link to the warehouse's scanned manifest."""
+import io
 import re
 import secrets
 import smtplib
@@ -7,11 +8,12 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from email.message import EmailMessage
 
-from flask import abort, flash, g, redirect, render_template, request, url_for
+from flask import abort, flash, g, redirect, render_template, request, send_file, url_for
 from werkzeug.security import generate_password_hash
 
 from binflow_collections import STATES, calendar_period, dated
 from binflow_pods import send_smtp
+from document_uploads import read_document
 import binflow_client_access as portal
 import binflow_freight_rates as freight
 
@@ -42,6 +44,13 @@ def migrate(conn):
             email TEXT NOT NULL,goods TEXT NOT NULL,version INTEGER NOT NULL DEFAULT 1,
             locked_at TEXT, locked_by TEXT, bulk_dispatched_at TEXT, bulk_delivered_at TEXT,
             email_status TEXT NOT NULL DEFAULT 'pending',email_attempt_at TEXT);
+        CREATE TABLE IF NOT EXISTS bf_interstate_purchase_orders (
+            booking_id INTEGER PRIMARY KEY REFERENCES bf_interstate_bookings(id),
+            number TEXT NOT NULL DEFAULT '', filename TEXT, mime_type TEXT, document BLOB,
+            revision INTEGER NOT NULL, updated_at TEXT NOT NULL, updated_by TEXT NOT NULL,
+            CHECK(length(trim(number))>0 OR document IS NOT NULL),
+            CHECK((document IS NULL AND filename IS NULL AND mime_type IS NULL)
+               OR (length(document)>0 AND filename IS NOT NULL AND mime_type IS NOT NULL)));
         CREATE INDEX IF NOT EXISTS bf_interstate_pickups ON bf_interstate_bookings(pickup_date);
         CREATE INDEX IF NOT EXISTS bf_interstate_deliveries ON bf_interstate_bookings(delivery_date);
         CREATE TABLE IF NOT EXISTS bf_interstate_manifests (
@@ -233,11 +242,12 @@ def register(app, db, access, require, render, client_access, now, actor):
             args += (*points,*points)
         limits = (start.isoformat(),end.isoformat())
         select = """SELECT b.*, COALESCE(a.name,b.client_name) AS billing_name,
-                       t.status AS manifest_status, m.expected_bales
+                       t.status AS manifest_status, m.expected_bales, po.booking_id IS NOT NULL AS po_received, po.number AS po_number
                 FROM bf_interstate_bookings b LEFT JOIN bf_client_accounts a ON a.id=b.account_id
                 LEFT JOIN bf_interstate_manifests m ON m.transfer_id=(
                     SELECT MAX(x.transfer_id) FROM bf_interstate_manifests x WHERE x.booking_id=b.id)
-                LEFT JOIN bf_bale_transfers t ON t.id=m.transfer_id"""
+                LEFT JOIN bf_bale_transfers t ON t.id=m.transfer_id
+                LEFT JOIN bf_interstate_purchase_orders po ON po.booking_id=b.id"""
         rows = db().execute(select+""" WHERE b.locked_at IS NOT NULL
             AND (pickup_date BETWEEN ? AND ? OR delivery_date BETWEEN ? AND ?)"""+scope+
             ' ORDER BY b.client_name,b.id',(*limits,*limits,*args)).fetchall()
@@ -262,7 +272,7 @@ def register(app, db, access, require, render, client_access, now, actor):
                     counts[label] += 1
         return page('interstate_calendar',external,view=view,state=state,chosen=chosen,
                     previous=previous,following=following,title=title,weeks=weeks,events=events,pending=pending,
-                    previews=previews,legend=legend,counts=counts,today=now()[:10])
+                    previews=previews,legend=legend,counts=counts,today=now()[:10],can_supply_po=can_supply_po(external))
 
     @app.get('/binflow/interstate-transfers')
     @access
@@ -384,12 +394,20 @@ def register(app, db, access, require, render, client_access, now, actor):
             abort(409)
         return form_page(False,row)
 
-    def detail(bid,external):
+    def po_metadata(bid):
+        return db().execute("""SELECT number,filename,revision FROM bf_interstate_purchase_orders
+                               WHERE booking_id=?""",(bid,)).fetchone()
+
+    def can_supply_po(external):
+        return bool(g.client_rights & {'bookings.add','bookings.edit'}) if external else g.user['role']=='admin'
+
+    def detail(bid,external,po_error=None):
         row = booking(bid,external)
         manifest = db().execute("""SELECT t.id,t.code,t.status,m.expected_bales FROM bf_interstate_manifests m
             JOIN bf_bale_transfers t ON t.id=m.transfer_id WHERE m.booking_id=? ORDER BY t.id DESC LIMIT 1""",(bid,)).fetchone()
         status = booking_status(row, manifest['status'] if manifest else None)
-        return page('interstate_detail',external,b=row,manifest=manifest,status=status,
+        return page('interstate_detail',external,b=row,manifest=manifest,status=status,po=po_metadata(bid),
+                    po_error=po_error,can_supply_po=can_supply_po(external),
                     price=freight.quote(row['rate_cents'],row['fuel_bps']), minimum=freight.MIN_RIGID_HOURS)
 
     @app.get('/binflow/interstate-transfers/<int:bid>')
@@ -401,6 +419,73 @@ def register(app, db, access, require, render, client_access, now, actor):
     @client_access
     def bf_client_interstate_detail(bid):
         return detail(bid,True)
+
+    def save_po(bid, external):
+        row = booking(bid,external)
+        if not can_supply_po(external):
+            abort(403)
+        if not row['locked_at']:
+            abort(409,'A purchase order can be supplied once the booking dates are confirmed.')
+        number = request.form.get('po_number','').strip()
+        upload = request.files.get('po_file')
+        try:
+            if len(number)>100 or (number and not number.isprintable()):
+                raise ValueError('Enter a PO number of up to 100 characters on one line.')
+            if not number and not upload:
+                raise ValueError('Enter a PO number or choose a PO file.')
+            filename,mime,document = read_document(upload,app.config['DOCUMENT_MAX_BYTES'],verify_contents=True) if upload else (None,None,None)
+        except ValueError as error:
+            return detail(bid,external,str(error)),400
+
+        conn=db()
+        conn.execute('BEGIN IMMEDIATE')
+        previous=po_metadata(bid)
+        revision=previous['revision'] if previous else 0
+        if request.form.get('po_revision',type=int)!=revision:
+            conn.rollback()
+            return detail(bid,external,'This PO changed. Review the saved details before submitting again.'),409
+        who = 'Client login '+g.bf_client['username'] if external else actor()
+        conn.execute("""INSERT INTO bf_interstate_purchase_orders
+            (booking_id,number,filename,mime_type,document,revision,updated_at,updated_by)
+            VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(booking_id) DO UPDATE SET
+            number=COALESCE(NULLIF(excluded.number,''),number),
+            filename=COALESCE(excluded.filename,filename),mime_type=COALESCE(excluded.mime_type,mime_type),
+            document=COALESCE(excluded.document,document),revision=excluded.revision,
+            updated_at=excluded.updated_at,updated_by=excluded.updated_by""",
+            (bid,number,filename,mime,document,revision+1,now(),who))
+        conn.commit()
+        return redirect(details_url(bid,external)+'#purchase-order')
+
+    def download_po(bid, external):
+        row=booking(bid,external)
+        if not row['locked_at']:
+            abort(404)
+        po=db().execute("""SELECT filename,mime_type,document FROM bf_interstate_purchase_orders
+                           WHERE booking_id=? AND filename IS NOT NULL""",(bid,)).fetchone()
+        if not po:
+            abort(404)
+        return send_file(io.BytesIO(po['document']),mimetype=po['mime_type'],
+                         download_name=po['filename'],as_attachment=True)
+
+    @app.post('/binflow/client/interstate-transfers/<int:bid>/purchase-order')
+    @client_access
+    def bf_client_interstate_po(bid):
+        return save_po(bid,True)
+
+    @app.post('/binflow/interstate-transfers/<int:bid>/purchase-order')
+    @require('admin')
+    def bf_interstate_po(bid):
+        return save_po(bid,False)
+
+    @app.get('/binflow/client/interstate-transfers/<int:bid>/purchase-order/file')
+    @client_access
+    def bf_client_interstate_po_file(bid):
+        return download_po(bid,True)
+
+    @app.get('/binflow/interstate-transfers/<int:bid>/purchase-order/file')
+    @access
+    def bf_interstate_po_file(bid):
+        return download_po(bid,False)
 
     @app.post('/binflow/interstate-transfers/<int:bid>/lock')
     @require('admin')
