@@ -42,7 +42,7 @@ class DriverPortalTests(unittest.TestCase):
             menu = re.search(r'<nav aria-label="Driver menu">(.*?)</nav>', page.text, re.S).group(1)
             self.assertEqual(re.findall(r'href="([^"]+)"', menu), expected, path)
             for forbidden in ('National overview', 'New allocation', 'Collection calendar',
-                              'BIN Collection Req', 'State allocations', 'GPS & geofences', 'Truck locations',
+                              'Bin Collection Requests', 'State allocations', 'GPS & geofences', 'Truck locations',
                               'Daily schedule', 'Allocation approvals'):
                 self.assertNotIn(forbidden, page.text, path)
         for path in ('/', '/employee/dashboard', '/admin/bin-management', '/binflow/sign-in', '/binflow/driver'):

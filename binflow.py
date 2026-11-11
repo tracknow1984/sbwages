@@ -687,7 +687,7 @@ def register_binflow(app, db, require):
         requested_id=request.args.get('collection_request',type=int)
         collection_request=db().execute("SELECT * FROM bf_collection_requests WHERE id=? AND status='new'",(requested_id,)).fetchone() if requested_id else None
         if requested_id and not collection_request:
-            flash('That request has already been handled. Open its docket from BIN Collection Req.','error')
+            flash('That request has already been handled. Open its docket from Bin Collection Requests.','error')
             return redirect(url_for('bf_collection_requests'))
         site_id, warehouse_id = request.args.get('site', type=int), request.args.get('warehouse', type=int)
         if collection_request:
