@@ -182,7 +182,7 @@ class PortalPermissionTests(unittest.TestCase):
         local='/binflow/client/local-rigid/quote'
         self.assertEqual(first.get(fuel_path).status_code,302)
         self.assertEqual(self.send(first,CLIENT+'/new',data(vehicle='RIGID')).status_code,400)
-        self.assertNotIn('value="RIGID"',first.get(CLIENT+'/new').text)
+        self.assertIn('value="RIGID"',first.get(CLIENT+'/new').text)
         self.assertEqual(self.post(CAL+'/new',data(vehicle='RIGID')).status_code,400)
         self.assertIn('$450.00',first.get(local+'?hours=2').text)
         self.assertIn('$450.00',first.get(local+'?hours=4').text)
@@ -256,3 +256,56 @@ class PortalPermissionTests(unittest.TestCase):
         self.assertEqual(final['QLD:NSW:SEMI TRAILER'],'')
         self.assertEqual(final['NSW:QLD:B-DOUBLE'],'2000.00')
         self.assertEqual(final['WA:TAS:B-DOUBLE'],'999.00')
+
+    def test_vehicle_choice_local_booking_edits_confirmation_and_calendar(self):
+        from unittest.mock import patch
+
+        aid=self.account('local-customer',custom_permissions='yes',permission=['bookings.add','bookings.edit'])
+        client=self.visit('local-customer')
+        self.assertNotIn('/binflow/client/local-rigid/quote',client.get(CLIENT).text)
+        page=client.get(CLIENT+'/new').text
+        vehicle_select=page.split('<select name="vehicle"',1)[1].split('</select>',1)[0]
+        self.assertEqual(re.findall(r'>([^<>]+)</option>',vehicle_select),['Select vehicle','RIGID','B DOUBLE','SEMI TRAILER'])
+
+        def set_rate(rate):
+            with sqlite3.connect(self.path) as conn:
+                conn.execute('INSERT OR REPLACE INTO bf_rigid_hourly_rates VALUES(?,?)',(aid,rate))
+
+        set_rate(12000)
+        self.post(CAL+'/access/fuel',dict(version=0,percent='12.5'))
+        form=data(vehicle='RIGID',origin='NSW',destination='NSW',hours='2',handling='scanned',shown_rate='48000+1250')
+        for changes in [dict(destination='VIC'),dict(hours=''),dict(hours='0'),dict(hours='-1'),dict(hours='2.777'),dict(shown_rate='1')]:
+            self.assertEqual(self.send(client,CLIENT+'/new',dict(form,**changes)).status_code,400)
+        self.assertEqual(self.rows('SELECT id FROM bf_interstate_bookings'),[])
+        response=self.send(client,CLIENT+'/new',form)
+        self.assertEqual(response.status_code,200)
+        self.assertIn('Billable 4 hours',response.text)
+        self.assertIn('$540.00',response.text)
+        self.assertEqual(self.rows('SELECT rigid_hours_units,rigid_hourly_cents,rate_cents,fuel_bps,delivery_date,handling FROM bf_interstate_bookings'),
+                         [dict(rigid_hours_units=200,rigid_hourly_cents=12000,rate_cents=48000,fuel_bps=1250,delivery_date=form['pickup_date'],handling='bulk')])
+        self.assertIn('Local RIGID',self.client.get(CAL).text)
+        set_rate(18000)
+        self.post(CAL+'/access/fuel',dict(version=1,percent='20'))
+        self.send(client,CLIENT+'/new',form)
+        self.assertEqual(len(self.rows('SELECT id FROM bf_interstate_bookings')),1)
+        edited=self.send(client,CLIENT+'/1/edit',dict(form,hours='5.25',version=1,shown_rate='63000+1250'))
+        self.assertIn('$708.75',edited.text)
+        self.app.config.update(SMTP_HOST='smtp.example.invalid',SMTP_FROM='office@example.invalid')
+        with patch('binflow_interstate.send_smtp') as mail:
+            self.post(CAL+'/1/lock',dict(version=2))
+            msg=mail.call_args.args[1]
+            self.assertIn('local RIGID',msg['Subject'])
+            self.assertIn('Billable hours: 5.25',msg.get_content())
+            self.assertIn('AUD $708.75 ex GST',msg.get_content())
+        self.assertIn('Local RIGID · Pickup',client.get(CLIENT+'?date='+form['pickup_date']).text)
+        self.assertEqual(self.send(client,CLIENT+'/1/edit',dict(form,version=3)).status_code,409)
+
+    def test_unpriced_local_booking_gets_hourly_price_when_locked(self):
+        aid=self.account('pending-local')
+        client=self.visit('pending-local')
+        response=self.send(client,CLIENT+'/new',data(vehicle='RIGID',hours='3.5',origin='VIC',destination='VIC'))
+        self.assertIn('Price to be confirmed',response.text)
+        with sqlite3.connect(self.path) as conn:
+            conn.execute('INSERT INTO bf_rigid_hourly_rates VALUES(?,?)',(aid,10100))
+        self.post(CAL+'/1/lock',dict(version=1))
+        self.assertIn('$404.00',client.get(CLIENT+'/1').text)

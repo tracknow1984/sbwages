@@ -4,7 +4,6 @@
 {% set can_add=not external or 'bookings.add' in g.client_rights %}
 {% set detail='bf_client_interstate_detail' if external else 'bf_interstate_detail' %}
 <div class="it-tools">
-  {% if external %}<a class="button secondary" href="{{ url_for('bf_client_rigid_quote') }}">Local RIGID quote</a>{% endif %}
   {% if can_add %}<a class="button primary" href="{{ url_for('bf_client_interstate_new' if external else 'bf_interstate_new') }}">{{ 'Request a transfer' if external else 'New transfer booking' }}</a>{% endif %}
   {% if not external and current_user.role=='admin' %}<a class="button secondary" href="{{ url_for('bf_interstate_accounts') }}">External booking logins</a>{% endif %}
 </div>
@@ -21,9 +20,9 @@
     <thead><tr>{% for day in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}<th scope="col">{{ day }}</th>{% endfor %}</tr></thead>
     <tbody>{% for week in weeks %}<tr>{% for day in week %}{% set iso=day.isoformat() %}
       <td class="{{ 'outside' if view=='month' and day.month!=chosen.month }} {{ 'today' if iso==today }}"><div class="bf-date-heading">{% if can_add %}<a href="{{ url_for('bf_client_interstate_new' if external else 'bf_interstate_new',pickup=iso) }}" aria-label="Request pickup on {{ day.strftime('%d %B %Y') }}"><time datetime="{{ iso }}">{{ day.day }}</time></a>{% else %}<time datetime="{{ iso }}">{{ day.day }}</time>{% endif %}</div>
-        {% for kind,b in events[iso] %}<a class="it-event {{ kind|lower }}" href="{{ url_for(detail,bid=b.id) }}"><strong>{{ kind }} · {{ places[b.origin if kind=='Pickup' else b.destination][1] }}</strong><span>{{ b.client_name }}</span></a>{% endfor %}
+        {% for kind,b in events[iso] %}<a class="it-event {{ kind|lower }}" href="{{ url_for(detail,bid=b.id) }}"><strong>{{ 'Local RIGID · ' if b.rigid_hours_units }}{{ kind }} · {{ places[b.origin if kind=='Pickup' else b.destination][1] }}</strong><span>{{ b.client_name }}</span></a>{% endfor %}
       </td>{% endfor %}</tr>{% endfor %}</tbody></table></div>
 </section>
 <section class="bf-panel bf-pad"><h2>Awaiting confirmation <small>({{ pending|length }})</small></h2>
-{% for b in pending %}<a class="it-pending" href="{{ url_for(detail,bid=b.id) }}"><strong>{{ b.client_name }}</strong><span>{{ places[b.origin][0] }} → {{ places[b.destination][0] }}</span><time>{{ b.pickup_date|display_date }}</time></a>{% else %}<p>No pending requests.</p>{% endfor %}</section>
+{% for b in pending %}<a class="it-pending" href="{{ url_for(detail,bid=b.id) }}"><strong>{{ b.client_name }}</strong><span>{% if b.rigid_hours_units %}Local RIGID · {{ places[b.origin][1] }}{% else %}{{ places[b.origin][0] }} → {{ places[b.destination][0] }}{% endif %}</span><time>{{ b.pickup_date|display_date }}</time></a>{% else %}<p>No pending requests.</p>{% endfor %}</section>
 {% endblock %}

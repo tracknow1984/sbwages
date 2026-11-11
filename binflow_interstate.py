@@ -63,22 +63,33 @@ def parse_booking(form, client=False, previous=None):
     data = {field:form.get(field,'').strip() for field in FIELDS}
     if client:
         data['handling']='bulk'
-    same_legacy_rigid = (previous is not None and previous['vehicle']==data['vehicle']=='RIGID'
+    same_legacy_rigid = (previous is not None and previous['rigid_hours_units'] is None
+                         and previous['vehicle']==data['vehicle']=='RIGID'
                          and all(PLACES.get(data[k], ('',''))[1]==PLACES[previous[k]][1] for k in ('origin','destination')))
-    if (client or data['vehicle']) and data['vehicle'] not in freight.VEHICLES and not same_legacy_rigid:
-        raise ValueError('Choose SEMI TRAILER or B-DOUBLE for an interstate transfer. RIGID is a local hourly service.')
+    local = data['vehicle']=='RIGID' and not same_legacy_rigid
+    if (client or data['vehicle']) and data['vehicle'] not in ('RIGID', *freight.VEHICLES):
+        raise ValueError('Choose RIGID, B DOUBLE or SEMI TRAILER.')
+    data['rigid_hours_units'] = None
+    if local:
+        data['handling'] = 'bulk'
+        data['rigid_hours_units'] = freight.requested_rigid_hours(form.get('hours',''))
     if data['job_type'] not in ('internal','external') or data['handling'] not in ('scanned','bulk'):
         raise ValueError('Choose a job type and how the goods will be recorded.')
     origin, destination = data['origin'], data['destination']
-    if origin not in PLACES or destination not in PLACES or PLACES[origin][1] == PLACES[destination][1]:
+    if origin not in PLACES or destination not in PLACES:
+        raise ValueError('Select the pickup and delivery states.')
+    same_state = PLACES[origin][1] == PLACES[destination][1]
+    if local and not same_state:
+        raise ValueError('Local RIGID transfers require pickup and delivery in the same state.')
+    if not local and same_state:
         raise ValueError('Choose a pickup and delivery in different states.')
-    days = route_days(origin, destination)
+    days = 0 if local else route_days(origin, destination)
     try:
         pickup = dated(data['pickup_date']) if data['pickup_date'] else None
         delivery = dated(data['delivery_date']) if data['delivery_date'] else None
-        if days and pickup and not delivery:
+        if days is not None and pickup and not delivery:
             delivery = pickup + timedelta(days=days)
-        elif days and delivery and not pickup:
+        elif days is not None and delivery and not pickup:
             pickup = delivery - timedelta(days=days)
         if not pickup or not delivery or delivery < pickup:
             raise ValueError()
@@ -117,11 +128,17 @@ def confirmation(conn, config, row, now):
         if not config['SMTP_HOST'] or not config['SMTP_FROM']:
             raise OSError('SMTP unavailable')
         msg = EmailMessage()
-        msg['Subject'] = f"SB Empire interstate transfer IT-{row['id']:06d} confirmed"
+        service = 'local RIGID transfer' if row['rigid_hours_units'] is not None else 'interstate transfer'
+        msg['Subject'] = f"SB Empire {service} IT-{row['id']:06d} confirmed"
         msg['From'], msg['To'] = config['SMTP_FROM'], row['email']
         freight_details = ''
         if row['vehicle']:
             freight_details = f"Vehicle: {row['vehicle']}\n"
+            if row['rigid_hours_units'] is not None:
+                billed = max(row['rigid_hours_units']/100, freight.MIN_RIGID_HOURS)
+                freight_details += f"Requested hours: {row['rigid_hours_units']/100:g} · Billable hours: {billed:g}\n"
+                if row['rigid_hourly_cents'] is not None:
+                    freight_details += f"Hourly rate: AUD ${row['rigid_hourly_cents']/100:,.2f} ex GST\n"
             if row['account_id'] is not None:
                 price=freight.quote(row['rate_cents'],row['fuel_bps'])
                 if price:
@@ -208,14 +225,24 @@ def register(app, db, access, require, render, client_access, now, actor):
     def form_page(external, row=None):
         values = dict(row) if row else dict(job_type='internal',handling='bulk' if external else 'scanned',client_name=g.bf_client['name'] if external else '')
         aid = g.bf_client['id'] if external else (row['account_id'] if row else None)
+        if row and row['rigid_hours_units'] is not None:
+            values['hours'] = f"{row['rigid_hours_units']/100:g}"
+
         def rate_card(conn):
             card=freight.rates_for(conn,aid) if aid else {}
-            if row and row['vehicle'] and row['rate_cents'] is not None:
+            if row and row['rigid_hours_units'] is None and row['vehicle'] and row['rate_cents'] is not None:
                 card[f"{PLACES[row['origin']][1]}:{PLACES[row['destination']][1]}:{row['vehicle']}"]=freight.quote(row['rate_cents'],row['fuel_bps'])
             return card
 
         def show(error=None):
+            legacy_route = None
+            if row and row['vehicle']=='RIGID' and row['rigid_hours_units'] is None:
+                legacy_route = (PLACES[row['origin']][1],PLACES[row['destination']][1])
+            hourly, bps = freight.rigid_terms(db(), aid, row)
             return page('interstate_form',external,values=values,key=key,row=row,error=error,rates=rate_card(db()),
+                        hourly=hourly,bps=bps,minimum=freight.MIN_RIGID_HOURS,
+                        booking_vehicles=('RIGID', *freight.MATRIX_VEHICLES),
+                        legacy_route=legacy_route,
                         priced=aid is not None,bulk_only=external)
         if not row and request.method=='GET' and request.args.get('pickup'):
             try:
@@ -231,7 +258,13 @@ def register(app, db, access, require, render, client_access, now, actor):
                 conn = db()
                 conn.execute('BEGIN IMMEDIATE')
                 route = ':'.join((PLACES[data['origin']][1], PLACES[data['destination']][1], data['vehicle']))
-                price = rate_card(conn).get(route) if aid and data['vehicle'] else None
+                data['rigid_hourly_cents'] = None
+                if data['rigid_hours_units'] is not None:
+                    hourly, bps = freight.rigid_terms(conn, aid, row)
+                    data['rigid_hourly_cents'] = hourly
+                    _, price = freight.rigid_quote(hourly, data['rigid_hours_units'], bps)
+                else:
+                    price = rate_card(conn).get(route) if aid and data['vehicle'] else None
                 data['rate_cents'] = price['base'] if price else None
                 data['fuel_bps'] = price['bps'] if price else 0
                 shown = str(price['base']) if price else ''
@@ -304,7 +337,7 @@ def register(app, db, access, require, render, client_access, now, actor):
         if row['bulk_dispatched_at']:
             status = 'Delivered' if row['bulk_delivered_at'] else 'In transit'
         return page('interstate_detail',external,b=row,manifest=manifest,status=status,
-                    price=freight.quote(row['rate_cents'],row['fuel_bps']))
+                    price=freight.quote(row['rate_cents'],row['fuel_bps']), minimum=freight.MIN_RIGID_HOURS)
 
     @app.get('/binflow/interstate-transfers/<int:bid>')
     @access
@@ -325,11 +358,15 @@ def register(app, db, access, require, render, client_access, now, actor):
             if request.form.get('version',type=int)!=row['version']:
                 abort(409,'The request has changed. Review the updated dates before confirming.')
             price=freight.quote(row['rate_cents'],row['fuel_bps'])
-            if price is None and row['account_id'] and row['vehicle']:
+            hourly = row['rigid_hourly_cents']
+            if price is None and row['rigid_hours_units'] is not None:
+                hourly, bps = freight.rigid_terms(db(),row['account_id'],row)
+                _, price = freight.rigid_quote(hourly,row['rigid_hours_units'],bps)
+            elif price is None and row['account_id'] and row['vehicle']:
                 key=f"{PLACES[row['origin']][1]}:{PLACES[row['destination']][1]}:{row['vehicle']}"
                 price=freight.rates_for(db(),row['account_id']).get(key)
-            db().execute('UPDATE bf_interstate_bookings SET locked_at=?,locked_by=?,rate_cents=?,fuel_bps=?,version=version+1 WHERE id=?',
-                         (now(),actor(),price['base'] if price else None,price['bps'] if price else 0,bid))
+            db().execute('UPDATE bf_interstate_bookings SET locked_at=?,locked_by=?,rate_cents=?,fuel_bps=?,rigid_hourly_cents=?,version=version+1 WHERE id=?',
+                         (now(),actor(),price['base'] if price else None,price['bps'] if price else 0,hourly,bid))
             db().commit()
             confirmation(db(),app.config,booking(bid),now)
         else:

@@ -34,6 +34,10 @@ def migrate(conn):
         conn.execute('ALTER TABLE bf_interstate_bookings ADD COLUMN rate_cents INTEGER')
     if 'fuel_bps' not in columns:
         conn.execute('ALTER TABLE bf_interstate_bookings ADD COLUMN fuel_bps INTEGER NOT NULL DEFAULT 0 CHECK(fuel_bps>=0)')
+    if 'rigid_hours_units' not in columns:
+        conn.execute('ALTER TABLE bf_interstate_bookings ADD COLUMN rigid_hours_units INTEGER CHECK(rigid_hours_units>0)')
+    if 'rigid_hourly_cents' not in columns:
+        conn.execute('ALTER TABLE bf_interstate_bookings ADD COLUMN rigid_hourly_cents INTEGER CHECK(rigid_hourly_cents>=0)')
 
 
 def current_fuel(conn):
@@ -53,10 +57,23 @@ def hourly_rate(conn, account_id):
     return row['cents'] if row else None
 
 
+def requested_rigid_hours(value):
+    units = amount(value, 'Requested hours', 10000, 100)
+    if units <= 0:
+        raise ValueError('Enter a positive number of hours for this local RIGID transfer.')
+    return units
+
+
 def rigid_quote(hourly, hours_hundredths, bps):
     billed = max(100 * MIN_RIGID_HOURS, hours_hundredths)
     base = (hourly * billed + 50) // 100 if hourly is not None else None
     return billed, quote(base, bps)
+
+
+def rigid_terms(conn, account_id, previous=None):
+    if previous is not None and previous['rigid_hourly_cents'] is not None:
+        return previous['rigid_hourly_cents'], previous['fuel_bps']
+    return hourly_rate(conn, account_id), current_fuel(conn)['bps']
 
 
 def rates_for(conn, account_id):
