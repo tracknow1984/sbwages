@@ -16,6 +16,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from flask import Flask, abort, flash, g, redirect, render_template, request, session, url_for, send_file
+from PIL import Image
 from werkzeug.utils import secure_filename
 from werkzeug.security import check_password_hash, generate_password_hash
 from lunch import deduct_lunch, migrate_lunch
@@ -489,7 +490,9 @@ def create_app(test_config=None):
     @app.get('/admin/staff')
     @require('admin')
     def admin_staff():
-        people = db().execute("""SELECT u.*,s.id AS induction_id,s.signed_at AS induction_signed_at
+        people = db().execute("""SELECT u.*,s.id AS induction_id,s.signed_at AS induction_signed_at,
+            (SELECT p.side FROM licence_photos p WHERE p.user_id=u.id
+             ORDER BY (p.side='front') DESC LIMIT 1) AS licence_preview_side
             FROM users u LEFT JOIN handbook_signatures s ON s.user_id=u.id AND s.version=?
             WHERE u.role='employee' ORDER BY u.status,u.first_name,u.last_name""",(EDITION,)).fetchall()
         return render_template('staff.html', people=people, active=sum(p['status'] == 'active' for p in people), tab='staff')
@@ -676,7 +679,15 @@ def create_app(test_config=None):
         photo = db().execute('SELECT data FROM licence_photos WHERE user_id=? AND side=?', (user_id,side)).fetchone()
         if not photo:
             abort(404)
-        return send_file(io.BytesIO(photo['data']),mimetype='image/jpeg',as_attachment=request.args.get('download')=='1',download_name=f'licence-{side}.jpg')
+        stream = io.BytesIO(photo['data'])
+        if request.args.get('thumbnail') == '1':
+            with Image.open(stream) as image:
+                image.thumbnail((144, 96))
+                preview = io.BytesIO()
+                image.save(preview, format='JPEG', quality=80)
+            preview.seek(0)
+            return send_file(preview, mimetype='image/jpeg')
+        return send_file(stream,mimetype='image/jpeg',as_attachment=request.args.get('download')=='1',download_name=f'licence-{side}.jpg')
 
     def week_end(day, ending):
         return day + timedelta(days=(ending - day.weekday()) % 7)

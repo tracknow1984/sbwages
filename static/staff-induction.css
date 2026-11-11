@@ -11,6 +11,9 @@
 .staff-member :is(div,details,small,strong) {min-width:0;overflow-wrap:anywhere}
 .staff-member small,.staff-member .field-caption {display:block;color:#536478;font-size:.82rem;line-height:1.45}
 .staff-person strong {font-size:1.02rem}
+.staff-person {display:flex;align-items:center;gap:8px}
+.staff-licence-thumb {display:block;flex:none;border:1px solid #c3ced8;border-radius:5px;background:#f4f7fa;overflow:hidden}
+.staff-licence-thumb img {display:block;width:64px;height:44px;object-fit:contain}
 .staff-more {grid-column:1/-1}
 .staff-more summary,.induction-card summary {cursor:pointer;color:#274e7a;padding:5px 0;font-weight:600}
 .staff-extra {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;padding:12px;background:#f4f7fa;border-radius:8px}

@@ -11,9 +11,38 @@ class LicencePhotoTests(unittest.TestCase):
     login=test_app.AppTests.login
     add=test_app.AppTests.add
 
-    def photo(self, colour):
-        stream=io.BytesIO();Image.new('RGB',(90,60),colour).save(stream,format='PNG');stream.seek(0)
+    def photo(self, colour, size=(90,60)):
+        stream=io.BytesIO();Image.new('RGB',size,colour).save(stream,format='PNG');stream.seek(0)
         return stream,'photo.png'
+
+    def test_staff_directory_licence_thumbnail(self):
+        person, _ = self.add()
+        other, _ = self.add('jordan')
+        path = f'/staff/{person["id"]}/licence-photos'
+        directory = '/admin/staff'
+        missing_link = f'/admin/staff/{person["id"]}/edit#licence-photos'
+        self.assertIn(missing_link, self.client.get(directory).get_data(as_text=True))
+        self.post(path, {'back': self.photo('red')})
+        self.assertIn(path + '/back?thumbnail=1', self.client.get(directory).get_data(as_text=True))
+        self.post(path, {'front': self.photo('blue', (900, 600))})
+        page = self.client.get(directory).get_data(as_text=True)
+        thumbnail = path + '/front?thumbnail=1'
+        self.assertIn(thumbnail, page)
+        self.assertIn(f'href="{path}/front"', page)
+        self.assertNotIn(path + '/back?thumbnail=1', page)
+        self.assertNotIn(missing_link, page)
+        self.assertIn(f'/admin/staff/{other["id"]}/edit#licence-photos', page)
+        preview = self.client.get(thumbnail)
+        self.assertEqual(preview.mimetype, 'image/jpeg')
+        self.assertTrue(preview.cache_control.no_store)
+        with Image.open(io.BytesIO(preview.data)) as image:
+            self.assertEqual(image.size, (144, 96))
+        with Image.open(io.BytesIO(self.client.get(path + '/front').data)) as image:
+            self.assertEqual(image.size, (900, 600))
+        self.post('/logout')
+        self.assertEqual(self.client.get(thumbnail).status_code, 403)
+        self.login('jordan', 'test-staff-password')
+        self.assertEqual(self.client.get(thumbnail).status_code, 404)
 
     def test_upload_replace_preview_download_and_permissions(self):
         person,_=self.add();self.add('jordan')
