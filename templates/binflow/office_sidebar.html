@@ -1,25 +1,49 @@
+{% macro menu_link(key, label, endpoint, icon) -%}
+  <a href="{{ url_for(endpoint) }}" data-bf-icon="{{ icon }}"{% if section == key %} class="active" aria-current="page"{% endif %}>{{ label }}{% if key == 'requests' and bf_request_count %} <strong class="bf-request-badge">{{ bf_request_count }}</strong>{% endif %}</a>
+{%- endmacro %}
+{% set is_admin = current_user.role == 'admin' %}
 <aside class="bf-office-sidebar no-print">
   <button class="bf-office-toggle secondary" type="button" aria-controls="bf-office-nav" aria-expanded="true" hidden>BinFlow menu</button>
   <nav id="bf-office-nav" class="bf-nav" aria-label="BINFLOW navigation">
-    {% for key,label,endpoint,icon in [
-      ('overview','National overview','bf_dashboard','overview'),
-      ('bins','Bins & QR labels','bf_inventory','bin'),
-      ('warehouse','Weigh returns','bf_warehouse','warehouse'),
-      ('bales','Bales','bf_bales','warehouse'),
-      ('driver','Driver day','bf_workday','truck'),
-      ('collection_calendar','Collection calendar','bf_collection_calendar','calendar'),
-      ('interstate','All Transfers','bf_interstate_calendar','truck'),
-      ('requests','Bin Collection Requests','bf_collection_requests','requests'),
-      ('pods','Daily PODs','bf_daily_pods','pod'),
-      ('allocations','State allocations','bf_allocations','allocations'),
-      ('invoices','Invoices','bf_invoices','reports'),
-      ('rental','Rental Income','bf_rental_income','reports'),
-      ('reports','Reports','bf_reports','reports'),
-      ('profiles','Client profiles','bf_client_profiles','clients'),
-      ('suppliers','Supplier Site Register','bf_supplier_register','clients'),
-      ('setup','Setup','bf_setup','settings')
-    ] if (key!='driver' or current_user.role!='admin') and (key not in ('invoices','rental','reports','profiles','suppliers','setup') or current_user.role=='admin') %}
-    <a href="{{ url_for(endpoint) }}" data-bf-icon="{{ icon }}" {% if section==key %}class="active" aria-current="page"{% endif %}>{{ label }}{% if key=='requests' and bf_request_count %} <strong class="bf-request-badge">{{ bf_request_count }}</strong>{% endif %}</a>
-    {% endfor %}
+    {{ menu_link('overview', 'National Overview', 'bf_dashboard', 'overview') }}
+
+    <div class="bf-menu-group" role="group" aria-labelledby="bf-menu-operations">
+      <h2 id="bf-menu-operations">Operations</h2>
+      {{ menu_link('requests', 'Bin Collection Requests', 'bf_collection_requests', 'requests') }}
+      {{ menu_link('collection_calendar', 'Collection Calendar', 'bf_collection_calendar', 'calendar') }}
+      {{ menu_link('interstate', 'All Transfers', 'bf_interstate_calendar', 'truck') }}
+      {{ menu_link('warehouse', 'Weight Returns', 'bf_warehouse', 'warehouse') }}
+      {{ menu_link('bales', 'Bales', 'bf_bales', 'warehouse') }}
+      {{ menu_link('pods', 'Daily POD', 'bf_daily_pods', 'pod') }}
+      {% if not is_admin %}{{ menu_link('driver', 'Driver Day', 'bf_workday', 'truck') }}{% endif %}
+    </div>
+
+    <div class="bf-menu-group" role="group" aria-labelledby="bf-menu-customers">
+      <h2 id="bf-menu-customers">Customers</h2>
+      {% if is_admin %}{{ menu_link('profiles', 'Client Profiles', 'bf_client_profiles', 'clients') }}{% endif %}
+      {{ menu_link('allocations', 'State Allocations', 'bf_allocations', 'allocations') }}
+    </div>
+
+    {% if is_admin %}
+      <div class="bf-menu-group" role="group" aria-labelledby="bf-menu-suppliers">
+        <h2 id="bf-menu-suppliers">Suppliers</h2>
+        {{ menu_link('suppliers', 'Supplier Site Register', 'bf_supplier_register', 'clients') }}
+      </div>
+
+      <div class="bf-menu-group" role="group" aria-labelledby="bf-menu-accounting">
+        <h2 id="bf-menu-accounting">Accounting</h2>
+        {{ menu_link('rental', 'Bin Rental Income', 'bf_rental_income', 'reports') }}
+        {{ menu_link('invoices', 'All Invoices', 'bf_invoices', 'reports') }}
+      </div>
+
+      <div class="bf-menu-group">
+        {{ menu_link('reports', 'Reporting', 'bf_reports', 'reports') }}
+      </div>
+    {% endif %}
+
+    <div class="bf-menu-group" role="group" aria-labelledby="bf-menu-setup">
+      <h2 id="bf-menu-setup">{% if is_admin %}{{ menu_link('setup', 'Setup', 'bf_setup', 'settings') }}{% else %}Setup{% endif %}</h2>
+      {{ menu_link('bins', 'Bin QR Labels', 'bf_inventory', 'bin') }}
+    </div>
   </nav>
 </aside>
