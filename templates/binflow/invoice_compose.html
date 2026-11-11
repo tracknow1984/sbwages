@@ -3,7 +3,7 @@
 {% block subtitle %}{% endblock %}
 {% block body %}
 <div class="bf-actions"><a class="button secondary" href="{{ url_for('bf_invoices') }}">All invoices</a><a class="button secondary" href="{{ url_for('bf_invoices',_anchor='contacts') }}">Client billing contacts &amp; Xero choices</a></div>
-{% if not booking %}<p>To invoice a booked transfer at its agreed rate, open the booking in <a href="{{ url_for('bf_interstate_calendar') }}">Interstate Transfers</a> and select “Prepare transport invoice”.</p>{% endif %}
+{% if not booking %}<p>To invoice a booked transfer at its agreed rate, open the booking in <a href="{{ url_for('bf_interstate_calendar') }}">All Transfers</a> and select “Prepare transport invoice”.</p>{% endif %}
 <section class="bf-panel bf-pad">{% if error %}<p class="notice error" role="alert">{{ error }}</p>{% endif %}
 {% if not connected %}<p><a href="{{ url_for('bf_xero_settings') }}">Connect Xero</a> to prepare a draft.</p>{% else %}
 <form class="bf-form" method="post"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="draft_key" value="{{ key }}">
