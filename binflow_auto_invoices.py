@@ -16,6 +16,7 @@ import binflow_xero as xero
 from binflow_pickup_pricing import rate_text
 from binflow_pods import send_smtp
 from binflow_rental import report
+from binflow_sizes import amount
 
 FORTNIGHT_ANCHOR = date(1970, 1, 5)
 
@@ -32,6 +33,11 @@ def migrate(conn):
             tax_code TEXT NOT NULL, rental_account INTEGER REFERENCES bf_client_accounts(id));
         CREATE TABLE IF NOT EXISTS bf_pod_bill_to (
             client_id INTEGER PRIMARY KEY REFERENCES bf_clients(id), account_id INTEGER NOT NULL REFERENCES bf_client_accounts(id));
+        CREATE TABLE IF NOT EXISTS bf_auto_transfer_terms (
+            booking_id INTEGER PRIMARY KEY REFERENCES bf_interstate_bookings(id),
+            account_id INTEGER NOT NULL REFERENCES bf_client_accounts(id),
+            rate_cents INTEGER NOT NULL CHECK(rate_cents>0),fuel_bps INTEGER NOT NULL CHECK(fuel_bps>=0),
+            booking_version INTEGER NOT NULL,recorded_at TEXT NOT NULL,recorded_by TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS bf_billing_emails (
             account_id INTEGER PRIMARY KEY REFERENCES bf_client_accounts(id), email TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS bf_auto_drafts (
@@ -92,14 +98,22 @@ def reconcile(conn, stamp):
             [charge(f"pod:{j['id']}",desc,net,job_id=j['id'],pod_version=j['pod_version'])],problem)
 
     transfers = conn.execute("""SELECT b.*,a.name AS payer,p.number AS po,
+        f.account_id AS billing_account,f.rate_cents AS billing_rate,f.fuel_bps AS billing_fuel,
         COALESCE(b.bulk_delivered_at,t.signed_at,t.received_at) AS finished
-        FROM bf_interstate_bookings b LEFT JOIN bf_client_accounts a ON a.id=b.account_id
+        FROM bf_interstate_bookings b
+        LEFT JOIN bf_auto_transfer_terms f ON f.booking_id=b.id AND f.booking_version=b.version
+        LEFT JOIN bf_client_accounts a ON a.id=COALESCE(b.account_id,f.account_id)
         LEFT JOIN bf_interstate_purchase_orders p ON p.booking_id=b.id
         LEFT JOIN bf_interstate_manifests m ON m.booking_id=b.id LEFT JOIN bf_bale_transfers t ON t.id=m.transfer_id
         WHERE b.locked_at IS NOT NULL AND (b.bulk_delivered_at IS NOT NULL OR t.status IN ('received','handed_over'))
         AND NOT EXISTS(SELECT 1 FROM bf_rental_invoices x WHERE x.booking_id=b.id AND x.status!='cancelled')
         AND NOT EXISTS(SELECT 1 FROM bf_auto_claims c WHERE c.source='transfer:'||b.id) ORDER BY b.id""")
     for b in transfers:
+        b = dict(b)
+        if b['billing_account']:
+            b['account_id'] = b['account_id'] or b['billing_account']
+            if b['rate_cents'] is None:
+                b.update(rate_cents=b['billing_rate'],fuel_bps=b['billing_fuel'])
         entries = transport_lines(b)
         source = f"transfer:{b['id']}"
         lines = [charge(source,desc,rate) for desc,qty,rate in entries]
@@ -206,6 +220,18 @@ def register(app,db,require,render,now,actor):
                         t['code']==tx and float(t['rate'])==10 for t in opts.get('taxes',[])):
                         raise ValueError('Choose an income account and 10% sales GST code from the connected organisation.')
                     conn.execute('INSERT OR REPLACE INTO bf_billing_defaults VALUES(1,?,?,?,?)',(cfg['tenant_id'],ac,tx,aid))
+                elif action=='transfer_terms':
+                    transfer = conn.execute('SELECT * FROM bf_interstate_bookings WHERE id=?',(request.form.get('booking',type=int),)).fetchone()
+                    if (not transfer or transfer['cancelled_at'] or transfer['version']!=request.form.get('version',type=int)
+                            or transfer['account_id'] and transfer['account_id']!=aid
+                            or transfer['account_id'] and transfer['rate_cents'] is not None
+                            or conn.execute("SELECT 1 FROM bf_rental_invoices WHERE booking_id=? AND status!='cancelled'",(transfer['id'],)).fetchone()):
+                        raise ValueError('The transfer or its billing terms changed. Review the current record.')
+                    rate=transfer['rate_cents'] if transfer['rate_cents'] is not None else amount(request.form.get('base'),'Agreed freight price',1000000,100)
+                    fuel=transfer['fuel_bps'] if transfer['rate_cents'] is not None else amount(request.form.get('fuel'),'Agreed fuel percentage',100,100)
+                    if rate<=0: raise ValueError('Enter the agreed positive freight price.')
+                    conn.execute('INSERT OR REPLACE INTO bf_auto_transfer_terms VALUES(?,?,?,?,?,?,?)',
+                        (transfer['id'],aid,rate,fuel,transfer['version'],now(),actor()))
                 elif action=='routing':
                     cid=request.form.get('client_id',type=int)
                     if not conn.execute('SELECT 1 FROM bf_clients WHERE id=?',(cid,)).fetchone(): raise ValueError('Choose a collection client.')
@@ -220,7 +246,8 @@ def register(app,db,require,render,now,actor):
             except ValueError as exc:
                 conn.rollback();flash(str(exc),'error')
         cfg=xero.config(conn)
-        return render('auto_billing_setup',section='setup',defaults=conn.execute('SELECT * FROM bf_billing_defaults').fetchone(),
+        return render('auto_billing_setup',section='setup',
+            transfer=conn.execute('SELECT * FROM bf_interstate_bookings WHERE id=?',(request.args.get('booking',type=int),)).fetchone(),defaults=conn.execute('SELECT * FROM bf_billing_defaults').fetchone(),
             categories=categories(conn),accounts=contacts(conn,cfg['tenant_id']),options=opts,error=error,tenant=cfg['tenant_id'],
             connected=bool(cfg['tenant_id'] and cfg['token_cipher']),clients=conn.execute("""SELECT c.id,c.name,a.name AS payer
             FROM bf_clients c LEFT JOIN bf_pod_bill_to m ON m.client_id=c.id LEFT JOIN bf_client_accounts a ON a.id=m.account_id

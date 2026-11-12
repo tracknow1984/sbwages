@@ -378,6 +378,13 @@ def register(app, db, access, require, render, client_access, now, actor):
     def form_page(external, row=None):
         values = dict(row) if row else dict(job_type='internal',handling='bulk' if external else 'scanned',client_name=g.bf_client['name'] if external else '')
         aid = g.bf_client['id'] if external else (row['account_id'] if row else None)
+        payers = []
+        if not external and not aid and g.user['role']=='admin':
+            payers = db().execute('SELECT id,name FROM bf_client_accounts WHERE active=1 ORDER BY name,id').fetchall()
+            selected = request.args.get('bill_to',type=int)
+            if selected is not None:
+                if not any(a['id']==selected for a in payers): abort(400,'Choose an active billing client.')
+                aid = selected
         billing_name = None
         if external:
             billing_name = g.bf_client['name']
@@ -400,7 +407,7 @@ def register(app, db, access, require, render, client_access, now, actor):
             return page('interstate_form',external,values=values,key=key,row=row,error=error,rates=rate_card(db()),
                         hourly=hourly,bps=bps,minimum=freight.MIN_RIGID_HOURS,
                         booking_vehicles=('RIGID', *freight.MATRIX_VEHICLES),
-                        legacy_route=legacy_route,billing_name=billing_name,
+                        legacy_route=legacy_route,billing_name=billing_name,payers=payers,payer_id=aid,
                         priced=aid is not None,bulk_only=external)
         if not row and request.method=='GET' and request.args.get('pickup'):
             try:
@@ -441,6 +448,8 @@ def register(app, db, access, require, render, client_access, now, actor):
                         abort(409)
                     if not external:
                         reason = office_change_reason()
+                        if aid and not current['account_id']:
+                            data['account_id'] = aid
                         changed = {key for key,val in data.items() if current[key]!=val}
                         if not changed: raise ValueError('Change a load detail before saving.')
                         moving = bool(current['bulk_dispatched_at'] or manifest and manifest['status']=='transit')
@@ -458,7 +467,6 @@ def register(app, db, access, require, render, client_access, now, actor):
                 else:
                     if not re.fullmatch(r'[A-Za-z0-9_-]{20,100}',key):
                         raise ValueError('Reopen the new transfer form before submitting.')
-                    aid = g.bf_client['id'] if external else None
                     who = g.bf_client['name'] if external else actor()
                     old = conn.execute('SELECT id,account_id,created_by FROM bf_interstate_bookings WHERE request_key=?',(key,)).fetchone()
                     if old:

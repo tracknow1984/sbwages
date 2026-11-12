@@ -119,3 +119,23 @@ class AutoInvoiceTests(unittest.TestCase):
         records=self.rows('SELECT * FROM bf_auto_drafts ORDER BY kind')
         self.assertEqual([r['kind'] for r in records],['Bin Rental','Transport'])
         self.assertEqual(sum(i['net'] for i in json.loads(records[1]['lines'])),12500)
+
+    def test_office_load_billing_and_historical_transfer_terms(self):
+        from test_binflow_interstate import CAL
+        aid=self.configure()
+        form=data()
+        self.post(CAL+'/new?bill_to='+str(aid),form)
+        self.assertEqual(self.rows('SELECT account_id FROM bf_interstate_bookings')[0]['account_id'],aid)
+        self.post(CAL+'/new',data())
+        self.post(CAL+'/2/lock',dict(version=1))
+        self.post(CAL+'/2/bulk',dict(action='dispatch'));self.post(CAL+'/2/bulk',dict(action='deliver'))
+        self.client.get(BASE)
+        draft=self.rows("SELECT * FROM bf_auto_drafts WHERE group_key='transfer:2'")[0]
+        self.assertTrue(draft['issue'])
+        version=self.rows('SELECT version FROM bf_interstate_bookings WHERE id=2')[0]['version']
+        self.post('/binflow/setup/invoice-billing',dict(action='transfer_terms',tenant=billing.TENANT,
+            account_id=aid,booking=2,version=version,base='240',fuel='12.5'))
+        self.client.get(BASE)
+        draft=self.rows("SELECT * FROM bf_auto_drafts WHERE group_key='transfer:2'")[0]
+        self.assertEqual((draft['issue'],draft['account_id']),('',aid))
+        self.assertEqual([i['net'] for i in json.loads(draft['lines'])],[24000,3000])

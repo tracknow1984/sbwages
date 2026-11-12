@@ -17,6 +17,7 @@
 <a href="{{ url_for('bf_client_interstate' if external else 'bf_interstate_calendar') }}">← Transfer calendar</a>
 <section class="bf-panel bf-pad"><h2>{{ 'Modify load' if row and not external else 'Review booking details' if row else 'Request a transfer' }}</h2>
 {% if error %}<p class="notice error" role="alert">{{ error }}</p>{% endif %}
+{% if payers %}<form method="get" class="bf-filters"><label>Billing client<select name="bill_to" data-autosubmit><option value="">Use booking name</option>{% for a in payers %}<option value="{{ a.id }}" {{ 'selected' if payer_id==a.id }}>{{ a.name }}</option>{% endfor %}</select></label>{% if request.args.get('pickup') %}<input type="hidden" name="pickup" value="{{ request.args.pickup }}">{% endif %}<button class="secondary">Use billing client</button></form>{% endif %}
 <form method="post" class="bf-form it-form" data-it-booking data-rigid="{{ {'hourly':hourly,'bps':bps,'minimum':minimum,'legacyRoute':legacy_route}|tojson|forceescape }}" data-rates="{{ rates|tojson|forceescape }}" data-lanes="{{ lanes|tojson|forceescape }}">
   <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="request_key" value="{{ key }}">
   {% if row %}<input type="hidden" name="version" value="{{ row.version }}">{% endif %}
