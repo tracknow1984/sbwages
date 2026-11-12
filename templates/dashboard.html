@@ -4,6 +4,7 @@
 {% block content %}
 {% set queue = [
   ('Vehicle prestart holds', holds.total, 'prestart', url_for('admin_prestart_detail',prestart_id=holds.first_id) if holds.total else url_for('admin_prestart',failed=1)),
+  ('State schedules to review', approvals.pending, 'calendar', '#schedule-approvals'),
   ('Transfers to confirm', counts.confirmations, 'truck', url_for('bf_interstate_calendar')),
   ('Collection requests to action', counts.collections, 'requests', url_for('bf_collection_requests',status='attention')),
   ('Timesheets to process', unpaid.total, 'clock', url_for('view_sheet',sheet_id=unpaid.first_id) if unpaid.total else url_for('admin_timesheets')),
@@ -28,6 +29,19 @@
     </div>
     <a class="owner-tour" href="{{ url_for('admin_site_tour') }}">{{ icon('pin') }} Lot 3 site tour <span aria-hidden="true">↗︎</span></a>
   </header>
+
+  <section class="owner-card schedule-approvals" id="schedule-approvals" aria-labelledby="schedule-title">
+    <div class="owner-card-head">
+      <div><p class="owner-kicker">BinFlow · {{ approvals.start.strftime('%d %b %Y') }} – {{ approvals.end.strftime('%d %b %Y') }}</p>
+        <h2 id="schedule-title">Next week’s schedule approvals</h2></div>
+      {% if approvals.pending %}<strong class="decision-total has-open">{{ approvals.pending }} to review</strong>{% endif %}
+    </div>
+    <ul class="schedule-states">{% for s in approvals.states %}
+      <li><a class="schedule-state is-{{ s.status }}" href="{{ url_for('bf_collection_calendar',state=s.state,date=approvals.start.isoformat(),view='week') }}">
+        <strong>{{ s.state }}</strong><span class="schedule-indicator">{{ icon('check' if s.status=='approved' else 'clock' if s.status in ('pending','review') else 'calendar') }}{{ s.label }}</span>
+        {% if s.status=='approved' and s.approved_at %}<small>{{ s.approved_at|display_datetime }}{% if s.approver %} · {{ s.approver }}{% endif %}</small>{% endif %}
+      </a></li>{% endfor %}</ul>
+  </section>
 
   <div class="owner-grid">
     <section class="owner-card dispatch-card" id="dispatch" aria-labelledby="dispatch-title">

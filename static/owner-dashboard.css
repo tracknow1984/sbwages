@@ -98,6 +98,21 @@
 .owner-staff summary { padding: 13px 16px; cursor: pointer; font-size: 14px; font-weight: 700; }
 .owner-staff summary small { margin-left: 8px; font-weight: 500; }
 .owner-staff .owner-record-link { padding: 0 16px 10px; }
+.schedule-approvals { margin-top:20px; scroll-margin-top:1rem; }
+.schedule-states { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; list-style:none; padding:0; margin:16px 0 0; }
+.schedule-states li { min-width:0; }
+.schedule-state { display:flex; flex-direction:column; gap:5px; height:100%; box-sizing:border-box; padding:10px 12px; border:1px solid var(--line); border-left:3px solid #a2afb2; border-radius:7px; background:#f8faf9; color:var(--ink); }
+.schedule-state:hover { text-decoration:none; box-shadow:inset 0 0 0 1px currentColor; }
+.schedule-state strong { font-size:15px; }
+.schedule-indicator { display:flex; align-items:center; gap:5px; color:var(--muted); font-size:13px; }
+.schedule-state .bf-icon { width:15px; height:15px; }
+.schedule-state small { color:var(--muted); font-size:11px; }
+.schedule-state.is-pending,.schedule-state.is-review { border-left-color:#ba7b24; background:#fff9ed; }
+.schedule-state.is-approved { border-left-color:var(--teal); background:#eff7f4; }
+.is-pending .schedule-indicator,.is-review .schedule-indicator { color:#78480b; }
+.is-approved .schedule-indicator { color:#11685b; }
+@media(max-width:850px) { .schedule-states { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:390px) { .schedule-states { grid-template-columns:1fr; } }
 @media(max-width:850px) {
   .owner-grid { grid-template-columns: 1fr; }
   .owner-aerial { width: 70%; }

@@ -1,7 +1,11 @@
 """Read-only, cross-business figures for the SB Empire owner dashboard."""
+import json
 from datetime import timedelta
 
+from binflow_collections import occurs, profile_rows
 from binflow_interstate import PLACES
+from binflow_route_calendar import PRIMARY, START, clients, due, enabled
+from binflow_schedule import STATES
 
 
 def dispatch_outlook(conn, today, selected_date):
@@ -31,6 +35,59 @@ def dispatch_outlook(conn, today, selected_date):
                 jobs=jobs, pickups=pickups)
 
 
+def next_week_approvals(conn, today):
+    start = today + timedelta(days=7 - today.weekday())
+    end = start + timedelta(days=6)
+    weeks = {r['state']: r for r in conn.execute("""SELECT w.state,w.status,w.plan_json,w.approved_at,
+            u.first_name || ' ' || u.last_name AS approver FROM bf_schedule_weeks w
+            LEFT JOIN users u ON u.id=w.approved_by WHERE w.week_start=?""", (start.isoformat(),))}
+    jobs = conn.execute("""SELECT id,state,schedule_live FROM bf_jobs WHERE scheduled_date BETWEEN ? AND ?
+            AND status!='cancelled' AND approval_status!='rejected'""", (start.isoformat(), end.isoformat()))
+    job_ids = {state: set() for state in STATES}
+    live_ids = {state: set() for state in STATES}
+    for job in jobs:
+        if job['state'] in job_ids:
+            job_ids[job['state']].add(job['id'])
+            if job['schedule_live']:
+                live_ids[job['state']].add(job['id'])
+
+    # The calendar generates recurring visits and depot tasks before a week is first saved.
+    proposed = set()
+    if len(weeks) < len(STATES):
+        if enabled(conn):
+            if start >= START:
+                proposed.update(PRIMARY)  # The planner reserves a baling day in each primary state.
+                proposed.update(p['state'] for p in clients(conn) if p['state'] not in weeks and due(p, start))
+        else:
+            dates = [start + timedelta(days=i) for i in range(7)]
+            proposed = {p['state'] for p in profile_rows(conn) if any(occurs(p,day) for day in dates)}
+
+    states = []
+    for state in STATES:
+        row = weeks.get(state)
+        status, detail = 'empty', 'No work scheduled'
+        if row:
+            items = [item for day in json.loads(row['plan_json']).get('days', []) for item in day['items']]
+            planned_jobs = {item['job_id'] for item in items if item['kind']=='job'}
+            has_work = bool(planned_jobs & job_ids[state] or any(i['kind']!='job' for i in items))
+            additional_jobs = live_ids[state] - planned_jobs
+            if row['status']=='published' and additional_jobs:
+                status, detail = 'review', 'Additional jobs outside approved plan'
+            elif has_work and row['status']=='published':
+                status, detail = 'approved', 'Approved'
+            elif has_work or additional_jobs:
+                status, detail = 'pending', 'Awaiting approval'
+        elif state in proposed or job_ids[state]:
+            status, detail = 'pending', 'Awaiting approval'
+        states.append(dict(state=state, status=status, label=detail,
+                           approved_at=row['approved_at'] if row else None,
+                           approver=row['approver'] if row else None))
+    priority = {'review':0, 'pending':0, 'approved':1, 'empty':2}
+    states.sort(key=lambda s: priority[s['status']])
+    return dict(start=start, end=end, states=states,
+                pending=sum(s['status'] in ('pending','review') for s in states))
+
+
 def owner_overview(conn, today, selected_date):
     first = today.replace(day=1).isoformat()
     tomorrow = (today + timedelta(days=1)).isoformat()
@@ -56,4 +113,4 @@ def owner_overview(conn, today, selected_date):
             FROM bf_job_bins WHERE direction='collect' AND net_g IS NOT NULL AND weighed_at>=?
             AND weighed_at<?""", (first, tomorrow)).fetchone()
     return dict(counts=counts, holds=holds, unpaid=unpaid, payroll=payroll, handling=handling, material=material,
-                dispatch=dispatch_outlook(conn, today, selected_date))
+                approvals=next_week_approvals(conn, today), dispatch=dispatch_outlook(conn, today, selected_date))
