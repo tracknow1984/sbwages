@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BinFlow · PPS78169 · {{ stock|map(attribute='code')|join(', ') }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='binflow-bin-labels.css') }}">
+  <script src="{{ url_for('static', filename='binflow-bin-labels.js') }}" defer></script>
+</head>
+<body class="label-preview">
+  <header class="sheet-toolbar">
+    <div><h1>Bin QR labels · PPS78169</h1><p>A4 portrait · Actual size (100%) · One copy</p></div>
+    <a href="{{ url_for('bf_labels', bin=selected, condition='archived' if archived else none) }}">Change selection</a>
+    <a href="{{ url_for('bf_labels', condition='archived' if archived else none) }}">New batch</a>
+    <a href="{{ url_for('bf_inventory', condition='archived' if archived else none) }}">Back to bin register</a>
+    <button type="button" disabled data-sheet-print>Print sheet</button>
+    <p role="alert" data-sheet-error hidden>A label image could not load. Refresh the page before printing.</p>
+    <noscript>Use your browser’s Print command to print this sheet.</noscript>
+  </header>
+  <main class="label-paper"><div class="label-grid">
+    {% for b in stock %}
+    <article class="bin-sticker" aria-label="QR label for {{ b.code }}">
+      <img class="bin-sticker-logo" src="{{ url_for('static', filename='blocktexx-logo-tagline.png') }}" alt="BlockTexx">
+      <div class="bin-sticker-scan"><img class="bin-sticker-qr" src="{{ url_for('bf_qr_image',bin_id=b.id) }}" alt="QR for {{ b.code }}">
+        <h2>SCAN HERE</h2><strong>1800 672 274</strong>
+      </div>
+      <div class="bin-sticker-details"><strong>{{ b.code }}</strong><span>SIZE - {{ b.litres }}L</span></div>
+    </article>
+    {% endfor %}
+  </div></main>
+</body>
+</html>

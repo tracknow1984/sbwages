@@ -1,107 +1,41 @@
-.bin-stickers {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 310px), 1fr));
-  gap: 20px;
-  align-items: start;
-}
-
-.bin-sticker {
-  box-sizing: border-box;
-  container-type: inline-size;
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  justify-content: space-between;
-  aspect-ratio: 3 / 4;
-  padding: 6.5%;
-  color: #111;
-  background: #fff;
-  border: 2px solid #111;
-  font-family: Arial, Helvetica, sans-serif;
-}
-
-.bin-sticker-logo {
-  display: block;
-  width: 78%;
-  height: auto;
-  margin-inline: auto;
-}
-
-.bin-sticker-scan {
-  display: grid;
-  justify-items: center;
-}
-
-.bin-sticker-qr {
-  display: block;
-  width: 73%;
-  height: auto;
-  aspect-ratio: 1;
-  image-rendering: pixelated;
-}
-
-.bin-sticker .bin-sticker-scan h2 {
-  margin: 1.5cqw 0 0;
-  color: #111;
-  font: 700 7cqw/1.1 Arial, Helvetica, sans-serif;
-  letter-spacing: -.035em;
-}
-
-.bin-sticker-details {
-  padding-top: 3cqw;
-  border-top: 0.5mm solid #111;
-}
-
-.bin-sticker-id {
-  display: block;
-  font-size: 10cqw;
-  font-weight: 700;
-  letter-spacing: -.025em;
-  line-height: 1.1;
-}
-
-.bin-sticker-identity,
-.bin-sticker-meta {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 2cqw;
-}
-
-.bin-sticker-meta {
-  font-weight: 700;
-  margin-top: 2cqw;
-  font-size: 4cqw;
-  line-height: 1.2;
-}
-
-.bin-sticker-operator {
-  font-size: 3cqw;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: .04em;
-}
+.label-picker [hidden], .sheet-toolbar [hidden] { display: none !important; }
+.label-picker { max-width: 960px; }
+.label-picker .label-actions, .sheet-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 18px; }
+.label-actions strong { color: #163b49; margin-right: auto; }
+.label-picker .label-search { display: grid; margin-block: 20px 14px; gap: 5px; }
+.label-picker fieldset { min-width: 0; margin: 0; border: 0; padding: 0; }
+.label-picker legend { font-weight: 700; margin-bottom: 10px; }
+.label-options { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,240px),1fr)); gap: 8px; }
+.label-picker .label-option { display: flex; align-items: center; gap: 11px; cursor: pointer; padding: 12px; border: 1px solid #cddbdd; border-radius: 8px; }
+.label-option:has(:checked) { background: #e8f5f3; border-color: #248477; }
+.label-option:has(:focus-visible) { outline: 2px solid #186b80; }
+.label-option input[type="checkbox"] { width: 18px; height: 18px; margin: 0; min-height: 0; flex: none; }
+.label-option small { display: block; font-size: 12px; color: #526870; }
+.label-preview { margin: 0; font: 15px/1.4 Arial, Helvetica, sans-serif; color: #122d39; background: #edf1f3; }
+.sheet-toolbar { max-width: 1050px; margin: 0 auto; padding: 16px; }
+.sheet-toolbar h1 { margin: 0; font-size: 19px; }
+.sheet-toolbar p { margin: 3px 0 0; }
+.sheet-toolbar a { color: #065f67; }
+.sheet-toolbar button { border: 0; border-radius: 7px; padding: 11px 17px; color: white; background: #13495b; font-weight: 700; cursor: pointer; }
+.sheet-toolbar button:disabled { opacity: .5; }
+.label-paper { position: relative; width: min(210mm,100%); aspect-ratio: 210/297; margin: 0 auto 24px; background: white; box-shadow: 0 3px 12px #10283826; }
+.label-grid { position: absolute; inset: 3.19865% 2.20476%; display: grid; grid-template: repeat(2,minmax(0,1fr)) / repeat(2,minmax(0,1fr)); column-gap: 1.2653%; }
+.bin-sticker { box-sizing: border-box; container-type: inline-size; padding: 5% 6%; display: flex; flex-direction: column; align-items: stretch; justify-content: space-between; color: #080808; outline: 1px dashed #b8c6ca; }
+.bin-sticker-logo { display: block; width: 76%; height: auto; margin-inline: auto; }
+.bin-sticker-scan { display: grid; justify-items: center; line-height: 1.15; }
+.bin-sticker-qr { display: block; width: 74%; height: auto; aspect-ratio: 1; image-rendering: pixelated; }
+.bin-sticker h2 { margin: 0; font: bold 8cqw/1.1 Arial, Helvetica, sans-serif; }
+.bin-sticker-scan strong { font-size: 5cqw; margin-top: 1cqw; }
+.bin-sticker-details { border-top: 0.45mm solid #171717; padding-top: 2cqw; font-weight: 700; line-height: 1.15; }
+.bin-sticker-details strong { display: block; font-size: 10cqw; }
+.bin-sticker-details span { font-size: 5cqw; }
 
 @media print {
-  @page { size: 150mm 200mm; margin: 5mm; }
-
-  .bin-stickers { display: block; }
-
-  .bin-sticker {
-    width: 140mm;
-    height: 190mm;
-    padding: 4mm 5mm;
-    border: 0.75mm solid #111;
-    break-inside: avoid;
-  }
-
-  .bin-sticker + .bin-sticker { break-before: page; }
-
-  .bin-sticker-logo { width: 102mm; }
-  .bin-sticker-qr { width: 94mm; height: 94mm; }
-  .bin-sticker .bin-sticker-scan h2 { margin-top: 2mm; font-size: 9mm; }
-  .bin-sticker-details { padding-top: 4mm; }
-  .bin-sticker-id { font-size: 13mm; }
-  .bin-sticker-meta { margin-top: 2mm; gap: 3mm; font-size: 5mm; }
-  .bin-sticker-operator { font-size: 4mm; }
+  @page { size: A4 portrait; margin: 0; }
+  html, .label-preview { margin: 0; padding: 0; background: white; }
+  .sheet-toolbar { display: none; }
+  .label-paper { width: 210mm; height: 297mm; margin: 0; box-shadow: none; break-inside: avoid; }
+  /* PPS78169 uses the L7169 die cut. The 2.54 mm gutter is horizontal only. */
+  .label-grid { inset: 9.5mm auto auto 4.63mm; grid-template: repeat(2,139mm) / repeat(2,99.1mm); gap: 0 2.54mm; }
+  .bin-sticker { width: 99.1mm; height: 139mm; padding: 5mm 6mm; outline: none; break-inside: avoid; }
 }

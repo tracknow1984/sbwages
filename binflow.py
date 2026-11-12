@@ -596,11 +596,28 @@ def register_binflow(app, db, require):
     @app.get('/binflow/labels')
     @access
     def bf_labels():
-        raw = request.args.getlist('bin')
-        if not raw or len(raw) > 200 or any(not v.isdigit() for v in raw):
-            abort(400, 'Select 1–200 bins to print labels.')
-        stock = bins('b.id IN (' + ','.join('?' for _ in raw) + ')', raw, include_archived=True)
-        return render('labels', section='bins', stock=stock)
+        selected = request.args.getlist('bin')
+        sheet = request.args.get('output') == 'sheet'
+        archived = request.args.get('condition') == 'archived'
+        if (len(selected) > 4 or len(set(selected)) != len(selected)
+                or any(not re.fullmatch(r'[1-9][0-9]{0,18}', key) for key in selected)):
+            abort(400, 'Choose four different bins for one PPS78169 sheet.')
+        if sheet and len(selected) != 4:
+            abort(400, 'Select exactly four bins before printing a PPS78169 sheet.')
+        selected_ids = [int(key) for key in selected]
+        chosen = []
+        if selected:
+            marks = ','.join('?' for _ in selected)
+            found = {row['id']: row for row in bins(f'b.id IN ({marks})', selected, include_archived=True)}
+            if len(found) != len(selected):
+                abort(400, 'A selected bin is unavailable. Return to the register and choose the batch again.')
+            chosen = [found[key] for key in selected_ids]
+        if sheet:
+            return render('label_sheet', section='bins', stock=chosen, selected=selected_ids, archived=archived)
+        options = {row['id']: row for row in bins('b.archived=?', (int(archived),), include_archived=archived)}
+        options.update((row['id'], row) for row in chosen)
+        return render('labels', section='bins', stock=sorted(options.values(), key=lambda row: row['id']),
+                      selected=selected_ids, archived=archived)
 
     @app.get('/binflow/pickups')
     @access

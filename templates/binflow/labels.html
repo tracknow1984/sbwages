@@ -1,37 +1,30 @@
-{% extends 'base.html' %}
-{% block content %}
-<link rel="stylesheet" href="{{ url_for('static', filename='binflow.css') }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='binflow-bin-labels.css') }}">
-<script src="{{ url_for('static', filename='binflow.js') }}" defer></script>
-<div class="bf">
-  <div class="bf-toolbar no-print">
-    <div>
-      <h1>Individual bin QR labels</h1>
-      <p>Print at actual size on 150 × 200 mm stock. Select two copies for the front and lid.</p>
-    </div>
-    <div class="bf-actions">
-      <a class="button secondary" href="{{ url_for('bf_inventory') }}">← Back to bin register</a>
-      <button class="primary" data-print>Print labels</button>
-    </div>
+{% extends 'binflow/layout.html' %}
+{% block title %}Select four bin labels{% endblock %}
+{% block subtitle %}PPS78169 · A4 portrait · 99.1 × 139 mm per label{% endblock %}
+{% block body %}
+<link rel="stylesheet" href="{{ url_for('static',filename='binflow-bin-labels.css') }}">
+<script src="{{ url_for('static',filename='binflow-bin-labels.js') }}" defer></script>
+<form class="label-picker bf-panel bf-pad" method="get" action="{{ url_for('bf_labels') }}" data-label-picker>
+  <input type="hidden" name="output" value="sheet">
+  {% if archived %}<input type="hidden" name="condition" value="archived">{% endif %}
+  <div class="label-actions">
+    <strong role="status" aria-live="polite" data-batch-count>{{ selected|length }} of 4 selected</strong>
+    <button type="submit" class="primary">Print 4 labels</button>
+    <a href="{{ url_for('bf_inventory',condition='archived' if archived else none) }}">Back to bin register</a>
   </div>
-  <div class="bin-stickers">
-    {% for b in stock %}
-    <article class="bin-sticker" aria-label="QR label for {{ b.code }}">
-      <img class="bin-sticker-logo" src="{{ url_for('static', filename='blocktexx-logo-tagline.png') }}"
-           width="2048" height="647" alt="BlockTexx – Textile recovery technologies">
-      <div class="bin-sticker-scan">
-        <img class="bin-sticker-qr" src="{{ url_for('bf_qr_image', bin_id=b.id) }}"
-             width="320" height="320" alt="QR for {{ b.code }}">
-        <h2>SCAN HERE</h2>
-        <strong class="bin-sticker-meta">1800 672 274</strong>
+  {% if stock %}
+    <label class="label-search" hidden>Find a bin<input type="search" placeholder="Bin ID, size, state or location" data-bin-search></label>
+    <fieldset><legend>Choose four different bins</legend>
+      <div class="label-options">
+      {% for b in stock %}
+        <label class="label-option"><input type="checkbox" name="bin" value="{{ b.id }}"{% if b.id in selected %} checked{% endif %}>
+          <span><strong>{{ b.code }}</strong><small>{{ b.litres }}L · {{ b.state }} · {{ b.location_name or 'In transit' }}{% if b.archived %} · Archived{% endif %}</small></span>
+        </label>
+      {% endfor %}
       </div>
-      <div class="bin-sticker-details">
-        <strong class="bin-sticker-id">{{ b.code }}</strong>
-        <span class="bin-sticker-meta">SIZE - {{ b.litres }}L</span>
-      </div>
-    </article>
-    {% endfor %}
-  </div>
-</div>
-{% include 'binflow/page_guide.html' %}
+      <p data-no-match hidden>No matching bins. Try another bin ID or location.</p>
+    </fieldset>
+  {% else %}<p>No bins are available in this register.</p>{% endif %}
+  {% if stock|length < 4 %}<p>Four different bins are required to print one sheet.</p>{% endif %}
+</form>
 {% endblock %}

@@ -330,6 +330,21 @@ class BinFlowTests(unittest.TestCase):
         self.assertEqual(self.post('/binflow/bins',{'warehouse_id':1,'size_id':1,'quantity':1,'tare':0}).status_code,403)
         self.assertEqual(self.client.get('/employee/dashboard').status_code,200)
 
+    def test_pps78169_sheet_requires_four_different_existing_bins(self):
+        picker = self.client.get('/binflow/labels?bin=2')
+        self.assertEqual(picker.status_code, 200)
+        self.assertIn(b'Select four bin labels', picker.data)
+        self.assertIn(b'value="2" checked', picker.data)
+        route = '/binflow/labels?output=sheet'
+        for values in ([], [1], [1,2,3], [1,2,3,4,5], [1,2,2,4], [1,2,3,99999]):
+            response = self.client.get(route + ''.join(f'&bin={key}' for key in values))
+            self.assertEqual(response.status_code, 400, values)
+        sheet = self.client.get(route+'&bin=4&bin=2&bin=1&bin=3')
+        self.assertEqual(sheet.status_code, 200)
+        self.assertEqual(sheet.text.count('class="bin-sticker-qr"'), 4)
+        positions = [sheet.text.index(f'aria-label="QR label for BF{key:06d}"') for key in (4,2,1,3)]
+        self.assertEqual(positions, sorted(positions))
+
     def test_unique_qr_labels_and_no_public_customer_data(self):
         tokens=[r['token'] for r in self.rows('SELECT token FROM bf_bins ORDER BY id')]
         self.assertEqual(len(set(tokens)),6)
