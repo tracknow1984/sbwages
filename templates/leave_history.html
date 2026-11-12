@@ -1,0 +1,8 @@
+{% extends 'base.html' %}
+{% block content %}
+  <div class="page-heading">
+    <h1>Annual leave history</h1>
+    <a class="button secondary" href="{{ url_for('employee_leave') }}">Request annual leave</a>
+  </div>
+  <section class="panel" aria-label="My leave requests">{% include 'leave_table.html' %}</section>
+{% endblock %}

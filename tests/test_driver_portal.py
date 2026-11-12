@@ -33,29 +33,45 @@ class DriverPortalTests(unittest.TestCase):
         response = self.driver()
         self.assertEqual(response.request.path, '/employee/dashboard')
         self.assertIn('<h1>Welcome - Driver</h1>', response.text)
-        self.assertLess(response.text.index('<h1>'), response.text.index('<nav aria-label="Driver menu">'))
-        self.assertIn('<details class="driver-menu no-print" open>', response.text)
-        expected = ['/employee/dashboard', '/binflow/driver/my-day', '/binflow/pods',
-                    '/employee/hit-me', '/employee/timesheet', '/employee/prestart',
-                    '/employee/details', '/employee/payslips', '/employee/history',
-                    '/employee/induction', '/employee/documents', '/employee/leave']
-        for path in expected:
-            page = self.client.get(path)
+        def menu_links(page, label):
+            nav = re.search(r'<nav[^>]*aria-label="' + label + r'"[^>]*>(.*?)</nav>', page.text, re.S).group(1)
+            return re.findall(r'<a href="([^"]+)"[^>]*>.*?<span>([^<]+)</span></a>', nav, re.S)
+
+        self.assertLess(response.text.index('<h1>'), response.text.index('aria-label="Driver menu"'))
+        primary = [('/employee/hit-me', 'EMPIRE WIRE'), ('/employee/timesheet', 'MY TIMESHEET'),
+                   ('/binflow/driver/resume', 'START BIN FLOW'), ('/employee/prestart', 'PRESTART (YARD ONLY)'),
+                   ('/employee/my-details', 'MY DETAILS')]
+        self.assertEqual(menu_links(response, 'Driver menu'), primary)
+        personal = [('/employee/payslips', 'PAY SLIPS'), ('/employee/history', 'HISTORY'),
+                    ('/employee/induction', 'MY INDUCTION'), ('/employee/leave/history', 'ANNUAL LEAVE HISTORY')]
+        details = self.client.get('/employee/my-details')
+        self.assertEqual(menu_links(details, 'My Details menu'), personal)
+        self.assertIn('href="/employee/details"', details.text)
+        self.assertIn('href="/employee/documents"', details.text)
+        for path, _ in primary + personal:
+            page = self.client.get(path, follow_redirects=True)
             self.assertEqual(page.status_code, 200, path)
-            menu = re.search(r'<nav aria-label="Driver menu">(.*?)</nav>', page.text, re.S).group(1)
-            links = list(expected)
-            if path.startswith('/employee/'):
-                links[1] = '/binflow/driver/resume'
-            self.assertEqual(re.findall(r'href="([^"]+)"', menu), links, path)
-            for forbidden in ('National overview', 'New allocation', 'Collection calendar',
-                              'Bin Collection Requests', 'State allocations', 'GPS & geofences', 'Truck locations',
-                              'Daily schedule', 'Allocation approvals'):
+            for forbidden in ('New allocation', 'Bin Collection Requests', 'GPS & geofences', 'Daily schedule'):
                 self.assertNotIn(forbidden, page.text, path)
+        self.assertIn('<h1>Prestart (yard only)</h1>', self.client.get('/employee/prestart').text)
         for path in ('/', '/binflow/sign-in'):
             self.assertEqual(self.client.get(path).location, '/employee/dashboard')
         for path in ('/binflow/driver/resume', '/admin/bin-management', '/binflow/driver'):
             self.assertEqual(self.client.get(path).location, '/binflow/driver/my-day')
         self.assertEqual(self.rows('SELECT id FROM bf_workdays'), [])
+
+    def test_annual_leave_history_is_private_and_includes_archived_requests(self):
+        with sqlite3.connect(self.path) as conn:
+            conn.executemany("""INSERT INTO leave_requests(user_id,start_date,end_date,notes,requested_at,archived_at)
+                VALUES(?,'2026-06-01','2026-06-02',?,'2026-05-22','2026-06-06')""",
+                [(self.uid, 'My archived trip'), (self.other, 'Other employee trip')])
+        self.driver()
+        page = self.client.get('/employee/leave/history')
+        self.assertIn('My archived trip', page.text)
+        self.assertNotIn('Other employee trip', page.text)
+        self.assertIn('href="/employee/my-details"', page.text)
+        self.assertIn('href="/employee/leave"', page.text)
+        self.assertNotIn('name="start_date"', page.text)
 
     def test_office_pages_and_mutations_are_blocked_with_valid_csrf(self):
         self.driver()

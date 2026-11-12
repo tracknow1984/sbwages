@@ -1,12 +1,23 @@
-<details class="driver-menu no-print"{% if tab == 'home' %} open{% endif %}>
-  <summary>Menu <span>{{ {'home':'Dashboard', 'binflow':('BINFLOW · '+(binflow_state or 'State not allocated')), 'hit-me':'Empire Wire', 'timesheet':'My timesheet', 'prestart':'Prestart', 'details':'My details', 'payslips':'Pay slips', 'history':'History', 'documents':'Documents', 'leave':'Annual leave'}.get(tab, 'Driver portal') }}</span></summary>
-  <nav aria-label="Driver menu">
-    <a href="{{ url_for('employee_dashboard') }}"{% if tab == 'home' %} aria-current="page"{% endif %}>Dashboard</a>
-    {% for key,label,endpoint in [('driver','BINFLOW · Driver day','bf_workday' if tab == 'binflow' else 'bf_resume'),('pods','Daily PODs','bf_daily_pods')] %}
-    <a href="{{ url_for(endpoint) }}"{% if tab=='binflow' and section==key %} aria-current="page"{% endif %}>{{ label }}</a>
-    {% endfor %}
-    {% for key,label,endpoint in [('hit-me','Empire Wire','employee_hit_me'),('timesheet','My timesheet','employee_timesheet'),('prestart','Prestart','employee_prestart'),('details','My details','employee_details'),('payslips','Pay slips','employee_payslips'),('history','History','history'),('induction','My induction','employee_induction'),('documents','Documents','employee_documents'),('leave','Annual leave','employee_leave')] %}
-    <a href="{{ url_for(endpoint) }}"{% if tab==key %} aria-current="page"{% endif %}>{{ label }}</a>
-    {% endfor %}
-  </nav>
-</details>
+{% from 'binflow/icons.html' import icon %}
+{% set personal = tab == 'details-menu' %}
+{% if personal %}
+  {% set actions = [
+    ('PAY SLIPS', 'employee_payslips', 'invoice'),
+    ('HISTORY', 'history', 'clock'),
+    ('MY INDUCTION', 'employee_induction', 'pod'),
+    ('ANNUAL LEAVE HISTORY', 'employee_leave_history', 'calendar')
+  ] %}
+{% else %}
+  {% set actions = [
+    ('EMPIRE WIRE', 'employee_hit_me', 'broadcast'),
+    ('MY TIMESHEET', 'employee_timesheet', 'clock'),
+    ('START BIN FLOW', 'bf_resume', 'truck'),
+    ('PRESTART (YARD ONLY)', 'employee_prestart', 'prestart'),
+    ('MY DETAILS', 'employee_details_menu', 'clients')
+  ] %}
+{% endif %}
+<nav class="driver-menu-list no-print" aria-label="{{ 'My Details menu' if personal else 'Driver menu' }}">
+  {% for label, endpoint, symbol in actions %}
+    <a href="{{ url_for(endpoint) }}"{% if endpoint == 'bf_resume' %} class="driver-menu-start"{% endif %}>{{ icon(symbol) }}<span>{{ label }}</span></a>
+  {% endfor %}
+</nav>

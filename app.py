@@ -623,6 +623,13 @@ def create_app(test_config=None):
                 return redirect(url_for('login', audience='employee'))
         return render_template('activate.html', invitation=invitation)
 
+    @app.get('/employee/my-details')
+    @require('employee')
+    def employee_details_menu():
+        if not is_driver(db(), g.user):
+            return redirect(url_for('employee_details'))
+        return render_template('driver_details_menu.html', tab='details-menu')
+
     @app.route('/employee/details', methods=['GET', 'POST'])
     @require('employee')
     def employee_details():
@@ -1502,6 +1509,12 @@ def create_app(test_config=None):
                     return redirect(url_for('view_document', document_id=document_id))
         sent = db().execute('SELECT recipient,sent_at FROM document_emails WHERE document_id=? ORDER BY id DESC', (document_id,)).fetchall()
         return render_template('document_email.html', document=doc, sent=sent, tab='documents')
+
+    @app.get('/employee/leave/history')
+    @require('employee')
+    def employee_leave_history():
+        return render_template('leave_history.html', requests=leave_rows(user_id=g.user['id']),
+                               admin_view=False, tab='leave')
 
     @app.route('/employee/leave', methods=['GET', 'POST'])
     @require('employee')
