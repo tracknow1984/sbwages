@@ -1,6 +1,102 @@
-{% extends 'base.html' %}{% block content %}
-<div class="page-heading"><div><span class="eyebrow">ADMINISTRATION</span><h1>Admin dashboard</h1><p class="muted">Review staff documents and annual leave requests.</p></div><a class="button primary" href="{{ url_for('admin_hit_me') }}">Send EMPIRE WIRE notice</a></div>
-<div class="metrics"><div><span>Active documents</span><strong>{{ counts.documents }}</strong><a href="{{ url_for('admin_documents') }}">View documents →</a></div><div class="highlight"><span>Leave awaiting approval</span><strong>{{ counts.leave }}</strong><a href="{{ url_for('admin_leave') }}">Review leave →</a></div><div><span>Active staff</span><strong>{{ counts.staff }}</strong><a href="{{ url_for('admin_staff') }}">Manage staff →</a></div></div>
-<section class="panel feature-panel"><div class="panel-head"><h2>Latest staff documents</h2><a href="{{ url_for('admin_documents') }}">View all</a></div>{% include 'document_table.html' %}</section>
-<section class="panel feature-panel"><div class="panel-head"><h2>Annual leave awaiting approval</h2><a href="{{ url_for('admin_leave') }}">View all</a></div>{% include 'leave_table.html' %}</section>
+{% extends 'base.html' %}
+{% from 'binflow/icons.html' import icon %}
+{% block browser_title %}Business overview · SB Empire{% endblock %}
+{% block content %}
+{% set queue = [
+  ('Vehicle prestart holds', holds.total, 'prestart', url_for('admin_prestart_detail',prestart_id=holds.first_id) if holds.total else url_for('admin_prestart',failed=1)),
+  ('Transfers to confirm', counts.confirmations, 'truck', url_for('bf_interstate_calendar')),
+  ('Collection requests to action', counts.collections, 'requests', url_for('bf_collection_requests',status='attention')),
+  ('Timesheets to process', unpaid.total, 'clock', url_for('view_sheet',sheet_id=unpaid.first_id) if unpaid.total else url_for('admin_timesheets')),
+  ('Leave requests to approve', counts.leave, 'calendar', url_for('admin_leave'))
+] %}
+{% set selected = dispatch.selected %}
+<div class="owner-overview">
+  <header class="owner-hero">
+    <img class="owner-aerial" src="{{ url_for('site_tour_media',view_id='overview') }}" alt="">
+    <div class="owner-hero-content">
+      <p class="owner-date"><time datetime="{{ today.isoformat() }}">{{ today.strftime('%A, %d %B %Y') }}</time><span>Brisbane</span></p>
+      <h1>Business overview</h1>
+      <div class="owner-today">
+        {% for label, value, href in [
+          ('Active employees', counts.staff, url_for('admin_staff')),
+          ('Published BinFlow jobs today', dispatch.today.jobs, url_for('bf_collection_calendar',date=today.isoformat())),
+          ('Traxpress jobs today', counts.handling_today, url_for('tx_handling'))
+        ] %}
+          <a href="{{ href }}"><strong>{{ value }}</strong><span>{{ label }}</span></a>
+        {% endfor %}
+      </div>
+    </div>
+    <a class="owner-tour" href="{{ url_for('admin_site_tour') }}">{{ icon('pin') }} Lot 3 site tour <span aria-hidden="true">↗︎</span></a>
+  </header>
+
+  <div class="owner-grid">
+    <section class="owner-card dispatch-card" id="dispatch" aria-labelledby="dispatch-title">
+      <div class="owner-card-head">
+        <div><p class="owner-kicker">Next seven days</p><h2 id="dispatch-title">Dispatch outlook</h2></div>
+        <div class="owner-legend"><span>Published jobs</span><span>Confirmed pickups</span></div>
+      </div>
+      <nav class="dispatch-chart" aria-label="Select a dispatch day">
+        {% for day in dispatch.days %}
+          {% set total = day.jobs + day.pickups %}
+          <a href="{{ url_for('admin_dashboard',dispatch=day.date.isoformat(),_anchor='dispatch') }}"
+             aria-label="{{ day.date.strftime('%A %d %B') }}, {{ day.jobs }} published jobs and {{ day.pickups }} confirmed pickups"{% if day.date == selected.date %} aria-current="true"{% endif %}>
+            <strong>{{ total }}</strong>
+            <svg viewBox="0 0 40 84" width="40" height="84" aria-hidden="true" focusable="false">
+              {% if total %}
+                <rect class="dispatch-job" x="6" y="{{ 82 - day.jobs_height }}" width="28" height="{{ day.jobs_height }}"/>
+                <rect class="dispatch-pickup" x="6" y="{{ 82 - day.jobs_height - day.pickups_height }}" width="28" height="{{ day.pickups_height }}"/>
+              {% else %}<path d="M9 81h22" class="dispatch-zero"/>{% endif %}
+            </svg>
+            <span>{{ 'Today' if loop.first else day.date.strftime('%a') }}</span><small>{{ day.date.strftime('%d %b') }}</small>
+          </a>
+        {% endfor %}
+      </nav>
+      <div class="dispatch-detail">
+        <div class="dispatch-heading"><h3>{{ selected.date.strftime('%A, %d %b') }}</h3>
+          <div><a href="{{ url_for('bf_collection_calendar',date=selected.date.isoformat(),view='week') }}">Collection calendar</a><a href="{{ url_for('bf_interstate_calendar',date=selected.date.isoformat(),view='week') }}">All transfers</a></div>
+        </div>
+        {% if dispatch.jobs or dispatch.pickups %}
+          <ul class="dispatch-records">
+          {% for job in dispatch.jobs %}<li><a href="{{ url_for('bf_job',job_id=job.id) }}"><span class="dispatch-ref">{{ job.code }}</span><span data-record-text>{{ job.site_name }}</span><small>{{ job.state }}</small></a></li>{% endfor %}
+          {% for pickup in dispatch.pickups %}<li><a href="{{ url_for('bf_interstate_detail',bid=pickup.id) }}"><span class="dispatch-ref pickup-ref">IT-{{ '%06d'|format(pickup.id) }}</span><span>{{ pickup.origin }} → {{ pickup.destination }}</span><small>Pickup</small></a></li>{% endfor %}
+          </ul>
+          {% if selected.jobs > 2 or selected.pickups > 2 %}<p class="dispatch-note">Showing {{ dispatch.jobs|length + dispatch.pickups|length }} of {{ selected.jobs + selected.pickups }} records. Open the calendars for the full day.</p>{% endif %}
+        {% else %}<p class="dispatch-note">No published jobs or confirmed transfer pickups for this day.</p>{% endif %}
+      </div>
+    </section>
+
+    <section class="owner-card decision-card" aria-labelledby="decisions-title">
+      <div class="owner-card-head">
+        <h2 id="decisions-title">Needs attention</h2>
+        {% set total_open = queue|sum(attribute=1) %}
+        <span class="decision-total{{ ' has-open' if total_open }}">{{ '%s open'|format(total_open) if total_open else 'All clear' }}</span>
+      </div>
+      <ul class="decision-list">
+      {% for label, count, symbol, href in (queue|selectattr(1)|list + queue|rejectattr(1)|list) %}
+        <li><a href="{{ href }}"{% if count %} class="has-items"{% endif %}>{{ icon(symbol) }}<span>{{ label }}</span><strong>{{ count }}</strong><span class="owner-arrow" aria-hidden="true">›</span></a></li>
+      {% endfor %}
+      </ul>
+      <a class="owner-wire" href="{{ url_for('admin_hit_me') }}">{{ icon('broadcast') }} Send Empire Wire notice <span aria-hidden="true">↗︎</span></a>
+    </section>
+  </div>
+
+  <section aria-labelledby="month-title" class="owner-month">
+    <div class="owner-section-head"><h2 id="month-title">Month to date</h2><span>{{ today.strftime('%B %Y') }}</span></div>
+    <div class="month-ledger">
+      {% for label, value, detail, symbol, href in [
+        ('Payroll processed', payroll.cents|money, 'Gross pay · %s payment%s'|format(payroll.records,'' if payroll.records==1 else 's'), 'invoice', url_for('admin_timesheets')),
+        ('BinFlow material weighed', '{:,.3f} t'.format(material.grams / 1000000), 'Net weight · %s bin weigh-in%s'|format(material.bins,'' if material.bins==1 else 's'), 'bin', url_for('bf_warehouse')),
+        ('Traxpress handling charges', handling.cents|money, 'Ex GST · %s handling job%s'|format(handling.records,'' if handling.records==1 else 's'), 'truck', url_for('tx_handling'))
+      ] %}
+      <a href="{{ href }}">{{ icon(symbol) }}<span>{{ label }}</span><strong>{{ value }}</strong><small>{{ detail }}</small></a>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="owner-staff" aria-labelledby="staff-records-title">
+    <div class="owner-section-head"><h2 id="staff-records-title">Staff records</h2></div>
+    <details><summary>Latest staff documents <small>{{ counts.documents }} active</small></summary><p class="owner-record-link"><a href="{{ url_for('admin_documents') }}">View all documents →</a></p>{% include 'document_table.html' %}</details>
+    <details><summary>Annual leave requests <small>{{ counts.leave }} awaiting approval</small></summary><p class="owner-record-link"><a href="{{ url_for('admin_leave') }}">View all leave →</a></p>{% include 'leave_table.html' %}</details>
+  </section>
+</div>
 {% endblock %}

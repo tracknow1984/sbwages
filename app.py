@@ -20,6 +20,7 @@ from PIL import Image
 from document_uploads import read_document
 from werkzeug.security import check_password_hash, generate_password_hash
 from lunch import deduct_lunch, migrate_lunch
+from owner_dashboard import owner_overview
 from employee_induction import EDITION, enforce_employee_induction, needs_signature, register_induction
 from entry_recording import migrate_recording, stamp_entry, recording_details, recording_datetime
 from work_weeks import WORK_WEEKS, profile_end, profile_start, saved_period
@@ -1406,11 +1407,15 @@ def create_app(test_config=None):
     @app.get('/admin/dashboard')
     @require('admin')
     def admin_dashboard():
-        counts = dict(documents=db().execute('SELECT COUNT(*) FROM documents WHERE archived_at IS NULL').fetchone()[0],
-                      leave=db().execute("SELECT COUNT(*) FROM leave_requests WHERE status='pending' AND archived_at IS NULL").fetchone()[0],
-                      staff=db().execute("SELECT COUNT(*) FROM users WHERE role='employee' AND status='active'").fetchone()[0])
-        return render_template('dashboard.html', counts=counts, documents=document_rows(limit=10),
-                               requests=leave_rows(pending=True, limit=10), admin_view=True, tab='dashboard')
+        business_date = today()
+        conn = db()
+        with conn:
+            conn.execute('BEGIN')
+            overview = owner_overview(conn, business_date, request.args.get('dispatch'))
+            documents = document_rows(limit=10)
+            requests = leave_rows(pending=True, limit=10)
+        return render_template('dashboard.html', **overview, today=business_date, documents=documents,
+                               requests=requests, admin_view=True, tab='dashboard')
 
     @app.route('/employee/documents', methods=['GET', 'POST'])
     @require('employee')
