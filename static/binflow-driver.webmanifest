@@ -1,1 +1,1 @@
-{"id":"/binflow/driver/my-day","name":"BinFlow Driver","short_name":"BinFlow","start_url":"/binflow/driver/resume","scope":"/","display":"standalone","icons":[{"src":"/static/binflow-touch.png","sizes":"180x180","type":"image/png"}]}
+{"id":"/binflow/driver/my-day","name":"BinFlow Driver","short_name":"BinFlow","start_url":"/","scope":"/","display":"standalone","icons":[{"src":"/static/binflow-touch.png","sizes":"180x180","type":"image/png"}]}

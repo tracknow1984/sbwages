@@ -315,7 +315,11 @@ class BinFlowTests(unittest.TestCase):
         self.client.get('/binflow/qr/'+token+'/driver/pickup')
         result=self.login('employee','driver')
         self.assertEqual(result.status_code,200)
-        self.assertEqual(result.request.path,'/binflow/qr/'+token+'/driver/pickup')
+        self.assertEqual(result.request.path,'/employee/dashboard')
+        target = '/binflow/qr/'+token+'/driver/pickup'
+        self.assertIn(f'href="{target}">Open scanned bin</a>', result.text)
+        self.assertEqual(self.client.get(target).status_code, 200)
+        self.assertNotIn('Open scanned bin', self.client.get('/employee/dashboard').text)
         self.assertEqual(self.client.get('/binflow/setup').status_code,403)
         self.assertEqual(self.client.get('/binflow/locations/1/edit').status_code,403)
         self.assertEqual(self.client.get('/binflow/bins/1/edit').status_code,403)
@@ -324,7 +328,7 @@ class BinFlowTests(unittest.TestCase):
         self.assertEqual(self.client.get('/admin/staff').status_code,403)
         self.assertEqual(self.client.post('/binflow/bins/1',data={'action':'full'}).status_code,400)
         self.assertEqual(self.post('/binflow/bins',{'warehouse_id':1,'size_id':1,'quantity':1,'tare':0}).status_code,403)
-        self.assertEqual(self.client.get('/employee/dashboard').location,'/binflow/driver/my-day')
+        self.assertEqual(self.client.get('/employee/dashboard').status_code,200)
 
     def test_unique_qr_labels_and_no_public_customer_data(self):
         tokens=[r['token'] for r in self.rows('SELECT token FROM bf_bins ORDER BY id')]

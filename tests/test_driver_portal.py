@@ -31,8 +31,11 @@ class DriverPortalTests(unittest.TestCase):
 
     def test_exact_menu_and_all_requested_pages_with_driver_landing(self):
         response = self.driver()
-        self.assertEqual(response.request.path, '/binflow/driver/my-day')
-        expected = ['/binflow/driver/my-day', '/binflow/pods',
+        self.assertEqual(response.request.path, '/employee/dashboard')
+        self.assertIn('<h1>Welcome - Driver</h1>', response.text)
+        self.assertLess(response.text.index('<h1>'), response.text.index('<nav aria-label="Driver menu">'))
+        self.assertIn('<details class="driver-menu no-print" open>', response.text)
+        expected = ['/employee/dashboard', '/binflow/driver/my-day', '/binflow/pods',
                     '/employee/hit-me', '/employee/timesheet', '/employee/prestart',
                     '/employee/details', '/employee/payslips', '/employee/history',
                     '/employee/induction', '/employee/documents', '/employee/leave']
@@ -40,13 +43,19 @@ class DriverPortalTests(unittest.TestCase):
             page = self.client.get(path)
             self.assertEqual(page.status_code, 200, path)
             menu = re.search(r'<nav aria-label="Driver menu">(.*?)</nav>', page.text, re.S).group(1)
-            self.assertEqual(re.findall(r'href="([^"]+)"', menu), expected, path)
+            links = list(expected)
+            if path.startswith('/employee/'):
+                links[1] = '/binflow/driver/resume'
+            self.assertEqual(re.findall(r'href="([^"]+)"', menu), links, path)
             for forbidden in ('National overview', 'New allocation', 'Collection calendar',
                               'Bin Collection Requests', 'State allocations', 'GPS & geofences', 'Truck locations',
                               'Daily schedule', 'Allocation approvals'):
                 self.assertNotIn(forbidden, page.text, path)
-        for path in ('/', '/employee/dashboard', '/admin/bin-management', '/binflow/sign-in', '/binflow/driver'):
+        for path in ('/', '/binflow/sign-in'):
+            self.assertEqual(self.client.get(path).location, '/employee/dashboard')
+        for path in ('/binflow/driver/resume', '/admin/bin-management', '/binflow/driver'):
             self.assertEqual(self.client.get(path).location, '/binflow/driver/my-day')
+        self.assertEqual(self.rows('SELECT id FROM bf_workdays'), [])
 
     def test_office_pages_and_mutations_are_blocked_with_valid_csrf(self):
         self.driver()
@@ -98,7 +107,7 @@ class DriverPortalTests(unittest.TestCase):
 
     def test_admin_and_non_transport_staff_keep_existing_navigation(self):
         admin = self.client.get('/admin/bin-management').text
-        self.assertIn('National overview', admin)
+        self.assertIn('National Overview', admin)
         self.assertNotIn('>Driver day</a>', admin)
         self.assertIn('New allocation', admin)
         self.assertNotIn('aria-label="Driver menu"', admin)

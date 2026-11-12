@@ -137,10 +137,8 @@ def register_induction(app, db, require):
                     db().commit()
                     flash('Induction signed. Your signed copy is in My induction.', 'success')
                     destination = session.pop('induction_return', None)
-                    if not destination:
-                        from binflow_resume import restore_driver
-                        destination = restore_driver(db(), g.user) or url_for('index')
-                    return redirect(destination, code=303)
+                    from binflow_resume import staff_landing
+                    return redirect(staff_landing(db(), g.user, destination), code=303)
             else:
                 return redirect(session.pop('induction_return', None) or url_for('employee_induction'), code=303)
         records = db().execute('SELECT * FROM handbook_signatures WHERE user_id=? ORDER BY id DESC',(g.user['id'],)).fetchall()

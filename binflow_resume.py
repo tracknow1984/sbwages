@@ -58,6 +58,16 @@ def save_sample(conn, saved):
     conn.commit()
 
 
+def staff_landing(conn, user, requested=None):
+    """Keep drivers on the staff dashboard until they choose a task."""
+    if 'driver' in workspaces(user):
+        if requested and requested.startswith('/binflow/'):
+            session['driver_requested_page'] = requested
+        return url_for('employee_dashboard')
+    resume = restore_driver(conn, user)
+    return requested or resume or url_for('index')
+
+
 def restore_driver(conn, user):
     from binflow_demo import demo_path
     if not has_binflow_access(user):

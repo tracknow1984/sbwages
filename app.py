@@ -300,6 +300,8 @@ def create_app(test_config=None):
 
     @app.after_request
     def headers(response):
+        if response.status_code == 200 and request.method == 'GET' and request.path == session.get('driver_requested_page'):
+            session.pop('driver_requested_page')
         response.headers['Cache-Control'] = 'no-store'
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['X-Frame-Options'] = 'DENY'
@@ -376,10 +378,10 @@ def create_app(test_config=None):
     @app.get('/')
     def index():
         if g.user:
+            if 'driver' in workspaces(g.user):
+                return redirect(url_for('employee_dashboard'))
             if is_warehouse(g.user):
                 return redirect(url_for('bf_bales'))
-            if is_driver(db(), g.user):
-                return redirect(url_for('bf_workday'))
             if is_manager(g.user) and has_binflow_access(g.user):
                 return redirect(url_for('bf_dashboard'))
             return redirect(url_for('admin_dashboard' if g.user['role'] == 'admin' else 'employee_dashboard'))
@@ -392,7 +394,7 @@ def create_app(test_config=None):
         if mode not in workspaces(g.user):
             abort(403)
         session['binflow_workspace'] = mode
-        return redirect(url_for({'manager':'bf_dashboard','driver':'bf_workday','warehouse':'bf_bales'}[mode]))
+        return redirect(url_for({'manager':'bf_dashboard','driver':'bf_resume','warehouse':'bf_bales'}[mode]))
 
     @app.route('/<audience>/login', methods=['GET', 'POST'])
     def login(audience):
@@ -416,11 +418,9 @@ def create_app(test_config=None):
                 session.permanent = True
                 db().execute('DELETE FROM login_attempts WHERE key IN (?,?)', (key, ipkey))
                 db().commit()
-                from binflow_resume import restore_driver
-                resume = restore_driver(db(), user)
-                destination = resume or url_for('index')
-                if binflow_next.startswith('/binflow/') or binflow_next == '/admin/bin-management':
-                    destination = binflow_next
+                from binflow_resume import staff_landing
+                requested = binflow_next if binflow_next.startswith('/binflow/') or binflow_next == '/admin/bin-management' else None
+                destination = staff_landing(db(), user, requested)
                 if user['role'] == 'employee' and needs_signature(db(), user['id']):
                     session['induction_return'] = destination
                     return redirect(url_for('employee_induction'))
@@ -1122,7 +1122,7 @@ def create_app(test_config=None):
     @require('employee')
     def employee_dashboard():
         if is_driver(db(), g.user):
-            return redirect(url_for('bf_workday'))
+            return render_template('employee_dashboard.html', tab='home')
         day=today()
         ending=profile_end(day,g.user['work_week'])
         entry=db().execute('SELECT e.*,s.status AS sheet_status FROM entries e JOIN sheets s ON s.id=e.sheet_id WHERE e.user_id=? AND e.work_date=?', (g.user['id'],day.isoformat())).fetchone()

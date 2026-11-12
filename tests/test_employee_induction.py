@@ -144,6 +144,10 @@ class InductionTests(TestCase):
         self.assertEqual(self.client.get('/binflow/driver/my-day',headers={'Accept':'application/json'}).json['induction_url'],'/employee/induction')
         values={'version':induction.EDITION,'signature':'Alex Example','consent':'yes',
                 'ack':[row[0] for row in json.loads(induction.TERMS)['items']]}
-        self.assertEqual(self.post('/employee/induction',values).request.path,target)
+        dashboard = self.post('/employee/induction',values)
+        self.assertEqual(dashboard.request.path,'/employee/dashboard')
+        self.assertIn('<h1>Welcome - Alex Example</h1>', dashboard.text)
+        self.assertIn(f'href="{target}"', dashboard.text)
+        self.assertEqual(self.client.get(target).status_code, 200)
         self.post('/logout')
-        self.assertEqual(self.login('alex','test-staff-password').request.path,'/binflow/driver/my-day')
+        self.assertEqual(self.login('alex','test-staff-password').request.path,'/employee/dashboard')

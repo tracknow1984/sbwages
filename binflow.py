@@ -313,7 +313,7 @@ def register_binflow(app, db, require):
     @app.get('/binflow/sign-in')
     def bf_signin():
         if g.user:
-            return redirect(url_for('bf_workday' if is_driver(db(), g.user) else 'bf_dashboard'))
+            return redirect(url_for('employee_dashboard' if 'driver' in workspaces(g.user) else 'bf_dashboard'))
         return render('signin', section='')
 
     @app.get('/admin/bin-management')

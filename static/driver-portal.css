@@ -1,4 +1,6 @@
 .driver-menu{background:#fff;border-bottom:1px solid #dbe3ef;padding:0 max(16px,calc((100% - 1100px)/2));}
+.main>.driver-menu{padding:0 20px;border:1px solid #dbe3ef;border-radius:14px;}
+.driver-menu nav a:hover,.driver-menu nav a:focus-visible{background:#f1f5fb;border-color:#a8bedb;}
 .driver-menu summary{cursor:pointer;min-height:52px;padding:14px 0;font-size:14px;font-weight:750;color:#203d66;}
 .driver-menu summary span{float:right;font-size:12px;font-weight:500;color:#66758a;padding-top:2px;}
 .driver-menu nav{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:0 0 16px;}

@@ -1,5 +1,5 @@
 {% extends 'base.html' %}{% block content %}
-<section class="auth-card"><span class="eyebrow">{{ 'ADMIN PORTAL' if audience == 'admin' else 'EMPLOYEE PORTAL' }}</span><h1>{{ "Resume driver day" if request.args.get("resume") else "Welcome back." }}</h1><p class="muted">{{ 'Sign in to return to your last saved step.' if request.args.get('resume') else 'Manage your team and review weekly timesheets.' if audience == 'admin' else 'Your details, your hours, all in one place.' }}</p>
+<section class="auth-card"><span class="eyebrow">{{ 'ADMIN PORTAL' if audience == 'admin' else 'EMPLOYEE PORTAL' }}</span><h1>Welcome back.</h1><p class="muted">{{ 'Choose BinFlow from your dashboard to return to your saved work.' if audience == 'employee' and request.args.get('resume') else 'Manage your team and review weekly timesheets.' if audience == 'admin' else 'Your details, your hours, all in one place.' }}</p>
 <form method="post" class="stack"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
 <label>Username<input name="username" autocomplete="username" required autofocus maxlength="80"></label>
 <label>Password<input name="password" type="password" autocomplete="current-password" required maxlength="200"></label>
