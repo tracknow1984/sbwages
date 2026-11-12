@@ -337,10 +337,10 @@ bin-custody module; the existing Transport Model remains a separate planning too
    Defects or unfitness hold the truck until an administrator records a resolution
    and a fresh inspection passes. These signed records also appear in Prestart.
 5. After all client handovers, scan full bins back into their assigned warehouses.
-   The warehouse records gross and actual tare; net contents use integer grams.
-   Final weights cannot be overwritten. A collected-bin POD closes only when all
-   its returned bins are weighed. Delivery-only PODs close at client handover.
-   **Daily PODs** shows the day's provisional and final dockets. Approved client
+   The driver can finish the day once every return is scanned and confirmed.
+   **Daily PODs → Pending weigh-ins** lists unweighed warehouse returns across dates, grouped by state.
+   Warehouse staff record gross and actual tare, then sign the POD when the run is ready.
+   Weekly POD completion tracks bins weighed and collection PODs signed against the Sunday close. Approved client
    logins at `/binflow/client/login` can view/download only their final PODs.
 6. Weighed contents stay in warehouse stock until the operator records their
    processing/release reference on the bin. The empty bin can then rotate again.

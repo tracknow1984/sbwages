@@ -383,7 +383,7 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
                 if data['stage'] not in ('arrive','done','weighing','signoff'):
                     raise ValueError('Finish all client stops and scan every returning bin first.')
                 mark_returned(db(),truck_id,run_date,now())
-                message='Warehouse arrival recorded. Check the weights and sign the PODs to complete handover.'
+                message='Warehouse return confirmed. You can finish your day.'
             else:
                 abort(404)
             from binflow_reports import begin_current

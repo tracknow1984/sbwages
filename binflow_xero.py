@@ -544,6 +544,8 @@ def register(app, db, require, render, now, actor):
     @app.get('/binflow/rental-invoices/<identifier>')
     @require('admin')
     def bf_rental_invoice(identifier):
+        if db().execute('SELECT 1 FROM bf_auto_drafts WHERE id=?',(identifier,)).fetchone():
+            return redirect(url_for('bf_auto_review',did=identifier))
         item = saved_invoice(identifier)
         snapshot = json.loads(item['snapshot_json'])
         payload = json.loads(item['payload_json'])['Invoices'][0]

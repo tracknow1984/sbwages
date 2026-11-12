@@ -304,7 +304,7 @@ class PortalPermissionTests(unittest.TestCase):
             self.assertIn(name,response.text)
         self.assertEqual(self.rows('SELECT account_id,client_name,job_type FROM bf_interstate_bookings'),
                          [dict(account_id=aid,client_name='Billing Pty Ltd',job_type='internal')])
-        self.post(CAL+'/1/edit',dict(form,version=1))
+        self.post(CAL+'/1/edit',dict(form,version=1,reason='Subcontracted carrier confirmed'))
         self.send(client,CLIENT+'/1/edit',dict(form,version=2,job_type='internal',pickup_company='New sender'))
         self.assertEqual(self.rows('SELECT client_name,job_type,pickup_company,delivery_company FROM bf_interstate_bookings'),
                          [dict(client_name='Billing Pty Ltd',job_type='external',pickup_company='New sender',delivery_company='Receiving Co')])

@@ -16,13 +16,14 @@ from zoneinfo import ZoneInfo
 from flask import abort, flash, g, jsonify, redirect, render_template, request, send_file, session, url_for
 from prestart_media import photo_jpeg, signature_png
 from binflow_driver import migrate_driver, register_driver
+import binflow_pickup_pricing
 from binflow_handover import pod_weights_ready
 from binflow_permissions import (DRIVER_ENDPOINTS, WAREHOUSE_ENDPOINTS, is_driver, is_manager, is_warehouse, is_office, workspaces, can_view_job,
     has_binflow_access, state_scope, eligible_driver, available_drivers)
-from binflow_runs import migrate_runs, register_runs, guard_movement, check_owner
+from binflow_runs import migrate_runs, register_runs, guard_movement, check_owner, valid_date
 from binflow_gps import migrate_gps, register_gps
 from binflow_portal import migrate_portal, register_portal
-from binflow_pods import ensure_pod_available
+from binflow_pods import ensure_pod_available, pending_bins
 from binflow_qr import migrate_qr, register_qr, link_request, reopen_requests, pickup_requests, approve_requests, request_queue
 from binflow_workday import migrate_workdays, register_workdays, driver_today
 from binflow_tares import apply_standard_tares
@@ -127,6 +128,7 @@ def register_binflow(app, db, require):
         migrate_workdays(db())
         migrate_gps(db())
         migrate_portal(db())
+        binflow_pickup_pricing.migrate(db())
         migrate_qr(db())
         migrate_approvals(db())
         migrate_collections(db())
@@ -344,6 +346,8 @@ def register_binflow(app, db, require):
         return render('dashboard', section='overview', state=state, stock=stock, counts=counts, state_rows=state_rows, by_size=by_size, net=net,
                       request_dashboard=True,**request_queue(db(),state,request.args.get('requests','all'),limit=12),
                       client_count=db().execute('SELECT COUNT(*) FROM bf_clients').fetchone()[0], warehouse_count=db().execute("SELECT COUNT(*) FROM bf_locations WHERE kind='warehouse'").fetchone()[0])
+
+    binflow_pickup_pricing.register(app, db, require, render, success, failure, now, actor)
 
     @app.route('/binflow/setup', methods=['GET', 'POST'])
     @require('admin')
@@ -585,6 +589,8 @@ def register_binflow(app, db, require):
     def bf_qr_image(bin_id):
         import qrcode
         from qrcode.image.pil import PilImage
+        if is_warehouse(g.user) and not pending_bins(db(), g.user, bin_id):
+            abort(404)
         b = db().execute('SELECT token FROM bf_bins WHERE id=?', (bin_id,)).fetchone()
         if not b:
             abort(404)
@@ -868,6 +874,13 @@ def register_binflow(app, db, require):
     @app.post('/binflow/pickups/<int:job_id>/weigh/<int:item_id>')
     @access
     def bf_weigh(job_id, item_id):
+        endpoint, target = 'bf_job', dict(job_id=job_id)
+        if request.form.get('return_to') == 'pods':
+            try:
+                selected = valid_date(request.form.get('date', now()[:10]))
+            except ValueError as error:
+                abort(400, str(error))
+            endpoint, target = 'bf_daily_pods', dict(date=selected, _anchor='pending-weigh-ins')
         try:
             gross = grams(request.form.get('gross'), 'Gross weight')
             tare = grams(request.form.get('tare'), 'Tare weight')
@@ -883,7 +896,7 @@ def register_binflow(app, db, require):
                 abort(404)
             if item['weighed_at']:
                 if gross == item['gross_g'] and tare == item['tare_g']:
-                    return success('This weight is already saved.', 'bf_job', job_id=job_id)
+                    return success('This weight is already saved.', endpoint, **target)
                 raise ValueError('This weight is already finalised. It cannot be overwritten.')
             if j['status'] != 'received' and not (j['scan_mode'] and j['status']=='collected' and item['returned_at']):
                 raise ValueError('Receive the bins at the warehouse before weighing.')
@@ -896,9 +909,9 @@ def register_binflow(app, db, require):
             event(item['bin_id'], 'Warehouse weight recorded', job_id, j['warehouse_id'], j['warehouse_id'], f'Gross {kg(gross)} kg; tare {kg(tare)} kg; net {kg(gross-tare)} kg')
             if not db().execute("SELECT 1 FROM bf_job_bins WHERE job_id=? AND direction='collect' AND weighed_at IS NULL", (job_id,)).fetchone():
                 db().execute("UPDATE bf_jobs SET status='complete',completed_at=? WHERE id=?", (now(),job_id))
-            return success('Weight saved. Check the run weigh-in progress below.', 'bf_job', job_id=job_id)
+            return success('Weight saved. Review the POD once all run weights are recorded.', endpoint, **target)
         except ValueError as error:
-            return failure(error, 'bf_job', job_id=job_id)
+            return failure(error, endpoint, **target)
 
     @app.post('/binflow/warehouse/scan')
     @access

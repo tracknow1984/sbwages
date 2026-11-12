@@ -1,5 +1,6 @@
 import json
 import secrets
+from decimal import Decimal
 import sqlite3
 import unittest
 from werkzeug.security import generate_password_hash
@@ -20,23 +21,23 @@ class BaleTests(unittest.TestCase):
             conn.execute('INSERT OR IGNORE INTO bf_supplier_site_profiles(id,category,group_name,customer_site,updated_at,updated_by) VALUES(1,"industry-suppliers","TRANSPORT","Carrier","now","Test")')
         self.post('/binflow/setup/materials',dict(name='Cotton textiles',active='yes'))
         self.settings(1,receiving_hub='yes',max_bales='100')
-        self.settings(2,max_bales='10',target_kg='800')
+        self.settings(2,max_bales='10',target_kg='500')
 
     def settings(self,wid,**data):
         row=self.rows('SELECT * FROM bf_bale_settings WHERE warehouse_id=?',(wid,))
         return self.post('/binflow/bales/settings',dict(warehouse_id=wid,version=row[0]['version'] if row else 0,warning_percent=90,**data))
 
-    def create(self,grams='400',wid=2,**data):
+    def create(self,kilograms='260',wid=2,**data):
         key=data.pop('request_key',secrets.token_urlsafe(24))
-        code,item=self.source(wid)
+        code,item=self.source(wid,net_g=int(Decimal(kilograms)*1000))
         self.scan_source(key,code,wid)
-        response=self.post('/binflow/bales/new',dict(warehouse_id=wid,material_id=1,weight=grams,request_key=key,source_code=[code],source_item=[item],confirm_sources='yes',**data))
+        response=self.post('/binflow/bales/new',dict(warehouse_id=wid,material_id=1,request_key=key,source_code=[code],source_item=[item],**data))
         return response
 
     def scan_source(self,key,code,wid=2,mid=1,**kwargs):
         return self.post('/binflow/bales/source-scan',dict(request_key=key,warehouse_id=wid,material_id=mid,code=code,**kwargs),follow=False)
 
-    def source(self,wid=2,mid=1,signed=True):
+    def source(self,wid=2,mid=1,signed=True,net_g=150000):
         token=secrets.token_hex(24)
         with sqlite3.connect(self.path) as c:
             uid=c.execute("SELECT id FROM users WHERE role='admin'").fetchone()[0]
@@ -47,7 +48,7 @@ class BaleTests(unittest.TestCase):
             if signed:
                 c.execute("UPDATE bf_jobs SET pod_signed_at='now',pod_signed_by=? WHERE id=?",(uid,jid))
             name=c.execute('SELECT name FROM bf_material_classes WHERE id=?',(mid,)).fetchone()[0]
-            item=c.execute("INSERT INTO bf_job_bins(job_id,bin_id,direction,bin_code,size_name,tare_g,gross_g,net_g,weighed_at,active,material_id,material_name) VALUES(?,?,'collect',?,'1100 L',5000,505000,500000,'now',0,?,?)",(jid,bid,code,mid,name)).lastrowid
+            item=c.execute("INSERT INTO bf_job_bins(job_id,bin_id,direction,bin_code,size_name,tare_g,gross_g,net_g,weighed_at,active,material_id,material_name) VALUES(?,?,'collect',?,'1100 L',5000,?,?,'now',0,?,?)",(jid,bid,code,5000+net_g,net_g,mid,name)).lastrowid
         return code,item
 
     def test_source_scan_matching_mixed_unweighed_wrong_depot_and_reuse(self):
@@ -114,7 +115,7 @@ class BaleTests(unittest.TestCase):
         self.assertEqual([r['item_id'] for r in self.rows('SELECT item_id FROM bf_open_bale_sources')],[item])
         self.assertEqual(len(self.rows("SELECT 1 FROM bf_events WHERE event='Emptied into open bale'")),1)
 
-    def test_scan_releases_stock_before_bale_weight_and_preserves_next_job(self):
+    def test_scan_releases_stock_before_bale_creation_and_preserves_next_job(self):
         self.prepare();code,item=self.source()
         key=secrets.token_urlsafe(24)
         scan=self.scan_source(key,code)
@@ -127,19 +128,16 @@ class BaleTests(unittest.TestCase):
         self.assertIn(code,self.client.get('/binflow/bales/new?draft='+key).text)
         b=self.rows('SELECT * FROM bf_bins WHERE code=?',(code,))[0]
         self.assertEqual((b['status'],b['location_id'],b['truck_id']),('empty',2,None))
-        payload=dict(warehouse_id=2,material_id=1,weight='0',request_key=key,confirm_sources='yes',source_code=[code],source_item=[item])
-        self.post('/binflow/bales/new',payload)
-        self.assertEqual(len(self.rows('SELECT * FROM bf_open_bale_sources')),1)
-        # The next actual delivery is allocated while the bale weight is outstanding.
+        payload=dict(warehouse_id=2,material_id=1,request_key=key,source_code=[code],source_item=[item])
+        # A delivery can reserve the empty bin before the bale is finished.
         self.post('/binflow/pickups/new',dict(site_id=5,warehouse_id=2,scheduled_date='2026-10-19',
             deliver=[b['id']],request_key=secrets.token_urlsafe(24)))
         reserved=self.rows("SELECT * FROM bf_job_bins WHERE bin_id=? AND direction='deliver' AND active=1",(b['id'],))
         self.assertEqual(len(reserved),1)
         self.assertEqual(self.scan_source(key,code,action='undo',source_item=item).status_code,409)
-        # The container can have moved again by final weigh-out.
+        # The container can have moved again by the time the bale is saved.
         with sqlite3.connect(self.path) as c:
             c.execute("UPDATE bf_bins SET status='at_client',location_id=5 WHERE id=?",(b['id'],))
-        payload['weight']='400'
         self.post('/binflow/bales/new',payload);self.post('/binflow/bales/new',payload)
         self.assertEqual(self.rows('SELECT item_id FROM bf_bale_sources')[0]['item_id'],item)
         self.assertEqual(self.rows('SELECT * FROM bf_open_bale_sources'),[])
@@ -175,8 +173,8 @@ class BaleTests(unittest.TestCase):
             c.row_factory=sqlite3.Row;return stock(c,wid)
 
     def test_complete_scanned_custody_signed_storage_note_and_export(self):
-        self.prepare();self.create();self.create('450.125')
-        self.assertEqual(self.inventory(2)['grams'],850125)
+        self.prepare();self.create();self.create('270.125')
+        self.assertEqual(self.inventory(2)['grams'],530125)
         self.assertEqual(len(self.rows("SELECT * FROM bf_bale_pickups WHERE status='ready'")),1)
         self.transfer();self.scan('BA0000001');self.scan('BA0000002')
         self.assertEqual(self.inventory(2)['count'],2);self.assertEqual(self.inventory(2)['available'],0)
@@ -185,15 +183,15 @@ class BaleTests(unittest.TestCase):
         self.assertEqual(self.rows('SELECT status FROM bf_bale_transfers')[0]['status'],'loading')
         self.action('depart',confirm='yes')
         self.assertEqual(self.inventory(2)['count'],0);self.assertEqual(self.inventory(1)['count'],0)
-        self.scan('BA0000001','receive');self.assertEqual(self.inventory(1)['grams'],400000)
+        self.scan('BA0000001','receive');self.assertEqual(self.inventory(1)['grams'],260000)
         self.assertIn('Scan every',self.action('handover',recipient='Receiver',confirm='yes',signature=SIGNATURE).text)
-        self.scan('BA0000002','receive');self.assertEqual(self.inventory(1)['grams'],850125)
+        self.scan('BA0000002','receive');self.assertEqual(self.inventory(1)['grams'],530125)
         self.assertIn('Draw your signature',self.action('handover',recipient='Receiver',confirm='yes',signature='[]').text)
         self.action('handover',recipient='Receiver',confirm='yes',signature=SIGNATURE)
         self.assertEqual(self.inventory(1)['count'],0)
         self.assertEqual(len(self.rows('SELECT * FROM bf_bale_storage')),2)
         page=self.client.get('/binflow/bales/transfers/1/note')
-        self.assertEqual(page.status_code,200);self.assertIn('850.125',page.text);self.assertIn('Receiver',page.text)
+        self.assertEqual(page.status_code,200);self.assertIn('530.125',page.text);self.assertIn('Receiver',page.text)
         self.assertTrue(self.client.get('/binflow/bales/transfers/1/signature.png').data.startswith(b'\x89PNG'))
         self.assertIn('BA0000002',self.client.get('/binflow/bales/storage.csv').text)
         before=self.rows('SELECT * FROM bf_bale_storage')
@@ -202,13 +200,44 @@ class BaleTests(unittest.TestCase):
         with sqlite3.connect(self.path) as c:c.execute("UPDATE bf_material_classes SET name='Renamed'")
         self.assertIn('Cotton textiles',self.client.get('/binflow/bales/transfers/1/note').text)
 
+    def test_capacity_overrides_and_warehouse_register(self):
+        self.prepare()
+        key=secrets.token_urlsafe(24)
+        sources=[self.source(net_g=299999),self.source(net_g=1),self.source(net_g=30000),self.source(net_g=1)]
+        for code,item in sources[:2]:
+            self.assertTrue(self.scan_source(key,code,mid='').json['ok'])
+        code,item=sources[2]
+        rejected=self.scan_source(key,code)
+        self.assertEqual((rejected.status_code,rejected.json['projected_g']),(409,330000))
+        self.assertEqual(self.rows('SELECT status FROM bf_bins WHERE code=?',(code,))[0]['status'],'weighed')
+        self.assertTrue(self.scan_source(key,code,override_total_g=329999,override_item_id=item).json['override_required'])
+        approved=self.scan_source(key,code,override_total_g=330000,override_item_id=item)
+        self.assertEqual(approved.status_code,200)
+        self.assertEqual(self.scan_source(key,sources[3][0],override_total_g=330001,override_item_id=sources[3][1]).status_code,409)
+        self.post('/binflow/bales/new',dict(warehouse_id=2,material_id=1,request_key=key,
+            source_code=[c for c,i in sources[:3]],source_item=[i for c,i in sources[:3]]))
+        self.assertEqual(self.rows('SELECT net_g FROM bf_bales')[0]['net_g'],330000)
+        self.assertIn('Capacity override',self.client.get('/binflow/bales/1').text)
+        self.assertIn('BA0000001',self.client.get('/binflow/bales?warehouse=2').text)
+        self.assertNotIn('BA0000001',self.client.get('/binflow/bales?warehouse=1').text)
+        for grams,approved in ((331,'yes'),(320,'')):
+            self.post('/binflow/bales/1/correct',dict(version=1,material_id=1,weight=grams,action='correct',
+                reason='Test correction',approve_correction=approved))
+        self.assertEqual(self.rows('SELECT net_g FROM bf_bales')[0]['net_g'],330000)
+
     def test_creation_validation_retry_and_label_privacy(self):
         self.prepare()
         key=secrets.token_urlsafe(24);self.create(request_key=key);self.create(request_key=key)
         self.assertEqual(len(self.rows('SELECT * FROM bf_bales')),1)
-        for bad in ('0','-1','NaN','Infinity','1.0001','abc'):
-            self.create(bad)
-        self.assertEqual(len(self.rows('SELECT * FROM bf_bales')),1)
+        page=self.client.get('/binflow/bales/new').text
+        self.assertNotIn('name="weight"',page)
+        key=secrets.token_urlsafe(24)
+        bins=[self.source(net_g=12345),self.source(net_g=6789)]
+        for code,item in bins:
+            self.scan_source(key,code)
+        self.post('/binflow/bales/new',dict(warehouse_id=2,material_id=1,request_key=key,
+            source_code=[c for c,i in bins],source_item=[i for c,i in bins],weight='99999'))
+        self.assertEqual(self.rows('SELECT net_g FROM bf_bales WHERE id=2')[0]['net_g'],19134)
         self.assertEqual(self.client.get('/binflow/bales/1/label').status_code,200)
         self.assertTrue(self.client.get('/binflow/bales/1/qr.png').data.startswith(b'\x89PNG'))
         guest=self.app.test_client()
@@ -279,11 +308,11 @@ class BaleTests(unittest.TestCase):
             c.row_factory=sqlite3.Row
             readiness(c,2,'later');readiness(c,2,'later')
         self.assertEqual(len(self.rows("SELECT * FROM bf_bale_pickups WHERE status='ready'")),1)
-        self.post('/binflow/bales/1/correct',dict(version=1,action='correct',weight='410',material_id=1,reason='Scale correction'))
-        self.assertEqual(self.inventory(2)['grams'],810000)
+        self.post('/binflow/bales/1/correct',dict(version=1,action='correct',weight='270',material_id=1,reason='Scale correction'))
+        self.assertEqual(self.inventory(2)['grams'],530000)
         self.transfer();self.scan('BA0000001')
-        self.post('/binflow/bales/1/correct',dict(version=3,action='correct',weight='420',material_id=1,reason='Attempt'))
-        self.assertEqual(self.rows('SELECT net_g FROM bf_bales WHERE id=1')[0]['net_g'],410000)
+        self.post('/binflow/bales/1/correct',dict(version=3,action='correct',weight='280',material_id=1,reason='Attempt'))
+        self.assertEqual(self.rows('SELECT net_g FROM bf_bales WHERE id=1')[0]['net_g'],270000)
         self.action('cancel');self.assertEqual(self.inventory(2)['available'],2)
         self.assertEqual(len(self.rows("SELECT * FROM bf_bale_pickups WHERE status='ready'")),1)
         version=self.rows('SELECT version FROM bf_bales WHERE id=1')[0]['version']
@@ -328,8 +357,8 @@ class BaleTests(unittest.TestCase):
         self.assertEqual(before,self.rows('SELECT * FROM bf_bales'))
 
     def test_weight_trigger_assignment_and_client_driver_denial(self):
-        self.prepare();self.settings(2,max_kg='500',target_kg='5000')
-        self.create('450')
+        self.prepare();self.settings(2,max_kg='300',target_kg='5000')
+        self.create('270')
         ready=self.rows("SELECT * FROM bf_bale_pickups WHERE status='ready'")
         self.assertEqual(len(ready),1);self.assertIn('weight threshold',ready[0]['reason'])
         self.post('/binflow/setup',dict(action='warehouse',name='Other NSW warehouse',state='NSW',address='Other depot'))

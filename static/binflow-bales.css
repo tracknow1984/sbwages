@@ -5,3 +5,10 @@
 @media print{@page baleLabel{size:100mm 150mm;margin:5mm}@page baleNote{size:A4;margin:15mm}.bf-bale-label{page:baleLabel}.bf-bale-note{page:baleNote}}
 
 @media print{html,body,.main,.bf{background:#fff!important}}
+
+.bf-bale-meter {display:grid;gap:.5rem;padding:1rem;background:#edf4fa;border-radius:10px}
+.bf-bale-meter progress {width:100%;accent-color:#17664b}
+.bf-bale-meter[data-over] {background:#fff3d6}
+.bf-bale-meter[data-over] progress {accent-color:#ad6720}
+.bf-bale-meter strong {font-size:1.3rem}
+.bf-bale-form [hidden] {display:none!important}

@@ -1,6 +1,7 @@
 """Dated interstate bookings and the link to the warehouse's scanned manifest."""
 import io
 import re
+import json
 import secrets
 import smtplib
 import sqlite3
@@ -74,10 +75,24 @@ def migrate(conn):
     for field in ('pickup_company', 'delivery_company'):
         if field not in columns:
             conn.execute(f"ALTER TABLE bf_interstate_bookings ADD COLUMN {field} TEXT NOT NULL DEFAULT ''")
+    if 'cancelled_at' not in columns:
+        conn.execute('ALTER TABLE bf_interstate_bookings ADD COLUMN cancelled_at TEXT')
+    date_columns = {r[1] for r in conn.execute('PRAGMA table_info(bf_interstate_date_changes)')}
+    if 'superseded_at' not in date_columns:
+        conn.execute('ALTER TABLE bf_interstate_date_changes ADD COLUMN superseded_at TEXT')
+        conn.execute('DROP INDEX IF EXISTS bf_interstate_open_change')
+        conn.execute("""CREATE UNIQUE INDEX bf_interstate_open_change ON bf_interstate_date_changes(booking_id)
+            WHERE decision IS NULL AND superseded_at IS NULL""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS bf_load_changes(
+        id INTEGER PRIMARY KEY,booking_id INTEGER NOT NULL REFERENCES bf_interstate_bookings(id),
+        action TEXT NOT NULL,reason TEXT NOT NULL,changed_at TEXT NOT NULL,changed_by TEXT NOT NULL,
+        before_json TEXT NOT NULL,after_json TEXT NOT NULL)""")
     freight.migrate(conn)
 
 
 def booking_status(row, manifest_status=None, date_change=False):
+    if row['cancelled_at']:
+        return 'Cancelled'
     if date_change:
         return 'Awaiting confirmation'
     if row['bulk_delivered_at']:
@@ -100,7 +115,7 @@ def share_dates_link(row):
 
 
 def can_move_dates(row, manifest_status):
-    return not (row['bulk_dispatched_at'] or row['bulk_delivered_at']
+    return not (row['cancelled_at'] or row['bulk_dispatched_at'] or row['bulk_delivered_at']
                 or manifest_status in ('transit', 'received', 'handed_over'))
 
 
@@ -279,7 +294,7 @@ def register(app, db, access, require, render, client_access, now, actor):
                     SELECT MAX(x.transfer_id) FROM bf_interstate_manifests x WHERE x.booking_id=b.id)
                 LEFT JOIN bf_bale_transfers t ON t.id=m.transfer_id
                 LEFT JOIN bf_interstate_purchase_orders po ON po.booking_id=b.id
-                LEFT JOIN bf_interstate_date_changes changes ON changes.booking_id=b.id AND changes.decision IS NULL"""
+                LEFT JOIN bf_interstate_date_changes changes ON changes.booking_id=b.id AND changes.decision IS NULL AND changes.superseded_at IS NULL"""
         if request.args.get('export') == 'month':
             from binflow_transfer_export import monthly_workbook
             first = chosen.replace(day=1).isoformat()
@@ -304,8 +319,11 @@ def register(app, db, access, require, render, client_access, now, actor):
         rows = db().execute(select+""" WHERE b.locked_at IS NOT NULL
             AND (pickup_date BETWEEN ? AND ? OR delivery_date BETWEEN ? AND ?)"""+scope+
             ' ORDER BY b.client_name,b.id',(*limits,*limits,*args)).fetchall()
-        pending = db().execute(select+' WHERE b.locked_at IS NULL'+scope+
+        pending = db().execute(select+' WHERE b.locked_at IS NULL AND b.cancelled_at IS NULL'+scope+
                                ' ORDER BY b.pickup_date,b.id',args).fetchall()
+        cancelled = db().execute(select+""" WHERE b.cancelled_at IS NOT NULL
+            AND (pickup_date BETWEEN ? AND ? OR delivery_date BETWEEN ? AND ?)"""+scope+
+            ' ORDER BY b.pickup_date,b.id',(*limits,*limits,*args)).fetchall()
         events = defaultdict(list)
         previews = {}
         legend = {}
@@ -326,7 +344,7 @@ def register(app, db, access, require, render, client_access, now, actor):
                     events[row[field]].append((label,row))
                     counts[label] += 1
         return page('interstate_calendar',external,view=view,state=state,chosen=chosen,
-                    previous=previous,following=following,title=title,weeks=weeks,events=events,pending=pending,
+                    previous=previous,following=following,title=title,weeks=weeks,events=events,pending=pending,cancelled=cancelled,
                     previews=previews,legend=legend,counts=counts,today=now()[:10],can_update_booking=can_update_booking(external))
 
     @app.get('/binflow/interstate-transfers')
@@ -338,6 +356,24 @@ def register(app, db, access, require, render, client_access, now, actor):
     @client_access
     def bf_client_interstate():
         return show_calendar(True)
+
+    def office_change_reason():
+        reason = request.form.get('reason','').strip()
+        if not reason or len(reason)>1000:
+            raise ValueError('Enter a reason of up to 1,000 characters.')
+        return reason
+
+    def has_delivered(row, manifest):
+        return bool(row['bulk_delivered_at'] or (manifest and manifest['status'] in ('received','handed_over')))
+
+    def record_change(before, action, reason):
+        after = booking(before['id'])
+        db().execute("""INSERT INTO bf_load_changes(booking_id,action,reason,changed_at,changed_by,before_json,after_json)
+            VALUES(?,?,?,?,?,?,?)""",(before['id'],action,reason,now(),actor(),json.dumps(dict(before)),json.dumps(dict(after))))
+        db().execute("""UPDATE bf_interstate_date_changes SET superseded_at=?,reviewed_by=?
+            WHERE booking_id=? AND decision IS NULL AND superseded_at IS NULL""",(now(),actor(),before['id']))
+        db().execute("""UPDATE bf_rental_invoices SET status='cancelled',error='Booking changed before issue'
+            WHERE booking_id=? AND status='preview'""",(before['id'],))
 
     def form_page(external, row=None):
         values = dict(row) if row else dict(job_type='internal',handling='bulk' if external else 'scanned',client_name=g.bf_client['name'] if external else '')
@@ -397,10 +433,27 @@ def register(app, db, access, require, render, client_access, now, actor):
                     if not already_saved:
                         raise ValueError('The freight rate has changed. Review the updated price before submitting.')
                 if row:
+                    current = booking(row['id'],external)
+                    manifest = current_manifest(row['id'])
+                    if current['cancelled_at'] or has_delivered(current,manifest) or values.get('version',type=int)!=current['version']:
+                        raise ValueError('The load changed or is closed. Reopen it before editing.')
+                    if external and (current['locked_at'] or pending_change(row['id'])):
+                        abort(409)
+                    if not external:
+                        reason = office_change_reason()
+                        changed = {key for key,val in data.items() if current[key]!=val}
+                        if not changed: raise ValueError('Change a load detail before saving.')
+                        moving = bool(current['bulk_dispatched_at'] or manifest and manifest['status']=='transit')
+                        if moving and changed - {'delivery_address','delivery_contact','delivery_phone','delivery_company','goods','email'}:
+                            raise ValueError('This load is in transit. Update the delivery contact, delivery address or load notes.')
+                        if manifest and manifest['status']=='loading' and changed & {'origin','destination','handling','vehicle'}:
+                            raise ValueError('Close the loading manifest before changing its route, vehicle or handling.')
+                        if not moving and current['locked_at']:
+                            data.update(locked_at=None,locked_by=None,email_status='pending',email_attempt_at=None)
                     assignments = ','.join(f'{field}=?' for field in data)
-                    if not conn.execute(f'UPDATE bf_interstate_bookings SET {assignments},version=version+1 WHERE id=? AND version=? AND locked_at IS NULL',
-                                        (*data.values(),row['id'],values.get('version'))).rowcount:
-                        raise ValueError('The booking changed. Reopen it to review its current details.')
+                    conn.execute(f'UPDATE bf_interstate_bookings SET {assignments},version=version+1 WHERE id=?',
+                                 (*data.values(),row['id']))
+                    if not external: record_change(current,'Modified',reason)
                     bid = row['id']
                 else:
                     if not re.fullmatch(r'[A-Za-z0-9_-]{20,100}',key):
@@ -438,16 +491,34 @@ def register(app, db, access, require, render, client_access, now, actor):
     @client_access
     def bf_client_interstate_edit(bid):
         row=booking(bid,True)
-        if row['locked_at'] or pending_change(bid): abort(409)
+        if row['cancelled_at'] or row['locked_at'] or pending_change(bid): abort(409)
         return form_page(True,row)
 
     @app.route('/binflow/interstate-transfers/<int:bid>/edit',methods=['GET','POST'])
     @require('admin')
     def bf_interstate_edit(bid):
         row = booking(bid)
-        if row['locked_at'] or pending_change(bid):
-            abort(409)
+        if row['cancelled_at'] or has_delivered(row,current_manifest(bid)):
+            abort(409,'This load is closed.')
         return form_page(False,row)
+
+    @app.post('/binflow/interstate-transfers/<int:bid>/cancel')
+    @require('admin')
+    def bf_interstate_cancel(bid):
+        conn=db()
+        conn.execute('BEGIN IMMEDIATE')
+        row=booking(bid)
+        if row['cancelled_at']: return redirect(details_url(bid,False))
+        if request.form.get('version',type=int)!=row['version'] or has_delivered(row,current_manifest(bid)):
+            abort(409,'This load has changed or been delivered. Review the latest record.')
+        try: reason=office_change_reason()
+        except ValueError as error:
+            conn.rollback()
+            return detail(bid,False,change_error=str(error)),400
+        conn.execute('UPDATE bf_interstate_bookings SET cancelled_at=?,locked_at=NULL,locked_by=NULL,version=version+1 WHERE id=?',(now(),bid))
+        record_change(row,'Cancelled',reason)
+        conn.commit()
+        return redirect(details_url(bid,False))
 
     def po_metadata(bid):
         return db().execute("""SELECT number,filename,revision FROM bf_interstate_purchase_orders
@@ -457,20 +528,23 @@ def register(app, db, access, require, render, client_access, now, actor):
         return bool(g.client_rights & {'bookings.add','bookings.edit'}) if external else g.user['role']=='admin'
 
     def pending_change(bid):
-        return db().execute('SELECT * FROM bf_interstate_date_changes WHERE booking_id=? AND decision IS NULL',
+        return db().execute('SELECT * FROM bf_interstate_date_changes WHERE booking_id=? AND decision IS NULL AND superseded_at IS NULL',
                             (bid,)).fetchone()
 
     def current_manifest(bid):
         return db().execute("""SELECT t.id,t.code,t.status,m.expected_bales FROM bf_interstate_manifests m
             JOIN bf_bale_transfers t ON t.id=m.transfer_id WHERE m.booking_id=? ORDER BY t.id DESC LIMIT 1""",(bid,)).fetchone()
 
-    def detail(bid,external,po_error=None,date_error=None):
+    def detail(bid,external,po_error=None,date_error=None,change_error=None):
         row = booking(bid,external)
         manifest = current_manifest(bid)
         change = pending_change(bid)
         manifest_status = manifest['status'] if manifest else None
         status = booking_status(row, manifest_status, change)
-        return page('interstate_detail',external,b=row,manifest=manifest,status=status,po=po_metadata(bid),
+        history = db().execute('SELECT action,reason,changed_at,changed_by FROM bf_load_changes WHERE booking_id=? ORDER BY id DESC',(bid,)).fetchall()
+        billed = None if external else db().execute("SELECT id FROM bf_rental_invoices WHERE booking_id=? AND status IN ('sending','created','uncertain')",(bid,)).fetchone()
+        return page('interstate_detail',external,history=history,billed=billed,change_error=change_error,
+                    editable=not row['cancelled_at'] and not has_delivered(row,manifest),b=row,manifest=manifest,status=status,po=po_metadata(bid),
                     po_error=po_error,can_update_booking=can_update_booking(external), change=change,
                     movable=can_move_dates(row, manifest_status), date_error=date_error,
                     price=freight.quote(row['rate_cents'],row['fuel_bps']), minimum=freight.MIN_RIGID_HOURS)
@@ -494,6 +568,8 @@ def register(app, db, access, require, render, client_access, now, actor):
         conn.execute('BEGIN IMMEDIATE')
         row = booking(bid, True)
         manifest = current_manifest(bid)
+        if row['cancelled_at']:
+            abort(409, 'This load was cancelled.')
         if not can_move_dates(row, manifest['status'] if manifest else None):
             abort(409, 'This transfer has already been dispatched.')
         if request.form.get('version', type=int) != row['version']:
@@ -599,6 +675,7 @@ def register(app, db, access, require, render, client_access, now, actor):
     def bf_interstate_lock(bid):
         db().execute('BEGIN IMMEDIATE')
         row = booking(bid)
+        if row['cancelled_at']: abort(409,'This load was cancelled.')
         if not row['locked_at']:
             if request.form.get('version',type=int)!=row['version']:
                 abort(409,'The request has changed. Review the updated dates before confirming.')

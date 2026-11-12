@@ -1,0 +1,19 @@
+{% extends 'binflow/layout.html' %}
+{% block title %}Per Kg Pricing Pick Up{% endblock %}
+{% block subtitle %}One national rate for collected material{% endblock %}
+{% block body %}
+{% set current=rates|first %}
+<section class="bf-panel bf-pad">
+  <h2>Collection rate</h2><p>Daily PODs calculates the pickup value from the signed net kilograms. Prices are in AUD, excluding GST.</p>
+  <form method="post" class="bf-form">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ current.id if current else 0 }}">
+    <label>Price per kg (AUD)<input type="number" name="rate" value="{{ current.units|pickup_rate if current else '' }}" min="0" max="1000000" step="0.0001" inputmode="decimal" required></label>
+    <p class="bf-muted">{% if current %}A new rate applies to pickups collected after you save it. Each earlier pickup keeps its recorded rate.{% else %}The first rate applies to open, unsigned collections and future pickups across all states.{% endif %}</p>
+    <label class="bf-check"><input type="checkbox" name="price_historic" value="yes">Apply this rate to earlier signed, unpriced PODs. I have checked these collections still need billing.</label>
+    <button type="submit" class="primary">Save pickup price</button>
+  </form>
+</section>
+{% if rates %}<section class="bf-panel bf-pad"><h2>Rate history</h2><div class="bf-table-wrap"><table class="bf-plan-table"><thead><tr><th>Effective from</th><th>Price per kg · ex GST</th><th>Saved by</th></tr></thead><tbody>
+{% for rate in rates %}<tr><td data-label="Effective from">{{ rate.saved_at|display_datetime }}</td><td data-label="Price per kg">${{ rate.units|pickup_rate }}</td><td data-label="Saved by">{{ rate.saved_by }}</td></tr>{% endfor %}
+</tbody></table></div></section>{% endif %}
+{% endblock %}

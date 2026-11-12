@@ -1,0 +1,18 @@
+.pod-heading,.pod-bin {display:flex;align-items:center;gap:.8rem}
+.pod-heading {flex-wrap:wrap}
+.pod-week-link {margin-left:auto}
+.pod-heading h2 {margin:0}
+.pod-backlog h3 {margin:1.4rem 0 .5rem}
+.pod-backlog h3 small {font-weight:500}
+.pod-count,.pod-overdue {display:inline-block;padding:.25rem .65rem;border-radius:.5rem;font-size:.85rem;font-weight:700}
+.pod-count {background:#e9f1fc;color:#17436a}
+.pod-overdue {background:#fde9e6;color:#922e22}
+.pod-aged {display:inline-block;color:#825000;font-weight:650}
+.pod-bin img {background:white;object-fit:contain}
+.pod-entry summary,.pod-closeout summary {cursor:pointer;font-weight:700}
+.pod-entry summary {color:#17436a;text-decoration:underline;text-underline-offset:.2em}
+.pod-entry[open] {min-width:min(18rem,100%)}
+.pod-entry .bf-grid {grid-template-columns:1fr}
+.pod-entry .bf-weigh-form {margin:.65rem 0 0}
+.pod-closeout ul {padding-left:1.2rem}
+.pod-closeout li {margin:.4rem 0}

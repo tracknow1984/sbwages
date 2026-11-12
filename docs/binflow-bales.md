@@ -1,6 +1,6 @@
 # Bales and interstate storage handovers
 
-BINFLOW → Bales tracks individually weighed, classified bales separately from bin stock. Each new bale receives a unique BA number and authenticated QR record; the print action produces a 100 × 150 mm label. Creation retries with the same form key do not create duplicate records. Corrections/voids require a reason and are limited to unallocated stored bales. Reprint the label after a correction.
+BINFLOW → Bales tracks classified bales separately from bin stock. Each new bale receives a unique BA number and authenticated QR record; the print action produces a 100 × 150 mm label. Creation retries with the same form key do not create duplicate records. Corrections/voids require a reason and are limited to unallocated stored bales. Reprint the label after a correction.
 
 ## First-time setup
 
@@ -11,11 +11,11 @@ BINFLOW → Bales tracks individually weighed, classified bales separately from 
 
 ## Workflow and stock accounting
 
-Create and weigh → print label → stored → scan onto truck (loading) → confirm manifest and dispatch → in transit → scan into Brisbane (received) → BlockTexx recipient signs storage handover.
+Scan weighed source bins and create bale → print label → stored → scan onto truck (loading) → confirm manifest and dispatch → in transit → scan into Brisbane (received) → BlockTexx recipient signs storage handover.
 
 On-site stock includes stored, loading and received bales. Dispatch removes stock from the sending site; each receipt scan adds it to the receiving depot. Signed storage handover removes it from SB Empire warehouse stock and records it once in the BlockTexx storage handover ledger. The ledger records entry into storage, not subsequent BlockTexx withdrawals or a live balance of their storage facility.
 
-The entered weight is net material kilograms. Bin/POD weighing remains separate: this release does not infer which bins went into a bale or consume bin records. Bale weight and classification snapshots are preserved on the manifest and signed delivery note.
+Daily PODs records each returned bin’s gross, tare and net weight. After POD sign-off, scan each emptied source bin into a bale of the same classification. The first scan can set the material. The running total uses the recorded net weights. At 300 kg the standard bale is full. Staff must confirm each scan above 300 kg, up to 330 kg, before emptying the bin. Bale weight and classification snapshots are preserved on the manifest and signed delivery note.
 
 ## Pickup readiness
 

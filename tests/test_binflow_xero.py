@@ -71,7 +71,7 @@ class XeroRentalTests(unittest.TestCase):
             legacy['search']='Blocktexx'
             conn.execute('UPDATE bf_xero_config SET choices_json=?',(json.dumps(legacy),))
         with patch('binflow_xero.api',side_effect=xero_data):
-            admin=self.client.get('/binflow/invoices?search=Blocktexx')
+            admin=self.client.get('/binflow/setup/invoice-billing?search=Blocktexx')
             rental=self.client.get('/binflow/rental-invoices?contact_search=Other')
         self.assertEqual(pages,[1,2,3])
         for page in (admin,rental):

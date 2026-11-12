@@ -21,6 +21,18 @@ def migrate_bale_scans(conn):
         net_g INTEGER NOT NULL CHECK(net_g>0), scanned_at TEXT NOT NULL, scanned_by TEXT NOT NULL,
         event_id INTEGER NOT NULL REFERENCES bf_events(id), UNIQUE(draft_key,bin_id))""")
 
+    if 'override_total_g' not in {r[1] for r in conn.execute('PRAGMA table_info(bf_open_bale_sources)')}:
+        conn.execute('ALTER TABLE bf_open_bale_sources ADD COLUMN override_total_g INTEGER')
+
+
+BALE_LIMIT_G = 300_000
+BALE_OVERRIDE_LIMIT_G = 330_000
+
+
+def check_bale_limit(grams):
+    if grams > BALE_OVERRIDE_LIMIT_G:
+        raise ValueError(f'{grams / 1000:g} kg exceeds the 330 kg maximum.')
+
 
 VEHICLE_TYPES = ('SINGLE', 'B DOUBLE', 'RIGID')
 
@@ -177,13 +189,14 @@ def register(app,db,access,require,render,success,failure,now,actor):
     def check_version(row):
         if str(row['version'])!=request.form.get('version'):raise ValueError('This record changed. Refresh and check it before continuing.')
 
-    def material():
-        m=db().execute('SELECT * FROM bf_material_classes WHERE id=? AND active=1',(request.form.get('material_id'),)).fetchone()
+    def material(mid=None):
+        m=db().execute('SELECT * FROM bf_material_classes WHERE id=? AND active=1',(mid if mid is not None else request.form.get('material_id'),)).fetchone()
         if not m:raise ValueError('Choose an active material classification in Setup.')
         return m
 
     def view(name,**values):
-        return render(name,section='bales',bale_mode=True,**values)
+        return render(name,section='bales',bale_mode=True,bale_limit_g=BALE_LIMIT_G,
+                      bale_max_g=BALE_OVERRIDE_LIMIT_G,**values)
 
     @app.get('/binflow/bales')
     @warehouse_staff
@@ -200,7 +213,13 @@ def register(app,db,access,require,render,success,failure,now,actor):
             totals.setdefault(w['state'],dict(count=0,grams=0));totals[w['state']]['count']+=s['count'];totals[w['state']]['grams']+=s['grams']
         ids={w['id'] for w in shown}
         transfers=[t for t in db().execute(TRANSFER_SELECT+' ORDER BY t.id DESC') if t['origin_id'] in ids or t['destination_id'] in ids]
-        rows=[b for b in db().execute('SELECT * FROM bf_bales ORDER BY id DESC') if b['warehouse_id'] in ids and b['status'] in ('stored','loading','received')]
+        rows=[]
+        if ids:
+            marks=','.join('?' for _ in ids)
+            rows=db().execute(f"""SELECT b.id,b.code,b.material_name,b.net_g,b.status,b.created_at,
+                l.name AS warehouse,l.state FROM bf_bales b JOIN bf_locations l ON l.id=b.warehouse_id
+                WHERE b.warehouse_id IN ({marks}) AND b.status IN ('stored','loading','received')
+                ORDER BY l.state,l.name,b.id DESC""",tuple(ids)).fetchall()
         from binflow_interstate import PLACES
         regions = {w['state'] for w in shown}
         booked = [r for r in db().execute("""SELECT b.* FROM bf_interstate_bookings b
@@ -215,15 +234,15 @@ def register(app,db,access,require,render,success,failure,now,actor):
             raise ValueError(f"{b['code']}: receive and weigh this bin at the selected warehouse first.")
         if db().execute('SELECT 1 FROM bf_job_bins WHERE bin_id=? AND active=1',(b['id'],)).fetchone():
             raise ValueError(f"{b['code']}: this bin is reserved for another job.")
-        i=db().execute("""SELECT i.*,j.pod_signed_at FROM bf_job_bins i
+        i=db().execute("""SELECT i.*,j.pod_signed_at,j.pod_deleted_at FROM bf_job_bins i
             JOIN bf_jobs j ON j.id=i.job_id WHERE i.bin_id=? AND i.direction='collect'
             AND j.status!='cancelled' ORDER BY i.id DESC LIMIT 1""",(b['id'],)).fetchone()
         if (not i or not i['weighed_at'] or i['gross_g'] is None
                 or i['tare_g'] is None or not i['material_id'] or not i['net_g']):
             raise ValueError(f"{b['code']}: weigh and classify its collected material on the POD first.")
-        if not i['pod_signed_at']:
+        if not i['pod_signed_at'] or i['pod_deleted_at']:
             raise ValueError(f"{b['code']}: sign off this collection’s warehouse POD before baling.")
-        if i['material_id']!=mid:
+        if mid is not None and i['material_id']!=mid:
             raise ValueError(f"{b['code']}: material is {i['material_name']}. Only bins matching the selected classification can be added.")
         if db().execute("""SELECT 1 FROM bf_bale_sources WHERE item_id=?
             UNION ALL SELECT 1 FROM bf_open_bale_sources WHERE item_id=?""",(i['id'],i['id'])).fetchone():
@@ -253,6 +272,8 @@ def register(app,db,access,require,render,success,failure,now,actor):
                 raise ValueError('This bale has already been finished. Open a new bale.')
             rows = draft_rows(key)
             mid = request.form.get('material_id',type=int)
+            if rows and mid is None:
+                mid = rows[0]['material_id']
             if rows and (rows[0]['warehouse_id'] != wid or rows[0]['material_id'] != mid):
                 raise ValueError('Open the bale at its original warehouse with its original material.')
             code = request.form.get('code','').strip()
@@ -284,16 +305,31 @@ def register(app,db,access,require,render,success,failure,now,actor):
             elif not saved:
                 if b['archived'] or len(rows)>=200:
                     raise ValueError('Use a current bin and at most 200 bins per bale.')
-                material()
                 i = source_item(b,wid,mid)
+                mid = i['material_id']
+                material(mid)
+                projected = sum(row['net_g'] for row in rows) + i['net_g']
+                if projected > BALE_OVERRIDE_LIMIT_G:
+                    db().rollback()
+                    return jsonify(ok=False,sources=[dict(row) for row in rows],
+                        message=f'{projected/1000:g} kg exceeds the 330 kg maximum. Keep the bin full and choose a lighter bin or start another bale.'),409
+                override = projected > BALE_LIMIT_G
+                note = i['material_name']
+                if override:
+                    if (request.form.get('override_total_g',type=int) != projected
+                            or request.form.get('override_item_id',type=int) != i['id']):
+                        db().rollback()
+                        return jsonify(ok=False,override_required=True,sources=[dict(row) for row in rows],projected_g=projected,
+                            item_id=i['id'],code=b['code'],message=f"{b['code']} would take this bale to {projected/1000:g} kg."),409
+                    note += f' · Capacity override approved for {projected/1000:g} kg'
                 stamp, who = now(), actor()
                 event_id = db().execute("""INSERT INTO bf_events(bin_id,job_id,event,from_location,to_location,actor,notes,created_at)
                     VALUES(?,?,'Emptied into open bale',?,?,?,?,?)""",
-                    (b['id'],i['job_id'],wid,wid,who,i['material_name'],stamp)).lastrowid
+                    (b['id'],i['job_id'],wid,wid,who,note,stamp)).lastrowid
                 db().execute("""INSERT INTO bf_open_bale_sources
-                    (draft_key,warehouse_id,item_id,bin_id,bin_code,material_id,material_name,net_g,scanned_at,scanned_by,event_id)
-                    VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
-                    (key,wid,i['id'],b['id'],b['code'],mid,i['material_name'],i['net_g'],stamp,who,event_id))
+                    (draft_key,warehouse_id,item_id,bin_id,bin_code,material_id,material_name,net_g,scanned_at,scanned_by,event_id,override_total_g)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (key,wid,i['id'],b['id'],b['code'],mid,i['material_name'],i['net_g'],stamp,who,event_id,projected if override else None))
                 db().execute("UPDATE bf_bins SET status='empty' WHERE id=?",(b['id'],))
             current = [dict(row) for row in draft_rows(key)]
             result = next((row for row in current if row['bin_id']==b['id']),{})
@@ -314,8 +350,6 @@ def register(app,db,access,require,render,success,failure,now,actor):
                 old=db().execute('SELECT * FROM bf_bales WHERE request_key=?',(key,)).fetchone()
                 if old:
                     allowed(old['origin_id']);return success('This bale was already created.','bf_bale',bid=old['id'])
-                grams=weight(request.form.get('weight',''))
-                if request.form.get('confirm_sources')!='yes':raise ValueError('Confirm the finished bale weight.')
                 codes=request.form.getlist('source_code');versions=request.form.getlist('source_item')
                 if not codes or len(codes)>200 or len(codes)!=len(versions):
                     raise ValueError('Scan between 1 and 200 source bins before creating the bale.')
@@ -326,9 +360,16 @@ def register(app,db,access,require,render,success,failure,now,actor):
                     raise ValueError('The saved scans differ from this form. Reopen the bale and review its bins.')
                 if db().execute("""SELECT 1 FROM bf_open_bale_sources s JOIN bf_job_bins i ON i.id=s.item_id
                         JOIN bf_jobs j ON j.id=i.job_id WHERE s.draft_key=? AND
-                        (j.pod_signed_at IS NULL OR i.weighed_at IS NULL OR i.gross_g IS NULL OR i.tare_g IS NULL
+                        (j.pod_signed_at IS NULL OR j.pod_deleted_at IS NOT NULL OR i.weighed_at IS NULL OR i.gross_g IS NULL OR i.tare_g IS NULL
                         OR i.net_g IS NOT s.net_g OR i.material_id IS NOT s.material_id) LIMIT 1""",(key,)).fetchone():
                     raise ValueError('Review the source weights and warehouse POD sign-off before finishing this bale.')
+                grams = sum(source['net_g'] for source in sources)
+                check_bale_limit(grams)
+                approvals = [s for s in sources if s['override_total_g']]
+                finish_override = (grams > BALE_LIMIT_G
+                    and max((s['override_total_g'] for s in approvals), default=0) < grams)
+                if finish_override and request.form.get('approve_draft_g',type=int) != grams:
+                    raise ValueError('Confirm the capacity override for this saved draft before creating the bale.')
                 bid=db().execute('''INSERT INTO bf_bales(token,request_key,origin_id,warehouse_id,material_id,material_name,net_g,created_at,created_by)
                   VALUES(?,?,?,?,?,?,?,?,?)''',(secrets.token_hex(24),key,wid,wid,sources[0]['material_id'],sources[0]['material_name'],grams,now(),actor())).lastrowid
                 db().execute('UPDATE bf_bales SET code=? WHERE id=?',(f'BA{bid:07d}',bid))
@@ -336,7 +377,13 @@ def register(app,db,access,require,render,success,failure,now,actor):
                     SELECT ?,item_id,bin_id,bin_code,material_id,material_name,net_g,scanned_at,scanned_by
                     FROM bf_open_bale_sources WHERE draft_key=?""",(bid,key))
                 db().execute('DELETE FROM bf_open_bale_sources WHERE draft_key=?',(key,))
-                event('Bale created and weighed',bid,wid=wid,details=json.dumps(dict(net_g=grams,material=sources[0]['material_name'])))
+                if grams > BALE_LIMIT_G:
+                    signers = [s['scanned_by'] for s in approvals]
+                    if finish_override:
+                        signers.append(actor())
+                    event('Capacity override · '+f'{grams/1000:g} kg',bid,wid=wid,
+                          details=json.dumps(dict(net_g=grams,approved_by=signers)))
+                event('Bale created from weighed bins',bid,wid=wid,details=json.dumps(dict(net_g=grams,material=sources[0]['material_name'])))
                 readiness(db(),wid,now())
                 return success('Bale created. Print and attach its label.','bf_bale',bid=bid)
             except (ValueError,InvalidOperation) as error:return failure(error,'bf_bale_new',draft=request.form.get('request_key',''))
@@ -392,6 +439,12 @@ def register(app,db,access,require,render,success,failure,now,actor):
                 event('Bale voided',bid,wid=b['warehouse_id'],details=reason)
             else:
                 m=material();grams=weight(request.form.get('weight',''))
+                if grams != b['net_g']:
+                    check_bale_limit(grams)
+                    if grams > BALE_LIMIT_G and request.form.get('approve_correction') != 'yes':
+                        raise ValueError('Confirm the capacity override for a corrected weight above 300 kg.')
+                    if grams > BALE_LIMIT_G:
+                        event(f'Capacity override · {grams/1000:g} kg',bid,wid=b['warehouse_id'],details=reason)
                 if m['id']!=b['material_id'] and db().execute('SELECT 1 FROM bf_bale_sources WHERE bale_id=?',(bid,)).fetchone():
                     raise ValueError('Material is locked to the scanned source bins. It cannot be changed.')
                 db().execute('UPDATE bf_bales SET net_g=?,material_id=?,material_name=?,version=version+1 WHERE id=?',(grams,m['id'],m['name'],bid))

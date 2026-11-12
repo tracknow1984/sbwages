@@ -1,0 +1,35 @@
+<link rel="stylesheet" href="{{ url_for('static',filename='binflow-pod-backlog.css') }}">
+<section id="pending-weigh-ins" class="bf-panel bf-pad pod-backlog">
+  <div class="pod-heading"><h2>Pending weigh-ins</h2><span class="pod-count">{{ progress.pending }} {{ 'bin' if progress.pending==1 else 'bins' }}</span><a class="pod-week-link" href="#weekly-pods">Weekly completion{% if progress.overdue %} · {{ progress.overdue }} overdue{% endif %}</a></div>
+  <p class="bf-muted">All warehouse returns awaiting a final weight, oldest first in each state. Changing the run date keeps this queue visible.</p>
+  {% for state, bins in progress.states.items() %}
+  <h3>{{ state }} <small>· {{ bins|length }} waiting</small></h3>
+  <div class="bf-table-wrap"><table class="bf-plan-table"><thead><tr><th>Bin QR</th><th>Warehouse return</th><th>Collection</th><th>Weight entry</th></tr></thead><tbody>
+    {% for i in bins %}<tr>
+      <td data-label="Bin QR"><div class="pod-bin"><img src="{{ url_for('bf_qr_image',bin_id=i.bin_id) }}" width="72" height="72" loading="lazy" alt="QR code for {{ i.bin_code }}"><div><strong>{{ i.bin_code }}</strong><br>{{ i.size_name }}</div></div></td>
+      <td data-label="Warehouse return"><strong>{{ i.warehouse }}</strong><br>{{ i.arrived|display_datetime }}{% if i.hours is not none %}<br><span class="{{ 'pod-aged' if i.hours>=48 else 'bf-muted' }}">{{ (i.hours // 24) ~ 'd ' if i.hours>=24 }}{{ i.hours % 24 }}h waiting</span>{% endif %}</td>
+      <td data-label="Collection">{{ i.client_name }} · {{ i.site_name }}<br><a href="{{ url_for('bf_job',job_id=i.job_id) }}">{{ i.code }}</a> · {{ i.collected_at|display_date }}</td>
+      <td data-label="Weight entry"><details class="pod-entry"><summary>Weigh bin</summary>
+        <form class="bf-weigh-form" method="post" action="{{ url_for('bf_weigh',job_id=i.job_id,item_id=i.item_id) }}">
+          <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="return_to" value="pods"><input type="hidden" name="date" value="{{ run_date }}">
+          {% include 'binflow/bin_weight_fields.html' %}
+        </form>
+      </details></td>
+    </tr>{% endfor %}
+  </tbody></table></div>
+  {% else %}<p class="bf-note">All returned bins in your warehouse queue have been weighed.</p>{% endfor %}
+</section>
+<section id="weekly-pods" class="bf-panel bf-pad pod-closeout">
+  <div class="pod-heading"><h2>Weekly POD completion</h2>{% if progress.overdue %}<span class="pod-overdue">{{ progress.overdue }} overdue</span>{% endif %}</div>
+  <p class="bf-muted">Target: weigh every collected bin and sign every collection POD by Sunday night, Brisbane time. Open PODs are still waiting for invoicing.</p>
+  <div class="bf-table-wrap"><table class="bf-plan-table"><thead><tr><th>Collection week</th><th>Bins weighed</th><th>PODs signed</th><th>Weekly close</th></tr></thead><tbody>
+  {% for w in progress.weeks %}<tr>
+    <td data-label="Collection week"><strong>{{ w.start|display_date }} – {{ w.end|display_date }}</strong></td>
+    <td data-label="Bins weighed">{{ w.weighed }} / {{ w.bins }}</td><td data-label="PODs signed">{{ w.signed }} / {{ w.total }}</td>
+    <td data-label="Weekly close">{% if w.outstanding %}<details><summary class="{{ 'pod-overdue' if w.past else 'pod-count' }}">{{ w.outstanding|length }} {{ 'overdue' if w.past else 'open' }} · View PODs</summary>
+      <ul>{% for j in w.outstanding %}<li><a href="{{ url_for('bf_job',job_id=j.id,_anchor='pod-finalisation') }}">{{ j.code }}</a> · {{ j.state }} · {{ j.client_name }} · {{ 'Check run & sign off' if j.status=='complete' else 'Awaiting return or weight' }}</li>{% endfor %}</ul></details>
+      {% elif not w.total %}No collections{% elif w.on_time==w.total %}<span class="bf-status complete">All signed on time</span>{% else %}Complete{% endif %}
+      {% if w.signed>w.on_time %}<span class="pod-aged">{{ w.signed-w.on_time }} signed after week-end</span>{% endif %}</td>
+  </tr>{% endfor %}
+  </tbody></table></div>
+</section>

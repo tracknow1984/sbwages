@@ -5,12 +5,14 @@ import re
 import secrets
 import smtplib
 import ssl
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from email.message import EmailMessage
 
 from flask import abort, flash, g, request, send_file, session
 
-from binflow_permissions import can_view_job
+from binflow_pickup_pricing import pickup_cents, rate_text
+from binflow_permissions import can_view_job, is_office, is_warehouse
 from binflow_runs import valid_date
 
 
@@ -37,6 +39,7 @@ def migrate_pods(conn):
             user_id INTEGER NOT NULL REFERENCES users(id), request_key TEXT NOT NULL UNIQUE,
             recipient TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('sending','sent','failed')),
             created_at TEXT NOT NULL, sent_at TEXT);
+        CREATE INDEX IF NOT EXISTS bf_pod_collection_items ON bf_job_bins(job_id) WHERE direction='collect';
         CREATE INDEX IF NOT EXISTS bf_pod_filing ON bf_jobs(scheduled_date,pod_deleted_at,pod_archived_at);
     ''')
 
@@ -44,6 +47,89 @@ def migrate_pods(conn):
 def ensure_pod_available(job):
     if job['pod_deleted_at']:
         abort(410, 'This POD is deleted. An administrator can restore it from Deleted PODs.')
+
+
+def warehouse_scope(user):
+    if is_office(user):
+        return '1=1', ()
+    if is_warehouse(user):
+        return """j.state=? AND w.state=? AND NOT EXISTS (
+            SELECT 1 FROM bf_bale_managers m WHERE m.user_id=? AND m.warehouse_id!=j.warehouse_id
+        )""", (user['working_state'], user['working_state'], user['id'])
+    return '0=1', ()
+
+
+def pending_bins(conn, user, bin_id=None):
+    scope, args = warehouse_scope(user)
+    bin_filter = '' if bin_id is None else ' AND b.id=?'
+    return conn.execute(f"""SELECT i.id AS item_id,i.bin_id,i.bin_code,i.size_name,i.tare_g,
+            j.id AS job_id,j.code,j.client_name,j.site_name,j.collected_at,
+            w.name AS warehouse,w.state,COALESCE(i.returned_at,j.received_at) AS arrived
+        FROM bf_job_bins i JOIN bf_jobs j ON j.id=i.job_id JOIN bf_bins b ON b.id=i.bin_id
+        JOIN bf_locations w ON w.id=j.warehouse_id
+        WHERE {scope} {bin_filter} AND i.direction='collect' AND i.active=1 AND i.weighed_at IS NULL
+          AND b.status='received' AND b.truck_id IS NULL AND b.location_id=w.id
+          AND j.approval_status='approved' AND j.status IN ('collected','received')
+          AND j.pod_deleted_at IS NULL AND (i.returned_at IS NOT NULL OR (j.scan_mode=0 AND j.received_at IS NOT NULL))
+        ORDER BY w.state,arrived,i.bin_code""", args + (() if bin_id is None else (bin_id,))).fetchall()
+
+
+def monday(day):
+    return day - timedelta(days=day.weekday())
+
+
+def warehouse_progress(conn, user, stamp, selected):
+    today = date.fromisoformat(stamp[:10])
+    current_week = monday(today)
+    selected_week = monday(date.fromisoformat(selected))
+    prior_week = current_week - timedelta(days=7)
+    states = {}
+    for row in pending_bins(conn, user):
+        item = dict(row)
+        try:
+            age = datetime.fromisoformat(stamp).timestamp() - datetime.fromisoformat(item['arrived']).timestamp()
+            item['hours'] = max(0, int(age // 3600))
+        except (ValueError, TypeError):
+            item['hours'] = None
+        states.setdefault(item['state'], []).append(item)
+
+    # All weeks use the actual pickup date in BinFlow's Brisbane business clock.
+    # Include archived signed PODs in the denominator, as they are still available to clients.
+    scope, args = warehouse_scope(user)
+    collection_jobs = f"""SELECT j.id,j.code,j.client_name,j.pod_signed_at,j.status,w.state,
+            COUNT(*) AS bins, COUNT(i.weighed_at) AS weighed,
+            date(substr(j.collected_at,1,10),'weekday 0','-6 days') AS week
+        FROM bf_jobs j JOIN bf_locations w ON w.id=j.warehouse_id
+        JOIN bf_job_bins i ON i.job_id=j.id AND i.direction='collect'
+        WHERE {scope} AND j.approval_status='approved' AND j.status IN ('collected','received','complete')
+          AND j.pod_deleted_at IS NULL AND j.collected_at IS NOT NULL
+        GROUP BY j.id"""
+    weeks = {}
+    def week_entry(key):
+        start = date.fromisoformat(key)
+        return dict(start=key, end=(start+timedelta(days=6)).isoformat(),
+                    past=start<current_week, total=0, signed=0, bins=0, weighed=0, on_time=0, outstanding=[])
+    rows = conn.execute(f"""WITH jobs AS ({collection_jobs}), totals AS (
+        SELECT week,COUNT(*) AS total,COUNT(pod_signed_at) AS signed,SUM(bins) AS bins,
+               SUM(weighed) AS weighed,
+               COUNT(CASE WHEN substr(pod_signed_at,1,10)<=date(week,'+6 days') THEN 1 END) AS on_time
+        FROM jobs WHERE week IS NOT NULL GROUP BY week
+        HAVING total>signed OR week IN (?,?,?))
+        SELECT t.*,j.id,j.code,j.client_name,j.status,j.state FROM totals t LEFT JOIN jobs j
+          ON j.week=t.week AND j.pod_signed_at IS NULL ORDER BY t.week,j.state,j.code""",
+        (*args,current_week.isoformat(),prior_week.isoformat(),selected_week.isoformat()))
+    for row in rows:
+        key = row['week']
+        if key not in weeks:
+            weeks[key] = week_entry(key)
+            weeks[key].update({field: row[field] for field in ('total','signed','bins','weighed','on_time')})
+        if row['id'] is not None:
+            weeks[key]['outstanding'].append(row)
+    for day in (current_week, selected_week):
+        if day.isoformat() not in weeks:
+            weeks[day.isoformat()] = week_entry(day.isoformat())
+    return dict(states=states, pending=sum(map(len,states.values())), weeks=[weeks[k] for k in sorted(weeks)],
+                overdue=sum(w['total']-w['signed'] for w in weeks.values() if w['past']))
 
 
 def register_pods(app, db, access, require, render, success, failure, now, pdf):
@@ -59,7 +145,11 @@ def register_pods(app, db, access, require, render, success, failure, now, pdf):
         clause = {'active': 'j.pod_deleted_at IS NULL AND j.pod_archived_at IS NULL',
                   'archived': 'j.pod_deleted_at IS NULL AND j.pod_archived_at IS NOT NULL',
                   'deleted': 'j.pod_deleted_at IS NOT NULL'}[view]
-        rows = db().execute('''SELECT j.*,
+        rate_sql = 'NULL'
+        if g.user['role']=='admin' and not getattr(g,'bf_demo_token',None):
+            rate_sql = '(SELECT r.units FROM bf_job_pickup_rates p JOIN bf_pickup_rates r ON r.id=p.rate_id WHERE p.job_id=j.id)'
+        rows = db().execute(f'''SELECT j.*, {rate_sql} AS rate_units,
+            (SELECT COUNT(*) FROM bf_job_bins i WHERE i.job_id=j.id AND i.direction='collect') AS collection_bins,
             (SELECT SUM(net_g) FROM bf_job_bins i WHERE i.job_id=j.id AND i.direction='collect') AS net,
             (SELECT COUNT(*) FROM bf_job_bins i WHERE i.job_id=j.id AND i.direction='collect' AND i.weighed_at IS NULL) AS unweighed
             FROM bf_jobs j WHERE j.scheduled_date=? AND j.approval_status='approved' AND j.status!='cancelled' AND ''' + clause +
@@ -78,7 +168,10 @@ def register_pods(app, db, access, require, render, success, failure, now, pdf):
     def bf_daily_pods():
         run_date, view = selection()
         jobs = daily_jobs(run_date, view)
-        return render('daily_pods', section='pods', run_date=run_date, view=view, jobs=jobs,
+        progress = None
+        if view == 'active' and not getattr(g, 'bf_demo_token', None) and (is_office(g.user) or is_warehouse(g.user)):
+            progress = warehouse_progress(db(), g.user, now(), run_date)
+        return render('daily_pods', progress=progress, section='pods', run_date=run_date, view=view, jobs=jobs,
                       closed=sum(bool(j['pod_signed_at']) for j in jobs))
 
     @app.get('/binflow/pods/export.csv')
@@ -86,15 +179,18 @@ def register_pods(app, db, access, require, render, success, failure, now, pdf):
     def bf_pods_export():
         run_date, view = selection()
         stream = io.StringIO(); writer = csv.writer(stream)
-        writer.writerow(['Docket', 'Date', 'Client', 'Site', 'State', 'POD status', 'Net weight kg', 'Filed under', 'Signed by', 'Signed at', 'Materials'])
+        writer.writerow(['Docket', 'Date', 'Client', 'Site', 'State', 'POD status', 'Net weight kg', 'Filed under', 'Signed by', 'Signed at', 'Materials', 'Pickup rate AUD/kg ex GST', 'Signed pickup value AUD ex GST'])
         def safe(value):
             value = str(value or '')
             return "'" + value if value.lstrip().startswith(('=', '+', '-', '@')) or value.startswith(('\t', '\r', '\n')) else value
         for j in daily_jobs(run_date, view):
             from binflow_pod_records import status as pod_status
             status = pod_status(j)
+            cents = pickup_cents(j)
             writer.writerow([safe(v) for v in (j['code'], j['scheduled_date'], j['client_name'], j['site_name'],
-                j['state'], status, str(Decimal(j['net'] or 0) / 1000), view, j['pod_signed_name'],j['pod_signed_at'], '; '.join(r[0] for r in db().execute("SELECT DISTINCT material_name FROM bf_job_bins WHERE job_id=? AND direction='collect'",(j['id'],))))])
+                j['state'], status, str(Decimal(j['net'] or 0) / 1000), view, j['pod_signed_name'],j['pod_signed_at'], '; '.join(r[0] for r in db().execute("SELECT DISTINCT material_name FROM bf_job_bins WHERE job_id=? AND direction='collect'",(j['id'],))),
+                rate_text(j['rate_units']) if j['collection_bins'] else '',
+                f'{Decimal(cents)/100:.2f}' if cents is not None else '')])
         return send_file(io.BytesIO(stream.getvalue().encode('utf-8-sig')), mimetype='text/csv',
                          as_attachment=True, download_name=f'PODs-{run_date}-{view}.csv')
 

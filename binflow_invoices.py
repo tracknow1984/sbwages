@@ -11,6 +11,7 @@ from uuid import uuid4
 from werkzeug.utils import secure_filename
 from flask import abort, flash, g, redirect, render_template, request, send_file, url_for
 
+import binflow_auto_invoices as auto
 import binflow_xero as xero
 from binflow_freight_rates import quote
 from binflow_sizes import amount
@@ -37,6 +38,8 @@ def migrate(conn):
         WHERE category_id=1 AND mode='actual' AND status!='cancelled'""")
     conn.execute("""CREATE UNIQUE INDEX IF NOT EXISTS bf_invoice_transfer ON bf_rental_invoices(booking_id)
         WHERE booking_id IS NOT NULL AND status!='cancelled'""")
+
+    auto.migrate(conn)
 
 
 def categories(conn):
@@ -168,20 +171,25 @@ def pdf_bytes(app, conn, tenant, iid):
 
 
 def register(app, db, require, render, client_access, now, actor):
+    auto.register(app,db,require,render,now,actor)
     @app.get('/binflow/invoices')
     @require('admin')
     def bf_invoices():
         conn = db()
         cfg = xero.config(conn)
         connected = bool(cfg['tenant_id'] and cfg['token_cipher'])
-        opts,error = xero.directory_for_page(app,conn,cfg,request.args.get('refresh')=='yes')
+        auto.refresh(conn,now(),True)
+        drafts = conn.execute("""SELECT d.*,i.invoice_number,
+            COALESCE((SELECT SUM(json_extract(x.value,'$.net')+json_extract(x.value,'$.tax'))
+              FROM json_each(d.lines) x),0) AS total FROM bf_auto_drafts d LEFT JOIN bf_rental_invoices i ON i.id=d.id
+            ORDER BY CASE d.state WHEN 'sending' THEN 0 WHEN 'open' THEN 1 ELSE 2 END,d.end DESC,d.client""").fetchall()
         page = max(1,request.args.get('page',1,type=int))
         history = conn.execute("""SELECT i.id,i.invoice_number,i.mode,i.status,i.xero_status,i.created_at,
             json_extract(i.snapshot_json,'$.contact.name') AS contact,c.name AS category FROM bf_rental_invoices i
             JOIN bf_invoice_categories c ON c.id=i.category_id ORDER BY i.created_at DESC,i.rowid DESC LIMIT 31 OFFSET ?""",
                                ((page-1)*30,)).fetchall()
         return render('invoices_admin',section='invoices',categories=categories(conn),accounts=contacts(conn,cfg['tenant_id']),
-                      history=history[:30],has_next=len(history)>30,page=page,options=opts,connected=connected,error=error,tenant=cfg['tenant_id'])
+                      history=history[:30],has_next=len(history)>30,page=page,drafts=drafts,today=now()[:10])
 
     @app.post('/binflow/invoices/categories')
     @require('admin')
@@ -197,7 +205,7 @@ def register(app, db, require, render, client_access, now, actor):
             except sqlite3.IntegrityError:
                 db().rollback()
                 flash('That invoice category already exists.','error')
-        return redirect(url_for('bf_invoices',_anchor='categories'))
+        return redirect(url_for('bf_auto_billing_setup',_anchor='categories'))
 
     @app.post('/binflow/invoices/contact')
     @require('admin')
@@ -225,7 +233,7 @@ def register(app, db, require, render, client_access, now, actor):
             conn.execute('DELETE FROM bf_invoice_contacts WHERE tenant_id=? AND account_id=?',(cfg['tenant_id'],aid))
         conn.commit()
         flash('Billing contact saved.','success')
-        return redirect(url_for('bf_invoices',_anchor='contacts'))
+        return redirect(url_for('bf_auto_billing_setup',_anchor='contacts'))
 
     @app.route('/binflow/invoices/new',methods=['GET','POST'])
     @require('admin')

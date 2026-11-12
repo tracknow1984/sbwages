@@ -42,6 +42,77 @@ class DailyPODTests(unittest.TestCase):
         with client.session_transaction() as s:s['bf_client_uid']=1;s['bf_client_version']=1
         return client
 
+    def test_returns_survive_date_changes_and_week_closes_only_after_signature(self):
+        from pod_helpers import sign_pod
+        self.initial_delivery()
+        self.job(collect=(1,2))
+        self.exchange(2,(1,2))
+        first,second=self.rows('SELECT id,bin_id FROM bf_job_bins WHERE job_id=2 ORDER BY bin_id')
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("""UPDATE bf_jobs SET scan_mode=1,collected_at='2026-10-16T13:00:00+10:00'
+                WHERE id=2""")
+            conn.execute("UPDATE bf_job_bins SET returned_at='2026-10-16T17:00:00+10:00' WHERE id=?", (first['id'],))
+            conn.execute("UPDATE bf_bins SET status='received',location_id=1 WHERE id=1")
+        url='/binflow/pods?date=2026-10-12'
+        page=self.client.get(url).text
+        self.assertIn('/binflow/bins/1/qr.png',page)
+        self.assertNotIn('/binflow/bins/2/qr.png',page)
+        self.assertIn('2d 15h waiting',page)
+        self.assertIn('1 overdue',page)
+        self.assertIn('0 / 2',page)
+        form=dict(gross=15,tare=5,confirm_tare='yes',return_to='pods',date='2026-10-12')
+        saved=self.post(f"/binflow/pickups/2/weigh/{first['id']}",form,follow=False)
+        self.assertIn(url+'#pending-weigh-ins',saved.location)
+        page=self.client.get(url).text
+        self.assertNotIn('/binflow/bins/1/qr.png',page)
+        self.assertIn('1 / 2',page)
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("UPDATE bf_jobs SET status='received',received_at='2026-10-19T08:00:00+10:00' WHERE id=2")
+            conn.execute("UPDATE bf_job_bins SET returned_at='2026-10-19T08:00:00+10:00' WHERE id=?",(second['id'],))
+            conn.execute("UPDATE bf_bins SET status='received',location_id=1 WHERE id=2")
+        self.post(f"/binflow/pickups/2/weigh/{second['id']}",form)
+        page=self.client.get(url).text
+        self.assertIn('2 / 2',page)
+        self.assertIn('1 overdue',page)
+        self.assertIn('Check run &amp; sign off',page)
+        self.assertEqual(self.client_portal().get('/binflow/client/pods/2.pdf').status_code,404)
+        sign_pod(self,2)
+        page=self.client.get(url).text
+        self.assertNotIn('1 overdue',page)
+        self.assertIn('1 signed after week-end',page)
+        self.assertIn('1 / 1',page)
+
+    def test_queue_groups_legacy_receipts_and_limits_warehouse_qrs(self):
+        self.initial_delivery()
+        self.job(collect=(1,))
+        self.exchange(2,(1,))
+        self.post('/binflow/pickups/2/receive',dict(confirmed=[1]))
+        self.post('/binflow/bins',dict(warehouse_id=2,size_id=1,quantity=1,tare=5))
+        self.job(deliver=(7,),site=5,warehouse=2)
+        self.exchange(3,(7,))
+        self.job(collect=(7,),site=5,warehouse=2)
+        self.exchange(4,(7,))
+        self.post('/binflow/pickups/4/receive',dict(confirmed=[7]))
+        url='/binflow/pods?date=2026-10-22'
+        page=self.client.get(url).text
+        for value in ('<h3>NSW','<h3>QLD','/binflow/bins/1/qr.png','/binflow/bins/7/qr.png','2 bins'):
+            self.assertIn(value,page)
+        with sqlite3.connect(self.path) as conn:
+            uid=conn.execute("""INSERT INTO users(role,first_name,last_name,email,username,password_hash,extra_business_roles,working_state)
+                VALUES('employee','Warehouse','User','wh@example.com','wh',?,'warehouse','QLD')""",
+                (generate_password_hash('test-admin-password'),)).lastrowid
+        self.post('/logout');self.login('employee','wh')
+        page=self.client.get(url).text
+        self.assertIn('/binflow/bins/1/qr.png',page)
+        self.assertNotIn('/binflow/bins/7/qr.png',page)
+        self.assertEqual(self.client.get('/binflow/bins/1/qr.png').mimetype,'image/png')
+        self.assertEqual(self.client.get('/binflow/bins/7/qr.png').status_code,404)
+        self.assertEqual(self.client.get('/binflow/bins/2/qr.png').status_code,404)
+        with sqlite3.connect(self.path) as conn:
+            conn.execute('INSERT INTO bf_bale_managers(user_id,warehouse_id) VALUES(?,2)',(uid,))
+        self.assertNotIn('/binflow/bins/1/qr.png',self.client.get(url).text)
+        self.assertEqual(self.client.get('/binflow/bins/1/qr.png').status_code,404)
+
     def test_filing_preserves_stock_history_and_client_visibility(self):
         self.initial_delivery(); client=self.client_portal()
         before={table:self.rows('SELECT * FROM '+table) for table in ('bf_bins','bf_job_bins','bf_events')}

@@ -39,7 +39,7 @@ def amount(raw, label, maximum, multiplier, optional=False):
             raise ValueError()
         return int(scaled)
     except (InvalidOperation, ValueError):
-        places = 3 if multiplier == 1000 else 2
+        places = len(str(multiplier)) - 1
         raise ValueError(f'{label} must be between 0 and {maximum:,}, with up to {places} decimal places.') from None
 
 

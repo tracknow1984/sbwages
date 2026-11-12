@@ -46,6 +46,46 @@ class BookingTests(unittest.TestCase):
     scan = bales.BaleTests.scan
     action = bales.BaleTests.action
 
+    def test_in_transit_amendment_preserves_dispatch_and_delivered_load_is_closed(self):
+        form=data()
+        self.post(CAL+'/new',form)
+        self.post(CAL+'/1/lock',dict(version=1))
+        self.post(CAL+'/1/bulk',dict(action='dispatch'))
+        original=self.rows('SELECT * FROM bf_interstate_bookings')[0]
+        change=dict(form,reason='New receiving contact',version=original['version'],delivery_contact='Lee')
+        self.assertEqual(self.post(CAL+'/1/edit',dict(change,destination='SYD')).status_code,400)
+        self.assertEqual(self.post(CAL+'/1/edit',change).status_code,200)
+        amended=self.rows('SELECT * FROM bf_interstate_bookings')[0]
+        self.assertEqual(amended['delivery_contact'],'Lee')
+        self.assertEqual(amended['locked_at'],original['locked_at'])
+        self.assertEqual(amended['bulk_dispatched_at'],original['bulk_dispatched_at'])
+        self.post(CAL+'/1/bulk',dict(action='deliver'))
+        self.assertEqual(self.post(CAL+'/1/cancel',dict(version=amended['version'],reason='Wrong docket')).status_code,409)
+
+    def test_modify_confirmed_load_and_cancel_with_audit_and_po_retention(self):
+        form=data(handling='bulk')
+        self.post(CAL+'/new',form)
+        self.post(CAL+'/1/lock',dict(version=1))
+        row=self.rows('SELECT * FROM bf_interstate_bookings')[0]
+        self.post(CAL+'/1/purchase-order',dict(po_number='PO-RETAIN',po_revision=0))
+        changed=dict(form,version=row['version'],goods='24 pallets')
+        self.assertEqual(self.post(CAL+'/1/edit',changed).status_code,400)
+        self.post(CAL+'/1/edit',dict(changed,reason='Customer revised quantity'))
+        row=self.rows('SELECT * FROM bf_interstate_bookings')[0]
+        self.assertEqual(row['goods'],'24 pallets')
+        self.assertIsNone(row['locked_at'])
+        self.assertIn('PO-RETAIN',self.client.get(CAL+'/1').text)
+        self.assertEqual(self.post(CAL+'/1/cancel',dict(version=row['version'],reason=' ')).status_code,400)
+        self.assertEqual(self.post(CAL+'/1/cancel',dict(version=row['version']-1,reason='Wrong version')).status_code,409)
+        cancelled=self.post(CAL+'/1/cancel',dict(version=row['version'],reason='Receiver closed'))
+        self.assertIn('Receiver closed',cancelled.text)
+        self.assertIn('Cancelled loads',self.client.get(CAL+'?view=month&date='+row['pickup_date']).text)
+        self.assertEqual([r['action'] for r in self.rows('SELECT action FROM bf_load_changes ORDER BY id')],['Modified','Cancelled'])
+        self.assertEqual(self.post(CAL+'/1/lock',dict(version=row['version']+1)).status_code,409)
+        self.assertEqual(self.post(CAL+'/1/bulk',dict(action='dispatch')).status_code,409)
+        self.assertEqual(self.client.get(CAL+'/1/edit').status_code,409)
+        self.assertEqual(self.rows('SELECT number FROM bf_interstate_purchase_orders')[0]['number'],'PO-RETAIN')
+
     def test_bulk_lock_calendar_email_retry_and_manual_movements(self):
         for field in ('client_name','pickup_address','pickup_contact','delivery_address','delivery_contact','goods','email'):
             self.assertEqual(self.post(CAL+'/new',data(**{field:''})).status_code,400)
@@ -55,7 +95,7 @@ class BookingTests(unittest.TestCase):
         self.assertEqual(len(self.rows('SELECT id FROM bf_interstate_bookings')),1)
         week = CAL+'?date=2026-11-13'
         self.assertNotIn('class="it-event',self.client.get(week).text)
-        form.update(version=1,pickup_date='2026-11-14')
+        form.update(version=1,pickup_date='2026-11-14',reason='Pickup site moved its window')
         self.post(CAL+'/1/edit',form)
         self.assertEqual(self.post(CAL+'/1/lock',dict(version=1)).status_code,409)
         self.app.config.update(SMTP_HOST='smtp.example.invalid',SMTP_FROM='office@example.invalid')

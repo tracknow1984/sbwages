@@ -93,8 +93,9 @@ class DriverJourneyTests(unittest.TestCase):
         self.assertEqual(self.stage(),'weighing')
         self.assertEqual(self.rows('SELECT status,location_id,truck_id FROM bf_bins WHERE id=1')[0],dict(status='received',location_id=1,truck_id=None))
         self.time+=timedelta(hours=8)
-        self.assertIn(b'Bins still to weigh: 2',self.finish().data)
-        self.assertIsNone(self.rows('SELECT committed_at FROM entries')[0]['committed_at'])
+        self.assertIn(b'Your work is saved',self.finish().data)
+        self.assertTrue(self.rows('SELECT committed_at FROM entries')[0]['committed_at'])
+        self.assertIsNone(self.rows('SELECT pod_signed_at FROM bf_jobs WHERE id=2')[0]['pod_signed_at'])
         with sqlite3.connect(self.path) as conn:
             warehouse_user = conn.execute("""INSERT INTO users(role,first_name,last_name,email,username,password_hash,
                 business_role,extra_business_roles,working_state) VALUES('employee','Warehouse','Operator','warehouse@example.com','warehouseperson',?,
@@ -270,8 +271,7 @@ class DriverJourneyTests(unittest.TestCase):
                 driver_page = self.client.get(driver_page.location)
                 self.assertIn('2 of 3 bins weighed',driver_page.text)
                 self.assertNotIn('WAREHOUSE HANDOVER COMPLETE',driver_page.text)
-                self.assertNotIn('>Finish day<',driver_page.text)
-                self.assertIn(b'Bins still to weigh: 1',self.post('/binflow/driver/my-day/1/finish'+suffix,self.stamp()).data)
+                self.assertIn('>Finish day<',driver_page.text)
                 for document in ('pod','pod.pdf'):
                     self.assertEqual(self.client.get('/binflow/pickups/1/'+document+suffix).status_code,409)
                 self.assertNotIn('name="run_version"',page.text)
@@ -281,7 +281,6 @@ class DriverJourneyTests(unittest.TestCase):
                 self.assertNotIn('Signed by <strong>',blocked.text)
         version = re.search(r'name="version" value="(\d+)"',page.text)[1]
         run_version = re.search(r'name="run_version" value="([^"]+)"',page.text)[1]
-        self.assertIn(b'Sign off the run PODs',self.post('/binflow/driver/my-day/1/finish'+suffix,self.stamp()).data)
         signed = self.post(base+'/pickups/2/pod/sign',dict(version=version,run_version=run_version,
                                                            scope='run',confirm='yes',signature=SIGNATURE))
         self.assertIn('Signed by <strong>',signed.text)
@@ -379,7 +378,7 @@ class DriverJourneyTests(unittest.TestCase):
             self.assertTrue(self.scan('return',code,suffix).json['ok'])
         self.assertEqual(self.client.get('/binflow/driver/demo/inbound'+suffix).data.count(b'TO BE WEIGHED'),3)
         self.time+=timedelta(hours=8)
-        self.assertIn(b'Bins still to weigh: 3',self.post('/binflow/driver/my-day/1/finish'+suffix,self.stamp()).data)
+        self.assertIn(b'Finish day',self.client.get('/binflow/driver/my-day'+suffix,follow_redirects=True).data)
         self.complete_sample_warehouse(token)
         finished=self.post('/binflow/driver/my-day/1/finish'+suffix,self.stamp())
         self.assertIn(b'Sample run complete',finished.data)

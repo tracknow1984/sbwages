@@ -1,16 +1,19 @@
 {% extends 'binflow/bale_base.html' %}{% block title %}Create bale{% endblock %}{% block bale_body %}
 {% if drafts %}<section class="bf-panel bf-pad"><h2>Open bales</h2>{% for d in drafts %}<a class="button secondary" href="{{ url_for('bf_bale_new',draft=d.draft_key) }}">Resume {{ d.material_name }} · {{ d.warehouse }} · {{ d.bins }} bin(s) · #{{ d.first_scan }}</a>{% endfor %}</section>{% endif %}
-<section class="bf-panel bf-pad bf-bale-form"><h2>1. Scan bins into the bale</h2><p class="bf-muted">Weigh the bins and sign off their warehouse PODs first. Scan each bin as you empty it. A successful scan makes it available for its next job.</p>
+<section class="bf-panel bf-pad bf-bale-form"><h2>1. Scan bins into the bale</h2><p class="bf-muted">Scan full bins with a signed POD in any order. Empty each bin only after the scan is accepted. All bins in a bale must have the same material.</p>
 {% if materials and warehouses %}
-<form method="post" class="bf-form" id="bale-create" data-bale-create data-scan-url="{{ url_for('bf_bale_source_scan') }}">
+<form method="post" class="bf-form" id="bale-create" data-bale-create data-limit-g="{{ bale_limit_g }}" data-max-g="{{ bale_max_g }}" data-scan-url="{{ url_for('bf_bale_source_scan') }}">
 <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="request_key" value="{{ request_key }}">
 <label>Warehouse<select name="warehouse_id" required>{% for w in warehouses %}<option value="{{ w.id }}" {{ 'selected' if selected==w.id }}>{{ w.state }} · {{ w.name }}</option>{% endfor %}</select></label>
-<label>Material classification<select name="material_id" required><option value="">Select material</option>{% for m in materials %}<option value="{{ m.id }}"{% if m.id==selected_material %} selected{% endif %}>{{ m.name }}</option>{% endfor %}</select></label>
+<label>Material classification<select name="material_id"><option value="">Use first bin’s material</option>{% for m in materials %}<option value="{{ m.id }}"{% if m.id==selected_material %} selected{% endif %}>{{ m.name }}</option>{% endfor %}</select></label>
 <script type="application/json" data-saved-sources>{{ sources|tojson }}</script>
+<div class="bf-bale-meter"><label for="bale-capacity">Bale weight <strong data-bale-total>0 kg</strong> / {{ bale_limit_g|bfkg }} kg</label>
+<progress id="bale-capacity" value="0" max="{{ bale_limit_g }}"></progress><span data-remaining role="status"></span></div>
 <div class="bf-actions"><button type="button" class="primary" data-camera-start>Scan bin QR</button><button type="button" class="secondary" data-camera-stop hidden>Stop camera</button></div><video data-camera playsinline muted hidden style="width:100%;max-height:280px;margin-top:12px"></video>
 <label>Bin ID / QR link<input data-source-code autocomplete="off" placeholder="Scan or enter BF000001"></label><button type="button" class="secondary" data-add-source>Add bin</button>
-<p role="status" aria-live="polite" data-source-feedback>Select a material, then scan each bin.</p><div data-source-list></div>
-<section data-bale-finish hidden><h2>2. Weigh & create bale</h2><label>Net bale weight (kg)<input type="number" name="weight" min="0.001" max="1000000" step="0.001" inputmode="decimal" required placeholder="e.g. 450"></label><label class="bf-check"><input type="checkbox" name="confirm_sources" value="yes" required>I confirm the net bale weight excludes packaging.</label><button type="submit" class="primary">Create bale & open label</button></section>
+<p role="status" aria-live="polite" data-source-feedback>Scan a full bin to start.</p>
+<div class="bf-bale-alert" data-override hidden><p data-override-message></p><div class="bf-actions"><button type="button" class="primary" data-approve>Override &amp; add bin</button><button type="button" class="secondary" data-decline>Keep bin full</button></div></div><div data-source-list></div>
+<section data-bale-finish hidden><h2>2. Create bale</h2><label class="bf-check" data-draft-override hidden><input type="checkbox" name="approve_draft_g">Approve this saved draft above 300 kg</label><button type="submit" class="primary">Create bale &amp; open label</button></section>
 <noscript><p>Enable JavaScript to scan and check source bins before creating a bale.</p></noscript></form>
 {% else %}<p class="bf-note">Add a warehouse and material classification in Setup first.</p>{% endif %}</section>
-<script src="{{ url_for('static',filename='vendor/jsQR.min.js') }}" defer></script><script src="{{ url_for('static',filename='binflow-bale-create.js') }}" defer></script>{% endblock %}
+<script src="{{ url_for('static',filename='vendor/jsQR.min.js') }}" defer></script><script src="{{ url_for('static',filename='binflow-bale-create.js',v='capacity-300') }}" defer></script>{% endblock %}

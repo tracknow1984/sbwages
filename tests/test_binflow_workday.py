@@ -62,7 +62,7 @@ class DriverWorkdayTests(unittest.TestCase):
     def scan(self,action,bid):
         return self.post('/binflow/driver/1/scan',dict(job_id=2,action=action,code=f'BF{bid:06d}',material_id=pickup_material(self)))
 
-    def test_phone_day_finishes_only_after_all_weights_and_pod_signoff(self):
+    def test_phone_day_finishes_after_all_return_scans_before_warehouse_weights(self):
         self.assertEqual(self.stage(),'startday')
         self.assertIn(b'Start day',self.client.get('/binflow/driver/my-day').data)
         self.assertIn(b'Start your driver day',self.scan('load',3).data)
@@ -86,15 +86,16 @@ class DriverWorkdayTests(unittest.TestCase):
         self.assertIn(b'Scan every bin off the truck',self.finish().data)
         self.assertIsNone(self.rows('SELECT finished_at FROM bf_workdays')[0]['finished_at'])
         self.scan('return',1);self.scan('return',2);self.assertEqual(self.stage(),'weighing')
-        self.assertIn(b'Bins still to weigh: 2',self.finish().data)
+        self.assertIn(b'Finish day',self.client.get('/binflow/driver/1/day?date='+RUN_DATE).data)
+        result=self.finish(notes='All client stops and returns completed')
+        self.assertIn(b'Your work is saved',result.data)
+        self.assertIsNone(self.rows('SELECT pod_signed_at FROM bf_jobs WHERE id=2')[0]['pod_signed_at'])
         self.post('/logout');self.login()
         for item in self.rows("SELECT id FROM bf_job_bins WHERE job_id=2 AND direction='collect'"):
             self.post(f'/binflow/pickups/2/weigh/{item["id"]}',dict(gross='50',tare='5',confirm_tare='yes'))
         from pod_helpers import sign_pod
         sign_pod(self,2)
         self.post('/logout');self.login('employee','phonedriver')
-        result=self.finish(notes='All client stops and returns completed')
-        self.assertIn(b'Your work is saved',result.data)
         entry=self.rows('SELECT * FROM entries WHERE user_id=?',(self.uid,))[0]
         self.assertEqual((entry['start_time'],entry['finish_time'],entry['units'],entry['lunch_units']),('07:05','15:35',800,50))
         self.assertTrue(entry['committed_at']);self.assertIn('1 client stops',entry['activity'])

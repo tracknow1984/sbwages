@@ -1,13 +1,13 @@
 <section class="bf-panel bf-pad bf-action-card">
 {% if weights and weights.weighed < weights.expected %}
 
-  <h2>Weigh the returned bins</h2>
-  <p><strong>{{ weights.weighed }} of {{ weights.expected }} bins weighed.</strong> Sign-off unlocks after the last weight.</p>
+  <h2>Warehouse return complete</h2>
+  <p><strong>{{ weights.weighed }} of {{ weights.expected }} bins weighed.</strong> The warehouse can finish weighing in Daily PODs.</p>
 {% elif jobs|rejectattr('pod_deleted_at')|rejectattr('pod_signed_at')|list %}
   <span class="bf-kicker">WAREHOUSE HANDOVER PENDING</span>
   <h2>Ready for POD sign-off</h2>
   {% if weights and weights.expected %}<p>All {{ weights.expected }} bins have saved weights.</p>{% endif %}
-  <p>Sign the PODs to complete handover.</p>
+  <p>The warehouse can sign the collection PODs in Daily PODs.</p>
 {% else %}
   <span class="bf-kicker">WAREHOUSE HANDOVER COMPLETE</span>
   <h2>Run PODs signed</h2>
@@ -16,8 +16,8 @@
 {% if driver_demo %}
   <a class="button primary bf-next" href="{{ url_for('bf_demo_inbound') }}">Warehouse &amp; baling</a>
 {% elif stage in ['weighing','signoff'] and (current_user.role=='admin' or binflow_manager or binflow_warehouse) %}
-  {% if stage=='weighing' %}<a class="button primary bf-next" href="{{ url_for('bf_warehouse') }}">Open warehouse weigh-in</a>
+  {% if stage=='weighing' %}<a class="button primary bf-next" href="{{ url_for('bf_daily_pods',date=run_date,_anchor='pending-weigh-ins') }}">Open warehouse weigh-in</a>
   {% else %}<a class="button primary bf-next" href="{{ url_for('bf_daily_pods',date=run_date) }}">Review run PODs</a>{% endif %}
 {% endif %}
 </section>
-{% if workday and stage=='done' %}{% include 'binflow/workday_finish.html' %}{% endif %}
+{% if workday and not workday.finished_at and stage in ['weighing','signoff','done'] %}{% include 'binflow/workday_finish.html' %}{% endif %}
