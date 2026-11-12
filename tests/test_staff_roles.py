@@ -147,7 +147,7 @@ class StaffRoleTests(unittest.TestCase):
         self.assertNotIn(uid, candidates('NSW'))
         self.assertIn('manager Test', self.client.get('/binflow/bales/settings').text)
         self.post('/binflow/bales/managers', dict(user_id=uid,warehouse_id=1))
-        self.assertIn('National overview', self.sign_in('manager').text)
+        self.assertIn('National Overview', self.sign_in('manager').text)
         self.assertEqual(self.post('/binflow/workspace', dict(workspace='driver')).request.path,'/binflow/driver/my-day')
         self.assertEqual(self.client.get('/binflow/driver/my-day?state=NSW').status_code,403)
         self.assertEqual(self.post('/binflow/workspace', dict(workspace='warehouse')).request.path,'/binflow/bales')
@@ -237,7 +237,7 @@ class StaffRoleTests(unittest.TestCase):
         self.prepare_runs()
         page=self.sign_in('manager')
         self.assertEqual(page.request.path,'/admin/bin-management')
-        self.assertIn('National overview',page.text)
+        self.assertIn('National Overview',page.text)
         calendar=self.client.get('/binflow/driver/my-day?summary=1&date=2026-10-19').text
         for value in ('QLD only truck','NSW only truck'): self.assertIn(value,calendar)
         for path in ('/binflow/bins','/binflow/pickups/1','/binflow/pickups/2','/binflow/warehouse',

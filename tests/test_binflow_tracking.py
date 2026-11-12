@@ -46,7 +46,7 @@ class TrackingTests(unittest.TestCase):
         page=self.client.get('/admin/bin-management?state=QLD')
         self.assertIn(b'Live fleet tracking',page.data)
         self.assertIn(b'/binflow/gps/map?state=QLD',page.data)
-        self.assertIn(b'>BINFLOW</a>',page.data)
+        self.assertIn(b'>BinFlow</a>',page.data)
         self.assertNotIn(b'BIN MANAGEMENT / TRANSPORT',page.data)
         self.assertNotIn(b'>TRANSPORT MODEL</a>',page.data)
         self.assertEqual(self.client.get('/admin/blocktexx').status_code,200)

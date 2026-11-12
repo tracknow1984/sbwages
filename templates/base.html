@@ -7,6 +7,10 @@
   <title>{% block browser_title %}{{ "BinFlow · SB Empire" if bf_surface else "SB EMPIRE · Staff, Timesheets & Operations" }}{% endblock %}</title>
   <meta name="description" content="{{ 'BinFlow bin management, collections, driver runs and warehouse operations.' if bf_surface else 'SB EMPIRE staff, timesheets and operations.' }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  {% if current_user and current_user.role == 'admin' %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='empire-nav.css') }}">
+    <script src="{{ url_for('static', filename='empire-nav.js') }}" defer></script>
+  {% endif %}
   {% if binflow_driver %}<link rel="stylesheet" href="{{ url_for('static', filename='driver-portal.css') }}">{% endif %}
   <script src="{{ url_for('static', filename='app.js') }}" defer></script>
 {% if not bale_mode %}<script src="{{ url_for('static',filename='client-wording.js') }}" defer></script>{% endif %}{% if bf_surface %}{% include 'binflow/ui_assets.html' %}{% endif %}</head>
@@ -16,19 +20,9 @@
 {% if current_user %}<div class="user-menu"><span>{{ current_user.first_name }}<small>{{ 'Administrator' if current_user.role == 'admin' else (assigned_roles(current_user)|map('upper')|join(' · ') or 'Employee') }}</small></span><form action="{{ url_for('logout') }}" method="post"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="ghost" type="submit">Sign out</button></form></div>{% endif %}</header>
 {% if induction_gate %}{# Navigation resumes after signing. #}
 {% elif binflow_driver %}{% include 'binflow/driver_menu.html' %}
-{% elif current_user and not (bale_mode and (binflow_manager or binflow_warehouse)) %}<nav class="tabs" aria-label="Main navigation">
-{% if current_user.role == 'admin' %}
-<a class="{{ 'selected' if tab == 'dashboard' }}" href="{{ url_for('admin_dashboard') }}">DASHBOARD</a>
-<a class="{{ 'selected' if tab == 'binflow' }}" href="{{ url_for('bf_dashboard') }}">BINFLOW</a>
-<a class="{{ 'selected' if tab == 'traxpress' }}" href="{{ url_for('tx_stock') }}">TRAXPRESS</a>
-<a class="{{ 'selected' if tab == 'hit-me' }}" href="{{ url_for('admin_hit_me') }}">EMPIRE WIRE</a>
-<a class="{{ 'selected' if tab == 'staff' }}" href="{{ url_for('admin_staff') }}">STAFF DETAILS</a>
-<a class="{{ 'selected' if tab == 'submissions' }}" href="{{ url_for('admin_timesheets') }}">TIMESHEETS</a>
-<a class="{{ 'selected' if tab == 'prestart' }}" href="{{ url_for('admin_prestart') }}">PRESTART</a>
-<a class="{{ 'selected' if tab == 'documents' }}" href="{{ url_for('admin_documents') }}">DOCUMENTS</a>
-<a class="{{ 'selected' if tab == 'leave' }}" href="{{ url_for('admin_leave') }}">ANNUAL LEAVE</a>
-<a class="{{ 'selected' if tab == 'settings' }}" href="{{ url_for('admin_settings') }}">SETTINGS</a>
-{% else %}
+{% elif current_user and not (bale_mode and (binflow_manager or binflow_warehouse)) %}
+{% if current_user.role == 'admin' %}{% include 'admin_navigation.html' %}
+{% else %}<nav class="tabs" aria-label="Main navigation">
 <a class="{{ 'selected' if tab == 'home' }}" href="{{ url_for('employee_dashboard') }}">HOME</a>
 {% if binflow_allowed %}<a class="{{ 'selected' if tab == 'binflow' }}" href="{{ url_for('bf_dashboard') if binflow_manager else url_for('bf_bales') if binflow_warehouse else url_for('bf_workday') }}">BINFLOW</a>{% endif %}
 <a class="{{ 'selected' if tab == 'hit-me' }}" href="{{ url_for('employee_hit_me') }}">EMPIRE WIRE</a>
@@ -40,7 +34,7 @@
 <a class="{{ 'selected' if tab == 'history' }}" href="{{ url_for('history') }}">HISTORY</a>
 <a class="{{ 'selected' if tab == 'documents' }}" href="{{ url_for('employee_documents') }}">DOCUMENTS</a>
 <a class="{{ 'selected' if tab == 'leave' }}" href="{{ url_for('employee_leave') }}">ANNUAL LEAVE</a>
-{% endif %}</nav>{% endif %}
+</nav>{% endif %}{% endif %}
 {% endif %}
 <main class="{{ 'auth-main' if not current_user else 'main' }}">
  {% if not induction_gate and not driver_demo and staff_workspaces|length > 1 and (bf_surface or current_user.role=='employee') %}

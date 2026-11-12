@@ -170,7 +170,7 @@ class BinFlowTests(unittest.TestCase):
             with self.subTest(route=route):
                 result=self.client.get(route)
                 self.assertEqual(result.status_code,200,result.data[:300])
-        self.assertIn(b'>BINFLOW</a>',self.client.get('/admin/dashboard').data)
+        self.assertIn(b'>BinFlow</a>',self.client.get('/admin/dashboard').data)
         self.assertEqual(self.client.get('/health').status_code,200)
 
     def test_complete_rotation_preserves_identity_and_weight_history(self):

@@ -177,7 +177,7 @@ class TraxpressTests(unittest.TestCase):
         self.assertEqual([tuple(r) for r in before],[tuple(r) for r in self.query('SELECT * FROM users')])
 
     def test_missing_records_and_navigation(self):
-        self.assertIn(b'TRAXPRESS', self.client.get('/admin/dashboard').data)
+        self.assertIn(b'>Traxpress</a>', self.client.get('/admin/dashboard').data)
         for path in ('/traxpress/stock-take/99','/traxpress/handling/99','/traxpress/handling/99/delivery-note'):
             self.assertEqual(self.client.get(path).status_code,404)
 
