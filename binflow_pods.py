@@ -50,6 +50,10 @@ def ensure_pod_available(job):
 
 
 def warehouse_scope(user):
+    if g.get('bf_demo_warehouse'):
+        return '1=1', ()
+    if g.get('live_cycle'):
+        return 'j.pod_client_id=? AND w.id=?',(g.live_cycle['client_id'],g.live_cycle['origin_id'])
     if is_office(user):
         return '1=1', ()
     if is_warehouse(user):
@@ -59,19 +63,25 @@ def warehouse_scope(user):
     return '0=1', ()
 
 
-def pending_bins(conn, user, bin_id=None):
+def pending_bins(conn, user, bin_id=None, warehouse_id=None):
     scope, args = warehouse_scope(user)
-    bin_filter = '' if bin_id is None else ' AND b.id=?'
+    filters = ''
+    if bin_id is not None:
+        filters += ' AND b.id=?'
+        args += (bin_id,)
+    if warehouse_id is not None:
+        filters += ' AND w.id=?'
+        args += (warehouse_id,)
     return conn.execute(f"""SELECT i.id AS item_id,i.bin_id,i.bin_code,i.size_name,i.tare_g,
             j.id AS job_id,j.code,j.client_name,j.site_name,j.collected_at,
             w.name AS warehouse,w.state,COALESCE(i.returned_at,j.received_at) AS arrived
         FROM bf_job_bins i JOIN bf_jobs j ON j.id=i.job_id JOIN bf_bins b ON b.id=i.bin_id
         JOIN bf_locations w ON w.id=j.warehouse_id
-        WHERE {scope} {bin_filter} AND i.direction='collect' AND i.active=1 AND i.weighed_at IS NULL
+        WHERE {scope} {filters} AND i.direction='collect' AND i.active=1 AND i.weighed_at IS NULL
           AND b.status='received' AND b.truck_id IS NULL AND b.location_id=w.id
           AND j.approval_status='approved' AND j.status IN ('collected','received')
           AND j.pod_deleted_at IS NULL AND (i.returned_at IS NOT NULL OR (j.scan_mode=0 AND j.received_at IS NOT NULL))
-        ORDER BY w.state,arrived,i.bin_code""", args + (() if bin_id is None else (bin_id,))).fetchall()
+        ORDER BY w.state,arrived,i.bin_code,i.id""", args).fetchall()
 
 
 def monday(day):
@@ -151,6 +161,10 @@ def register_pods(app, db, access, require, render, success, failure, now, pdf):
             rate_sql = '''COALESCE((SELECT r.units FROM bf_job_pickup_rates p JOIN bf_pickup_rates r ON r.id=p.rate_id
                 WHERE p.job_id=j.id), (SELECT 16000 FROM bf_live_cycle x WHERE x.client_id=j.pod_client_id))'''
         rows = db().execute(f'''SELECT j.*, {rate_sql} AS rate_units,
+            (SELECT i.id FROM bf_job_bins i JOIN bf_bins b ON b.id=i.bin_id WHERE i.job_id=j.id AND i.direction='collect'
+                AND i.active=1 AND i.weighed_at IS NULL AND (i.returned_at IS NOT NULL OR (j.scan_mode=0 AND j.received_at IS NOT NULL))
+                AND b.status='received' AND b.location_id=j.warehouse_id AND b.truck_id IS NULL
+                ORDER BY i.bin_code LIMIT 1) AS next_weight_item,
             (SELECT COUNT(*) FROM bf_job_bins i WHERE i.job_id=j.id AND i.direction='collect') AS collection_bins,
             (SELECT SUM(net_g) FROM bf_job_bins i WHERE i.job_id=j.id AND i.direction='collect') AS net,
             (SELECT COUNT(*) FROM bf_job_bins i WHERE i.job_id=j.id AND i.direction='collect' AND i.weighed_at IS NULL) AS unweighed

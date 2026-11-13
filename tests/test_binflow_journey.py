@@ -242,21 +242,21 @@ class DriverJourneyTests(unittest.TestCase):
         materials = {}
         for jid, material in ((1, 'COTTON'), (2, 'PC MIX')):
             desk = inbound + '/' + str(jid) + suffix
-            for code in (('DEMO-1100-F04','DEMO-240-F05') if jid==1 else ('DEMO-660-F06',)):
-                scanned = self.post(base+'/warehouse/scan',dict(code=code),follow=False)
+            weights=(('DEMO-1100-F04',165,65),('DEMO-240-F05',30,5)) if jid==1 else (('DEMO-660-F06',115,40),)
+            for code,weight,tare in weights:
+                scanned=self.post(base+'/warehouse/scan',dict(code=code),follow=False)
                 self.assertTrue(scanned.json['ok'])
-                self.assertIn('/demo/inbound/'+str(jid),scanned.json['redirect'])
-            page = self.client.get(desk)
-            actions = re.findall(r'<form method="post" action="([^"]+/weigh/\d+)"', page.text)
-            gross = (165, 30) if jid == 1 else (115,)
-            tares = (65, 5) if jid == 1 else (40,)
-            self.assertEqual(len(actions),len(gross))
-            for action, weight, tare in zip(actions,gross,tares):
-                self.assertTrue(action.startswith(base + '/pickups/'))
-                page = self.post(action, dict(gross=weight,tare=tare,confirm_tare='yes'))
-                self.assertIn('Weight saved', page.text)
+                self.assertIn(base+'/pickups/'+str(jid)+'/weigh/',scanned.json['redirect'])
+                page=self.client.get(scanned.json['redirect'])
+                actions=re.findall(r'<form method="post" action="([^"]+/weigh/\d+)"',page.text)
+                self.assertEqual(len(actions),1)
+                self.assertIn(code,page.text)
+                page=self.post(actions[0],dict(gross=weight,tare=tare,confirm_tare='yes',return_to='bin'))
+                self.assertIn('Weight saved · Locked',page.text)
+                self.assertNotIn('name="gross"',page.text)
+                self.assertIn(material,page.text)
+            page=self.client.get(desk)
             self.assertNotIn('name="material_',page.text)
-            self.assertIn(material,page.text)
             # Read the classification from the sample, whose IDs are isolated from live stock.
             form = self.client.get(base+'/bales/new?warehouse=1')
             mid = re.search(r'<option value="(\d+)"[^>]*>COTTON</option>',form.text)[1]

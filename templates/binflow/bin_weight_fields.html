@@ -1,5 +1,5 @@
-<div class="bf-grid three"><label>Gross weight (kg)<input name="gross" type="number" step="0.001" min="0" max="5000" required data-gross></label>
-<label>Empty-bin tare (kg)<input name="tare" type="number" step="0.001" min="0" max="5000" value="{{ i.tare_g/1000 }}" required data-tare></label><div class="bf-net"><span>Net contents</span><strong data-net>— kg</strong></div></div>
+<div class="bf-grid three"><label>Gross weight (kg)<input name="gross" type="number" inputmode="decimal"{% if sample_gross is defined %} value="{{ sample_gross }}"{% endif %} step="0.001" min="0" max="5000" required data-gross></label>
+<label>Empty-bin tare (kg)<input name="tare" type="number" inputmode="decimal" step="0.001" min="0" max="5000" value="{{ i.tare_g/1000 }}" required data-tare></label><div class="bf-net"><span>Net contents</span><strong data-net>— kg</strong></div></div>
 <label class="bf-check"><input type="checkbox" name="confirm_tare" value="yes" required><span>I confirm the tare is the actual empty-bin weight.</span></label>
-<p class="bf-muted">This saves a final weight on the docket. Check the scale reading before saving.</p>
-<button class="primary">Save weight for {{ i.bin_code }}</button>
+
+<button class="primary">Save weight</button>

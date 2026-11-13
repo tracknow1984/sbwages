@@ -1,0 +1,23 @@
+{% extends 'binflow/layout.html' %}
+{% block title %}Bin weigh-in{% endblock %}
+{% block subtitle %}{{ job.warehouse_name }} · {{ job.state }}{% endblock %}
+{% block body %}
+<link rel="stylesheet" href="{{ url_for('static',filename='binflow-weigh.css') }}">
+<section class="bf-panel bf-pad weigh-card" id="weigh-{{ i.id }}">
+  <p class="weigh-eyebrow">{{ 'Weight saved · Locked' if i.weighed_at else 'Ready to weigh' if ready else 'Awaiting warehouse return' }}</p>
+  <h2>{{ i.bin_code }}</h2>
+  <p>{{ i.size_name }} · {{ i.material_name or 'Unclassified' }}<br>{{ job.site_name }} · {{ job.code }}</p>
+  {% for message in get_flashed_messages(category_filter=['error']) %}<p class="bf-note" role="alert">{{ message }}</p>{% endfor %}
+  {% if i.weighed_at %}
+  <dl class="weigh-receipt">{% for label,value in [('Gross',i.gross_g),('Tare',i.tare_g),('Net contents',i.net_g)] %}<div><dt>{{ label }}</dt><dd>{{ value|bfkg }} kg</dd></div>{% endfor %}</dl>
+  <p>Saved by {{ i.weighed_by }} · {{ i.weighed_at|display_datetime }}</p>
+  {% elif ready %}{% include 'binflow/single_weight_form.html' %}
+  {% else %}<p>This bin is outside the pending weigh-in queue.</p>{% endif %}
+  {% if not ready or i.weighed_at %}
+    {% if next_bin %}<a class="button primary weigh-next" href="{{ url_for('bf_bin_weigh',job_id=next_bin.job_id,item_id=next_bin.item_id,_anchor='weigh-' ~ next_bin.item_id) }}">Next bin · {{ next_bin.bin_code }}</a><p class="bf-muted">{{ waiting }} {{ 'bin' if waiting==1 else 'bins' }} waiting at this warehouse.</p>
+    {% else %}<p class="bf-note">No more bins are waiting to be weighed at this warehouse.</p>{% endif %}
+  {% endif %}
+  <nav aria-label="Weigh-in links"><a href="{{ url_for('bf_demo_docket' if driver_demo else 'bf_job',job_id=job.id,_anchor='pod-finalisation') }}">Review docket &amp; POD</a>
+  <a href="{{ url_for('bf_demo_inbound') if driver_demo else url_for('bf_daily_pods',date=job.scheduled_date,_anchor='pending-weigh-ins') }}">Pending weigh-ins</a></nav>
+</section>
+{% endblock %}

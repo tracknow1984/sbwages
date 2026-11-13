@@ -1,0 +1,5 @@
+<form method="post" action="{{ url_for('bf_weigh',job_id=job.id,item_id=i.id) }}" class="bf-weigh-form">
+  <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="return_to" value="bin">
+  {% if driver_demo and practice and i.bin_code in practice %}{% set sample_gross=practice[i.bin_code][1]+i.tare_g/1000 %}<p>Practice load · {{ practice[i.bin_code][1] }} kg of textiles</p>{% endif %}
+  {% include 'binflow/bin_weight_fields.html' %}
+</form>
