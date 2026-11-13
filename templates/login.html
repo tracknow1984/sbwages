@@ -1,12 +1,14 @@
 {% from 'empire_brand.html' import logo, credit %}
 {% from 'binflow/icons.html' import icon %}
 {% set admin = audience == 'admin' %}
+{% set practice = audience == 'practice' %}
+{% set portal_name = 'Test driver' if practice else 'Administrator' if admin else 'Employee' %}
 <!doctype html>
 <html lang="en-AU">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>{{ 'Administrator' if admin else 'Employee' }} sign in · SB Empire</title>
+  <title>{{ portal_name }} sign in · SB Empire</title>
   <meta name="description" content="Sign in to the SB Empire {{ 'administration' if admin else 'employee' }} portal.">
   <link rel="stylesheet" href="{{ url_for('static',filename='portal-login.css') }}">
 </head>
@@ -26,18 +28,18 @@
           <a href="{{ url_for('login',audience=role,resume=request.args.get('resume'),handbook=request.args.get('handbook')) }}" {% if role==audience %}aria-current="page"{% endif %}>{{ label }}</a>
           {% endfor %}
         </nav>
-        <h1 id="login-title">{{ 'Administrator' if admin else 'Employee' }} sign in</h1>
-        <p class="intro">{% if admin %}Access your management dashboard and business operations.{% elif request.args.get('resume') %}Choose BinFlow from your dashboard to return to your saved work.{% else %}Access your timesheets, workday and staff details.{% endif %}</p>
+        <h1 id="login-title">{{ portal_name }} sign in</h1>
+        <p class="intro">{% if practice %}Run a two-stop collection, finish the PODs and dispatch your bales from NSW to Queensland.{% elif admin %}Access your management dashboard and business operations.{% elif request.args.get('resume') %}Choose BinFlow from your dashboard to return to your saved work.{% else %}Access your timesheets, workday and staff details.{% endif %}</p>
         {% for category,message in get_flashed_messages(with_categories=true) %}<p class="notice {{ category }}" role="alert">{{ message }}</p>{% endfor %}
         <form method="post">
           <input type="hidden" name="csrf" value="{{ csrf_token() }}">
           <label for="username">Username</label>
-          <input id="username" name="username" value="{{ request.form.get('username','') }}" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="80" required>
+          <input id="username" name="username" value="{{ request.form.get('username','testdriver' if practice else '') }}" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="80" required>
           <label for="password">Password</label>
           <input id="password" type="password" name="password" autocomplete="current-password" maxlength="200" required>
           <button type="submit">Sign in {{ icon('arrow') }}</button>
         </form>
-        {% if not admin %}<details class="help"><summary>Need help signing in?</summary><p>For first-time access or a forgotten password, ask your administrator to email you a password setup link.</p></details>{% endif %}
+        {% if not admin and not practice %}<details class="help"><summary>Need help signing in?</summary><p>For first-time access or a forgotten password, ask your administrator to email you a password setup link.</p></details>{% endif %}
       </div>
       <footer>{{ credit() }}</footer>
     </section>

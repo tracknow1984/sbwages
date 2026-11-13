@@ -16,10 +16,14 @@ def install_resume(app, db):
         db().execute("""CREATE TABLE IF NOT EXISTS bf_driver_resume (
             user_id INTEGER PRIMARY KEY REFERENCES users(id), token TEXT, state TEXT, sample_date TEXT,
             page TEXT, item_id INTEGER, in_sample INTEGER NOT NULL DEFAULT 0)""")
+        db().execute("""CREATE TABLE IF NOT EXISTS bf_testdriver_run (
+            id INTEGER PRIMARY KEY CHECK(id=1), token TEXT NOT NULL, state TEXT NOT NULL, sample_date TEXT NOT NULL)""")
         db().commit()
 
     @app.after_request
     def remember_sample_page(response):
+        if session.get('testdriver_version'):
+            return response
         saved = session.get('driver_demo')
         if not g.get('bf_demo_token') and saved and request.endpoint in ('bf_workday','bf_run') and response.status_code==200:
             conn = db()

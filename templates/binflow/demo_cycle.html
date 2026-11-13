@@ -3,6 +3,7 @@
 {% block subtitle %}Collect in Smithfield and Fairfield, weigh and bale at Wetherill Park, then transfer the bales to Brisbane.{% endblock %}
 {% block body %}
 <section class="bf-panel bf-pad">
+  {% if session.testdriver_version %}<p class="bf-kicker">Signed in as testdriver</p>{% endif %}
   <h2>Start the NSW sample cycle</h2>
   <p>Two customer jobs and six bins are ready. Use the scheduled truck or the interstate spare. The collection and baling depot is Wetherill Park, NSW. You can enter the printed bin and bale IDs in each scanner.</p>
   <form method="post" action="{{ url_for('bf_demo_start') }}" class="bf-form">
@@ -22,6 +23,7 @@
   <ol><li>Start Driver day, accept the stops, choose the truck and complete the prestart.</li>
     <li>Load three empties. At each stop, deliver the empties. Choose COTTON for F04 and F05, and PC MIX for F06, then scan each full bin onto the truck. Return to the depot and scan the three full bins off the truck.</li>
     <li>Open Warehouse &amp; baling. Scan each returned bin, enter its warehouse weight and sign off the run once all weights are saved. One signature finalises both client PODs. The driver can finish the day as soon as all returns are scanned into the warehouse.</li>
+    <li>Open each signed POD to see its draft invoice line. The sample collection rate is $1.60 per net kg plus GST. Both stops share one fortnightly invoice.</li>
     <li>Scan the two COTTON bins into one 125 kg bale and the PC MIX bin into one 75 kg bale. Check the three source bins are empty again.</li>
     <li>Load both bale IDs onto a transfer to the sample Brisbane depot. Dispatch, receive and sign the BlockTexx storage handover for 200 kg.</li></ol>
   <p class="bf-muted">The sample uses its own records. Live allocations, wages, emails and Xero are outside this exercise.</p>

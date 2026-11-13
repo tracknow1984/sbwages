@@ -53,7 +53,7 @@ def install_demo_database(app, real_db, now):
         saved = session.get('driver_demo', {})
         warehouse = sample_key is not None and request.endpoint in WAREHOUSE_ENDPOINTS
         if (not g.user or not has_binflow_access(g.user) or (not warehouse and request.endpoint not in DEMO_ENDPOINTS) or
-                not token or not secrets.compare_digest(token, saved.get('token', '')) or saved.get('uid') != g.user['id'] or
+                not token or not token.isascii() or not secrets.compare_digest(token, saved.get('token', '')) or saved.get('uid') != g.user['id'] or
                 saved.get('state') not in SUBURBS):
             abort(403, 'This sample run is not available in your session. Open Driver day and start a new sample run.')
         path = demo_path(app, token)
@@ -75,6 +75,8 @@ def install_demo_database(app, real_db, now):
             conn.execute("""INSERT OR IGNORE INTO bf_trucks(id,name,state,created_at)
                 SELECT 2,'SAMPLE · interstate spare',CASE WHEN state='QLD' THEN 'NSW' ELSE 'QLD' END,created_at
                 FROM bf_trucks WHERE id=1""")
+        if request.endpoint in ('bf_pod_sign','bf_pod'):
+            prepare_sample_billing(conn, now())
         conn.commit()
         g.bf_demo_db = conn
         g.bf_demo_token = token
@@ -152,7 +154,35 @@ def seed_demo(source, target, user, state, stamp):
             1 if direction=='deliver' else jid+1,'empty' if direction=='deliver' else 'full',size['default_tare_g'],stamp))
         target.execute('INSERT INTO bf_job_bins(job_id,bin_id,direction,bin_code,size_name,tare_g) VALUES(?,?,?,?,?,?)',
                        (jid,bid,direction,code,size['name'],size['default_tare_g']))
+    prepare_sample_billing(target, stamp)
     target.commit()
+
+
+def sample_started(app, saved):
+    if not saved.get('token') or not demo_path(app, saved['token']).is_file():
+        return False
+    with sqlite3.connect(demo_path(app, saved['token'])) as conn:
+        return conn.execute('SELECT 1 FROM bf_workdays LIMIT 1').fetchone() is not None
+
+
+def prepare_sample_billing(conn, stamp):
+    from binflow_pickup_pricing import migrate as migrate_rates
+    from binflow_auto_invoices import migrate as migrate_invoices
+    if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='bf_pickup_rates'").fetchone():
+        migrate_rates(conn)
+    if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='bf_auto_drafts'").fetchone():
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='bf_invoice_categories'").fetchone():
+            from binflow_invoices import migrate as migrate_billing
+            migrate_billing(conn)
+        migrate_invoices(conn)
+    if conn.execute('SELECT 1 FROM bf_pickup_rates LIMIT 1').fetchone():
+        return
+    conn.execute("INSERT INTO bf_pickup_rates(id,units,saved_at,saved_by) VALUES(1,16000,?,'Sample run')",(stamp,))
+    conn.execute("""INSERT INTO bf_client_accounts(id,username,name,password_hash,active,created_at,updated_at,updated_by)
+        VALUES(1,'sample-billing','Sample textile collections','',0,?,?,'Sample run')""",(stamp,stamp))
+    conn.execute('INSERT INTO bf_pod_bill_to SELECT id,1 FROM bf_clients')
+    conn.execute('UPDATE bf_jobs SET pod_client_id=(SELECT client_id FROM bf_locations WHERE id=bf_jobs.site_id)')
+    conn.execute('INSERT OR IGNORE INTO bf_job_pickup_rates SELECT id,1 FROM bf_jobs WHERE collected_at IS NOT NULL')
 
 
 def prepare_warehouse(conn, stamp):
@@ -176,7 +206,7 @@ def register_demo(app, db, access, render, now):
     @app.get('/binflow/driver/test-cycle')
     @access
     def bf_demo_cycle():
-        if request.args.get('leave') == '1':
+        if request.args.get('leave') == '1' and not session.get('testdriver_version'):
             live = app.extensions['bf_real_db']()
             live.execute('UPDATE bf_driver_resume SET in_sample=0 WHERE user_id=?',(g.user['id'],))
             live.commit()
@@ -188,10 +218,20 @@ def register_demo(app, db, access, render, now):
         state = request.form.get('state') or 'NSW'
         if state not in SUBURBS:
             abort(400)
+        live = app.extensions['bf_real_db']()
+        practice = bool(session.get('testdriver_version'))
+        if practice:
+            if state != 'NSW':
+                abort(400)
+            from binflow_testdriver import restore_run
+            live.execute('BEGIN IMMEDIATE')
+            restore_run(live)
         saved = session.get('driver_demo',{})
         stamp = now()
-        if (request.form.get('reset')!='yes' and saved.get('uid')==g.user['id'] and saved.get('date')==stamp[:10]
+        if (request.form.get('reset')!='yes' and saved.get('uid')==g.user['id'] and (saved.get('date')==stamp[:10] or (practice and sample_started(app,saved)))
                 and saved.get('state')==state and saved.get('token') and demo_path(app,saved['token']).is_file()):
+            if practice:
+                live.commit()
             return redirect(url_for('bf_workday',demo=saved['token']))
         token = secrets.token_hex(24)
         path = demo_path(app,token)
@@ -199,13 +239,17 @@ def register_demo(app, db, access, render, now):
         try:
             with sqlite3.connect(path) as target:
                 target.row_factory = sqlite3.Row
-                seed_demo(app.extensions['bf_real_db'](),target,g.user,state,stamp)
+                seed_demo(live,target,g.user,state,stamp)
         except Exception:
             path.unlink(missing_ok=True)
             raise
         session['driver_demo'] = dict(token=token,uid=g.user['id'],state=state,date=stamp[:10])
-        from binflow_resume import save_sample
-        save_sample(app.extensions['bf_real_db'](), session['driver_demo'])
+        if practice:
+            live.execute('INSERT OR REPLACE INTO bf_testdriver_run VALUES(1,?,?,?)',(token,state,stamp[:10]))
+            live.commit()
+        else:
+            from binflow_resume import save_sample
+            save_sample(live, session['driver_demo'])
         # Reset only this session's previous isolated sample. Never touch live data.
         if saved.get('uid')==g.user['id'] and saved.get('token'):
             demo_path(app,saved['token']).unlink(missing_ok=True)
