@@ -1,4 +1,5 @@
 """Driver and office closeout tests using normal HTTP actions and an isolated SQLite database."""
+from pod_helpers import SIGNING_PLACE
 import re
 import sqlite3
 import unittest
@@ -35,6 +36,63 @@ class StopExceptionTests(unittest.TestCase):
             self.assertTrue(self.scan('load',code).json['ok'])
         self.action('depart')
         self.assertEqual(self.stage(),'navigate')
+
+    def skip_one(self, *, already_delivered=False):
+        self.depart(['BF000003','BF000004'])
+        self.action('client-arrival',job_id=2)
+        self.assertTrue(self.scan('deliver','BF000003').json['ok'])
+        rows=self.rows('SELECT id,bin_code FROM bf_job_bins WHERE job_id=2')
+        ids={r['bin_code']:r['id'] for r in rows}
+        page='/binflow/driver/1/day?date='+RUN_DATE+'&review=skip&stop=2'
+        self.assertIn('Bin staying at Alpha QLD',self.client.get(page).text)
+        empty=ids['BF000004']
+        if already_delivered:
+            self.assertTrue(self.scan('deliver','BF000004').json['ok'])
+            self.assertIn('I put BF000004 back on the truck',self.client.get(page).text)
+            empty=f'reload-{empty}'
+        response=self.action('skip-bin',job_id=2,pickup=ids['BF000002'],replacement=empty,reason='Already empty')
+        self.assertIn('Collect full bins',response.text)
+        self.assertEqual(self.stage(),'collect')
+        self.assertEqual(self.rows("SELECT status,location_id FROM bf_bins WHERE code='BF000002'"),
+                         [dict(status='at_client',location_id=3)])
+        self.assertEqual(len(self.rows('SELECT * FROM bf_stop_exceptions')),1)
+        self.action('skip-bin',job_id=2,pickup=ids['BF000002'],replacement=empty,reason='Already empty')
+        self.assertEqual(len(self.rows('SELECT * FROM bf_unused_returns')),1)
+        self.assertTrue(self.scan('collect','BF000001').json['ok'])
+        self.assertEqual(self.stage(),'navigate_depot')
+        return ids
+
+    def test_skip_one_before_delivery_and_correct_material_after_leaving(self):
+        ids=self.skip_one()
+        review=self.client.get('/binflow/driver/1/day?date='+RUN_DATE+'&review=bins')
+        self.assertIn('Material in BF000001',review.text)
+        self.assertNotIn('Material in BF000002',review.text)
+        with sqlite3.connect(self.path) as conn:
+            mid=conn.execute("INSERT INTO bf_material_classes(name,updated_at,updated_by) VALUES('PC MIX',?,'Fixture')",(RUN_DATE,)).lastrowid
+        old=self.rows('SELECT material_id FROM bf_job_bins WHERE id=?',(ids['BF000001'],))[0]['material_id']
+        values=dict(item_id=ids['BF000001'],previous=old,material_id=mid)
+        self.assertIn('Pickup material updated',self.action('correct-material',**values).text)
+        self.assertIn('classification has changed',self.action('correct-material',**values).text)
+        self.assertEqual(self.rows("SELECT notes FROM bf_events WHERE event='Pickup material corrected'"),[dict(notes='COTTON → PC MIX')])
+        self.action('depot-arrival',warehouse_id=1)
+        self.assertTrue(self.scan('return','BF000001').json['ok'])
+        self.assertTrue(self.scan('return_empty','BF000004').json['ok'])
+        self.assertEqual(self.rows("SELECT bin_code,material_name FROM bf_job_bins WHERE job_id=2 AND direction='collect'"),
+                         [dict(bin_code='BF000001',material_name='PC MIX')])
+        self.assertEqual(self.rows('SELECT id FROM bf_bins WHERE truck_id=1'),[])
+        driver=self.client
+        self.client=self.app.test_client()
+        self.login()
+        self.post(f"/binflow/pickups/2/weigh/{ids['BF000001']}",dict(gross='25',tare='5',confirm_tare='yes'))
+        self.client=driver
+        self.assertIn('locked after weighing',self.action('correct-material',item_id=ids['BF000001'],previous=mid,material_id=old).text)
+
+    def test_skip_one_reloads_only_the_replacement_driver_selected(self):
+        self.skip_one(already_delivered=True)
+        self.assertEqual(self.rows("SELECT code,truck_load FROM bf_bins WHERE truck_id=1 ORDER BY code"),[
+            dict(code='BF000001',truck_load='full'),dict(code='BF000004',truck_load='empty')])
+        self.assertEqual(self.rows("SELECT COUNT(*) AS n FROM bf_events WHERE bin_id=4 AND event IN ('Empty bin scanned to client','Unused replacement taken back onto truck')"),
+                         [dict(n=2)])
 
     def test_all_stops_cancelled_still_requires_both_empty_receipts(self):
         self.depart(['BF000003','BF000004'])
@@ -158,7 +216,9 @@ class StopExceptionTests(unittest.TestCase):
         first=stops[0][0]
         pod=self.client.get(f'/binflow/pickups/{first}')
         field=lambda name:re.search('name="'+name+'" value="([^"]+)"',pod.text)[1]
-        self.post(f'/binflow/pickups/{first}/pod/sign',dict(scope='run',version=field('version'),run_version=field('run_version'),confirm='yes',signature=SIGNATURE))
+        self.post(f'/binflow/pickups/{first}/pod/sign',dict(scope='run',version=field('version'),run_version=field('run_version'),confirm='yes',signature=SIGNATURE,**SIGNING_PLACE))
+        stamps=self.rows("SELECT DISTINCT json_extract(pod_snapshot,'$.sign_location.place') AS place FROM bf_jobs WHERE pod_signed_at IS NOT NULL AND truck_id=1")
+        self.assertEqual(stamps,[dict(place=SIGNING_PLACE['signed_place'])])
         self.assertEqual(len(self.rows('SELECT id FROM bf_jobs WHERE pod_signed_at IS NOT NULL AND truck_id=1')),2)
         page=self.client.get('/binflow/pods?state=QLD&view=signed&date='+RUN_DATE)
         self.assertIn('Completed PODs',page.text)

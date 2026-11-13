@@ -43,7 +43,7 @@ def copy_stop(conn, source, day, actor_id, stamp, cancelled=False):
     return jid
 
 
-def report_stop(conn, data, job_id, reason, user, who, stamp):
+def report_stop(conn, data, job_id, reason, user, who, stamp, *, selected=None):
     from binflow_acceptance import manifest
     from binflow_journey import complete_scanned_client
     if not reason or len(reason)>500:
@@ -56,6 +56,10 @@ def report_stop(conn, data, job_id, reason, user, who, stamp):
     missed = [i for i in rows if not (i['delivered_at'] if i['direction']=='deliver' else i['picked_up_at'])]
     if not missed:
         raise ValueError('All movements are recorded. Finish the client handover.')
+    if selected is not None:
+        missed = [i for i in missed if i['id'] in selected]
+        if {i['id'] for i in missed} != selected:
+            raise ValueError('This bin was already handled. Review the current stop.')
     partial = len(missed)!=len(rows)
     exc_id = copy_stop(conn,job,job['scheduled_date'],user['id'],stamp,True) if partial else job_id
     conn.execute("""INSERT INTO bf_stop_exceptions(job_id,original_id,reason,reported_at,reported_by)
@@ -70,7 +74,9 @@ def report_stop(conn, data, job_id, reason, user, who, stamp):
                          (exc_id,job_id,item['bin_id']))
     if partial:
         complete_scanned_client(conn,job,user,stamp)
-        if conn.execute('SELECT status FROM bf_jobs WHERE id=?',(job_id,)).fetchone()[0]=='scheduled':
+        outstanding = conn.execute("""SELECT 1 FROM bf_job_bins WHERE job_id=? AND
+            ((direction='collect' AND picked_up_at IS NULL) OR (direction='deliver' AND delivered_at IS NULL))""",(job_id,)).fetchone()
+        if not outstanding and conn.execute('SELECT status FROM bf_jobs WHERE id=?',(job_id,)).fetchone()[0]=='scheduled':
             # Older driver flows still record only the movements actually scanned.
             full = any(i['picked_up_at'] for i in rows)
             conn.execute("""UPDATE bf_jobs SET collected_at=?,collected_by=?,status=?,completed_at=?,
@@ -84,6 +90,53 @@ def report_stop(conn, data, job_id, reason, user, who, stamp):
         # Preserve the original signed manifest in acceptance history. The active route now omits the missed work.
         conn.execute('UPDATE bf_runs SET accepted_manifest=? WHERE truck_id=? AND run_date=?',
                      (manifest(conn,job['truck_id'],job['scheduled_date'])[2],job['truck_id'],job['scheduled_date']))
+
+
+def skip_pickup(conn, data, form, user, who, stamp, event):
+    job = data['current']
+    if data['stage'] not in ('deliver', 'collect') or not job or form.get('job_id', type=int) != job['id']:
+        raise ValueError('Confirm arrival at the current stop before skipping a bin.')
+    rows = {row['id']: row for row in data['current_rows']}
+    pickup = rows.get(form.get('pickup', type=int))
+    if not pickup or pickup['direction'] != 'collect' or pickup['picked_up_at']:
+        raise ValueError('Choose a bin still waiting for collection at this stop.')
+    reason = form.get('reason', '').strip()
+    if not reason or len(reason) > 250:
+        raise ValueError('Enter the reason for this bin, up to 250 characters.')
+    selected = {pickup['id']}
+    choice = form.get('replacement', '')
+    reload_empty = choice.startswith('reload-')
+    try:
+        replacement = int(choice.removeprefix('reload-'))
+    except ValueError:
+        raise ValueError('Select the unused replacement or choose none.') from None
+    note = f"{pickup['bin_code']} · {reason}"
+    if replacement or reload_empty:
+        empty = rows.get(replacement)
+        if (not empty or empty['direction'] != 'deliver' or not empty['loaded_at']
+                or bool(empty['delivered_at']) != reload_empty):
+            raise ValueError('The replacement has changed. Check which bin is physically on the truck.')
+        if reload_empty:
+            # The delivery really happened. Record the reverse movement before creating its unused return.
+            moved = conn.execute("""UPDATE bf_bins SET location_id=NULL, truck_id=?, truck_load='empty', status='transit'
+                WHERE id=? AND status='at_client' AND location_id=? AND truck_id IS NULL
+                AND EXISTS(SELECT 1 FROM bf_job_bins WHERE id=? AND active=1)""",
+                (job['truck_id'],empty['bin_id'],job['site_id'],empty['id']))
+            if moved.rowcount != 1:
+                raise ValueError('The delivered bin is no longer available at this site.')
+            conn.execute('UPDATE bf_job_bins SET delivered_at=NULL WHERE id=?', (empty['id'],))
+            event(empty['bin_id'], 'Unused replacement taken back onto truck', job['id'], origin=job['site_id'],
+                  to_truck=job['truck_id'], notes=note)
+            data = dict(data, current_rows=conn.execute('SELECT * FROM bf_job_bins WHERE job_id=?', (job['id'],)).fetchall())
+        selected.add(replacement)
+        note += f" · Unused replacement {empty['bin_code']}"
+    stock = conn.execute('SELECT * FROM bf_bins WHERE id=?', (pickup['bin_id'],)).fetchone()
+    if stock['location_id'] != job['site_id'] or stock['truck_id'] or stock['status'] not in ('full', 'at_client'):
+        raise ValueError('This bin is no longer at the client. Refresh the run.')
+    report_stop(conn, data, job['id'], note, user, who, stamp, selected=selected)
+    if reason.casefold() == 'already empty':
+        conn.execute("UPDATE bf_bins SET status='at_client' WHERE id=?", (pickup['bin_id'],))
+    event(pickup['bin_id'], 'Bin left at client', job['id'], notes=note)
 
 
 def unused_rows(conn, truck_id, day):

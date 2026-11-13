@@ -128,6 +128,53 @@
     const update = () => { container.hidden = select.value !== 'signed'; };
     if (select) { select.addEventListener('change', update); update(); }
   });
+  root.querySelectorAll('[data-pod-location]').forEach(field => {
+    const form = field.closest('form');
+    const manual = field.querySelector('[data-enter-place]');
+    const place = field.querySelector('[name="signed_place"]');
+    const status = field.querySelector('[data-location-status]');
+    const button = form.querySelector('button.primary');
+    let requesting = false;
+    let hasFix = false;
+    function updateMode() {
+      field.querySelector('[data-place-field]').hidden = !manual.checked;
+      place.required = manual.checked;
+      form.elements.location_method.value = manual.checked ? 'manual' : 'device';
+      status.textContent = manual.checked ? 'This place will be marked as entered by the signer.' :
+        'Your device will request your location when you sign.';
+    }
+    manual.addEventListener('change', updateMode);
+    updateMode();
+    form.addEventListener('submit', event => {
+      if (manual.checked || hasFix) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (requesting) return;
+      function unavailable() {
+        requesting = false;
+        button.disabled = false;
+        manual.disabled = false;
+        status.textContent = 'Location unavailable. Allow location access and retry, or enter your signing location below.';
+      }
+      if (!navigator.geolocation) { unavailable(); return; }
+      requesting = true;
+      manual.disabled = true;
+      button.disabled = true;
+      status.textContent = 'Getting your current location…';
+      navigator.geolocation.getCurrentPosition(position => {
+        const coords = position.coords;
+        form.elements.sign_lat.value = coords.latitude;
+        form.elements.sign_lon.value = coords.longitude;
+        form.elements.sign_accuracy.value = coords.accuracy;
+        hasFix = true;
+        requesting = false;
+        manual.disabled = false;
+        button.disabled = false;
+        form.requestSubmit(button);
+        hasFix = false;
+      }, unavailable, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
+    });
+  });
   root.querySelectorAll('form[method="post"]:not([data-scan-form])').forEach(form => form.addEventListener('submit', () => {
     // Disable only the submit button; keep all input values in the request.
     const button = form.querySelector('button[type="submit"],button:not([type])');

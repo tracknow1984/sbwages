@@ -1,6 +1,8 @@
 import json
 SIGNATURE=json.dumps([[[10,20],[70,80],[140,30],[220,90]]])
 
+SIGNING_PLACE = dict(location_method='manual',signed_place='Test depot, Brisbane')
+
 def sign_pod(case,jid):
     collected=case.rows("SELECT * FROM bf_job_bins WHERE job_id=? AND direction='collect'",(jid,))
     if any(not i['material_id'] for i in collected):
@@ -9,6 +11,6 @@ def sign_pod(case,jid):
         version=case.rows('SELECT pod_version FROM bf_jobs WHERE id=?',(jid,))[0]['pod_version']
         case.post(f'/binflow/pickups/{jid}/pod/materials',dict(version=version,**{'material_'+str(i['id']):i['material_id'] or mid for i in collected}))
     version=case.rows('SELECT pod_version FROM bf_jobs WHERE id=?',(jid,))[0]['pod_version']
-    response=case.post(f'/binflow/pickups/{jid}/pod/sign',dict(version=version,confirm='yes',signature=SIGNATURE))
+    response=case.post(f'/binflow/pickups/{jid}/pod/sign',dict(version=version,confirm='yes',signature=SIGNATURE,**SIGNING_PLACE))
     case.assertIn(b'POD signed off.',response.data)
     return response

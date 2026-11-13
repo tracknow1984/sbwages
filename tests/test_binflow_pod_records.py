@@ -5,7 +5,7 @@ from unittest.mock import patch
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import test_binflow as legacy
-from pod_helpers import sign_pod,SIGNATURE
+from pod_helpers import SIGNING_PLACE, sign_pod,SIGNATURE
 from binflow_pod_records import migrate,journey,elapsed
 
 class PODRecordTests(unittest.TestCase):
@@ -34,7 +34,7 @@ class PODRecordTests(unittest.TestCase):
 
     def sign(self,**values):
         version=self.rows('SELECT pod_version FROM bf_jobs WHERE id=2')[0]['pod_version']
-        return self.post('/binflow/pickups/2/pod/sign',dict({'version':version,'signature':SIGNATURE,'confirm':'yes'},**values))
+        return self.post('/binflow/pickups/2/pod/sign',dict({**SIGNING_PLACE,'version':version,'signature':SIGNATURE,'confirm':'yes'},**values))
 
     def test_signoff_requires_all_weights_materials_signature_and_is_immutable(self):
         rows=self.prepare()
@@ -47,7 +47,15 @@ class PODRecordTests(unittest.TestCase):
         version=self.rows('SELECT pod_version FROM bf_jobs WHERE id=2')[0]['pod_version']
         self.post('/binflow/pickups/2/pod/materials',dict(version=version,**{'material_'+str(i['id']):1 for i in rows}))
         self.assertIn(b'Draw your signature',self.sign(signature='[]').data)
-        self.assertIn(b'POD signed off',self.sign().data)
+        self.assertIn(b'Capture your current location',self.sign(location_method='').data)
+        self.assertIn(b'location is invalid',self.sign(location_method='device',sign_lat='nan',sign_lon='151',sign_accuracy='10').data)
+        self.assertIn(b'POD signed off',self.sign(location_method='device',sign_lat='-33.849',sign_lon='150.9',sign_accuracy='12').data)
+        record=self.client.get('/binflow/pickups/2/pod')
+        self.assertIn(b'-33.849000, 150.900000',record.data)
+        from io import BytesIO
+        from pypdf import PdfReader
+        pdf=PdfReader(BytesIO(self.client.get('/binflow/pickups/2/pod.pdf').data))
+        self.assertIn('Signing location: -33.849000, 150.900000',' '.join(page.extract_text() for page in pdf.pages))
         j=self.rows('SELECT * FROM bf_jobs WHERE id=2')[0]
         self.assertTrue(j['pod_signed_at']);self.assertEqual(j['pod_signed_name'],'SB Empire')
         self.assertTrue(j['pod_signature'].startswith(b'\x89PNG'))

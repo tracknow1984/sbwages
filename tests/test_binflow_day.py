@@ -1,3 +1,4 @@
+from pod_helpers import SIGNING_PLACE
 from binflow_helpers import pickup_material
 import re
 import sqlite3
@@ -89,7 +90,7 @@ class DriverDayTests(unittest.TestCase):
         self.assertEqual(self.client.get('/binflow/pickups/2/pod.pdf').status_code,409)
         version=self.rows('SELECT pod_version FROM bf_jobs WHERE id=2')[0]['pod_version']
         self.assertIn(b'Complete all weights',self.post('/binflow/pickups/2/pod/sign',
-            dict(version=version,confirm='yes',signature=SIGNATURE)).data)
+            dict(version=version,confirm='yes',signature=SIGNATURE,**SIGNING_PLACE)).data)
         self.scan(2)
         self.assertEqual(self.stage(),'weighing')
         self.assertIn(b'Back at warehouse',self.client.get('/binflow/driver/my-day?summary=1&date='+RUN_DATE).data)
@@ -98,7 +99,7 @@ class DriverDayTests(unittest.TestCase):
         self.assertEqual(self.stage(),'signoff')
         docket=self.client.get('/binflow/pickups/2')
         run_version=re.search(r'name="run_version" value="([^"]+)"',docket.text)[1]
-        self.post('/binflow/pickups/2/pod/sign',dict(version=version,run_version=run_version,scope='run',confirm='yes',signature=SIGNATURE))
+        self.post('/binflow/pickups/2/pod/sign',dict(version=version,run_version=run_version,scope='run',confirm='yes',signature=SIGNATURE,**SIGNING_PLACE))
         self.assertTrue(client.get('/binflow/client/pods/2.pdf').data.startswith(b'%PDF-'))
         self.assertEqual(self.stage(),'done')
         self.assertEqual(original,self.rows('SELECT id,token FROM bf_bins ORDER BY id'))

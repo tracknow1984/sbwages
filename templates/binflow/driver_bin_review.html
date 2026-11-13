@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static',filename='binflow.css') }}">
+<link rel="stylesheet" href="{{ url_for('static',filename='binflow-mobile.css') }}">
+<div class="bf bf-day bf-journey">
+  <a class="button secondary bf-next" href="{{ url_for('bf_run',truck_id=truck.id,date=run_date) }}">← Back to current step</a>
+  <header class="bf-panel bf-pad"><h1>Review scanned bins</h1><p>{{ truck.name }} · {{ run_date|display_date }}</p></header>
+  {% for row in rows if row.direction=='collect' and row.picked_up_at %}
+    {% set job=jobs|selectattr('id','equalto',row.job_id)|first %}
+    <section class="bf-panel bf-pad"><h2>{{ row.bin_code }}</h2><p>{{ row.site_name }} · {{ row.size_name }} · {{ row.material_name or 'Unclassified' }}</p>
+      {% if row.weighed_at or job.pod_signed_at or job.pod_deleted_at %}<p>Classification locked.</p>
+      {% else %}
+      <form method="post" class="bf-form" action="{{ url_for('bf_run_action',truck_id=truck.id,action='correct-material') }}">
+        <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="date" value="{{ run_date }}">
+        <input type="hidden" name="item_id" value="{{ row.id }}"><input type="hidden" name="previous" value="{{ row.material_id or '' }}">
+        <label>Material in {{ row.bin_code }}<select name="material_id" required>
+          <option value="">Select material</option>{% for m in material_classes if m.active %}<option value="{{ m.id }}" {{ 'selected' if m.id==row.material_id }}>{{ m.name }}</option>{% endfor %}
+        </select></label><button class="primary bf-next">Save material</button>
+      </form>{% endif %}
+    </section>
+  {% else %}<p class="bf-panel bf-pad">Collected bins appear here after their pickup scan.</p>{% endfor %}
+</div>
+{% endblock %}

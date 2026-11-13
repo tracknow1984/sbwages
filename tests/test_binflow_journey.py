@@ -1,3 +1,4 @@
+from pod_helpers import SIGNING_PLACE
 from binflow_helpers import pickup_material
 import re
 import sqlite3
@@ -107,7 +108,7 @@ class DriverJourneyTests(unittest.TestCase):
         self.assertIn('Pickup material',page.text)
         self.assertNotIn('name="material_',page.text)
         version = self.rows('SELECT pod_version FROM bf_jobs WHERE id=2')[0]['pod_version']
-        self.assertIn('all weights',self.post('/binflow/pickups/2/pod/sign',dict(version=version,confirm='yes',signature=SIGNATURE)).text)
+        self.assertIn('all weights',self.post('/binflow/pickups/2/pod/sign',dict(version=version,confirm='yes',signature=SIGNATURE,**SIGNING_PLACE)).text)
         before = self.rows('SELECT material_id,material_name FROM bf_job_bins WHERE job_id=2 ORDER BY id')
         for item in self.rows("SELECT * FROM bf_job_bins WHERE job_id=2 AND direction='collect'"):
             scanned = self.post('/binflow/warehouse/scan',dict(code=item['bin_code']),follow=False)
@@ -118,7 +119,7 @@ class DriverJourneyTests(unittest.TestCase):
         self.assertEqual(self.rows('SELECT status FROM bf_jobs WHERE id=2')[0]['status'],'complete')
         self.assertEqual(self.rows('SELECT material_id,material_name FROM bf_job_bins WHERE job_id=2 ORDER BY id'),before)
         version = self.rows('SELECT pod_version FROM bf_jobs WHERE id=2')[0]['pod_version']
-        self.assertIn('POD signed off.',self.post('/binflow/pickups/2/pod/sign',dict(version=version,confirm='yes',signature=SIGNATURE)).text)
+        self.assertIn('POD signed off.',self.post('/binflow/pickups/2/pod/sign',dict(version=version,confirm='yes',signature=SIGNATURE,**SIGNING_PLACE)).text)
         with sqlite3.connect(self.path) as conn:
             conn.execute("UPDATE users SET working_state='NSW' WHERE id=?",(warehouse_user,))
         self.assertEqual(self.client.get('/binflow/pickups/2').status_code,403)
@@ -283,12 +284,12 @@ class DriverJourneyTests(unittest.TestCase):
                 self.assertNotIn('name="run_version"',page.text)
                 version = re.search(r'name="version" value="(\d+)"',page.text)
                 blocked = self.post(base+'/pickups/1/pod/sign',dict(scope='run',version=version[1] if version else 0,
-                                                                     confirm='yes',signature=SIGNATURE))
+                                                                     confirm='yes',signature=SIGNATURE,**SIGNING_PLACE))
                 self.assertNotIn('Signed by <strong>',blocked.text)
         version = re.search(r'name="version" value="(\d+)"',page.text)[1]
         run_version = re.search(r'name="run_version" value="([^"]+)"',page.text)[1]
         signed = self.post(base+'/pickups/2/pod/sign',dict(version=version,run_version=run_version,
-                                                           scope='run',confirm='yes',signature=SIGNATURE))
+                                                           scope='run',confirm='yes',signature=SIGNATURE,**SIGNING_PLACE))
         self.assertIn('Uncompleted PODs',signed.text)
         driver_page = self.client.get('/binflow/driver/my-day'+suffix, follow_redirects=True)
         self.assertIn('WAREHOUSE HANDOVER COMPLETE',driver_page.text)

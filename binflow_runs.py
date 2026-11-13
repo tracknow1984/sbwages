@@ -283,6 +283,11 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
             data = data_for(truck_id,run_date)
         except ValueError as error:
             abort(400,str(error))
+        if (request.args.get('review') == 'skip' and data['stage'] in ('deliver','collect')
+                and data['current']['id'] == request.args.get('stop',type=int)):
+            return render('skip_pickup',section='driver',driver_mode=True,run_date=run_date,**data)
+        if request.args.get('review') == 'bins' and data['clock_ready'] and data['run']['departed_at']:
+            return render('driver_bin_review', section='driver', driver_mode=True, run_date=run_date, **data)
         if data['stage']=='prestart':
             session_key = secrets.token_urlsafe(24)
         else:
@@ -385,6 +390,14 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
                 from binflow_stop_exceptions import report_stop
                 report_stop(db(),data,request.form.get('job_id',type=int),request.form.get('reason','').strip(),g.user,actor(),now())
                 message='Stop sent to operations. Return any unused empties to the depot.'
+            elif action=='skip-bin':
+                from binflow_stop_exceptions import skip_pickup
+                skip_pickup(db(),data,request.form,g.user,actor(),now(),event)
+                message='Bin left at the client. The remaining exchange is up to date.'
+            elif action=='correct-material':
+                from binflow_pod_records import correct_driver_material
+                correct_driver_material(db(),data,request.form,event)
+                return success('Pickup material updated.', 'bf_run',truck_id=truck_id,date=run_date,review='bins')
             elif action=='client-arrival':
                 if data['stage']!='navigate' or request.form.get('job_id',type=int)!=data['current']['id']:
                     raise ValueError('Refresh and follow your current stop.')
@@ -409,7 +422,8 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
             begin_current(db(),g.user,truck_id,run_date,now())
             return success(message,'bf_run',truck_id=truck_id,date=run_date)
         except ValueError as error:
-            return failure(error,'bf_run',truck_id=truck_id,date=run_date or today())
+            return failure(error,'bf_run',truck_id=truck_id,date=run_date or today(),
+                           **({'review':'bins'} if action=='correct-material' else {}))
 
     @app.post('/binflow/driver/<int:truck_id>/day/scan-bin')
     @access

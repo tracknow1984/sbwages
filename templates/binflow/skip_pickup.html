@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static',filename='binflow.css') }}">
+<link rel="stylesheet" href="{{ url_for('static',filename='binflow-mobile.css') }}">
+<div class="bf bf-day bf-journey">
+<a href="{{ url_for('bf_run',truck_id=truck.id,date=run_date) }}" class="button secondary bf-next">← Back to current stop</a>
+{% set pickups=current_rows|selectattr('direction','equalto','collect')|rejectattr('picked_up_at')|list %}
+{% set empties=current_rows|selectattr('direction','equalto','deliver')|selectattr('loaded_at')|list %}
+{% if pickups %}
+<section class="bf-panel bf-pad">
+  <h1>Skip one bin</h1>
+  <form class="bf-form" method="post" action="{{ url_for('bf_run_action',truck_id=truck.id,action='skip-bin') }}">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="date" value="{{ run_date }}"><input type="hidden" name="job_id" value="{{ current.id }}">
+    <label>Bin staying at {{ current.site_name }}<select name="pickup" required>
+      {% if pickups|length>1 %}<option value="">Choose the client’s bin</option>{% endif %}
+      {% for b in pickups %}<option value="{{ b.id }}">{{ b.bin_code }} · {{ b.size_name }}</option>{% endfor %}
+    </select></label>
+    {% if empties %}<label>Unused replacement<select name="replacement" required>
+      <option value="">Choose the unused empty</option>
+      {% for b in empties if not b.delivered_at %}<option value="{{ b.id }}">Keep on truck · {{ b.bin_code }} · {{ b.size_name }}</option>{% endfor %}
+      {% for b in empties if b.delivered_at %}<option value="reload-{{ b.id }}">I put {{ b.bin_code }} back on the truck · {{ b.size_name }}</option>{% endfor %}
+      <option value="0">None · leave the deliveries as recorded</option>
+    </select></label>{% else %}<input type="hidden" name="replacement" value="0">{% endif %}
+    <label>Reason<input name="reason" value="Already empty" required maxlength="250"></label>
+    <button class="secondary bf-next">Skip this bin and continue</button>
+  </form>
+</section>
+{% endif %}
+</div>
+{% endblock %}

@@ -1,4 +1,5 @@
 """An employee and an independent administrator observe one production-style run."""
+from pod_helpers import SIGNING_PLACE
 import re
 import unittest
 
@@ -110,7 +111,7 @@ class LiveCycleTests(unittest.TestCase):
         self.assertNotIn('data-scan-form',queue.text)
         self.assertEqual(self.client.get(queue_path).text.count('>POD Sign Off</a>'),1)
         pod=self.client.get(queue_path+f'?job={j2}&sign=1')
-        signed=self.post(f'/binflow/pickups/{j2}/pod/sign',dict(scope='run',version=field(pod.text,'version'),run_version=field(pod.text,'run_version'),confirm='yes',signature=SIGNATURE))
+        signed=self.post(f'/binflow/pickups/{j2}/pod/sign',dict(scope='run',version=field(pod.text,'version'),run_version=field(pod.text,'run_version'),confirm='yes',signature=SIGNATURE,**SIGNING_PLACE))
         check('Uncompleted PODs',signed)
         self.assertNotIn('data-docket-trigger',signed.text)
         for jid,val in ((j1,'$220.00'),(j2,'$132.00')):

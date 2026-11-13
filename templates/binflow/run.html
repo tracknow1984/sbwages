@@ -10,6 +10,7 @@
 {% include 'binflow/demo_banner.html' %}
 {% include 'binflow/driver_clock.html' %}
 <div class="bf-run-context">{{ operating_state }} · {{ truck.name }}<span>{{ run_date|display_date }}</span></div>
+{% if run.departed_at and clock_ready %}<a class="button secondary bf-next" href="{{ url_for('bf_run',truck_id=truck.id,date=run_date,review='bins') }}">← Review scanned bins</a>{% endif %}
 {% if stage=='prestart' %}
 <section class="bf-panel bf-pad bf-action-card"><h1>Vehicle prestart</h1>{% include 'binflow/prestart_form.html' %}</section>
 {% elif stage=='hold' %}<section class="bf-panel bf-pad bf-hold"><h2>Vehicle on hold</h2><p>Contact the office about the recorded defect. They must resolve it before a fresh prestart.</p><a class="button secondary bf-next" href="{{ url_for('bf_run',truck_id=truck.id,date=run_date) }}">Refresh</a></section>
@@ -27,6 +28,9 @@
 {% if stage=='navigate' %}<div class="bf-destination">{{ icon('pin') }} {{ current.site_address }}</div>{% endif %}
 {% if stage=='navigate' %}<div class="bf-stop-quantities"><span><strong>{{ current_rows|selectattr('direction','equalto','deliver')|list|length }}</strong> to deliver</span><span><strong>{{ current_rows|selectattr('direction','equalto','collect')|list|length }}</strong> to collect</span></div>{% set navigation_address=current.site_address %}{% set navigation_label='Navigate to first job' if stop_number==1 else 'Navigate to next job' %}{% set arrival_action='client-arrival' %}{% set arrival_field='job_id' %}{% set arrival_id=current.id %}{% set arrival_label='I’ve arrived' %}{% include 'binflow/navigation_controls.html' %}
 {% endif %}</section>
+{% if stage in ('deliver','collect') and current_rows|selectattr('direction','equalto','collect')|rejectattr('picked_up_at')|list %}
+<a class="button secondary bf-next" href="{{ url_for('bf_run',truck_id=truck.id,date=run_date,review='skip',stop=current.id) }}">Skip one bin</a>
+{% endif %}
 {% if current_rows|rejectattr('delivered_at')|rejectattr('picked_up_at')|list %}{% include 'binflow/cancel_stop.html' %}{% endif %}
 {% if stage=='handover' %}{% set job=current %}{% include 'binflow/run_handover.html' %}{% endif %}
 {% elif stage in ['navigate_depot','return','return_empty','arrive'] %}

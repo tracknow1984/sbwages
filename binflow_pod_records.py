@@ -2,6 +2,7 @@
 import hashlib
 import io
 import json
+import math
 import sqlite3
 from datetime import datetime
 from flask import abort, g, redirect, render_template, request, send_file, session, url_for
@@ -123,6 +124,26 @@ def confirm_pickup_material(conn, item_id, material_id):
     return material['name']
 
 
+def correct_driver_material(conn, data, form, event):
+    if not data['clock_ready'] or not data['run']['departed_at'] or data['stage'] in ('assigned','hold','break','finished'):
+        raise ValueError('Open your active run to correct a pickup.')
+    item = next((r for r in data['rows'] if r['id'] == form.get('item_id', type=int)), None)
+    if not item or item['direction'] != 'collect' or not item['picked_up_at']:
+        raise ValueError('Choose a collected bin from this run.')
+    job = next(j for j in data['jobs'] if j['id'] == item['job_id'])
+    if item['weighed_at'] or job['pod_signed_at'] or job['pod_deleted_at']:
+        raise ValueError('This pickup is locked after weighing or POD sign-off.')
+    if item['material_id'] != form.get('previous', type=int):
+        raise ValueError('The classification has changed. Review the bin again.')
+    mid = form.get('material_id', type=int)
+    if mid == item['material_id']:
+        return
+    name = confirm_pickup_material(conn, item['id'], mid)
+    conn.execute('UPDATE bf_jobs SET pod_version=pod_version+1 WHERE id=?', (job['id'],))
+    event(item['bin_id'], 'Pickup material corrected', job['id'],
+          notes=f"{item['material_name'] or 'Unclassified'} → {name}")
+
+
 def run_signoff(conn, job, user):
     """The PODs received by this warehouse from one truck on one date."""
     if not job['truck_id']:
@@ -149,9 +170,37 @@ def run_signoff(conn, job, user):
     return dict(stops=stops,ready=ready,version=version,unsigned=len(pending))
 
 
+def signing_location(form):
+    if form.get('location_method') == 'manual':
+        place = form.get('signed_place', '').strip()
+        if not 2 <= len(place) <= 180 or any(ord(c) < 32 for c in place):
+            raise ValueError('Enter the place where you are signing, such as the depot and suburb.')
+        return dict(source='manual', place=place)
+    if form.get('location_method') != 'device':
+        raise ValueError('Capture your current location or enter the place where you are signing.')
+    try:
+        lat, lon, accuracy = (float(form[key]) for key in ('sign_lat','sign_lon','sign_accuracy'))
+    except (KeyError, TypeError, ValueError, OverflowError):
+        raise ValueError('The device location is incomplete. Capture it again or enter your location.') from None
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180 and math.isfinite(accuracy) and 0 <= accuracy <= 40075000):
+        raise ValueError('The device location is invalid. Capture it again or enter your location.')
+    return dict(source='device', latitude=round(lat,6), longitude=round(lon,6), accuracy_m=round(accuracy,1))
+
+
+def sign_location_label(job):
+    location = json.loads(job['pod_snapshot'] or '{}').get('sign_location')
+    if not location:
+        return 'Location was not recorded'
+    if location['source'] == 'manual':
+        return location['place'] + ' (entered by signer)'
+    return (f"{location['latitude']:.6f}, {location['longitude']:.6f} "
+            f"(device location, accuracy ±{location['accuracy_m']:g} m)")
+
+
 def register(app,db,access,require,render,job,items,success,failure,now,actor):
     app.jinja_env.globals['pod_weights_ready'] = lambda j: pod_weights_ready(db(), j)
     app.jinja_env.globals['pod_run_signoff']=lambda j: run_signoff(db(),j,g.user)
+    app.jinja_env.globals['pod_sign_location']=sign_location_label
     app.jinja_env.globals['pod_status']=status
     app.jinja_env.globals['pod_final']=lambda j:bool(j['pod_signed_at'])
     app.context_processor(lambda:dict(material_classes=db().execute(
@@ -239,9 +288,10 @@ def register(app,db,access,require,render,job,items,success,failure,now,actor):
                     str(i['id']):journey(db(),target,i) for i in rows}))
             if request.form.get('confirm')!='yes':raise ValueError('Confirm that you have checked the warehouse weights.')
             signature=signature_png(request.form.get('signature',''))
+            location=signing_location(request.form)
             stamp=now()
             for target,snapshot in zip(targets,snapshots):
-                snapshot.update(signed_at=stamp,signed_by=actor())
+                snapshot.update(signed_at=stamp,signed_by=actor(),sign_location=location)
                 db().execute('UPDATE bf_jobs SET pod_signed_at=?,pod_signed_by=?,pod_signed_name=?,pod_signature=?,pod_snapshot=?,pod_version=pod_version+1 WHERE id=?',
                              (stamp,g.user['id'],actor(),signature,json.dumps(snapshot),target['id']))
                 db().execute('INSERT INTO bf_pod_history(job_id,action,user_id,created_at) VALUES(?,?,?,?)',

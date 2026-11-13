@@ -1098,7 +1098,7 @@ def register_binflow(app, db, require):
     @access
     def bf_pod_pdf(job_id):
         from pathlib import Path
-        from binflow_pod_records import status as pod_status, qr_bytes
+        from binflow_pod_records import status as pod_status, qr_bytes, sign_location_label
         import reportlab
         from reportlab.lib import colors
         from reportlab.lib.styles import getSampleStyleSheet
@@ -1153,7 +1153,7 @@ def register_binflow(app, db, require):
             story.append(p('PROVISIONAL: warehouse weighing and a separate signed final approval are required. '+pod_status(j)))
         else:
             story += [KeepTogether([p('Warehouse final sign-off','Heading2'),p('Signed by: '+j['pod_signed_name']),
-                      p('Signed at: '+timestamp(j['pod_signed_at'])),
+                      p('Signed at: '+timestamp(j['pod_signed_at'])),p('Signing location: '+sign_location_label(j)),
                       Image(io.BytesIO(j['pod_signature']),width=75*mm,height=25*mm)])]
         story += [p('Recipient: ' + (j['receiver_name'] or 'Not present / not recorded')),p('Confirmation: ' + {'signed':'Recipient signed','not_present':'Recipient not present; driver recorded','declined':'Recipient declined signature; driver recorded','driver_scanned':'Driver QR scans completed; no client signature'}.get(j['confirmation'],j['confirmation']))]
         if j['confirmation_note']:

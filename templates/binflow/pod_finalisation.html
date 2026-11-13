@@ -1,7 +1,7 @@
 <section class="bf-panel bf-pad" id="pod-finalisation">
 {% if not phone_flow %}<h2>POD sign-off</h2>{% endif %}
 {% if job.pod_signed_at %}
-<p class="bf-note">Signed by <strong>{{ job.pod_signed_name }}</strong> · {{ job.pod_signed_at|display_datetime }}.</p>
+<p class="bf-note">Signed by <strong>{{ job.pod_signed_name }}</strong> · {{ job.pod_signed_at|display_datetime }}<br>Signing location · {{ pod_sign_location(job) }}</p>
 {% elif not job.collected_at %}<p>Confirm each full bin’s material at the client pickup. Warehouse weighing follows the depot return.</p>
 {% elif current_user.role=='admin' or binflow_manager or binflow_warehouse or driver_demo %}
 {% set collected=items|selectattr('direction','equalto','collect')|list %}
@@ -31,7 +31,14 @@
 <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ job.pod_version }}">
 {% if phone_flow %}<input type="hidden" name="return_to" value="phone">{% endif %}
 {% if run %}<input type="hidden" name="scope" value="run"><input type="hidden" name="run_version" value="{{ run.version }}">{% endif %}
-<h3>Final warehouse approval</h3><p>Signing as <strong>{{ current_user.first_name }} {{ current_user.last_name }}</strong>. Your signature is dated and timed.</p>
+<h3>Final warehouse approval</h3><p>Signing as <strong>{{ current_user.first_name }} {{ current_user.last_name }}</strong>. Your sign-off records the time and your current location.</p>
+<fieldset data-pod-location><legend>Signing location</legend>
+  <p data-location-status role="status">Your device will request your location when you sign.</p>
+  <input type="hidden" name="location_method" value="device">
+  <input type="hidden" name="sign_lat"><input type="hidden" name="sign_lon"><input type="hidden" name="sign_accuracy">
+  <label class="bf-check"><input type="checkbox" data-enter-place><span>Enter my location manually</span></label>
+  <label data-place-field hidden>Where are you signing?<input name="signed_place" maxlength="180" placeholder="Depot or street address and suburb"></label>
+</fieldset>
 <label class="bf-check"><input type="checkbox" name="confirm" value="yes" required><span>I have checked the gross, tare and net weights and approve {{ "the listed PODs for this run" if run else "this final POD" }}.</span></label>
 <div class="bf-signature" data-signature><div class="bf-toolbar"><strong>Warehouse signature</strong><button type="button" class="secondary" data-clear-signature>Clear</button></div><canvas width="600" height="200" aria-label="Draw warehouse sign-off signature"></canvas><input type="hidden" name="signature" value="[]"><small>Draw your signature with your finger or mouse.</small></div>
 <button class="primary">{{ "Sign off run · "+(run.unsigned|string)+" PODs" if run else "Sign off final POD" }}</button></form>
