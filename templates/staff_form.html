@@ -1,6 +1,6 @@
 {% extends 'base.html' %}{% block content %}
 <a class="back" href="{{ url_for('admin_staff') }}">← Staff details</a><div class="page-heading"><div><span class="eyebrow">TEAM MANAGEMENT</span><h1>{{ 'Edit staff member' if editing else 'Add staff member' }}</h1></div></div>
-{% if editing %}<form method="post" class="form-panel panel" aria-label="Business role and working state"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="action" value="save_assignment">{% include 'staff_assignment_fields.html' %}<div class="form-actions"><button class="primary" type="submit">Save roles &amp; state</button></div></form>{% endif %}
+{% if editing %}<p><a class="button secondary" href="{{ url_for('staff_credentials',user_id=licence_user_id) }}">Employee QR &amp; credentials</a></p><form method="post" class="form-panel panel" aria-label="Business role and working state"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="action" value="save_assignment">{% include 'staff_assignment_fields.html' %}<div class="form-actions"><button class="primary" type="submit">Save roles &amp; state</button></div></form>{% endif %}
 <form method="post" class="form-panel panel"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
 <section><h2>Contact details</h2>{% include 'contact_fields.html' %}</section>{% include 'licence_fields.html' %}
 {% if not editing %}{% include 'staff_assignment_fields.html' %}{% endif %}

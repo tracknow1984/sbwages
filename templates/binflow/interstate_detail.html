@@ -89,11 +89,14 @@
 {% if not external %}<p class="bf-muted">Requested by {{ b.created_by }}{% if b.locked_at %} · Locked by {{ b.locked_by }} on {{ b.locked_at|display_datetime }}{% endif %}</p>{% endif %}
 {% if not external and current_user.role=='admin' %}
   {% if handoff %}
+    {% set reply=dispatch_response_label(handoff.event,handoff.target,handoff.status,handoff.decision) %}
+    {% if reply %}<p><strong>{{ reply }}</strong>{% if handoff.sent_at %} · Sent {{ handoff.sent_at|display_datetime }}{% endif %}{% if handoff.decided_at %} · Responded {{ handoff.decided_at|display_datetime }}{% endif %}</p>{% endif %}
     <p><strong>Load dispatch · {{ handoff.recipient }}</strong> · {{ handoff.event }} · {% if handoff.target.startswith('driver:') %}Sent via Empire Wire{% elif handoff.status=='sent' %}Sent to {{ handoff.address }}{% elif handoff.status in ['uncertain','sending'] %}Check supplier receipt before retrying{% elif handoff.status=='failed' %}Supplier email failed{% else %}{{ handoff.status|capitalize }}{% endif %}</p>
-    {% if handoff.status in ['failed','queued','uncertain','sending'] %}<form method="post" action="{{ url_for('bf_interstate_dispatch_recipient',bid=b.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ b.version }}"><button class="secondary" name="retry" value="{{ handoff.id }}">Retry supplier email</button></form>{% endif %}
+    {% set needs_link=route_options and b.locked_at and handoff.target.startswith('supplier:') and handoff.status=='sent' and not handoff.response_token and handoff.event in ['Assigned','Updated','Reassigned'] %}
+    {% if not handoff.decision and (needs_link or handoff.status in ['failed','queued','uncertain','sending']) %}<form method="post" action="{{ url_for('bf_interstate_dispatch_recipient',bid=b.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ b.version }}"><button class="secondary" name="retry" value="{{ handoff.id }}">{{ 'Send supplier response link' if needs_link else 'Retry supplier email' }}</button></form>{% endif %}
   {% endif %}
-  {% if route_options and b.locked_at and (not handoff or handoff.event=='On hold') %}
-    <form method="post" class="bf-form" action="{{ url_for('bf_interstate_dispatch_recipient',bid=b.id) }}"><h3>Load awaiting dispatch</h3><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ b.version }}">{{ dispatch_picker(route_options) }}<button class="primary">Send load</button></form>
+  {% if route_options and b.locked_at and (not handoff or handoff.event=='On hold' or handoff.decision=='denied') %}
+    <form method="post" class="bf-form" action="{{ url_for('bf_interstate_dispatch_recipient',bid=b.id) }}"><h3>{{ 'Reassign declined load' if handoff and handoff.decision=='denied' else 'Load awaiting dispatch' }}</h3>{% if handoff %}<input type="hidden" name="declined_id" value="{{ handoff.id }}">{% endif %}<input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ b.version }}">{{ dispatch_picker(route_options) }}<button class="primary">Send load</button></form>
   {% endif %}
 {% endif %}
 {% if not external and current_user.role=='admin' and not b.cancelled_at %}

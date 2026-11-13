@@ -45,6 +45,8 @@
             {% if b.pickup_company and b.pickup_company!=b.billing_name %}<span>{{ b.pickup_company }}</span>{% endif %}
             <span class="it-card-meta">{{ route(b) }}</span>
             {{ po_badge(b.po_received) }}
+            {% set answer=dispatch_response_label(b.handoff_event,b.handoff_target,b.send_status,b.dispatch_decision) %}
+            <span class="it-reply {{ b.dispatch_decision or 'pending' }}" data-dispatch-label {% if not answer %}hidden{% endif %}>{{ answer }}</span>
             {% if view=='week' %}<span class="it-card-meta">{{ reference(b) }}{% if b.status!='Delivered' %} · {{ b.status }}{% endif %}</span>{% endif %}
           </a>
         {% endfor %}
@@ -66,6 +68,12 @@
 {% for id,b in previews.items() %}
 <template id="it-booking-{{ id }}">
   <header><small>{{ reference(b) }} · {{ b.status }}</small><h3>{{ b.billing_name }}</h3><p>{{ route(b) }}{% if not b.rigid_hours_units %} · {{ vehicle(b) }}{% else %} · {{ b.rigid_hours_units|hours }} hours requested{% endif %}</p></header>
+  {% set answer=dispatch_response_label(b.handoff_event,b.handoff_target,b.send_status,b.dispatch_decision) %}
+  <section class="it-preview-goods" data-dispatch-preview="{{ id }}" {% if not answer %}hidden{% endif %}><h4 data-reply-field="label">{{ answer }}</h4>
+    {% if not external %}<p data-reply-field="recipient">{{ b.handoff_recipient or '' }}</p>{% endif %}
+    <p data-reply-field="sent" {% if not b.handed_at %}hidden{% endif %}>{% if b.handed_at %}Sent {{ b.handed_at|display_datetime }}{% endif %}</p>
+    <p data-reply-field="responded" {% if not b.decided_at %}hidden{% endif %}>{% if b.decided_at %}Responded {{ b.decided_at|display_datetime }}{% endif %}</p>
+  </section>
   <div class="it-preview-stops">{% for label,company,address,date,contact,phone in [
       ('Pickup',b.pickup_company,b.pickup_address,b.pickup_date,b.pickup_contact,b.pickup_phone),
       ('Delivery',b.delivery_company,b.delivery_address,b.delivery_date,b.delivery_contact,b.delivery_phone)] %}

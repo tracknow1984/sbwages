@@ -1,0 +1,11 @@
+<!doctype html><html lang="en-AU"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Employee verification · SB Empire</title><link rel="stylesheet" href="{{ url_for('static',filename='employee-qr.css') }}"></head>
+<body class="emp-verify"><main>
+<header><img src="{{ url_for('static',filename='sb-empire-header.webp') }}" width="200" height="35" alt="SB Empire"><p>Employee verification</p><h1>{{ person.first_name }} {{ person.last_name }}</h1></header>
+<section><h2>Driver licence</h2>
+{% if person.licence_class or person.licence_state or person.licence_expiry or person.suffix %}
+<dl>{% for label,value in [('Class',person.licence_class),('Issued in',person.licence_state),('Number ending',person.suffix)] %}{% if value %}<div><dt>{{ label }}</dt><dd>{{ value }}</dd></div>{% endif %}{% endfor %}
+<div><dt>Recorded expiry</dt><dd>{% if person.licence_expiry %}{{ person.licence_expiry|display_date }}{% if person.licence_expiry < day %} · Expired{% endif %}{% else %}Not recorded{% endif %}</dd></div></dl>
+{% else %}<p>No licence details recorded.</p>{% endif %}</section>
+<section><h2>Security checks</h2>{% if checks %}<ul>{% for row in checks %}<li><strong>{{ row.name }}</strong> · {{ row.label }}{% if row.expires %}<small>Expiry {{ row.expires|display_date }}</small>{% endif %}</li>{% endfor %}</ul>{% else %}<p>No security checks recorded.</p>{% endif %}</section>
+<section><h2>Approved site inductions</h2>{% if sites %}<ul>{% for row in sites %}<li><strong>{{ row.name }}</strong>{% if row.expires %}<small>Approved until {{ row.expires|display_date }}</small>{% endif %}</li>{% endfor %}</ul>{% else %}<p>No current site approvals recorded.</p>{% endif %}</section>
+<footer>SB Empire records · {{ day|display_date }}</footer></main></body></html>

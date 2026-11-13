@@ -3,7 +3,8 @@
   <div class="page-heading"><h1>My Details</h1></div>
   {% include 'binflow/driver_menu.html' %}
   <div class="driver-profile-links">
-    <a href="{{ url_for('employee_details') }}">Contact &amp; licence details</a>
+    <a class="button secondary" href="{{ url_for('my_employee_qr') }}">My employee QR code</a>
+<a href="{{ url_for('employee_details') }}">Contact &amp; licence details</a>
     <a href="{{ url_for('employee_documents') }}">Documents</a>
   </div>
 {% endblock %}

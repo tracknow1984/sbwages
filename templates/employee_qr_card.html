@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+{% macro fields(kind, row=none) %}
+<input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="kind" value="{{ kind }}">
+{% if row %}<input type="hidden" name="record_id" value="{{ row.id }}"><input type="hidden" name="revision" value="{{ row.revision }}">{% endif %}
+<label>{{ 'Check name' if kind=='security' else 'Site name' }}<input name="name" value="{{ row.name if row else '' }}" maxlength="150" {% if kind=='site' %}list="employee-sites"{% endif %} required></label>
+<label>Status<select name="status">{% for key in ['pending','approved','withdrawn'] %}<option value="{{ key }}" {% if row and row.status==key %}selected{% endif %}>{{ states[key] }}</option>{% endfor %}</select></label>
+<label>Expiry date (if applicable)<input type="date" name="expires" value="{{ row.expires if row else '' }}"></label>
+<button class="secondary">{{ 'Save changes' if row else 'Add record' }}</button>
+{% endmacro %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static',filename='employee-qr.css') }}">
+{% if manage %}<a class="back" href="{{ url_for('edit_staff',user_id=person.id) }}">← Staff profile</a>{% endif %}
+<div class="page-heading"><div><h1>{{ 'Employee QR & credentials' if manage else 'My employee QR code' }}</h1></div></div>
+<section class="emp-qr-card panel">
+  <div><h2>{{ person.first_name }} {{ person.last_name }}</h2>
+  {% if person.status=='active' %}
+    <p>Scan to view licence details, security checks and current site inductions.</p>
+    <div class="form-actions"><a class="button primary" href="{{ url_for('employee_qr_png',user_id=person.id,download=1) }}">Download QR</a>
+      <a class="button secondary" href="{{ url_for('verify_employee',token=person.token) }}">Preview scan</a></div>
+  {% else %}<p>Employee inactive. The QR card is unavailable.</p>{% endif %}</div>
+  {% if person.status=='active' %}<img src="{{ url_for('employee_qr_png',user_id=person.id) }}" width="230" height="230" alt="QR code for {{ person.first_name }} {{ person.last_name }}">{% endif %}
+</section>
+{% if manage %}
+{% if error %}<p class="notice error" role="alert">{{ error }}</p>{% endif %}
+<datalist id="employee-sites">{% for site in sites %}<option value="{{ site.label }}"></option>{% endfor %}</datalist>
+{% for kind,title in [('security','Security checks'),('site','Site inductions')] %}
+<section class="panel form-panel"><h2>{{ title }}</h2>
+{% for row in records if row.kind==kind %}<details><summary>{{ row.name }} · {{ 'Expired' if row.status=='approved' and row.expires and row.expires < today.isoformat() else states[row.status] }}{% if row.expires %} · {{ row.expires|display_date }}{% endif %}</summary>
+<form class="form-grid" method="post">{{ fields(kind,row) }}</form></details>{% endfor %}
+<details><summary>{{ 'Add security check' if kind=='security' else 'Add site induction' }}</summary>
+<form class="form-grid" method="post">{{ fields(kind) }}</form></details></section>
+{% endfor %}
+{% if person.status=='active' %}<details class="panel"><summary>Replace QR code</summary><p>This disables the old printed code immediately.</p>
+<form method="post"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="token" value="{{ person.token }}"><button name="action" value="rotate" class="secondary">Replace QR code</button></form></details>{% endif %}
+{% endif %}
+{% endblock %}

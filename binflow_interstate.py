@@ -258,6 +258,7 @@ def confirmation(conn, config, row, now):
 
 
 def register(app, db, access, require, render, client_access, now, actor):
+    dispatch.register_responses(app,db,require,now)
     app.add_template_global(share_dates_link, 'bf_share_dates_link')
     freight.register(app,db,require,render,client_access,now,actor)
     portal.register_site_scope(app,db,require,render,now,actor)
@@ -294,8 +295,11 @@ def register(app, db, access, require, render, client_access, now, actor):
         args = (g.bf_client['id'],) if external else ()
         select = """SELECT b.*, COALESCE(a.name,b.client_name) AS billing_name,
                        t.status AS manifest_status, t.code AS manifest_code, m.expected_bales, changes.id AS date_change_id,
-                       po.booking_id IS NOT NULL AS po_received, po.number AS po_number, po.filename AS po_filename
+                       po.booking_id IS NOT NULL AS po_received, po.number AS po_number, po.filename AS po_filename,
+                       d.event AS handoff_event,d.target AS handoff_target,d.recipient AS handoff_recipient,
+                       d.status AS send_status,d.sent_at AS handed_at,d.decision AS dispatch_decision,d.decided_at
                 FROM bf_interstate_bookings b LEFT JOIN bf_client_accounts a ON a.id=b.account_id
+                LEFT JOIN bf_load_dispatches d ON d.id=(SELECT MAX(k.id) FROM bf_load_dispatches k WHERE k.booking_id=b.id)
                 LEFT JOIN bf_interstate_manifests m ON m.transfer_id=(
                     SELECT MAX(x.transfer_id) FROM bf_interstate_manifests x WHERE x.booking_id=b.id)
                 LEFT JOIN bf_bale_transfers t ON t.id=m.transfer_id
@@ -329,6 +333,13 @@ def register(app, db, access, require, render, client_access, now, actor):
         rows = db().execute(select+""" WHERE b.locked_at IS NOT NULL
             AND b.cancelled_at IS NULL AND b.pickup_date BETWEEN ? AND ?"""+scope+
             f' ORDER BY {vehicle_order},b.client_name,b.id',(*limits,*args)).fetchall()
+        if request.args.get('responses')=='1':
+            from app import display_datetime
+            return {'bookings': {str(b['id']): dict(
+                label=dispatch.response_label(b['handoff_event'],b['handoff_target'],b['send_status'],b['dispatch_decision']),
+                decision=b['dispatch_decision'] or 'pending',recipient='' if external else b['handoff_recipient'] or '',
+                sent=display_datetime(b['handed_at']) if b['handed_at'] else '',
+                responded=display_datetime(b['decided_at']) if b['decided_at'] else '') for b in rows}}
         pending = db().execute(select+' WHERE b.locked_at IS NULL AND b.cancelled_at IS NULL'+scope+
                                f' ORDER BY b.pickup_date,{vehicle_order},b.id',args).fetchall()
         cancelled = db().execute(select+""" WHERE b.cancelled_at IS NOT NULL
@@ -734,18 +745,27 @@ def register(app, db, access, require, render, client_access, now, actor):
         if request.form.get('version',type=int)!=row['version']:
             abort(409,'The booking changed. Reopen it before dispatching.')
         if request.form.get('retry'):
-            if not handoff or request.form.get('retry',type=int)!=handoff['id'] or handoff['status'] not in ('queued','failed','uncertain','sending'):
+            legacy_link = bool(handoff and handoff['target'].startswith('supplier:') and handoff['status']=='sent'
+                               and not handoff['response_token'] and handoff['event'] in dispatch.ACTIVE)
+            if not handoff or handoff['decision'] or request.form.get('retry',type=int)!=handoff['id'] or not legacy_link and handoff['status'] not in ('queued','failed','uncertain','sending'):
                 abort(409,'Check the latest dispatch status.')
             if handoff['status']=='sending' and (datetime.fromisoformat(now())-datetime.fromisoformat(handoff['attempted_at']))<timedelta(minutes=10):
                 abort(409,'A delivery attempt is still in progress.')
             conn.execute("UPDATE bf_load_dispatches SET status='queued' WHERE id=?",(handoff['id'],))
         else:
-            if not row['locked_at'] or row['cancelled_at'] or has_delivered(row,current_manifest(bid)) or handoff and handoff['event'] in dispatch.ACTIVE:
+            if not row['locked_at'] or row['cancelled_at'] or has_delivered(row,current_manifest(bid)) or handoff and handoff['event'] in dispatch.ACTIVE and handoff['decision']!='denied':
                 abort(409,'Review the current transfer assignment.')
             dest=dispatch_recipient(row)
             if not dest:
                 abort(400,'Choose a driver or supplier.')
-            dispatch.queue(conn,row,'Assigned',dest,g.user['id'],now())
+            event='Assigned'
+            attempt=1
+            if handoff and handoff['decision']=='denied':
+                if request.form.get('declined_id',type=int)!=handoff['id']:
+                    abort(409,'Reopen the declined load before reassigning.')
+                event='Reassigned'
+                attempt=handoff['attempt']+1
+            dispatch.queue(conn,row,event,dest,g.user['id'],now(),attempt)
         conn.commit()
         dispatch.deliver_mail(conn,bid,app.config,now())
         return redirect(details_url(bid,False))

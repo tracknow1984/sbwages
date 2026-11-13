@@ -36,7 +36,7 @@ def needs_signature(conn, user_id):
 def enforce_employee_induction(db):
     if not g.user or g.user['role'] != 'employee' or request.endpoint in {
         None, 'static', 'health', 'login', 'logout', 'activate', 'employee_induction',
-        'employee_handbook', 'induction_record', 'bf_lunch_worker', 'install_induction_edition'
+        'employee_handbook', 'verify_employee', 'supplier_load_response', 'induction_record', 'bf_lunch_worker', 'install_induction_edition'
     }:
         return None
     if not needs_signature(db(), g.user['id']):

@@ -19,7 +19,7 @@
   <div><span class="field-caption">Role / state</span>{{ assigned_roles(person)|map('upper')|join(' · ') or 'Not allocated' }} · {{ person.working_state or 'State not allocated' }}</div>
   <div><span class="field-caption">Status</span><span class="badge {{ person.status }}">{{ person.status|capitalize }}</span></div>
   <div><span class="field-caption">Induction</span>{% if person.induction_id %}<a href="{{ url_for('induction_record',record_id=person.induction_id) }}">Signed handbook</a><small>{{ person.induction_signed_at|display_datetime }}</small>{% else %}Pending{% endif %}</div>
-  <div><a class="button secondary compact" href="{{ url_for('edit_staff',user_id=person.id) }}" aria-label="Edit {{ person.first_name }} {{ person.last_name }}">Edit</a></div>
+  <div><a class="button secondary compact" href="{{ url_for('edit_staff',user_id=person.id) }}" aria-label="Edit {{ person.first_name }} {{ person.last_name }}">Edit</a> <a href="{{ url_for('staff_credentials',user_id=person.id) }}">QR &amp; credentials</a></div>
   <details class="staff-more"><summary>Contact, pay and access</summary>
   <div class="staff-extra">
     <div><span class="field-caption">Contact</span>{{ person.email }}<small>{{ person.mobile }}</small></div>

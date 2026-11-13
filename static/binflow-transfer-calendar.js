@@ -11,6 +11,44 @@
   }
   document.querySelectorAll('[data-client-colour]').forEach(node => colour(node, Number(node.dataset.clientColour)));
 
+  const calendarCards = document.querySelectorAll('.it-event[data-transfer-preview]');
+  const responseUrl = new URL(location.href);
+  responseUrl.searchParams.set('responses', '1');
+  let refreshing = false;
+  async function refreshResponses() {
+    if (document.hidden || refreshing || !calendarCards.length) return;
+    refreshing = true;
+    try {
+      const response = await fetch(responseUrl, {cache:'no-store'});
+      if (!response.ok || !response.headers.get('Content-Type')?.includes('application/json')) return;
+      const {bookings} = await response.json();
+      for (const card of calendarCards) {
+        const id = card.dataset.transferPreview;
+        const reply = bookings[id];
+        const label = card.querySelector('[data-dispatch-label]');
+        label.hidden = !reply?.label;
+        label.textContent = reply?.label || '';
+        label.className = 'it-reply ' + (reply?.decision || 'pending');
+        const template = document.getElementById('it-booking-' + id);
+        const selector = '[data-dispatch-preview="' + id + '"]';
+        for (const section of [template?.content.querySelector(selector), body.querySelector(selector)]) {
+          if (!section) continue;
+          section.hidden = !reply?.label;
+          if (!reply?.label) continue;
+          for (const field of section.querySelectorAll('[data-reply-field]')) {
+            const key = field.dataset.replyField;
+            const value = reply[key];
+            field.hidden = !value;
+            field.textContent = value ? (key === 'sent' ? 'Sent ' : key === 'responded' ? 'Responded ' : '') + value : '';
+          }
+        }
+      }
+    } catch { /* Keep the last known status on screen until the connection returns. */ }
+    finally { refreshing = false; }
+  }
+  setInterval(refreshResponses, 15000);
+  document.addEventListener('visibilitychange',refreshResponses);
+
   let trigger = null, pinned = false, closeTimer, returnFocus = false;
   function position() {
     if (!trigger) return;

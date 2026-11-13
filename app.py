@@ -217,7 +217,7 @@ def create_app(test_config=None):
             db().execute("ALTER TABLE users ADD COLUMN working_state TEXT NOT NULL DEFAULT '' CHECK(working_state IN ('','QLD','NSW','VIC','SA','WA','ACT'))")
         if 'emergency_phone' not in user_columns:
             db().execute("ALTER TABLE users ADD COLUMN emergency_phone TEXT NOT NULL DEFAULT ''")
-        for name in ('licence_number', 'licence_state', 'licence_expiry'):
+        for name in ('licence_number', 'licence_state', 'licence_expiry', 'licence_class'):
             if name not in user_columns:
                 db().execute(f"ALTER TABLE users ADD COLUMN {name} TEXT NOT NULL DEFAULT ''")
         if 'archived_at' not in {row['name'] for row in db().execute('PRAGMA table_info(staff_notices)')}:
@@ -460,9 +460,11 @@ def create_app(test_config=None):
                 raise ValueError('Enter a valid emergency contact phone number, including area code where needed.')
             values['emergency_phone'] = phone
         # Optional fields: omitted keys preserve records from older forms.
-        for field in ('licence_number', 'licence_state', 'licence_expiry'):
+        for field in ('licence_number', 'licence_state', 'licence_expiry', 'licence_class'):
             if field in request.form:
                 values[field] = request.form.get(field, '').strip()
+        if len(values.get('licence_class', '')) > 40:
+            raise ValueError('Licence class must be 40 characters or fewer.')
         if len(values.get('licence_number', '')) > 80:
             raise ValueError('Licence number must be 80 characters or fewer.')
         if values.get('licence_state', '') not in ('', 'ACT', 'NSW', 'NT', 'QLD', 'SA', 'TAS', 'VIC', 'WA'):
@@ -1039,7 +1041,15 @@ def create_app(test_config=None):
         return datetime.now(ZoneInfo('Australia/Brisbane')).isoformat()
 
     def notice_rows(user_id=None, limit=-1, archived=False):
-        sql = "SELECT n.*,u.first_name,u.last_name,a.first_name AS sender_name FROM staff_notices n JOIN users u ON u.id=n.user_id JOIN users a ON a.id=n.admin_id"
+        sql = """SELECT n.*,u.first_name,u.last_name,a.first_name AS sender_name,
+            d.id AS dispatch_id,d.decision AS dispatch_decision,
+            (d.id=(SELECT max(last.id) FROM bf_load_dispatches last WHERE last.booking_id=d.booking_id)
+             AND b.locked_at IS NOT NULL AND b.cancelled_at IS NULL AND b.bulk_delivered_at IS NULL
+             AND NOT EXISTS(SELECT 1 FROM bf_interstate_manifests m JOIN bf_bale_transfers t ON t.id=m.transfer_id
+                WHERE m.booking_id=b.id AND t.status IN ('received','handed_over'))) AS can_respond
+            FROM staff_notices n JOIN users u ON u.id=n.user_id JOIN users a ON a.id=n.admin_id
+            LEFT JOIN bf_load_dispatches d ON d.notice_id=n.id AND d.event IN ('Assigned','Updated','Reassigned')
+            LEFT JOIN bf_interstate_bookings b ON b.id=d.booking_id"""
         if user_id is None:
             return db().execute(sql + ' WHERE (n.archived_at IS NOT NULL)=? ORDER BY n.id DESC LIMIT ?', (int(archived),limit)).fetchall()
         return db().execute(sql + ' WHERE n.user_id=? AND n.archived_at IS NULL ORDER BY (n.read_at IS NULL) DESC,n.id DESC LIMIT ?', (user_id,limit)).fetchall()
@@ -1635,6 +1645,8 @@ def create_app(test_config=None):
     from binflow_lunch import register_lunch
     register_lunch(app, db)
     register_induction(app, db, require)
+    from employee_credentials import register_credentials
+    register_credentials(app, db, require, today)
     from traxpress import register_traxpress
     register_traxpress(app, db, require)
     return app

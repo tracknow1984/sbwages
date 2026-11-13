@@ -121,3 +121,7 @@
 .it-dispatch-calendar [data-vehicle="B-DOUBLE"],.it-vehicle-tag[data-truck="B-DOUBLE"] {--vehicle-colour:#653399}
 .it-dispatch-calendar [data-vehicle] {border-top:3px solid var(--vehicle-colour,#64748b)}
 .it-vehicle-tag[data-truck] {background:var(--vehicle-colour,#475569)}
+.it-event .it-reply {margin-top:.25rem;font-size:.75rem;font-weight:700;color:#6d4600}
+.it-event .it-reply.approved {color:#145334}.it-event .it-reply.denied {color:#8f1b2b}
+
+.it-event .it-reply[hidden],.it-preview-goods[hidden] {display:none}
