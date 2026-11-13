@@ -1,0 +1,12 @@
+<form id="staff-documents" method="post" enctype="multipart/form-data" class="panel form-panel feature-panel" action="{{ url_for('upload_staff_documents',user_id=licence_user_id if editing else person.id) }}">
+  <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="upload_key" value="{{ upload_key }}">
+  <section><h2>Licences &amp; documents</h2>
+    <p>Upload files for <strong>{{ person.first_name }} {{ person.last_name }}</strong>. Each file is saved separately.</p>
+    <div class="form-grid">
+      <label>Choose files<input type="file" name="document" accept=".pdf,.png,.jpg,.jpeg" multiple required></label>
+      <label>Title (optional)<input name="title" maxlength="150" placeholder="Defaults to each file’s name"></label>
+    </div>
+    <p class="hint">Up to {{ max_staff_files }} files per upload · PDF, JPG or PNG · 5 MB per file. Files are visible to this employee and administrators.</p>
+  </section>
+  <div class="form-actions"><button type="submit" class="primary">Upload files</button></div>
+</form>

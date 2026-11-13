@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 
 from flask import Flask, abort, flash, g, redirect, render_template, request, session, url_for, send_file
 from PIL import Image
-from document_uploads import read_document
+from document_uploads import MAX_STAFF_FILES, read_document
 from werkzeug.security import check_password_hash, generate_password_hash
 from lunch import deduct_lunch, migrate_lunch
 from owner_dashboard import owner_overview
@@ -118,6 +118,10 @@ CREATE TABLE IF NOT EXISTS documents (
  filename TEXT NOT NULL, mime_type TEXT NOT NULL, data BLOB NOT NULL,
  uploaded_at TEXT NOT NULL, archived_at TEXT, archived_by INTEGER REFERENCES users(id),
  viewed_at TEXT, viewed_by INTEGER REFERENCES users(id)
+);
+CREATE TABLE IF NOT EXISTS staff_document_batches (
+ user_id INTEGER NOT NULL REFERENCES users(id), uploaded_by INTEGER NOT NULL REFERENCES users(id),
+ request_key TEXT NOT NULL, PRIMARY KEY(user_id,uploaded_by,request_key)
 );
 CREATE TABLE IF NOT EXISTS document_emails (
  id INTEGER PRIMARY KEY, document_id INTEGER NOT NULL REFERENCES documents(id),
@@ -270,6 +274,8 @@ def create_app(test_config=None):
             request.max_content_length = 6 * 1024 * 1024
         elif request.endpoint in ('employee_prestart', 'bf_run_prestart'):
             request.max_content_length = 32 * 1024 * 1024
+        elif request.endpoint == 'upload_staff_documents':
+            request.max_content_length = MAX_STAFF_FILES * app.config['DOCUMENT_MAX_BYTES'] + 128 * 1024
         elif request.endpoint == 'upload_licence_photos':
             request.max_content_length = 12 * 1024 * 1024
         elif request.endpoint not in ('employee_documents','bf_client_interstate_po','bf_interstate_po'):
@@ -560,7 +566,10 @@ def create_app(test_config=None):
                     person.update(request.form)
                 if assignment_only or 'working_state' in request.form or 'business_role' in request.form:
                     person.update(role_fields(request.form.getlist('business_role')), working_state=request.form.get('working_state',''))
-        return render_template('staff_form.html', person=person, editing=bool(user_id), tab='staff', licence_user_id=user_id, licence_photos=licence_photo_rows(user_id))
+        return render_template('staff_form.html', person=person, editing=bool(user_id), tab='staff',
+                               licence_user_id=user_id, licence_photos=licence_photo_rows(user_id),
+                               documents=document_rows(user_id=user_id) if user_id else [],
+                               upload_key=secrets.token_urlsafe(24), max_staff_files=MAX_STAFF_FILES)
 
     @app.post('/admin/staff/<int:user_id>/invite')
     @require('admin')
@@ -655,7 +664,7 @@ def create_app(test_config=None):
     def licence_photo_rows(user_id):
         return {row['side']: row for row in db().execute('SELECT side,uploaded_at FROM licence_photos WHERE user_id=?', (user_id,))} if user_id else {}
 
-    def licence_owner(user_id):
+    def private_staff_owner(user_id):
         if not g.user:
             abort(403)
         if g.user['role'] != 'admin' and g.user['id'] != user_id:
@@ -664,7 +673,7 @@ def create_app(test_config=None):
 
     @app.post('/staff/<int:user_id>/licence-photos')
     def upload_licence_photos(user_id):
-        licence_owner(user_id)
+        private_staff_owner(user_id)
         try:
             photos = {}
             for side in ('front','back'):
@@ -685,7 +694,7 @@ def create_app(test_config=None):
 
     @app.get('/staff/<int:user_id>/licence-photos/<side>')
     def licence_photo(user_id,side):
-        licence_owner(user_id)
+        private_staff_owner(user_id)
         if side not in ('front','back'):
             abort(404)
         photo = db().execute('SELECT data FROM licence_photos WHERE user_id=? AND side=?', (user_id,side)).fetchone()
@@ -1427,6 +1436,47 @@ def create_app(test_config=None):
         return render_template('dashboard.html', **overview, today=business_date, documents=documents,
                                requests=requests, admin_view=True, tab='dashboard')
 
+    @app.post('/staff/<int:user_id>/documents')
+    def upload_staff_documents(user_id):
+        person = private_staff_owner(user_id)
+        office = g.user['role'] == 'admin'
+        destination = (url_for('edit_staff', user_id=user_id, _anchor='staff-documents') if office
+                       else url_for('employee_documents', _anchor='staff-documents'))
+        files = request.files.getlist('document')
+        key = request.form.get('upload_key', '')
+        title = request.form.get('title', '').strip()
+        if not re.fullmatch(r'[A-Za-z0-9_-]{20,80}', key):
+            abort(400, 'Reopen the upload form and select the files again.')
+        try:
+            if not files or not any(f.filename for f in files):
+                raise ValueError('Choose at least one licence or document.')
+            if len(files) > MAX_STAFF_FILES:
+                raise ValueError(f'Choose up to {MAX_STAFF_FILES} files per upload.')
+            if len(title) > 150:
+                raise ValueError('Document titles can be up to 150 characters.')
+            conn = db()
+            with conn:
+                batch = conn.execute("""INSERT INTO staff_document_batches(user_id,uploaded_by,request_key)
+                    VALUES(?,?,?) ON CONFLICT(user_id,uploaded_by,request_key) DO NOTHING""",
+                    (user_id, g.user['id'], key))
+                if not batch.rowcount:
+                    return redirect(destination, code=303)
+                stamp = timestamp()
+                for upload in files:
+                    try:
+                        filename, mime, data = read_document(upload, app.config['DOCUMENT_MAX_BYTES'], verify_contents=True)
+                    except ValueError as exc:
+                        raise ValueError(f'{Path(upload.filename or "File").name}: {exc} No files were saved.') from exc
+                    label = title or Path(filename).stem.replace('_', ' ')[:150]
+                    conn.execute("""INSERT INTO documents(user_id,title,filename,mime_type,data,uploaded_at)
+                        VALUES(?,?,?,?,?,?)""", (user_id,label,filename,mime,data,stamp))
+            employee_name = (person['first_name'] + ' ' + person['last_name']).strip()
+            count = len(files)
+            flash(f'{count} {"file" if count == 1 else "files"} added to {employee_name}’s documents.', 'success')
+        except ValueError as exc:
+            flash(str(exc), 'error')
+        return redirect(destination, code=303)
+
     @app.route('/employee/documents', methods=['GET', 'POST'])
     @require('employee')
     def employee_documents():
@@ -1444,7 +1494,8 @@ def create_app(test_config=None):
                 return redirect(url_for('employee_documents'))
             except ValueError as error:
                 flash(str(error), 'error')
-        return render_template('documents.html', documents=document_rows(user_id=g.user['id']), admin_view=False, tab='documents')
+        return render_template('documents.html', documents=document_rows(user_id=g.user['id']), admin_view=False, tab='documents',
+                               person=g.user, upload_key=secrets.token_urlsafe(24), max_staff_files=MAX_STAFF_FILES)
 
     @app.get('/admin/documents')
     @require('admin')

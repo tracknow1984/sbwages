@@ -7,6 +7,9 @@ from pypdf.errors import PyPdfError
 from werkzeug.utils import secure_filename
 
 
+MAX_STAFF_FILES = 10
+
+
 def read_document(upload, max_bytes, *, verify_contents=False):
     if not upload or not upload.filename:
         raise ValueError('Choose a PDF, JPG or PNG file.')
