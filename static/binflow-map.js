@@ -54,7 +54,7 @@
   }
   function popup(unit,status) {
     const node=element('div',undefined,'bf-map-popup');
-    node.append(element('strong',unit.name),element('span',labels[status]),element('span',unit.state||'Wialon unit · truck link needed'));
+    node.append(element('strong',unit.name),element('span',labels[status]),element('span',unit.state||(root.hasAttribute('data-all-assets')?'Wialon asset':'Wialon unit · truck link needed')));
     if(unit.speed!==null) node.append(element('span',(status==='stale'?'Last reported speed: ':'Speed: ')+Math.round(unit.speed)+' km/h'));
     if(unit.position_time) node.append(element('span','GPS '+formatted(unit.position_time)));
     if(status!=='stale' && unit.places.length) node.append(element('span',unit.places.join(' / ')));
@@ -90,7 +90,7 @@
         row.node.append(row.name,row.meta,row.status,row.place,row.time,row.button);list.append(row.node);cards.set(unit.key,row);
       }
       row.name.textContent=unit.name;
-      row.meta.textContent=unit.truck_id?unit.state+(unit.unit_name?' · '+unit.unit_name:''):'Wialon unit · truck link needed';
+      row.meta.textContent=unit.truck_id?unit.state+(unit.unit_name?' · '+unit.unit_name:''):(root.hasAttribute('data-all-assets')?'Wialon asset':'Wialon unit · truck link needed');
       row.status.className='bf-map-status '+status;
       row.status.textContent=labels[status]+(status==='moving'?' · '+Math.round(unit.speed)+' km/h':'');
       row.time.textContent=unit.position_time?'GPS '+formatted(unit.position_time):'No GPS timestamp available';
@@ -112,7 +112,7 @@
     if(!snapshot.units.length && !list.querySelector('[data-empty-fleet]')) {const msg=element('p',root.dataset.state?'No linked trucks in this state yet.':'No vehicles available yet.', 'bf-pad');msg.dataset.emptyFleet='true';list.append(msg);}
     if(snapshot.units.length) list.querySelector('[data-empty-fleet]')?.remove();
     const error=offline?'Connection interrupted — showing last known positions.':snapshot.error;
-    message.textContent=error || `${live} current · ${stale} stale · ${snapshot.units.length} vehicles`;
+    message.textContent=error || `${live} current · ${stale} stale · ${snapshot.units.length} ${root.hasAttribute('data-all-assets')?'assets':'vehicles'}`;
     updated.textContent=snapshot.last_success?'Last successful sync '+formatted(snapshot.last_success):'Waiting for the first GPS sync';
     fitButton.hidden=!map||!markers.size;
     if(firstFit && markers.size){fitFleet();firstFit=false;}

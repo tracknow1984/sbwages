@@ -13,6 +13,10 @@ def migrate(conn):
         payer_id INTEGER NOT NULL REFERENCES bf_client_accounts(id), carrier_id INTEGER NOT NULL REFERENCES bf_supplier_site_profiles(id))""")
 
 
+    if 'generation' not in {r[1] for r in conn.execute('PRAGMA table_info(bf_live_cycle)')}:
+        conn.execute('ALTER TABLE bf_live_cycle ADD COLUMN generation INTEGER NOT NULL DEFAULT 0')
+
+
 def client_calendar():
     return has_request_context() and bool(g.get('bf_client'))
 
@@ -53,7 +57,7 @@ def provision(c, stamp):
     c.execute('INSERT INTO bf_pod_bill_to VALUES(?,?)',(client,payer))
     carrier = c.execute("""INSERT INTO bf_supplier_site_profiles(category,group_name,customer_site,updated_at,updated_by)
         VALUES('industry-suppliers','TRANSPORT','LIVE TEST · Internal carrier',?,?)""",(stamp,actor)).lastrowid
-    c.execute('INSERT INTO bf_live_cycle VALUES(1,?,?,?,?,?,?,?)',(uid,truck,origin,dest,client,payer,carrier))
+    c.execute('INSERT INTO bf_live_cycle(id,driver_id,truck_id,origin_id,destination_id,client_id,payer_id,carrier_id) VALUES(1,?,?,?,?,?,?,?)',(uid,truck,origin,dest,client,payer,carrier))
     for material in ('COTTON','PC MIX'):
         c.execute('INSERT OR IGNORE INTO bf_material_classes(name,updated_at,updated_by) VALUES(?,?,?)',(material,stamp,actor))
     for seq, (place, volumes) in enumerate((('Smithfield',(1100,240)),('Fairfield',(660,))),1):
@@ -86,7 +90,7 @@ def provision(c, stamp):
 
 # Only normal driver and warehouse operations needed for the named test stock.
 ENDPOINTS = frozenset("""
-static index logout login employee_dashboard bf_live_labels bf_live_label_qr bf_workday bf_resume bf_switch_workspace
+bf_live_restart static index logout login employee_dashboard bf_live_labels bf_live_label_qr bf_workday bf_resume bf_switch_workspace
 bf_start_workday bf_accept_overview bf_overview_state bf_workday_vehicle bf_finish_workday
 bf_workday_break bf_clock_state bf_run bf_run_state bf_run_prestart bf_accept_run bf_load_list
 bf_run_scan bf_run_action bf_workday_plan_state bf_daily_pods bf_warehouse bf_warehouse_scan

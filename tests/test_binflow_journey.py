@@ -283,7 +283,7 @@ class DriverJourneyTests(unittest.TestCase):
         run_version = re.search(r'name="run_version" value="([^"]+)"',page.text)[1]
         signed = self.post(base+'/pickups/2/pod/sign',dict(version=version,run_version=run_version,
                                                            scope='run',confirm='yes',signature=SIGNATURE))
-        self.assertIn('Signed by <strong>',signed.text)
+        self.assertIn('Uncompleted PODs',signed.text)
         driver_page = self.client.get('/binflow/driver/my-day'+suffix, follow_redirects=True)
         self.assertIn('WAREHOUSE HANDOVER COMPLETE',driver_page.text)
         self.assertIn('>Finish day<',driver_page.text)

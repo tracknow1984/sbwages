@@ -31,6 +31,18 @@ class TrackingTests(unittest.TestCase):
         with sqlite3.connect(self.path) as conn:
             conn.row_factory=sqlite3.Row;store_units(conn,self.units,'test observation')
 
+    def test_business_overview_shows_all_connected_devices(self):
+        self.connect()
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("UPDATE bf_gps_config SET display_unit_ids='[1]'")
+        self.assertEqual([u['unit_id'] for u in self.payload()['units']],[1])
+        response=self.client.get('/admin/dashboard/gps')
+        self.assertEqual({u['unit_id'] for u in response.json['units']},{1,2,3})
+        dashboard=self.client.get('/admin/dashboard').text
+        self.assertLess(dashboard.index('data-fleet-tracking'),dashboard.index('id="staff-records-title"'))
+        self.assertNotIn('token_cipher',response.text)
+        self.assertTrue(self.app.test_client().get('/admin/dashboard/gps').status_code in (302,403))
+
     def payload(self,state=''):
         response=self.client.get('/binflow/gps/map?state='+state)
         self.assertEqual(response.status_code,200)

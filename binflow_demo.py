@@ -73,6 +73,8 @@ def install_demo_database(app, real_db, now):
         if not conn.execute('SELECT 1 FROM bf_material_classes LIMIT 1').fetchone():
             conn.executemany("INSERT OR IGNORE INTO bf_material_classes(name,updated_at,updated_by) VALUES(?,?,'Sample run')",
                              [(name, now()) for name in SAMPLE_MATERIALS])
+        if 'vehicle_state' not in {r[1] for r in conn.execute('PRAGMA table_info(bf_run_inspections)')}:
+            conn.execute('ALTER TABLE bf_run_inspections ADD COLUMN vehicle_state TEXT')
         if request.endpoint == 'bf_workday':
             conn.execute("""INSERT OR IGNORE INTO bf_trucks(id,name,state,created_at)
                 SELECT 2,'SAMPLE · interstate spare',CASE WHEN state='QLD' THEN 'NSW' ELSE 'QLD' END,created_at

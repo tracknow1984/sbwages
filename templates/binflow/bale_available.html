@@ -1,0 +1,10 @@
+{% for classification, bins in ready_bins|groupby('classification') %}
+<section class="bf-stock-group" data-stock-material="{{ bins[0].material_id }}">
+  <div class="bf-stock-heading"><strong>{{ classification }}</strong><span>{{ bins|length }} {{ 'bin' if bins|length==1 else 'bins' }} · {{ bins|sum(attribute='net_g')|bfkg }} kg</span></div>
+  {% for b in bins %}<div class="bf-stock-bin">
+    <div><strong>{{ b.code }}</strong><small>{{ b.pod }}</small></div>
+    <span>{{ b.net_g|bfkg }} kg</span>
+    <button type="button" class="secondary compact" data-select-bin="{{ b.code }}" data-stock-item="{{ b.item_id }}" aria-label="Select {{ b.code }}">Select</button>
+  </div>{% endfor %}
+</section>
+{% else %}<p class="bf-note">No full bins are ready for baling at this warehouse. Bins appear here once weighed and their collection POD is signed.</p>{% endfor %}

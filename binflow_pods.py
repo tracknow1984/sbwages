@@ -137,17 +137,19 @@ def register_pods(app, db, access, require, render, success, failure, now, pdf):
         try: run_date = valid_date(request.args.get('date', now()[:10]))
         except ValueError as error: abort(400, str(error))
         view = request.args.get('view', 'active')
-        if view not in ('active', 'archived', 'deleted'): abort(400)
-        if view != 'active' and g.user['role'] != 'admin': abort(403)
+        if view not in ('active', 'unfinished', 'archived', 'deleted'): abort(400)
+        if view in ('archived','deleted') and g.user['role'] != 'admin': abort(403)
         return run_date, view
 
     def daily_jobs(run_date, view):
         clause = {'active': 'j.pod_deleted_at IS NULL AND j.pod_archived_at IS NULL',
+                  'unfinished': 'j.pod_deleted_at IS NULL AND j.pod_archived_at IS NULL AND j.pod_signed_at IS NULL',
                   'archived': 'j.pod_deleted_at IS NULL AND j.pod_archived_at IS NOT NULL',
                   'deleted': 'j.pod_deleted_at IS NOT NULL'}[view]
         rate_sql = 'NULL'
         if g.user['role']=='admin' and not getattr(g,'bf_demo_token',None):
-            rate_sql = '(SELECT r.units FROM bf_job_pickup_rates p JOIN bf_pickup_rates r ON r.id=p.rate_id WHERE p.job_id=j.id)'
+            rate_sql = '''COALESCE((SELECT r.units FROM bf_job_pickup_rates p JOIN bf_pickup_rates r ON r.id=p.rate_id
+                WHERE p.job_id=j.id), (SELECT 16000 FROM bf_live_cycle x WHERE x.client_id=j.pod_client_id))'''
         rows = db().execute(f'''SELECT j.*, {rate_sql} AS rate_units,
             (SELECT COUNT(*) FROM bf_job_bins i WHERE i.job_id=j.id AND i.direction='collect') AS collection_bins,
             (SELECT SUM(net_g) FROM bf_job_bins i WHERE i.job_id=j.id AND i.direction='collect') AS net,

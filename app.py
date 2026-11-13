@@ -329,7 +329,7 @@ def create_app(test_config=None):
         response.headers['X-Frame-Options'] = 'DENY'
         response.headers['Referrer-Policy'] = 'no-referrer'
         response.headers['Content-Security-Policy'] = "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'; base-uri 'self'"
-        if request.endpoint == 'bf_dashboard':
+        if request.endpoint in ('bf_dashboard','admin_dashboard'):
             # Only map image tiles leave this page; Wialon and all credentials remain server-side.
             response.headers['Content-Security-Policy'] = response.headers['Content-Security-Policy'].replace(
                 "img-src 'self' data:", "img-src 'self' data: https://tile.openstreetmap.org")
@@ -1335,8 +1335,17 @@ def create_app(test_config=None):
     def admin_prestart():
         failed = request.args.get('failed') == '1'
         counts = db().execute("SELECT COUNT(*) AS total, COALESCE(SUM(failure_count>0 OR fit_for_duty='no'),0) AS failed FROM prestarts").fetchone()
+        rows=db().execute("""SELECT p.id,p.employee_name,p.asset,p.reading,p.reading_unit,p.submitted_at,
+            p.failure_count,p.fit_for_duty,i.truck_id,COALESCE(i.vehicle_state,t.state) AS home_state
+            FROM prestarts p LEFT JOIN bf_run_inspections i ON i.prestart_id=p.id
+            LEFT JOIN bf_trucks t ON t.id=i.truck_id
+            WHERE ?=0 OR p.failure_count>0 OR p.fit_for_duty='no' ORDER BY p.id DESC""",(int(failed),)).fetchall()
+        groups={}
+        for row in rows:
+            label=(row['home_state'] or 'Unassigned state') if row['truck_id'] else 'Yard prestarts'
+            groups.setdefault(label,[]).append(row)
         return render_template('prestart_admin.html', tab='prestart', admin_view=True, failed=failed,
-                               counts=counts, records=prestart_rows(failed=failed))
+                               counts=counts, groups=groups)
 
     def prestart_detail(prestart_id, admin_view):
         row = db().execute('SELECT * FROM prestarts WHERE id=?', (prestart_id,)).fetchone()
@@ -1749,6 +1758,10 @@ def create_app(test_config=None):
     register_site_tour(app, require)
     from binflow import register_binflow
     register_binflow(app, db, require)
+    import fleet_assets
+    with app.app_context(), db() as fleet_conn:
+        fleet_assets.migrate(fleet_conn)
+    fleet_assets.register(app,db,require,timestamp)
     from binflow_lunch import register_lunch
     register_lunch(app, db)
     register_induction(app, db, require)

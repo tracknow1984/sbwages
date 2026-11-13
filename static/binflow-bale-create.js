@@ -1,7 +1,7 @@
 'use strict';
 (() => {
  const form=document.querySelector('[data-bale-create]'); if(!form)return;
- const input=form.querySelector('[data-source-code]'),feedback=form.querySelector('[data-source-feedback]'),list=form.querySelector('[data-source-list]'),finish=form.querySelector('[data-bale-finish]');
+ const feedback=form.querySelector('[data-source-feedback]'),list=form.querySelector('[data-source-list]'),finish=form.querySelector('[data-bale-finish]');
  const warehouse=form.elements.warehouse_id,material=form.elements.material_id, key=form.elements.request_key.value;
  const limit=Number(form.dataset.limitG),max=Number(form.dataset.maxG),meter=form.querySelector('.bf-bale-meter');
  const overrideBox=form.querySelector('[data-override]'),legacyOverride=form.querySelector('[data-draft-override]');
@@ -10,6 +10,34 @@
  let sources=JSON.parse(form.querySelector('[data-saved-sources]').textContent), busy=false;
  const video=form.querySelector('video'),start=form.querySelector('[data-camera-start]'),stop=form.querySelector('[data-camera-stop]');let stream=null,timer=null,generation=0,opening=false,last='',lastAt=0;
  function say(text,error=false){feedback.textContent=text;feedback.style.color=error?'#a02828':'';}
+ const stock=form.querySelector('[data-ready-stock]');
+ let stockVersion=0;
+ function filterStock() {
+   for (const button of stock.querySelectorAll('[data-select-bin]')) {
+     const group=button.closest('[data-stock-material]');
+     button.disabled=busy || !!proposal || (material.value!=='' && material.value!==group.dataset.stockMaterial);
+   }
+ }
+ async function refreshStock() {
+   const version=++stockVersion;
+   const url=new URL(form.dataset.stockUrl,location.origin);
+   url.searchParams.set('stock','1'); url.searchParams.set('warehouse',warehouse.value);
+   try {
+     const response=await fetch(url,{cache:'no-store'});
+     if(!response.ok || response.redirected) throw Error();
+     const html=await response.text();
+     if(version===stockVersion) { stock.innerHTML=html; filterStock(); }
+   } catch {
+     if(version===stockVersion) stock.textContent='Stock could not be loaded. Use Refresh stock to try again.';
+   }
+ }
+ warehouse.addEventListener('change',()=>{proposal=null; stock.replaceChildren(); render(); refreshStock();});
+ material.addEventListener('change',()=>{proposal=null;render();});
+ form.querySelector('[data-refresh-stock]').onclick=refreshStock;
+ stock.addEventListener('click',event=>{
+   const button=event.target.closest('[data-select-bin]');
+   if(button && !button.disabled) scan(button.dataset.selectBin,null,null,button.dataset.stockItem);
+ });
  function render() {
    list.replaceChildren();
    for (const source of sources) {
@@ -52,6 +80,7 @@
    if(proposal) form.querySelector('[data-override-message]').textContent=proposal.message+' Approve this weight before emptying the bin.';
    finish.hidden=!sources.length;
    warehouse.disabled=material.disabled=busy || !!sources.length;
+   filterStock();
    form.querySelector('[type=submit]').disabled=busy || !!proposal || tooHeavy;
    form.querySelectorAll('[data-context-copy]').forEach(e=>e.remove());
    if (sources.length) for (const select of [warehouse,material]) {
@@ -60,7 +89,7 @@
      form.append(field);
    }
  }
- async function scan(code,undoItem=null,approval=null) {
+ async function scan(code,undoItem=null,approval=null,expectedItem=null) {
    if (busy || !code.trim()) return;
    proposal=null;
    busy=true;
@@ -68,6 +97,7 @@
    const data=new FormData();
    data.set('csrf',form.elements.csrf.value); data.set('request_key',key);
    data.set('warehouse_id',warehouse.value); data.set('material_id',material.value); data.set('code',code);
+   if(expectedItem) data.set('expected_item',expectedItem);
    if(approval) {data.set('override_total_g',approval.projected_g);data.set('override_item_id',approval.item_id);}
    if (undoItem!==null) { data.set('action','undo'); data.set('source_item',undoItem); }
    try {
@@ -84,19 +114,17 @@
      if (!response.ok || !result.ok) throw Error(result.message || 'Unable to save the scan.');
      say(undoItem!==null ? 'Scan reversed. Bin returned to weighed stock.' :
        result.code+(result.duplicate?' was already scanned for this bale.':' is empty and available for its next job.'));
-     input.value='';
+
    } catch(error) { stopCamera(); say(error.message || 'Connection lost. Reopen this bale to check the saved scans.',true); }
-   finally { busy=false; render(); }
+   finally { await refreshStock(); busy=false; render(); }
  }
  render();
  form.querySelector('[data-approve]').onclick=()=>{if(proposal) scan(proposal.code,null,proposal);};
- form.querySelector('[data-decline]').onclick=()=>{proposal=null;input.value='';render();say('Bin kept full. Scan another bin or finish this bale.');};
- form.querySelector('[data-add-source]').onclick=()=>scan(input.value);
- input.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();scan(input.value);}});
+ form.querySelector('[data-decline]').onclick=()=>{proposal=null;render();say('Bin kept full. Scan another bin or finish this bale.');};
  form.addEventListener('submit',e=>{if(busy||proposal||!sources.length){e.preventDefault();say('Finish scanning source bins first.',true);}else stopCamera();});
  function stopCamera(){generation++;clearTimeout(timer);stream?.getTracks().forEach(t=>t.stop());stream=null;video.srcObject=null;video.hidden=stop.hidden=true;start.hidden=false;}
  const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d',{willReadFrequently:true});
  function frame(){if(!stream)return;if(!busy&&video.readyState>=2&&video.videoWidth){const scale=Math.min(1,720/video.videoWidth);canvas.width=video.videoWidth*scale;canvas.height=video.videoHeight*scale;ctx.drawImage(video,0,0,canvas.width,canvas.height);const p=ctx.getImageData(0,0,canvas.width,canvas.height),q=window.jsQR(p.data,p.width,p.height);if(q&&(q.data!==last||Date.now()-lastAt>5000)){last=q.data;lastAt=Date.now();scan(q.data);}}timer=setTimeout(frame,250);}
- start.onclick=async()=>{if(opening||stream)return;if(!navigator.mediaDevices?.getUserMedia||!window.jsQR){say('Camera unavailable. Use the bin ID field.',true);return;}opening=true;const gen=generation;try{const camera=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});if(gen!==generation||document.hidden){camera.getTracks().forEach(t=>t.stop());return;}stream=camera;video.srcObject=stream;video.hidden=stop.hidden=false;start.hidden=true;await video.play();frame();}catch(e){stopCamera();say('Allow camera access or enter the bin ID below.',true);}finally{opening=false;}};
+ start.onclick=async()=>{if(opening||stream)return;if(!navigator.mediaDevices?.getUserMedia||!window.jsQR){say('Camera unavailable. Select an available bin below.',true);return;}opening=true;const gen=generation;try{const camera=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});if(gen!==generation||document.hidden){camera.getTracks().forEach(t=>t.stop());return;}stream=camera;video.srcObject=stream;video.hidden=stop.hidden=false;start.hidden=true;await video.play();frame();}catch(e){stopCamera();say('Allow camera access or select an available bin below.',true);}finally{opening=false;}};
  stop.onclick=stopCamera;window.addEventListener('pagehide',stopCamera);document.addEventListener('visibilitychange',()=>{if(document.hidden)stopCamera();});
 })();

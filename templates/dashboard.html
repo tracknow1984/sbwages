@@ -110,6 +110,7 @@
     </div>
   </section>
 
+  {% with all_assets=true, state='' %}{% include 'binflow/tracking_map.html' %}{% endwith %}
   <section class="owner-staff" aria-labelledby="staff-records-title">
     <div class="owner-section-head"><h2 id="staff-records-title">Staff records</h2></div>
     <details><summary>Latest staff documents <small>{{ counts.documents }} active</small></summary><p class="owner-record-link"><a href="{{ url_for('admin_documents') }}">View all documents →</a></p>{% include 'document_table.html' %}</details>

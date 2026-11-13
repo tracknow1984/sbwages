@@ -1,0 +1,5 @@
+{% extends 'base.html' %}{% block content %}
+<div class="page-heading"><div><span class="eyebrow">Prestarts</span><h1>Assets</h1></div><a href="{{ url_for('admin_prestart') }}">Completed prestarts</a></div>
+<details class="panel"><summary>Add vehicle</summary><form method="post" action="{{ url_for('fleet_save') }}">{% include 'fleet_fields.html' %}</form></details>
+<section class="panel"><div class="panel-head"><h2>Vehicle register</h2></div><div class="table-wrap"><table><thead><tr><th>Vehicle</th><th>State</th><th>Make / model</th><th>Rego</th><th>Rego expiry</th><th>Next inspection</th><th>Last service</th></tr></thead><tbody>
+{% for a in assets %}<tr><td><a href="{{ url_for('fleet_asset',tid=a.id) }}">{{ a.name }}</a></td><td>{{ a.state }}</td><td>{{ [a.make,a.model]|select|join(' ') or '—' }}</td><td>{{ a.rego or '—' }}</td>{% for k in ('rego_expiry','next_inspection','last_service') %}<td>{{ a[k]|display_date if a[k] else '—' }}</td>{% endfor %}</tr>{% else %}<tr><td colspan="7">No vehicles recorded.</td></tr>{% endfor %}</tbody></table></div></section>{% endblock %}

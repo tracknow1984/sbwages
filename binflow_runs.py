@@ -315,8 +315,8 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
                 json.dumps(results),failures,fit,notes,actor(),DECLARATION,now(),token,signature)).lastrowid
             db().executemany('INSERT INTO prestart_photos(prestart_id,check_key,data) VALUES(?,?,?)',
                              [(pid, key, data) for key,data in photos.items()])
-            db().execute('INSERT INTO bf_run_inspections(truck_id,inspection_date,driver_id,prestart_id,passed) VALUES(?,?,?,?,?)',
-                         (truck_id,today(),g.user['id'],pid,int(passed)))
+            db().execute('INSERT INTO bf_run_inspections(truck_id,inspection_date,driver_id,prestart_id,passed,vehicle_state) VALUES(?,?,?,?,?,(SELECT state FROM bf_trucks WHERE id=?))',
+                         (truck_id,today(),g.user['id'],pid,int(passed),truck_id))
             db().execute('INSERT OR IGNORE INTO bf_runs(truck_id,run_date,driver_id) VALUES(?,?,?)',(truck_id,run_date,g.user['id']))
             db().execute('UPDATE bf_runs SET driver_id=COALESCE(driver_id,?) WHERE truck_id=? AND run_date=?',(g.user['id'],truck_id,run_date))
             from binflow_reports import begin_current

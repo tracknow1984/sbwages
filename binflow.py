@@ -302,7 +302,7 @@ def register_binflow(app, db, require):
                                job_statuses=JOB_STATUSES, **values)
 
     def action_redirect(endpoint, values):
-        if getattr(g, 'bf_demo_warehouse', False) and request.endpoint in ('bf_weigh','bf_pod_materials','bf_pod_sign'):
+        if endpoint != 'bf_daily_pods' and getattr(g, 'bf_demo_warehouse', False) and request.endpoint in ('bf_weigh','bf_pod_materials','bf_pod_sign'):
             return redirect(url_for('bf_demo_docket', job_id=request.view_args['job_id']))
         return redirect(url_for(endpoint, **values))
 
@@ -955,7 +955,27 @@ def register_binflow(app, db, require):
                 if docket and can_view_job(db(),g.user,docket):
                     visible.append(dict(b,weight_job_id=docket['id']))
             stock = visible
-        return render('warehouse', section='warehouse', stock=stock)
+        from binflow_bales import warehouse_locations
+        depots = warehouse_locations(db())
+        regions = STATES if g.user['role']=='admin' else [s for s in STATES if any(w['state']==s for w in depots)]
+        if not regions and g.user['working_state']:
+            regions = [g.user['working_state']]
+        depot_ids = tuple(w['id'] for w in depots)
+        marks = ','.join('?' for _ in depot_ids)
+        available = db().execute(f"""SELECT b.id,b.code,b.material_name,b.net_g,l.name AS warehouse,l.state
+            FROM bf_bales b JOIN bf_locations l ON l.id=b.warehouse_id
+            WHERE b.status='stored' AND l.id IN ({marks})
+            ORDER BY l.state,b.material_name COLLATE NOCASE,l.name,b.code""",depot_ids).fetchall() if depot_ids else []
+        counts = {s:0 for s in regions}
+        for bale_row in available:
+            counts[bale_row['state']] += 1
+        default = next((s for s in regions if counts[s]), next((b['state'] for b in stock if b['state'] in regions), regions[0] if regions else ''))
+        selected = request.args.get('state',g.user['working_state'] if g.get('live_cycle') else default)
+        if selected and selected not in regions:
+            abort(403 if selected in STATES else 400)
+        return render('warehouse', section='warehouse', stock=[b for b in stock if b['state']==selected],
+                      warehouse_states=regions,selected_state=selected,counts=counts,
+                      available=[b for b in available if b['state']==selected])
 
     @app.get('/binflow/pickups/<int:job_id>/pod')
     @access
@@ -1107,6 +1127,8 @@ def register_binflow(app, db, require):
     register_demo(app,db,access,render,now)
     from binflow_live_cycle import register as register_live_cycle
     register_live_cycle(app,db,access,require,render)
+    from binflow_cycle_reset import register as register_cycle_reset
+    register_cycle_reset(app,db,access,now)
     from binflow_rental import register as register_rental
     register_rental(app,db,require,render,now)
     from binflow_xero import register as register_xero

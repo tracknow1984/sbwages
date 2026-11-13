@@ -153,6 +153,15 @@ TRANSFER_SELECT = """SELECT t.*,m.booking_id,m.expected_bales,b.locked_at AS boo
     LEFT JOIN bf_interstate_bookings b ON b.id=m.booking_id"""
 
 
+def warehouse_locations(conn):
+    rows=conn.execute("SELECT * FROM bf_locations WHERE kind='warehouse' ORDER BY state,name").fetchall()
+    if g.get('live_cycle'):
+        return [w for w in rows if w['id'] in (g.live_cycle['origin_id'],g.live_cycle['destination_id'])]
+    if g.user['role']=='admin' or getattr(g,'bf_demo_warehouse',False):return rows
+    assigned=conn.execute('SELECT warehouse_id FROM bf_bale_managers WHERE user_id=?',(g.user['id'],)).fetchone()
+    return [w for w in rows if w['state']==g.user['working_state'] and (not assigned or assigned['warehouse_id']==w['id'])]
+
+
 def register(app,db,access,require,render,success,failure,now,actor):
     def warehouse_staff(fn):
         fn.warehouse_work = True
@@ -170,19 +179,11 @@ def register(app,db,access,require,render,success,failure,now,actor):
             if w['state']!=g.user['working_state'] or (assigned and assigned['warehouse_id']!=wid):abort(403)
         return w
 
-    def warehouses():
-        rows=db().execute("SELECT * FROM bf_locations WHERE kind='warehouse' ORDER BY state,name").fetchall()
-        if g.get('live_cycle'):
-            return [w for w in rows if w['id'] in (g.live_cycle['origin_id'],g.live_cycle['destination_id'])]
-        if g.user['role']=='admin' or getattr(g,'bf_demo_warehouse',False):return rows
-        assigned=db().execute('SELECT warehouse_id FROM bf_bale_managers WHERE user_id=?',(g.user['id'],)).fetchone()
-        return [w for w in rows if w['state']==g.user['working_state'] and (not assigned or assigned['warehouse_id']==w['id'])]
-
     def transfer(tid,side=None):
         t=db().execute(TRANSFER_SELECT+' WHERE t.id=?',(tid,)).fetchone()
         if not t:abort(404)
         if side:allowed(t[side+'_id'])
-        elif g.user['role']!='admin' and not {t['origin_id'],t['destination_id']} & {w['id'] for w in warehouses()}:abort(403)
+        elif g.user['role']!='admin' and not {t['origin_id'],t['destination_id']} & {w['id'] for w in warehouse_locations(db())}:abort(403)
         return t
 
     def items(tid):
@@ -204,10 +205,29 @@ def register(app,db,access,require,render,success,failure,now,actor):
         return render(name,section='bales',bale_mode=True,bale_limit_g=BALE_LIMIT_G,
                       bale_max_g=BALE_OVERRIDE_LIMIT_G,**values)
 
+    def available_bins(ids):
+        if not ids:
+            return []
+        marks=','.join('?' for _ in ids)
+        return db().execute(f"""SELECT b.code,l.name AS warehouse,i.id AS item_id,i.material_id,m.name AS classification,
+                i.material_name,i.net_g,j.code AS pod
+                FROM bf_bins b JOIN bf_locations l ON l.id=b.location_id
+                JOIN bf_job_bins i ON i.id=(SELECT MAX(last.id) FROM bf_job_bins last
+                    JOIN bf_jobs prior ON prior.id=last.job_id WHERE last.bin_id=b.id
+                    AND last.direction='collect' AND prior.status!='cancelled')
+                JOIN bf_jobs j ON j.id=i.job_id JOIN bf_material_classes m ON m.id=i.material_id AND m.active=1
+                WHERE b.location_id IN ({marks}) AND b.status='weighed' AND b.archived=0 AND b.truck_id IS NULL
+                AND i.weighed_at IS NOT NULL AND i.net_g>0 AND i.gross_g IS NOT NULL AND i.tare_g IS NOT NULL
+                AND j.pod_signed_at IS NOT NULL AND j.pod_deleted_at IS NULL
+                AND NOT EXISTS (SELECT 1 FROM bf_job_bins r WHERE r.bin_id=b.id AND r.active=1)
+                AND NOT EXISTS (SELECT 1 FROM bf_open_bale_sources o WHERE o.item_id=i.id)
+                AND NOT EXISTS (SELECT 1 FROM bf_bale_sources c WHERE c.item_id=i.id)
+                ORDER BY l.name,m.name COLLATE NOCASE,b.code""",tuple(ids)).fetchall()
+
     @app.get('/binflow/bales')
     @warehouse_staff
     def bf_bales():
-        ws=warehouses();selected=request.args.get('warehouse',type=int)
+        ws=warehouse_locations(db());selected=request.args.get('warehouse',type=int)
         if selected:allowed(selected)
         state=request.args.get('state','')
         shown=[w for w in ws if (not selected or w['id']==selected) and (not state or w['state']==state)]
@@ -220,26 +240,13 @@ def register(app,db,access,require,render,success,failure,now,actor):
         ids={w['id'] for w in shown}
         transfers=[t for t in db().execute(TRANSFER_SELECT+' ORDER BY t.id DESC') if t['origin_id'] in ids or t['destination_id'] in ids]
         rows=[]
-        ready_bins=[]
+        ready_bins=available_bins(ids)
         if ids:
             marks=','.join('?' for _ in ids)
             rows=db().execute(f"""SELECT b.id,b.code,b.material_name,b.net_g,b.status,b.created_at,
                 l.name AS warehouse,l.state FROM bf_bales b JOIN bf_locations l ON l.id=b.warehouse_id
                 WHERE b.warehouse_id IN ({marks}) AND b.status IN ('stored','loading','received')
                 ORDER BY l.state,l.name,b.id DESC""",tuple(ids)).fetchall()
-            ready_bins=db().execute(f"""SELECT b.code,l.name AS warehouse,i.material_name,i.net_g,j.code AS pod
-                FROM bf_bins b JOIN bf_locations l ON l.id=b.location_id
-                JOIN bf_job_bins i ON i.id=(SELECT MAX(last.id) FROM bf_job_bins last
-                    JOIN bf_jobs prior ON prior.id=last.job_id WHERE last.bin_id=b.id
-                    AND last.direction='collect' AND prior.status!='cancelled')
-                JOIN bf_jobs j ON j.id=i.job_id JOIN bf_material_classes m ON m.id=i.material_id AND m.active=1
-                WHERE b.location_id IN ({marks}) AND b.status='weighed' AND b.archived=0 AND b.truck_id IS NULL
-                AND i.weighed_at IS NOT NULL AND i.net_g>0 AND i.gross_g IS NOT NULL AND i.tare_g IS NOT NULL
-                AND j.pod_signed_at IS NOT NULL AND j.pod_deleted_at IS NULL
-                AND NOT EXISTS (SELECT 1 FROM bf_job_bins r WHERE r.bin_id=b.id AND r.active=1)
-                AND NOT EXISTS (SELECT 1 FROM bf_open_bale_sources o WHERE o.item_id=i.id)
-                AND NOT EXISTS (SELECT 1 FROM bf_bale_sources c WHERE c.item_id=i.id)
-                ORDER BY l.name,i.material_name,b.code""",tuple(ids)).fetchall()
         from binflow_interstate import PLACES
         regions = {w['state'] for w in shown}
         booked = [r for r in db().execute("""SELECT b.* FROM bf_interstate_bookings b
@@ -258,7 +265,7 @@ def register(app,db,access,require,render,success,failure,now,actor):
             JOIN bf_jobs j ON j.id=i.job_id WHERE i.bin_id=? AND i.direction='collect'
             AND j.status!='cancelled' ORDER BY i.id DESC LIMIT 1""",(b['id'],)).fetchone()
         if (not i or not i['weighed_at'] or i['gross_g'] is None
-                or i['tare_g'] is None or not i['material_id'] or not i['net_g']):
+                or i['tare_g'] is None or not i['material_id'] or (i['net_g'] is None or i['net_g']<=0)):
             raise ValueError(f"{b['code']}: weigh and classify its collected material on the POD first.")
         if not i['pod_signed_at'] or i['pod_deleted_at']:
             raise ValueError(f"{b['code']}: sign off this collection’s warehouse POD before baling.")
@@ -326,6 +333,8 @@ def register(app,db,access,require,render,success,failure,now,actor):
                 if b['archived'] or len(rows)>=200:
                     raise ValueError('Use a current bin and at most 200 bins per bale.')
                 i = source_item(b,wid,mid)
+                if 'expected_item' in request.form and request.form.get('expected_item',type=int) != i['id']:
+                    raise ValueError('This bin has a new collection. Select it again after reviewing the updated stock.')
                 mid = i['material_id']
                 material(mid)
                 projected = sum(row['net_g'] for row in rows) + i['net_g']
@@ -407,6 +416,10 @@ def register(app,db,access,require,render,success,failure,now,actor):
                 readiness(db(),wid,now())
                 return success('Bale created. Print and attach its label.','bf_bale',bid=bid)
             except (ValueError,InvalidOperation) as error:return failure(error,'bf_bale_new',draft=request.form.get('request_key',''))
+        if request.args.get('stock') == '1':
+            wid = request.args.get('warehouse',type=int)
+            allowed(wid)
+            return render_template('binflow/bale_available.html',ready_bins=available_bins((wid,))), 200, {'Cache-Control':'no-store'}
         key=request.args.get('draft') or secrets.token_urlsafe(24)
         closed=db().execute('SELECT id,origin_id FROM bf_bales WHERE request_key=?',(key,)).fetchone()
         if closed:
@@ -418,7 +431,9 @@ def register(app,db,access,require,render,success,failure,now,actor):
             selected=rows[0]['warehouse_id']
         if selected is not None:
             allowed(selected)
-        ws=warehouses()
+        ws=warehouse_locations(db())
+        if selected is None and ws:
+            selected = g.live_cycle['origin_id'] if g.get('live_cycle') else ws[0]['id']
         visible={w['id'] for w in ws}
         drafts=[r for r in db().execute("""SELECT s.draft_key,s.warehouse_id,l.name AS warehouse,
             s.material_name,COUNT(*) AS bins,MIN(s.event_id) AS first_scan FROM bf_open_bale_sources s
@@ -426,13 +441,13 @@ def register(app,db,access,require,render,success,failure,now,actor):
             if r['warehouse_id'] in visible and r['draft_key']!=key]
         mid=rows[0]['material_id'] if rows else None
         return view('bale_new',warehouses=ws,selected=selected,request_key=key,selected_material=mid,
-          sources=[dict(s) for s in rows],drafts=drafts,
+          sources=[dict(s) for s in rows],drafts=drafts,ready_bins=available_bins((selected,)) if selected else [],
           materials=db().execute('SELECT * FROM bf_material_classes WHERE active=1 OR id=? ORDER BY name',(mid,)).fetchall())
 
     def bale(bid):
         b=db().execute('SELECT * FROM bf_bales WHERE id=?',(bid,)).fetchone()
         if not b:abort(404)
-        own={w['id'] for w in warehouses()}
+        own={w['id'] for w in warehouse_locations(db())}
         if g.user['role']!='admin' and not ({b['origin_id'],b['warehouse_id']} & own):
             latest=db().execute('SELECT t.* FROM bf_bale_transfers t JOIN bf_bale_transfer_items i ON i.transfer_id=t.id WHERE i.bale_id=? ORDER BY t.id DESC LIMIT 1',(bid,)).fetchone()
             if not latest or latest['destination_id'] not in own:abort(403)
@@ -522,7 +537,7 @@ def register(app,db,access,require,render,success,failure,now,actor):
             except ValueError as error:return failure(error,'bf_bale_settings')
         cfg={r['warehouse_id']:dict(r) for r in db().execute('SELECT * FROM bf_bale_settings')}
         managers=db().execute("SELECT u.id,u.first_name,u.last_name,u.working_state,u.business_role,u.extra_business_roles,m.warehouse_id FROM users u LEFT JOIN bf_bale_managers m ON m.user_id=u.id WHERE u.role='employee' AND u.status='active' ORDER BY u.first_name").fetchall()
-        return view('bale_settings',warehouses=warehouses(),configs=cfg,managers=[m for m in managers if {'manager','warehouse','driver'}.intersection(assigned_roles(m))])
+        return view('bale_settings',warehouses=warehouse_locations(db()),configs=cfg,managers=[m for m in managers if {'manager','warehouse','driver'}.intersection(assigned_roles(m))])
 
     @app.post('/binflow/bales/managers')
     @require('admin')
@@ -543,7 +558,7 @@ def register(app,db,access,require,render,success,failure,now,actor):
         from binflow_interstate import PLACES
         bid = request.args.get('booking',type=int)
         booking = None
-        origins = warehouses()
+        origins = warehouse_locations(db())
         if g.get('live_cycle'):
             origins=[w for w in origins if w['id']==g.live_cycle['origin_id']]
             destinations=db().execute("SELECT *,1 AS hub FROM bf_locations WHERE id=?",(g.live_cycle['destination_id'],)).fetchall()
@@ -621,7 +636,7 @@ def register(app,db,access,require,render,success,failure,now,actor):
     @app.get('/binflow/bales/transfers/<int:tid>')
     @warehouse_staff
     def bf_bale_transfer(tid):
-        t=transfer(tid);rows=items(tid);own={w['id'] for w in warehouses()}
+        t=transfer(tid);rows=items(tid);own={w['id'] for w in warehouse_locations(db())}
         return view('bale_transfer',transfer=t,items=rows,total=sum(i['net_g'] for i in rows),
           origin_access=t['origin_id'] in own,destination_access=t['destination_id'] in own)
 
@@ -746,7 +761,7 @@ def register(app,db,access,require,render,success,failure,now,actor):
     @app.get('/binflow/bales/storage.csv')
     @warehouse_staff
     def bf_bale_storage_export():
-        own={w['id'] for w in warehouses()};out=io.StringIO();writer=csv.writer(out)
+        own={w['id'] for w in warehouse_locations(db())};out=io.StringIO();writer=csv.writer(out)
         writer.writerow(['Delivery note','Bale','Material','Net kg','Origin','Brisbane depot','Storage handover','Recipient','Recorded by'])
         def safe(v):
             v=str(v);return "'"+v if v.startswith(('=','+','-','@','\t','\r')) else v
