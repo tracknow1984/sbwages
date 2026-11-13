@@ -289,6 +289,11 @@ class DriverJourneyTests(unittest.TestCase):
         self.assertIn('>Finish day<',driver_page.text)
         for jid in (1,2):
             self.assertIn('Signed by <strong>',self.client.get(inbound+'/'+str(jid)+suffix).text)
+        self.assertIn('Bins ready for baling · 3',self.client.get(base+'/bales').text)
+        for jid,kg,line in ((1,125,'$220.00'),(2,75,'$132.00')):
+            pod=self.client.get(f'/binflow/pickups/{jid}/pod'+suffix)
+            for detail in ('Draft invoice',f'{kg} kg net','$1.60/kg',line,'2 PODs · $352.00'):
+                self.assertIn(detail,pod.text)
         form = self.client.get(base+'/bales/new?warehouse=1')
         for material in ('COTTON','PC MIX'):
             materials[material] = re.search(r'<option value="(\d+)"[^>]*>'+material+'</option>',form.text)[1]
@@ -308,6 +313,13 @@ class DriverJourneyTests(unittest.TestCase):
             created.append(re.search(r'BA\d{7}',response.text)[0])
             self.assertEqual(self.client.get(base+f'/bales/{len(created)}/qr.png').mimetype,'image/png')
         self.assertEqual(self.client.get(inbound+suffix).text.count('Emptied into'),3)
+        stock = self.client.get(base+'/bales').text
+        self.assertIn('Bins ready for baling · 0',stock)
+        for bid,code in enumerate(created,1):
+            self.assertIn(code,stock)
+            label=self.client.get(base+f'/bales/{bid}/label')
+            self.assertIn('Print label',label.text)
+            self.assertIn(code,label.text)
         form = self.client.get(base+'/bales/transfers/new')
         key = re.search(r'name="request_key" value="([^"]+)"',form.text)[1]
         page = self.post(base+'/bales/transfers/new',dict(origin_id=1,destination_id=4,carrier_supplier_id=1,vehicle_type='SINGLE',
@@ -333,22 +345,8 @@ class DriverJourneyTests(unittest.TestCase):
         self.assertEqual(other.get(transfer+'/note').status_code,403)
         self.assertEqual(self.client.get('/training/invalid/binflow/bales/new').status_code,403)
 
-    def test_today_sample_uses_same_flow_without_changing_real_stock_or_payroll(self):
-        self.assertEqual(self.rows('SELECT working_state FROM users WHERE id=?', (self.uid,))[0]['working_state'],'QLD')
-        page = self.client.get('/binflow/driver/test-cycle')
-        self.assertIn('Start the NSW sample cycle',page.text)
-        self.assertIn('name="state" value="NSW"',page.text)
-        self.assertIn('name="state" value="NSW"',self.client.get('/binflow/driver/my-day').text)
-        before={table:self.rows('SELECT * FROM '+table) for table in ('users','bf_bins','bf_jobs','bf_job_bins','bf_workdays','bf_events','entries','sheets','bf_step_timings','bf_bale_storage','bf_bales','bf_bale_sources','bf_bale_transfers','bf_rental_invoices')}
-        opened=self.post('/binflow/driver/demo',follow=False)
-        self.assertEqual(opened.status_code,302)
-        token=parse_qs(urlsplit(opened.location).query)['demo'][0]
+    def run_sample_day(self, token):
         suffix='?demo='+token
-        self.assertIn(b'SAMPLE RUN',self.client.get(opened.location).data)
-        self.assertEqual(self.client.get('/binflow/warehouse'+suffix).status_code,403)
-        self.assertEqual(self.client.get('/binflow/driver/my-day?demo=invalid').status_code,403)
-        self.assertIn(b'DEMO-1100-E01',self.client.get('/binflow/driver/demo/labels'+suffix).data)
-        self.assertEqual(self.client.get('/binflow/driver/demo/qr/1'+suffix).mimetype,'image/png')
         self.post('/binflow/driver/start-day'+suffix,dict(flow_version='2',**self.stamp()))
         overview = self.client.get('/binflow/driver/my-day'+suffix)
         for place in ('Smithfield','Fairfield'):
@@ -382,6 +380,61 @@ class DriverJourneyTests(unittest.TestCase):
         self.complete_sample_warehouse(token)
         finished=self.post('/binflow/driver/my-day/1/finish'+suffix,self.stamp())
         self.assertIn(b'Sample run complete',finished.data)
+
+    def test_practice_login_through_manifest_and_invoice(self):
+        self.app.config['BINFLOW_TESTDRIVER_HASH']=workday_tests.generate_password_hash('practice-only')
+        tables=('users','bf_jobs','bf_bins','bf_runs','bf_bales','bf_bale_transfers','bf_auto_drafts','bf_driver_resume','entries','sheets','prestarts')
+        before={t:self.rows('SELECT * FROM '+t) for t in tables}
+        self.client=self.app.test_client()
+        login='/binflow/testdriver/login'
+        self.assertIn('Test driver sign in', self.client.get(login).text)
+        self.assertNotIn('Signed in as testdriver',self.post(login,dict(username='testdriver',password='wrong')).text)
+        credentials=dict(username='testdriver',password='practice-only')
+        self.assertIn('Signed in as testdriver',self.post(login,credentials).text)
+        opened=self.post('/binflow/driver/demo',follow=False)
+        token=parse_qs(urlsplit(opened.location).query)['demo'][0]
+        self.run_sample_day(token)
+        for path in ('/binflow/invoices','/employee/timesheet','/binflow/bales','/admin/dashboard','/binflow/driver/my-day'):
+            self.assertEqual(self.client.get(path).status_code,403)
+        self.assertEqual(self.post('/binflow/workspace',dict(workspace='warehouse')).status_code,403)
+        self.assertEqual(self.post('/binflow/driver/start-day',dict(flow_version='2')).status_code,403)
+        self.post('/logout')
+        self.post(login,credentials)
+        self.assertIn(token,self.post('/binflow/driver/demo',follow=False).location)
+        self.assertIn('View signed storage note',self.client.get('/binflow/driver/demo/inbound?demo='+token).text)
+        new=self.post('/binflow/driver/demo',dict(reset='yes'),follow=False)
+        self.assertNotIn(token,new.location)
+        self.assertIn('Start your day',self.client.get(new.location).text)
+        for t in tables:
+            self.assertEqual(before[t],self.rows('SELECT * FROM '+t),t)
+
+    def test_driver_warehouse_switch_and_state(self):
+        self.assertIn('Warehouse &amp; transfers',self.client.get('/binflow/driver/my-day').text.replace('Warehouse & transfers','Warehouse &amp; transfers'))
+        self.assertEqual(self.post('/binflow/workspace',dict(workspace='warehouse')).request.path,'/binflow/pods')
+        self.assertEqual(self.client.get('/binflow/bales/new?warehouse=1').status_code,200)
+        self.assertEqual(self.client.get('/binflow/bales/new?warehouse=2').status_code,403)
+        self.assertEqual(self.client.get('/binflow/bales/transfers/new').status_code,200)
+        self.assertEqual(self.client.get('/binflow/bales/settings').status_code,403)
+        self.assertEqual(self.client.get('/binflow/invoices').status_code,403)
+        self.assertEqual(self.post('/binflow/workspace',dict(workspace='driver')).request.path,'/binflow/driver/my-day')
+
+    def test_today_sample_uses_same_flow_without_changing_real_stock_or_payroll(self):
+        self.assertEqual(self.rows('SELECT working_state FROM users WHERE id=?', (self.uid,))[0]['working_state'],'QLD')
+        page = self.client.get('/binflow/driver/test-cycle')
+        self.assertIn('Start the NSW sample cycle',page.text)
+        self.assertIn('name="state" value="NSW"',page.text)
+        self.assertIn('name="state" value="NSW"',self.client.get('/binflow/driver/my-day').text)
+        before={table:self.rows('SELECT * FROM '+table) for table in ('users','bf_bins','bf_jobs','bf_job_bins','bf_workdays','bf_events','entries','sheets','bf_step_timings','bf_bale_storage','bf_bales','bf_bale_sources','bf_bale_transfers','bf_rental_invoices')}
+        opened=self.post('/binflow/driver/demo',follow=False)
+        self.assertEqual(opened.status_code,302)
+        token=parse_qs(urlsplit(opened.location).query)['demo'][0]
+        suffix='?demo='+token
+        self.assertIn(b'SAMPLE RUN',self.client.get(opened.location).data)
+        self.assertEqual(self.client.get('/binflow/warehouse'+suffix).status_code,403)
+        self.assertEqual(self.client.get('/binflow/driver/my-day?demo=invalid').status_code,403)
+        self.assertIn(b'DEMO-1100-E01',self.client.get('/binflow/driver/demo/labels'+suffix).data)
+        self.assertEqual(self.client.get('/binflow/driver/demo/qr/1'+suffix).mimetype,'image/png')
+        self.run_sample_day(token)
         for table,data in before.items():self.assertEqual(self.rows('SELECT * FROM '+table),data,table)
         self.assertEqual(self.client.get('/binflow/driver/my-day?state=NSW').status_code,403)
         self.assertIn('<p>QLD</p>',self.client.get('/binflow/driver/my-day').text)

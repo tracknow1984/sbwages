@@ -246,6 +246,9 @@ def register(app,db,access,require,render,job,items,success,failure,now,actor):
                              (stamp,g.user['id'],actor(),signature,json.dumps(snapshot),target['id']))
                 db().execute('INSERT INTO bf_pod_history(job_id,action,user_id,created_at) VALUES(?,?,?,?)',
                              (target['id'],'Warehouse weights checked and POD signed off',g.user['id'],stamp))
+            if any(i['direction']=='collect' for snapshot in snapshots for i in snapshot['items']):
+                from binflow_auto_invoices import reconcile
+                reconcile(db(),stamp,pods_only=True)
             message = f"{len(targets)} PODs signed off for this run." if len(targets)>1 else 'POD signed off. The final record is now available to the client.'
             return success(message,'bf_pod',job_id=job_id)
         except ValueError as error:return failure(error,'bf_job',job_id=job_id,_anchor='pod-finalisation')

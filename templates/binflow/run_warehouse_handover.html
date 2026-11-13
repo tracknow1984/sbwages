@@ -15,6 +15,8 @@
 {% endif %}
 {% if driver_demo %}
   <a class="button primary bf-next" href="{{ url_for('bf_demo_inbound') }}">Warehouse &amp; baling</a>
+ {% elif binflow_driver and 'warehouse' in staff_workspaces %}
+  <form method="post" action="{{ url_for('bf_switch_workspace') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="primary bf-next" name="workspace" value="warehouse">Open warehouse weigh-in</button></form>
 {% elif stage in ['weighing','signoff'] and (current_user.role=='admin' or binflow_manager or binflow_warehouse) %}
   {% if stage=='weighing' %}<a class="button primary bf-next" href="{{ url_for('bf_daily_pods',date=run_date,_anchor='pending-weigh-ins') }}">Open warehouse weigh-in</a>
   {% else %}<a class="button primary bf-next" href="{{ url_for('bf_daily_pods',date=run_date) }}">Review run PODs</a>{% endif %}

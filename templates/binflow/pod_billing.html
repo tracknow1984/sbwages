@@ -1,0 +1,17 @@
+{% set draft=billing.draft %}{% set line=billing.line %}
+<section class="bf-panel bf-pad no-print" aria-labelledby="pod-invoice-heading">
+  <span class="bf-kicker">{{ 'Practice billing' if driver_demo else 'Internal billing' }}</span>
+  <h2 id="pod-invoice-heading">{{ {'open':'Draft invoice','sending':'Invoice awaiting confirmation','approved':'Approved invoice'}.get(draft.state,'Collection invoice') }}</h2>
+  <p><strong>{{ draft.client }}</strong> · Fortnight {{ draft.start|display_date }} – {{ draft.end|display_date }}</p>
+  {% if line.net_g is defined and line.rate_units is defined %}
+  <p>{{ line.net_g|bfkg }} kg net · {% if line.rate_units is not none %}${{ line.rate_units|pickup_rate }}/kg ex GST{% else %}Collection rate missing{% endif %}</p>
+  {% else %}<p>{{ line.description }}</p>{% endif %}
+  {% if line.rate_units is not none %}
+  <p>This POD · {{ line.net|money }} ex GST + {{ line.tax|money }} GST = <strong>{{ (line.net + line.tax)|money }} incl GST</strong></p>{% endif %}
+  {% if draft.issue %}<p class="bf-note">{{ draft.issue }}</p>{% endif %}
+  {% if driver_demo %}
+  <details><summary>Fortnightly invoice · {{ billing.lines|length }} PODs · {{ billing.total|money }} incl GST</summary>
+    <ul>{% for entry in billing.lines %}<li>{{ entry.description }} · {{ (entry.net+entry.tax)|money }} incl GST</li>{% endfor %}</ul>
+  </details>
+  {% else %}<a class="button secondary" href="{{ url_for('bf_auto_review',did=draft.id) }}">Open fortnightly invoice · {{ billing.total|money }} incl GST</a>{% endif %}
+</section>

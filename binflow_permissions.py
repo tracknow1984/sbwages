@@ -47,7 +47,7 @@ def workspaces(user):
     roles = set(assigned_roles(user))
     return tuple(mode for mode, enabled in (
         ('manager', 'manager' in roles), ('driver', bool(roles & {'driver', 'contractor'})),
-        ('warehouse', 'warehouse' in roles)) if enabled)
+        ('warehouse', bool(roles & {'driver', 'warehouse'}))) if enabled)
 
 
 def current_workspace(user):

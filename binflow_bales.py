@@ -214,12 +214,26 @@ def register(app,db,access,require,render,success,failure,now,actor):
         ids={w['id'] for w in shown}
         transfers=[t for t in db().execute(TRANSFER_SELECT+' ORDER BY t.id DESC') if t['origin_id'] in ids or t['destination_id'] in ids]
         rows=[]
+        ready_bins=[]
         if ids:
             marks=','.join('?' for _ in ids)
             rows=db().execute(f"""SELECT b.id,b.code,b.material_name,b.net_g,b.status,b.created_at,
                 l.name AS warehouse,l.state FROM bf_bales b JOIN bf_locations l ON l.id=b.warehouse_id
                 WHERE b.warehouse_id IN ({marks}) AND b.status IN ('stored','loading','received')
                 ORDER BY l.state,l.name,b.id DESC""",tuple(ids)).fetchall()
+            ready_bins=db().execute(f"""SELECT b.code,l.name AS warehouse,i.material_name,i.net_g,j.code AS pod
+                FROM bf_bins b JOIN bf_locations l ON l.id=b.location_id
+                JOIN bf_job_bins i ON i.id=(SELECT MAX(last.id) FROM bf_job_bins last
+                    JOIN bf_jobs prior ON prior.id=last.job_id WHERE last.bin_id=b.id
+                    AND last.direction='collect' AND prior.status!='cancelled')
+                JOIN bf_jobs j ON j.id=i.job_id JOIN bf_material_classes m ON m.id=i.material_id AND m.active=1
+                WHERE b.location_id IN ({marks}) AND b.status='weighed' AND b.archived=0 AND b.truck_id IS NULL
+                AND i.weighed_at IS NOT NULL AND i.net_g>0 AND i.gross_g IS NOT NULL AND i.tare_g IS NOT NULL
+                AND j.pod_signed_at IS NOT NULL AND j.pod_deleted_at IS NULL
+                AND NOT EXISTS (SELECT 1 FROM bf_job_bins r WHERE r.bin_id=b.id AND r.active=1)
+                AND NOT EXISTS (SELECT 1 FROM bf_open_bale_sources o WHERE o.item_id=i.id)
+                AND NOT EXISTS (SELECT 1 FROM bf_bale_sources c WHERE c.item_id=i.id)
+                ORDER BY l.name,i.material_name,b.code""",tuple(ids)).fetchall()
         from binflow_interstate import PLACES
         regions = {w['state'] for w in shown}
         booked = [r for r in db().execute("""SELECT b.* FROM bf_interstate_bookings b
@@ -227,7 +241,7 @@ def register(app,db,access,require,render,success,failure,now,actor):
             (SELECT 1 FROM bf_interstate_manifests m JOIN bf_bale_transfers t ON t.id=m.transfer_id
              WHERE m.booking_id=b.id AND t.status!='cancelled') ORDER BY b.pickup_date,b.id""")
             if PLACES[r['origin']][1] in regions]
-        return view('bales',booked=booked,places=PLACES,cards=cards,totals=totals,warehouses=ws,selected=selected,state=state,transfers=transfers,bales=rows)
+        return view('bales',booked=booked,places=PLACES,cards=cards,totals=totals,warehouses=ws,selected=selected,state=state,transfers=transfers,bales=rows,ready_bins=ready_bins)
 
     def source_item(b, wid, mid):
         if b['location_id']!=wid or b['truck_id'] or b['status']!='weighed':
@@ -396,6 +410,7 @@ def register(app,db,access,require,render,success,failure,now,actor):
         selected=request.args.get('warehouse',type=int)
         if rows:
             selected=rows[0]['warehouse_id']
+        if selected is not None:
             allowed(selected)
         ws=warehouses()
         visible={w['id'] for w in ws}
@@ -501,7 +516,7 @@ def register(app,db,access,require,render,success,failure,now,actor):
             except ValueError as error:return failure(error,'bf_bale_settings')
         cfg={r['warehouse_id']:dict(r) for r in db().execute('SELECT * FROM bf_bale_settings')}
         managers=db().execute("SELECT u.id,u.first_name,u.last_name,u.working_state,u.business_role,u.extra_business_roles,m.warehouse_id FROM users u LEFT JOIN bf_bale_managers m ON m.user_id=u.id WHERE u.role='employee' AND u.status='active' ORDER BY u.first_name").fetchall()
-        return view('bale_settings',warehouses=warehouses(),configs=cfg,managers=[m for m in managers if {'manager','warehouse'}.intersection(assigned_roles(m))])
+        return view('bale_settings',warehouses=warehouses(),configs=cfg,managers=[m for m in managers if {'manager','warehouse','driver'}.intersection(assigned_roles(m))])
 
     @app.post('/binflow/bales/managers')
     @require('admin')
@@ -509,8 +524,8 @@ def register(app,db,access,require,render,success,failure,now,actor):
         try:
             uid=int(request.form.get('user_id','0'));wid=int(request.form.get('warehouse_id','0'));w=allowed(wid)
             u=db().execute("SELECT * FROM users WHERE id=? AND role='employee' AND status='active'",(uid,)).fetchone()
-            if not u or not {'manager','warehouse'}.intersection(assigned_roles(u)) or u['working_state']!=w['state']:
-                raise ValueError('Choose an active manager or warehouse employee in the warehouse’s state.')
+            if not u or not {'manager','warehouse','driver'}.intersection(assigned_roles(u)) or u['working_state']!=w['state']:
+                raise ValueError('Choose an active driver, manager or warehouse employee in the warehouse’s state.')
             db().execute('INSERT INTO bf_bale_managers VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET warehouse_id=excluded.warehouse_id',(uid,wid))
             event('Warehouse manager assigned',wid=wid,details=str(uid))
             return success('Warehouse assigned. They use their own staff login.','bf_bale_settings')

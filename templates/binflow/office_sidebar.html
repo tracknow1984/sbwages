@@ -48,6 +48,7 @@
     <div class="bf-menu-group" role="group" aria-labelledby="bf-menu-setup">
       <h2 id="bf-menu-setup">{% if is_admin %}{{ menu_link('setup', 'Setup', 'bf_setup', 'settings') }}{% else %}Setup{% endif %}</h2>
       {% if is_admin %}{{ menu_link('pickup_pricing', 'Per Kg Pricing Pick Up', 'bf_pickup_pricing', 'reports') }}{% endif %}
+      {% if is_admin %}{{ menu_link('driver_test', 'Test driver sign-in', 'bf_testdriver_login', 'truck') }}{% endif %}
       {{ menu_link('bins', 'Bin QR Labels', 'bf_inventory', 'bin') }}
     </div>
   </nav>

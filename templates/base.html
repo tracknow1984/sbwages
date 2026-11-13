@@ -59,11 +59,11 @@
   <a class="driver-menu-back no-print" href="{{ url_for('employee_details_menu' if personal_page else 'employee_dashboard') }}"><span aria-hidden="true">←</span> {{ 'My Details' if personal_page else 'Driver menu' }}</a>
 {% endif %}
 {% block dashboard_greeting %}{% endblock %}
- {% if not induction_gate and not driver_demo and staff_workspaces|length > 1 and (bf_surface or current_user.role=='employee') %}
+ {% if not induction_gate and not driver_demo and not session.testdriver_version and staff_workspaces|length > 1 and (bf_surface or (current_user.role=='employee' and not binflow_driver)) %}
 <form class="bf-workspaces no-print" method="post" action="{{ url_for('bf_switch_workspace') }}" aria-label="BinFlow workspace">
   <input type="hidden" name="csrf" value="{{ csrf_token() }}">
   <strong>Work as</strong>
-  {% for mode in staff_workspaces %}<button type="submit" name="workspace" value="{{ mode }}" class="{{ 'primary' if mode==active_workspace else 'secondary' }}" aria-pressed="{{ 'true' if mode==active_workspace else 'false' }}">{{ mode|capitalize }}</button>{% endfor %}
+  {% for mode in staff_workspaces %}<button type="submit" name="workspace" value="{{ mode }}" class="{{ 'primary' if mode==active_workspace else 'secondary' }}" aria-pressed="{{ 'true' if mode==active_workspace else 'false' }}">{{ 'Warehouse & transfers' if mode=='warehouse' and 'driver' in staff_workspaces else mode|capitalize }}</button>{% endfor %}
 </form>
 {% endif %}
 {% if binflow_driver and tab == 'binflow' and not journey_mode %}<nav class="driver-quick-nav no-print" aria-label="BINFLOW navigation">

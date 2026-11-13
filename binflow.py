@@ -965,7 +965,12 @@ def register_binflow(app, db, require):
         if not pod_weights_ready(db(), j):
             abort(409, 'POD pending. Complete all warehouse weights for this run first.')
         rows = items(job_id)
-        return render('pod', section='pods', job=j, items=rows, net=sum(i['net_g'] or 0 for i in rows))
+        billing = None
+        if (j['pod_signed_at'] and any(i['direction']=='collect' for i in rows)
+                and (g.user['role']=='admin' or getattr(g,'bf_demo_token',None))):
+            from binflow_auto_invoices import pod_billing
+            billing = pod_billing(db(), job_id, now())
+        return render('pod', section='pods', job=j, items=rows, billing=billing, net=sum(i['net_g'] or 0 for i in rows))
 
     @app.get('/binflow/pickups/<int:job_id>/evidence/<kind>')
     @access

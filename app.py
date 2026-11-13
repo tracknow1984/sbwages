@@ -155,6 +155,7 @@ def create_app(test_config=None):
         APP_URL=os.environ.get('APP_URL', '').rstrip('/'),
         ADMIN_USERNAME=os.environ.get('ADMIN_USERNAME', 'admin'), ADMIN_EMAIL=os.environ.get('ADMIN_EMAIL', ''),
         ADMIN_PASSWORD=os.environ.get('ADMIN_PASSWORD', ''),
+        BINFLOW_TESTDRIVER_HASH=os.environ.get('BINFLOW_TESTDRIVER_HASH', ''),
         SMTP_HOST=os.environ.get('SMTP_HOST', ''), SMTP_PORT=int(os.environ.get('SMTP_PORT', '587')),
         SMTP_USERNAME=os.environ.get('SMTP_USERNAME', ''), SMTP_PASSWORD=os.environ.get('SMTP_PASSWORD', ''),
         SMTP_FROM=os.environ.get('SMTP_FROM', ''), SMTP_SSL=os.environ.get('SMTP_SSL', 'false').lower() == 'true',
@@ -291,7 +292,7 @@ def create_app(test_config=None):
                 g.user = dict(user, binflow_workspace=selected if selected in modes else next(iter(modes), None))
             else:
                 session.clear()
-        if not g.user and request.endpoint != 'bf_lunch_worker' and (request.path.startswith(('/binflow/driver/', '/training/')) or
+        if not g.user and not session.get('testdriver_version') and request.endpoint != 'bf_lunch_worker' and (request.path.startswith(('/binflow/driver/', '/training/')) or
                            request.args.get('demo') and request.path.startswith('/binflow/')):
             # Never replay an expired scan or restore a training token supplied by a URL.
             if request.method=='GET' and request.endpoint=='bf_demo_cycle':
@@ -305,6 +306,9 @@ def create_app(test_config=None):
         if request.method == 'POST':
             if not secrets.compare_digest(session.get('csrf', ''), request.form.get('csrf', '')) or not session.get('csrf'):
                 abort(400, 'Your form expired. Refresh the page and try again.')
+        if session.get('testdriver_version'):
+            from binflow_testdriver import guard
+            return guard(app, db)
         return enforce_employee_induction(db)
 
     @app.after_request
@@ -405,7 +409,27 @@ def create_app(test_config=None):
         if mode not in workspaces(g.user):
             abort(403)
         session['binflow_workspace'] = mode
+        if mode == 'warehouse' and 'warehouse' not in assigned_roles(g.user):
+            return redirect(url_for('bf_daily_pods', _anchor='pending-weigh-ins'))
         return redirect(url_for({'manager':'bf_dashboard','driver':'bf_resume','warehouse':'bf_bales'}[mode]))
+
+    @app.route('/binflow/testdriver/login', methods=['GET', 'POST'])
+    def bf_testdriver_login():
+        from binflow_testdriver import credential_version, restore_run
+        if request.method == 'POST':
+            version = credential_version(app)
+            if limited('practice-login:' + (request.remote_addr or 'unknown')):
+                flash('Too many attempts. Try again in 15 minutes.', 'error')
+                return render_template('login.html', audience='practice'), 429
+            if (version and request.form.get('username','').lower().strip() == 'testdriver'
+                    and check_password_hash(app.config['BINFLOW_TESTDRIVER_HASH'], request.form.get('password',''))):
+                session.clear()
+                session.update(testdriver_version=version)
+                session.permanent = True
+                restore_run(db())
+                return redirect(url_for('bf_demo_cycle'))
+            flash('The test driver sign-in details were not recognised.', 'error')
+        return render_template('login.html', audience='practice')
 
     @app.route('/<audience>/login', methods=['GET', 'POST'])
     def login(audience):

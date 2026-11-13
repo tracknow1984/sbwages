@@ -12,7 +12,8 @@
   {% for job in jobs %}
   <div class="bf-toolbar"><div><strong>{{ job.code }} · {{ job.site_name }}</strong>
     <p>{{ job.returned }}/{{ job.expected }} returned · {{ job.weighed }}/{{ job.expected }} weighed · {{ 'POD signed' if job.pod_signed_at else 'POD unsigned' }}</p></div>
-    {% if job.returned %}<a class="button secondary" href="{{ url_for('bf_demo_docket', job_id=job.id) }}">{{ 'Review POD sign-off' if pod_weights_ready(job) else 'Open weigh-in' }}</a>{% endif %}
+    {% if job.pod_signed_at %}<a class="button secondary" href="{{ url_for('bf_pod',job_id=job.id) }}">Signed POD &amp; invoice</a>
+    {% elif job.returned %}<a class="button secondary" href="{{ url_for('bf_demo_docket', job_id=job.id) }}">{{ 'Review POD sign-off' if pod_weights_ready(job) else 'Open weigh-in' }}</a>{% endif %}
   </div>{% endfor %}
   <a href="{{ url_for('bf_workday') }}">Back to sample driver day</a>
 </section>

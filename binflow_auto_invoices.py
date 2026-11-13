@@ -60,11 +60,8 @@ def totals(lines):
     return sum(i['net'] for i in lines), sum(i['tax'] for i in lines)
 
 
-def reconcile(conn, stamp):
+def reconcile(conn, stamp, *, pods_only=False):
     """Refresh open drafts within the caller's write transaction. Issued lines are immutable."""
-    from binflow_invoices import transport_lines
-    today = date.fromisoformat(stamp[:10])
-    start,end = fortnight(today)
     defaults = conn.execute('SELECT * FROM bf_billing_defaults WHERE id=1').fetchone()
     groups = {}
     def add(key,kind,first,last,aid,client,lines,issue=''):
@@ -95,8 +92,46 @@ def reconcile(conn, stamp):
         net = ((j['net'] or 0)*(j['units'] or 0)+50000)//100000
         desc = f"{j['code']} · {j['site_name']} · {signed.isoformat()} · {(j['net'] or 0)/1000:g} kg × ${rate_text(j['units'])}/kg"
         add(f'pods:{payer}:{first}','POD Collections',first,last,aid,j['payer'] or j['client_name'],
-            [charge(f"pod:{j['id']}",desc,net,job_id=j['id'],pod_version=j['pod_version'])],problem)
+            [charge(f"pod:{j['id']}",desc,net,job_id=j['id'],pod_version=j['pod_version'],
+                    net_g=j['net'],rate_units=j['units'])],problem)
 
+    if not pods_only:
+        add_transport_and_rental(conn, stamp, add, defaults)
+    query = "SELECT * FROM bf_auto_drafts WHERE state='open'"
+    if pods_only:
+        query += " AND kind='POD Collections'"
+    active = {r['group_key']:r for r in conn.execute(query)}
+    for key,group in groups.items():
+        raw = json.dumps(group['lines'],ensure_ascii=False)
+        issue = ' '.join(sorted(group['issues']))
+        data = (group['kind'],group['start'],group['end'],group['account_id'],group['client'],raw,issue)
+        version = hashlib.sha256(json.dumps(data).encode()).hexdigest()
+        previous = active.pop(key,None)
+        if previous and previous['version']==version:
+            continue
+        if previous:
+            conn.execute("UPDATE bf_auto_drafts SET kind=?,start=?,end=?,account_id=?,client=?,lines=?,issue=?,version=? WHERE id=?",
+                         (*data,version,previous['id']))
+        else:
+            conn.execute("""INSERT INTO bf_auto_drafts(id,group_key,kind,start,end,account_id,client,lines,issue,version)
+                VALUES(?,?,?,?,?,?,?,?,?,?)""",(str(uuid4()),key,*data,version))
+    for old in active.values():
+        if old['kind']=='Bin Rental' and old['end']<stamp[:10]:
+            # New billing settings can resolve a closed rental without changing its quantities.
+            aid = defaults['rental_account'] if defaults else None
+            if aid and not old['account_id']:
+                payer = conn.execute('SELECT name FROM bf_client_accounts WHERE id=?',(aid,)).fetchone()
+                conn.execute("UPDATE bf_auto_drafts SET account_id=?,client=?,version=? WHERE id=?",
+                             (aid,payer['name'],str(uuid4()),old['id']))
+            continue
+        conn.execute('DELETE FROM bf_auto_drafts WHERE id=?',(old['id'],))
+    if not pods_only:
+        conn.execute('INSERT OR REPLACE INTO bf_auto_billing_clock VALUES(1,?)',(stamp,))
+
+
+def add_transport_and_rental(conn, stamp, add, defaults):
+    from binflow_invoices import transport_lines
+    start,end = fortnight(date.fromisoformat(stamp[:10]))
     transfers = conn.execute("""SELECT b.*,a.name AS payer,p.number AS po,
         f.account_id AS billing_account,f.rate_cents AS billing_rate,f.fuel_bps AS billing_fuel,
         COALESCE(b.bulk_delivered_at,t.signed_at,t.received_at) AS finished
@@ -137,32 +172,29 @@ def reconcile(conn, stamp):
                  if qty and (rate:=data['sizes'][sid]['weekly_rental_cents']) is not None]
         issue = '' if rental['actual_cents'] is not None else 'Review the unpriced or flagged bins in Bin Rental Income.'
         add(rent_key,'Bin Rental',start,end,aid,account['name'] if account else 'National bin rental',lines,issue)
-    active = {r['group_key']:r for r in conn.execute("SELECT * FROM bf_auto_drafts WHERE state='open'")}
-    for key,group in groups.items():
-        raw = json.dumps(group['lines'],ensure_ascii=False)
-        issue = ' '.join(sorted(group['issues']))
-        data = (group['kind'],group['start'],group['end'],group['account_id'],group['client'],raw,issue)
-        version = hashlib.sha256(json.dumps(data).encode()).hexdigest()
-        previous = active.pop(key,None)
-        if previous and previous['version']==version:
-            continue
-        if previous:
-            conn.execute("UPDATE bf_auto_drafts SET kind=?,start=?,end=?,account_id=?,client=?,lines=?,issue=?,version=? WHERE id=?",
-                         (*data,version,previous['id']))
-        else:
-            conn.execute("""INSERT INTO bf_auto_drafts(id,group_key,kind,start,end,account_id,client,lines,issue,version)
-                VALUES(?,?,?,?,?,?,?,?,?,?)""",(str(uuid4()),key,*data,version))
-    for old in active.values():
-        if old['kind']=='Bin Rental' and old['end']<stamp[:10]:
-            # New billing settings can resolve a closed rental without changing its quantities.
-            aid = defaults['rental_account'] if defaults else None
-            if aid and not old['account_id']:
-                payer = conn.execute('SELECT name FROM bf_client_accounts WHERE id=?',(aid,)).fetchone()
-                conn.execute("UPDATE bf_auto_drafts SET account_id=?,client=?,version=? WHERE id=?",
-                             (aid,payer['name'],str(uuid4()),old['id']))
-            continue
-        conn.execute('DELETE FROM bf_auto_drafts WHERE id=?',(old['id'],))
-    conn.execute('INSERT OR REPLACE INTO bf_auto_billing_clock VALUES(1,?)',(stamp,))
+
+
+def pod_billing(conn, job_id, stamp):
+    source = f'pod:{job_id}'
+    def find_line():
+        return conn.execute("""SELECT d.*,line.value AS pod_line FROM bf_auto_drafts d, json_each(d.lines) line
+            WHERE d.kind='POD Collections' AND json_extract(line.value,'$.source')=? LIMIT 1""",(source,)).fetchone()
+    draft = find_line()
+    if not draft:
+        # Include older signed PODs created before immediate draft generation.
+        conn.execute('BEGIN IMMEDIATE')
+        try:
+            reconcile(conn,stamp,pods_only=True)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        draft = find_line()
+    if not draft:
+        return None
+    line = json.loads(draft['pod_line'])
+    lines = json.loads(draft['lines'])
+    return dict(draft=draft,line=line,lines=lines,total=sum(x['net']+x['tax'] for x in lines))
 
 
 def refresh(conn, stamp, always=False):
