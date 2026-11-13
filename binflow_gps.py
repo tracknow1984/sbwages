@@ -281,3 +281,11 @@ def register_gps(app, db, access, require, render, success, failure, now, actor)
         if state and state not in STATES: abort(400)
         refresh()
         return jsonify(tracking_snapshot(db(),state,include_unlinked=is_office(g.user)))
+
+    @app.get('/admin/dashboard/gps')
+    @require('admin')
+    def admin_asset_gps():
+        refresh()
+        response=jsonify(tracking_snapshot(db(),include_unlinked=True,all_devices=True))
+        response.headers['Cache-Control']='private, no-store'
+        return response

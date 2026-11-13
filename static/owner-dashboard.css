@@ -136,3 +136,9 @@
   .owner-summary { background:white; }
   .owner-hero h1,.owner-hero .owner-date,.owner-today a,.owner-today strong { color:#132f3b; }
 }
+
+.owner-overview .bf-tracking{background:white;border:1px solid #d7e1e8;border-radius:14px}
+.owner-overview .bf-tracking .bf-panel-head{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;padding:20px}
+.owner-overview .bf-tracking .bf-actions{display:flex;gap:7px;flex-wrap:wrap}
+.owner-overview .bf-tracking .bf-pad{padding:16px}
+.owner-overview .bf-tracking .bf-kicker{font-size:.72rem;letter-spacing:.09em;font-weight:700;color:#456275}

@@ -12,3 +12,12 @@
 .bf-bale-meter[data-over] progress {accent-color:#ad6720}
 .bf-bale-meter strong {font-size:1.3rem}
 .bf-bale-form [hidden] {display:none!important}
+
+.bf-ready-stock .bf-toolbar {margin-bottom:8px}
+.bf-stock-group {margin-top:12px;border:1px solid #d3e1e9;border-radius:8px;overflow:hidden}
+.bf-stock-heading,.bf-stock-bin {display:flex;align-items:center;gap:12px;padding:10px 14px}
+.bf-stock-heading {justify-content:space-between;background:#eef4f7;color:#193951}
+.bf-stock-heading span,.bf-stock-bin small {font-size:.82rem;color:#4c6474}
+.bf-stock-bin + .bf-stock-bin {border-top:1px solid #e1e8ed}
+.bf-stock-bin div {flex:1;min-width:0;overflow-wrap:anywhere}
+.bf-stock-bin small {display:block}

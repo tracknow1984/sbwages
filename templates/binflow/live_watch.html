@@ -7,7 +7,7 @@
 <div data-live-watch>
 {% if not run %}<p>Sign in as testdriver on a second device or in a private window to create the two live allocations.</p>{% else %}
 <div class="bf-toolbar"><strong>Driver day · {{ 'Finished' if day and day.finished_at else 'Started' if day else 'Ready to start' }}</strong>
-<a class="button secondary" href="{{ url_for('bf_live_watch') }}">Refresh records</a></div>
+<a class="button secondary" href="{{ url_for('bf_live_watch') }}">Refresh records</a><a href="{{ url_for('bf_live_restart') }}">Restart test run</a></div>
 <section class="bf-panel bf-pad"><h2>Collections and PODs</h2>
 {% for j in jobs %}<p><a href="{{ url_for('bf_job',job_id=j.id) }}"><strong>{{ j.code }}</strong> · {{ j.site_name }}</a><br>{{ j.status|capitalize }} · {{ j.returned }}/{{ j.expected }} bins returned · {{ j.weighed }}/{{ j.expected }} weighed{% if j.net_g is not none %} · {{ j.net_g|bfkg }} kg net{% endif %}{% if j.pod_signed_at %} · <a href="{{ url_for('bf_pod',job_id=j.id) }}">Signed POD &amp; draft invoice</a>{% endif %}</p>{% endfor %}
 <a href="{{ url_for('bf_daily_pods',date=jobs[0].scheduled_date,_anchor='pending-weigh-ins') }}">Open Daily PODs and pending weigh-ins</a></section>

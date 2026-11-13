@@ -250,7 +250,7 @@ def register(app,db,access,require,render,job,items,success,failure,now,actor):
                 from binflow_auto_invoices import reconcile
                 reconcile(db(),stamp,pods_only=True)
             message = f"{len(targets)} PODs signed off for this run." if len(targets)>1 else 'POD signed off. The final record is now available to the client.'
-            return success(message,'bf_pod',job_id=job_id)
+            return success(message,'bf_daily_pods',date=j['scheduled_date'],view='unfinished',_anchor='pod-list')
         except ValueError as error:return failure(error,'bf_job',job_id=job_id,_anchor='pod-finalisation')
 
     def authorised(token):

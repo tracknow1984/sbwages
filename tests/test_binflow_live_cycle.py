@@ -51,6 +51,8 @@ class LiveCycleTests(unittest.TestCase):
         runpath=f'/binflow/driver/{truck}/day'
         self.post(f'/binflow/driver/{truck}/prestart',{**{'check_'+k:'pass' for k,_,_ in CHECKS},'date':date,
             'reading':'12000','submission_token':field(day.text,'submission_token'),'fit_for_duty':'yes','signature':SIGNATURE,'signed':'yes'})
+        check('NSW · 1',admin.get('/admin/prestart'))
+        check('LIVE TEST · NSW rigid',admin.get('/admin/prestart/assets'))
         def scan(action,code,mid=None):
             p=self.post(runpath+'/scan-bin',dict(date=date,action=action,code=code,material_id=mid or ''))
             self.assertEqual(p.status_code,200,p.text[:300]);self.assertTrue(p.json['ok'])
@@ -80,7 +82,9 @@ class LiveCycleTests(unittest.TestCase):
                 tare=row['tare_g']/1000
                 self.post(f'/binflow/pickups/{jid}/weigh/{row["id"]}',dict(tare=tare,gross=tare+{1100:100,240:25,660:75}[size],confirm_tare='yes'))
         pod=self.client.get(f'/binflow/pickups/{j2}')
-        self.post(f'/binflow/pickups/{j2}/pod/sign',dict(scope='run',version=field(pod.text,'version'),run_version=field(pod.text,'run_version'),confirm='yes',signature=SIGNATURE))
+        signed=self.post(f'/binflow/pickups/{j2}/pod/sign',dict(scope='run',version=field(pod.text,'version'),run_version=field(pod.text,'run_version'),confirm='yes',signature=SIGNATURE))
+        check('Uncompleted PODs',signed)
+        self.assertNotIn('data-docket-trigger',signed.text)
         for jid,val in ((j1,'$220.00'),(j2,'$132.00')):
             check(val,admin.get(f'/binflow/pickups/{jid}/pod'))
             check('$352.00',self.client.get(f'/binflow/pickups/{jid}/pod'))
@@ -97,6 +101,9 @@ class LiveCycleTests(unittest.TestCase):
         codes=[]
         for jid,sizes,mid in stops:
             f=self.client.get('/binflow/bales/new?warehouse='+str(run['origin_id']))
+            stock_page=self.client.get('/binflow/bales/new',query_string={'stock':'1','warehouse':run['origin_id']})
+            check('data-select-bin="LT-'+str(sizes[0])+'-FULL"',stock_page)
+            self.assertNotIn('data-source-code',f.text)
             key=field(f.text,'request_key')
             bins=[f'LT-{size}-FULL' for size in sizes]
             fields=dict(warehouse_id=run['origin_id'],material_id=mid,request_key=key)
@@ -106,6 +113,10 @@ class LiveCycleTests(unittest.TestCase):
             check(bale,admin.get('/binflow/bales'))
             check('Print label',self.client.get(f.request.path+'/label'))
         f=self.client.get('/binflow/bales/transfers/new')
+        warehouse=admin.get('/binflow/warehouse?state=NSW')
+        for code in codes:check(code,warehouse)
+        check('2 bales · 200 kg',warehouse)
+        self.assertNotIn(codes[0],admin.get('/binflow/warehouse?state=QLD').text)
         fields=dict(origin_id=run['origin_id'],destination_id=run['destination_id'],carrier_supplier_id=run['carrier_id'],vehicle_type='SINGLE',request_key=field(f.text,'request_key'))
         self.assertEqual(self.post('/binflow/bales/transfers/new',dict(fields,destination_id=1)).status_code,403)
         f=self.post('/binflow/bales/transfers/new',fields);path=f.request.path
@@ -120,3 +131,13 @@ class LiveCycleTests(unittest.TestCase):
         self.post(f'/binflow/driver/my-day/{wid}/finish')
         self.assertTrue(self.rows('SELECT finished_at FROM bf_workdays WHERE user_id=?',(run['driver_id'],))[0]['finished_at'])
         self.assertFalse(self.rows('SELECT * FROM sheets WHERE user_id=?',(run['driver_id'],)))
+        generation=self.rows('SELECT generation FROM bf_live_cycle')[0]['generation']
+        restarted=self.post('/binflow/live-test/restart',dict(confirm='restart',generation=generation))
+        check('Both stops and all six bin labels',restarted)
+        watch=admin.get('/admin/binflow/live-test')
+        check('Ready to start',watch)
+        for code in codes:self.assertNotIn(code,watch.text)
+        self.assertFalse(self.rows('SELECT id FROM bf_auto_drafts WHERE account_id=?',(run['payer_id'],)))
+        self.assertFalse(self.rows('SELECT id FROM prestarts WHERE user_id=?',(run['driver_id'],)))
+        check('Start your day',self.client.get('/binflow/driver/my-day'))
+        self.assertEqual(self.post('/binflow/live-test/restart',dict(confirm='restart',generation=generation)).status_code,409)

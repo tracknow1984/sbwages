@@ -1,0 +1,3 @@
+{% extends 'base.html' %}{% block content %}<section class="panel"><h1>Restart the live test</h1>
+<p>This clears the test shift, its prestart, bin movements, POD signatures, draft charges, bales and transfers. Both test allocations and all six QR labels will be ready to use again.</p>
+<form method="post"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="generation" value="{{ run.generation }}"><button class="primary" name="confirm" value="restart">Clear test and restart</button></form></section>{% endblock %}

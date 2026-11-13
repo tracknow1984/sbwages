@@ -1,0 +1,6 @@
+<input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ asset.version if asset else 0 }}">
+<div class="form-grid"><label>Vehicle / fleet name<input name="name" required maxlength="120" value="{{ asset.name if asset else '' }}"></label>
+<label>Home state<select name="state" required><option value="">Select state</option>{% for state in states %}<option {% if asset and state==asset.state %}selected{% endif %}>{{ state }}</option>{% endfor %}</select></label>
+{% for key,label in [('make','Make'),('model','Model'),('rego','Registration')] %}<label>{{ label }}<input name="{{ key }}" maxlength="{{ 20 if key=='rego' else 120 }}" value="{{ (asset[key] or '') if asset else '' }}"></label>{% endfor %}
+{% for key,label in [('rego_expiry','Registration expiry'),('next_inspection','Next inspection'),('last_service','Last service on file')] %}<label>{{ label }}<input type="date" name="{{ key }}" value="{{ (asset['baseline' if key=='last_service' else key] or '') if asset else '' }}"></label>{% endfor %}</div>
+<button class="primary" type="submit">Save vehicle</button>
