@@ -1,5 +1,5 @@
 <section class="bf-panel bf-pad" id="pod-finalisation">
-<h2>POD sign-off</h2>
+{% if not phone_flow %}<h2>POD sign-off</h2>{% endif %}
 {% if job.pod_signed_at %}
 <p class="bf-note">Signed by <strong>{{ job.pod_signed_name }}</strong> · {{ job.pod_signed_at|display_datetime }}.</p>
 {% elif not job.collected_at %}<p>Confirm each full bin’s material at the client pickup. Warehouse weighing follows the depot return.</p>
@@ -7,7 +7,7 @@
 {% set collected=items|selectattr('direction','equalto','collect')|list %}
 {% set missing=collected|rejectattr('material_id')|list %}
 {% if collected %}
-<p>Material was selected at the client pickup. Record all warehouse weights before signing off.</p>
+{% if not phone_flow %}<p>Material was selected at the client pickup. Record all warehouse weights before signing off.</p>{% endif %}
 <div class="bf-table-wrap"><table><thead><tr><th>Bin</th><th>Pickup material</th><th>Net kg</th></tr></thead><tbody>
 {% for i in collected %}<tr><td>{{ i.bin_code }}</td><td>{{ i.material_name or 'Missing pickup classification' }}</td><td>{{ i.net_g|bfkg }}</td></tr>{% endfor %}
 </tbody></table></div>
@@ -29,6 +29,7 @@
 {% endif %}
 {% if pod_weights_ready(job) and not missing and (not run or run.ready) %}<form method="post" action="{{ url_for('bf_pod_sign',job_id=job.id) }}" class="bf-form">
 <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ job.pod_version }}">
+{% if phone_flow %}<input type="hidden" name="return_to" value="phone">{% endif %}
 {% if run %}<input type="hidden" name="scope" value="run"><input type="hidden" name="run_version" value="{{ run.version }}">{% endif %}
 <h3>Final warehouse approval</h3><p>Signing as <strong>{{ current_user.first_name }} {{ current_user.last_name }}</strong>. Your signature is dated and timed.</p>
 <label class="bf-check"><input type="checkbox" name="confirm" value="yes" required><span>I have checked the gross, tare and net weights and approve {{ "the listed PODs for this run" if run else "this final POD" }}.</span></label>

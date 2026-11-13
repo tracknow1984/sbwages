@@ -13,6 +13,15 @@
   <h2>Run PODs signed</h2>
   <a class="button secondary bf-next" href="{{ url_for('bf_daily_pods',date=run_date) }}">View today’s PODs</a>
 {% endif %}
+{% if driver_demo or (binflow_driver and 'warehouse' in staff_workspaces) %}
+  {% from 'binflow/phone_warehouse_actions.html' import task_button with context %}
+  {% set unsigned = jobs|rejectattr('pod_signed_at')|rejectattr('pod_deleted_at')|list %}
+  <div class="bf-phone-only bf-phone-actions">
+    {% if unsigned %}{% set weighing=weights and weights.weighed < weights.expected %}{{ task_button('weigh' if weighing else 'sign','Weigh now' if weighing else 'POD Sign Off',unsigned[0].id) }}{% endif %}
+    {{ task_button('bale','CREATE BALE') }}
+  </div>
+{% endif %}
+<div class="bf-pc-only">
 {% if driver_demo %}
   <a class="button primary bf-next" href="{{ url_for('bf_demo_inbound') }}">Warehouse &amp; baling</a>
  {% elif binflow_driver and 'warehouse' in staff_workspaces %}
@@ -21,5 +30,5 @@
   {% if stage=='weighing' %}<a class="button primary bf-next" href="{{ url_for('bf_daily_pods',date=run_date,_anchor='pending-weigh-ins') }}">Open warehouse weigh-in</a>
   {% else %}<a class="button primary bf-next" href="{{ url_for('bf_daily_pods',date=run_date) }}">Review run PODs</a>{% endif %}
 {% endif %}
-</section>
+</div></section>
 {% if workday and not workday.finished_at and stage in ['weighing','signoff','done'] %}{% include 'binflow/workday_finish.html' %}{% endif %}

@@ -1,0 +1,22 @@
+.bf-phone-only {display:none!important}
+.bf-phone-task {max-width:34rem;margin:1rem auto}
+.bf-phone-task .bf-form {display:grid;gap:.8rem}
+.bf-phone-task .bf-scan-feedback:empty {display:none}
+.bf-phone-task .bf-camera {width:100%;max-height:45vh}
+.bf-phone-task .bf-scan-entry {display:grid;gap:.7rem}
+.bf-phone-task .button.primary,.bf-phone-task button.primary,
+.bf-phone-task .bf-scan-entry button {box-sizing:border-box;display:flex;width:100%;min-height:48px;align-items:center;justify-content:center}
+.bf-phone-task .bf-camera-controls button[hidden] {display:none}
+.bf-phone-task input[name=code] {box-sizing:border-box;width:100%;font-size:16px}
+@media screen and (max-width:767px) {
+  .bf-field-worker .bf-phone-only {display:grid!important;gap:.65rem}
+  .bf-field-worker .bf-pc-only,.bf-field-worker .bf-bale-nav,
+  .bf-field-worker .bf-nav[aria-label="Warehouse navigation"],
+  .bf-field-worker .bf-phone-focused .bf-page-guide {display:none!important}
+  .bf-phone-actions {margin:.75rem 0}
+  .bf-phone-actions form {margin:0}
+  .bf-phone-actions .primary,.bf-phone-actions .secondary,.bf-field-worker .bf-bale-result .button {box-sizing:border-box;display:flex;justify-content:center;align-items:center;width:100%;min-height:48px}
+  .bf-field-worker .bf-bale-result .button {margin:.5rem 0}
+  .bf-field-worker:has(.bf-phone-focused) .bf-workspaces {display:none}
+  .bf-phone-task .bf-panel {margin:.65rem 0}
+}

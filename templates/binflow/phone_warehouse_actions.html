@@ -1,0 +1,14 @@
+{% macro task_button(task, label, job_id=none) %}
+  {% if binflow_driver and not driver_demo %}
+    <form method="post" action="{{ url_for('bf_switch_workspace') }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <input type="hidden" name="workspace" value="warehouse">
+      {% if job_id %}<input type="hidden" name="job" value="{{ job_id }}">{% endif %}
+      <button class="primary" name="task" value="{{ task }}">{{ label }}</button>
+    </form>
+  {% elif task in ('weigh','sign') %}
+    <a class="button primary" href="{{ url_for('bf_phone_weigh',job=job_id,sign=1 if task=='sign' else none) }}">{{ label }}</a>
+  {% else %}
+    <a class="button primary" href="{{ url_for('bf_bale_new') }}">{{ label }}</a>
+  {% endif %}
+{% endmacro %}

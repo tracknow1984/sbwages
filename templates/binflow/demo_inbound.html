@@ -2,6 +2,10 @@
 {% block title %}Sample warehouse &amp; baling{% endblock %}
 {% block subtitle %}Wetherill Park · NSW{% endblock %}
 {% block body %}
+<div class="bf-phone-only bf-phone-actions">
+  <a class="button primary" href="{{ url_for('bf_phone_weigh') }}">Weigh now</a>
+  <a class="button primary" href="{{ url_for('bf_bale_new') }}">CREATE BALE</a>
+</div><div class="bf-pc-only">
 {% include 'binflow/warehouse_scanner.html' %}
 <section class="bf-panel bf-pad"><h2>1. Weigh returns and sign the PODs</h2>
   {% set total=jobs|sum(attribute='expected') %}
@@ -27,7 +31,7 @@
   <a class="button primary" href="{{ url_for('bf_bale_new',warehouse=1) }}">Create a sample bale</a>
   <a class="button secondary" href="{{ url_for('bf_bales') }}">View bale stock</a>
 </details>
-<details class="bf-panel bf-pad"{{ " open" if bales }}><summary>3. Transfer to Brisbane</summary>
+</div><details class="bf-panel bf-pad"{{ " open" if bales }}><summary>3. Transfer to Brisbane</summary>
   {% if bales %}
   <ul>{% for b in bales %}<li><a href="{{ url_for('bf_bale',bid=b.id) }}">{{ b.code }}</a> · {{ b.material_name }} · {{ b.net_g|bfkg }} kg · {{ b.status|replace('_',' ') }}</li>{% endfor %}</ul>
   <p>Choose a vehicle type and select Sample carrier. Scan each bale ID to load, dispatch the manifest, scan both IDs at Brisbane and sign for receipt into BlockTexx storage.</p>

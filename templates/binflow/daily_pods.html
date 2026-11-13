@@ -4,6 +4,15 @@
 {% block body %}
 <link rel="stylesheet" href="{{ url_for('static',filename='binflow-pod-stock.css') }}">
 <script src="{{ url_for('static',filename='binflow-docket-preview.js') }}" defer></script>
+{% if driver_demo or binflow_warehouse or (binflow_driver and 'warehouse' in staff_workspaces) %}
+{% from 'binflow/phone_warehouse_actions.html' import task_button with context %}
+<section class="bf-phone-only bf-phone-actions bf-panel bf-pad">
+  <h2>Pending weigh-ins</h2>
+  {{ task_button('weigh','Weigh now') }}
+  {{ task_button('bale','CREATE BALE') }}
+  {% if binflow_warehouse or driver_demo %}<a href="{{ url_for('bf_bale_transfer_new') }}">New bale transfer</a>{% endif %}
+</section>
+{% endif %}
 {% if progress %}{% include 'binflow/pod_backlog.html' %}{% endif %}
 <div class="bf-toolbar"><form method="get" class="bf-filters">
   {% if driver_demo %}<input type="hidden" name="demo" value="{{ driver_demo }}">{% endif %}<label>Run date<input type="date" name="date" value="{{ run_date }}" required></label>

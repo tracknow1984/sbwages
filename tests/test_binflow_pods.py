@@ -42,6 +42,25 @@ class DailyPODTests(unittest.TestCase):
         with client.session_transaction() as s:s['bf_client_uid']=1;s['bf_client_version']=1
         return client
 
+    def test_phone_queue_does_not_take_bins_from_another_docket(self):
+        self.initial_delivery()
+        self.job(collect=(1,))
+        self.job(collect=(2,))
+        for jid,bid in [(2,1),(3,2)]:
+            self.exchange(jid,(bid,))
+            self.post(f'/binflow/pickups/{jid}/receive',dict(confirmed=[bid]))
+        first,other=self.rows("SELECT id,bin_code FROM bf_job_bins WHERE direction='collect' ORDER BY job_id")
+        scan='/binflow/warehouse/scan'
+        self.assertEqual(self.post(scan,dict(job=2,flow='phone',code=other['bin_code'])).status_code,409)
+        self.assertTrue(self.post(scan,dict(job=2,flow='phone',code=first['bin_code'])).json['ok'])
+        result=self.post(f"/binflow/pickups/2/weigh/{first['id']}",
+                         dict(return_to='phone',gross=55,tare=5,confirm_tare='yes'))
+        self.assertIn('>POD Sign Off</a>',result.text)
+        self.assertNotIn('data-scan-form',result.text)
+        queue=self.client.get('/binflow/warehouse/weigh-now')
+        self.assertIn('data-scan-form',queue.text)
+        self.assertIn('>POD Sign Off</a>',queue.text)
+
     def test_single_bin_next_and_read_only_receipt(self):
         self.initial_delivery()
         self.job(collect=(1,2))

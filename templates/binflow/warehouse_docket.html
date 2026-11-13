@@ -2,9 +2,19 @@
 {% block title %}{{ job.code }} · Warehouse weigh-in{% endblock %}
 {% block subtitle %}{{ job.site_name }} · {{ job.warehouse_name }} · {{ job.scheduled_date|display_date }}{% endblock %}
 {% block body %}
+{% if binflow_warehouse %}
+<div class="bf-phone-only bf-phone-actions">
+  {% set missing = items|selectattr('direction','equalto','collect')|rejectattr('material_id')|list %}
+  {% set run = pod_run_signoff(job) %}
+  {% set ready = not missing and pod_weights_ready(job) and (not run or run.ready) %}
+  {% if not job.pod_signed_at %}<a class="button primary" href="{{ url_for('bf_phone_weigh',job=job.id,sign=1 if ready else none) }}">{{ 'POD Sign Off' if ready else 'Weigh now' }}</a>{% endif %}
+  <a class="button primary" href="{{ url_for('bf_bale_new') }}">CREATE BALE</a>
+</div>{% endif %}
+<div class="bf-pc-only">
 <p><a href="{{ url_for('bf_warehouse') }}">Back to warehouse</a></p>
 {% include 'binflow/warehouse_scanner.html' %}
 {% include 'binflow/docket_weigh_in.html' %}
-{% include 'binflow/pod_finalisation.html' %}
+</div>
+<div{% if not missing %} class="bf-pc-only"{% endif %}>{% include 'binflow/pod_finalisation.html' %}</div>
 {% if job.pod_signed_at %}<a class="button primary" href="{{ url_for('bf_pod',job_id=job.id) }}">View signed POD</a>{% endif %}
 {% endblock %}

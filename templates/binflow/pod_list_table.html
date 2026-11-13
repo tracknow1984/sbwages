@@ -12,7 +12,10 @@
     {% set cents=pickup_cents(j) %}{{ cents|money if cents is not none else '—' }}</td>{% endif %}
   <td data-label="Actions"><div class="bf-pod-actions">
     {% if not j.pod_deleted_at %}
-      {% if j.collected_at and not pod_final(j) and (current_user.role=='admin' or binflow_manager or binflow_warehouse) %}<a class="button primary pod-tool-icon" href="{{ url_for('bf_bin_weigh',job_id=j.id,item_id=j.next_weight_item,_anchor='weigh-' ~ j.next_weight_item) if j.next_weight_item else url_for('bf_job',job_id=j.id,_anchor='pod-finalisation') }}" aria-label="{{ 'Review & sign off' if ready else 'Check weigh-in' }}" title="{{ 'Review & sign off' if ready else 'Check weigh-in' }}">{{ icon('check' if ready else 'weigh') }}</a>{% endif %}
+      {% if j.collected_at and not pod_final(j) and (current_user.role=='admin' or binflow_manager or binflow_warehouse) %}
+        <a class="button primary pod-tool-icon bf-pc-only" href="{{ url_for('bf_bin_weigh',job_id=j.id,item_id=j.next_weight_item,_anchor='weigh-' ~ j.next_weight_item) if j.next_weight_item else url_for('bf_job',job_id=j.id,_anchor='pod-finalisation') }}" aria-label="{{ 'Review & sign off' if ready else 'Check weigh-in' }}" title="{{ 'Review & sign off' if ready else 'Check weigh-in' }}">{{ icon('check' if ready else 'weigh') }}</a>
+        {% if binflow_warehouse or driver_demo %}<a class="button primary pod-tool-icon bf-phone-only" href="{{ url_for('bf_phone_weigh',job=j.id,sign=1 if ready else none) }}" aria-label="{{ 'POD Sign Off' if ready else 'Weigh now' }}" title="{{ 'POD Sign Off' if ready else 'Weigh now' }}">{{ icon('check' if ready else 'weigh') }}</a>{% endif %}
+      {% endif %}
       <a class="button secondary pod-tool-icon" href="{{ url_for('bf_pod' if ready else 'bf_job',job_id=j.id) }}"
          data-pod-preview="{{ url_for('bf_pod',job_id=j.id,preview=1) }}" aria-haspopup="dialog"
          aria-label="View POD {{ j.code }}" title="View POD">{{ icon('view') }}</a>

@@ -239,6 +239,12 @@ class DriverJourneyTests(unittest.TestCase):
         inbound = '/binflow/driver/demo/inbound'
         hub = self.client.get(inbound + suffix)
         self.assertIn(base + '/bales/new', hub.text)
+        self.assertIn(base+'/warehouse/weigh-now',hub.text)
+        phone=self.client.get(base+'/warehouse/weigh-now')
+        self.assertIn('Accept bin code',phone.text)
+        self.assertIn(base+'/warehouse/scan',phone.text)
+        self.assertNotIn('action="/binflow/warehouse/scan"',phone.text)
+        self.assertEqual(self.client.get('/binflow/warehouse/weigh-now'+suffix).status_code,403)
         materials = {}
         for jid, material in ((1, 'COTTON'), (2, 'PC MIX')):
             desk = inbound + '/' + str(jid) + suffix

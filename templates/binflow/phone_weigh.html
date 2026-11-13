@@ -1,0 +1,31 @@
+{% extends 'binflow/layout.html' %}
+{% block title %}{{ 'POD Sign Off' if signing else 'Pending weigh-ins' }}{% endblock %}
+{% block subtitle %}{{ job.warehouse_name if job else binflow_state or '' }}{% endblock %}
+{% block body %}
+<div class="bf-phone-task">
+{% if signing %}
+  {% include 'binflow/pod_finalisation.html' %}
+{% else %}
+  {% if waiting %}{% include 'binflow/warehouse_scanner.html' %}{% endif %}
+  {% if signable %}
+    {% for docket in signable %}
+    <section class="bf-panel bf-pad">
+      <p class="bf-kicker">Ready to sign</p>
+      <h2>{{ docket.warehouse_name }}</h2>
+      <p>{{ docket.scheduled_date|display_date }} · {{ docket.code }}</p>
+      <a class="button primary" href="{{ url_for('bf_phone_weigh',job=docket.id,sign=1) }}">POD Sign Off</a>
+    </section>
+    {% endfor %}
+  {% elif not waiting %}
+    <section class="bf-panel bf-pad">
+      <h2>{{ 'POD signed' if job and job.pod_signed_at else 'No bins waiting' }}</h2>
+      {% if job and not job.pod_signed_at %}<p>Check the remaining returns and pickup materials before signing this run.</p>
+        <a href="{{ url_for('bf_demo_docket' if driver_demo else 'bf_job',job_id=job.id,_anchor='pod-finalisation') }}">View docket</a>
+      {% elif not job %}<p>Returned bins appear here when they are ready to weigh.</p>{% endif %}
+    </section>
+  {% endif %}
+  {% if job %}<p><a href="{{ url_for('bf_phone_weigh') }}">All pending weigh-ins</a></p>{% endif %}
+  {% if not waiting and not signable %}<a class="button primary" href="{{ url_for('bf_bale_new') }}">CREATE BALE</a>{% endif %}
+{% endif %}
+</div>
+{% endblock %}

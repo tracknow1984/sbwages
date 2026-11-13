@@ -24,7 +24,7 @@ from binflow_permissions import (DRIVER_ENDPOINTS, WAREHOUSE_ENDPOINTS, is_drive
 from binflow_runs import migrate_runs, register_runs, guard_movement, check_owner, valid_date
 from binflow_gps import migrate_gps, register_gps
 from binflow_portal import migrate_portal, register_portal
-from binflow_pods import ensure_pod_available, pending_bins
+from binflow_pods import ensure_pod_available, pending_bins, warehouse_scope
 from binflow_qr import migrate_qr, register_qr, link_request, reopen_requests, pickup_requests, approve_requests, request_queue
 from binflow_workday import migrate_workdays, register_workdays, driver_today
 from binflow_tares import apply_standard_tares
@@ -302,7 +302,7 @@ def register_binflow(app, db, require):
                                job_statuses=JOB_STATUSES, **values)
 
     def action_redirect(endpoint, values):
-        if endpoint not in ('bf_daily_pods','bf_bin_weigh') and getattr(g, 'bf_demo_warehouse', False) and request.endpoint in ('bf_weigh','bf_pod_materials','bf_pod_sign'):
+        if endpoint not in ('bf_daily_pods','bf_bin_weigh','bf_phone_weigh') and getattr(g, 'bf_demo_warehouse', False) and request.endpoint in ('bf_weigh','bf_pod_materials','bf_pod_sign'):
             return redirect(url_for('bf_demo_docket', job_id=request.view_args['job_id']))
         return redirect(url_for(endpoint, **values))
 
@@ -876,6 +876,45 @@ def register_binflow(app, db, require):
         except ValueError as error:
             return failure(error, 'bf_job', job_id=job_id)
 
+    def phone_sign_ready(j):
+        from binflow_pod_records import run_signoff
+        if j['pod_signed_at'] or not pod_weights_ready(db(), j):
+            return False
+        run = run_signoff(db(), j, g.user)
+        if run:
+            return run['ready']
+        return not any(i['direction'] == 'collect' and not (i['material_id'] and i['material_name'])
+                       for i in items(j['id']))
+
+    @app.get('/binflow/warehouse/weigh-now')
+    @access
+    def bf_phone_weigh():
+        if not (is_office(g.user) or is_warehouse(g.user) or g.get('bf_demo_warehouse')):
+            abort(403)
+        anchor = job(request.args.get('job', type=int)) if 'job' in request.args else None
+        if anchor:
+            ensure_pod_available(anchor)
+        waiting = pending_bins(db(), g.user, run=anchor)
+        signable = []
+        if anchor:
+            if phone_sign_ready(anchor):
+                signable.append(anchor)
+        else:
+            scope, params = warehouse_scope(g.user)
+            complete = db().execute(f"""SELECT j.* FROM bf_jobs j JOIN bf_locations w ON w.id=j.warehouse_id
+                WHERE {scope} AND j.status='complete' AND j.approval_status='approved'
+                AND j.pod_signed_at IS NULL AND j.pod_deleted_at IS NULL
+                ORDER BY j.scheduled_date,j.run_order,j.id""", params)
+            seen = set()
+            for j in complete:
+                key = (j['truck_id'],j['scheduled_date'],j['warehouse_id']) if j['truck_id'] and j['schedule_live'] else j['id']
+                if key not in seen and can_view_job(db(),g.user,j) and phone_sign_ready(j):
+                    seen.add(key)
+                    signable.append(j)
+        signing = bool(anchor and signable and request.args.get('sign') == '1')
+        return render('phone_weigh', section='pods', phone_flow=True, job=anchor, waiting=waiting,
+                      signable=signable, signing=signing, items=items(anchor['id']) if signing else ())
+
     @app.get('/binflow/pickups/<int:job_id>/weigh/<int:item_id>')
     @access
     def bf_bin_weigh(job_id,item_id):
@@ -886,19 +925,25 @@ def register_binflow(app, db, require):
         item=db().execute("SELECT * FROM bf_job_bins WHERE id=? AND job_id=? AND direction='collect'",
                           (item_id,job_id)).fetchone()
         if not item: abort(404)
-        waiting=pending_bins(db(),g.user,warehouse_id=j['warehouse_id'])
+        phone_flow = request.args.get('flow') == 'phone'
+        if phone_flow and item['weighed_at']:
+            return redirect(url_for('bf_phone_weigh',job=job_id))
+        waiting=pending_bins(db(),g.user,warehouse_id=j['warehouse_id'],run=j if phone_flow else None)
         # Finish this docket first, then advance to the oldest returned bin at this depot.
         waiting.sort(key=lambda row: row['job_id']!=job_id)
         next_bin=next((row for row in waiting if row['item_id']!=item_id),None)
         ready=any(row['item_id']==item_id for row in waiting)
         return render('bin_weigh',section='pods',job=j,i=item,ready=ready,waiting=len(waiting),
-                      next_bin=next_bin,practice=g.get('bf_demo_practice',{}),weigh_screen=True)
+                      next_bin=next_bin,practice=g.get('bf_demo_practice',{}),weigh_screen=True,phone_flow=phone_flow)
 
     @app.post('/binflow/pickups/<int:job_id>/weigh/<int:item_id>')
     @access
     def bf_weigh(job_id, item_id):
         endpoint, target = 'bf_job', dict(job_id=job_id)
-        if request.form.get('return_to') == 'bin':
+        phone_flow = request.form.get('return_to') == 'phone'
+        if phone_flow:
+            endpoint,target='bf_phone_weigh',dict(job=job_id)
+        elif request.form.get('return_to') == 'bin':
             endpoint,target='bf_bin_weigh',dict(job_id=job_id,item_id=item_id,_anchor='weigh-'+str(item_id))
         elif request.form.get('return_to') == 'pods':
             try:
@@ -935,8 +980,10 @@ def register_binflow(app, db, require):
             event(item['bin_id'], 'Warehouse weight recorded', job_id, j['warehouse_id'], j['warehouse_id'], f'Gross {kg(gross)} kg; tare {kg(tare)} kg; net {kg(gross-tare)} kg')
             if not db().execute("SELECT 1 FROM bf_job_bins WHERE job_id=? AND direction='collect' AND weighed_at IS NULL", (job_id,)).fetchone():
                 db().execute("UPDATE bf_jobs SET status='complete',completed_at=? WHERE id=?", (now(),job_id))
-            return success('Weight saved. Review the POD once all run weights are recorded.', endpoint, **target)
+            return success('Weight saved.' if phone_flow else 'Weight saved. Review the POD once all run weights are recorded.', endpoint, **target)
         except ValueError as error:
+            if phone_flow:
+                return failure(error,'bf_bin_weigh',job_id=job_id,item_id=item_id,flow='phone')
             return failure(error, endpoint, **target)
 
     @app.post('/binflow/warehouse/scan')
@@ -951,6 +998,14 @@ def register_binflow(app, db, require):
         matches = bins("(b.code=? COLLATE NOCASE OR b.token=?) AND b.status IN ('received','weighed')", (value,value))
         if matches:
             b = matches[0]
+            if request.form.get('flow') == 'phone':
+                anchor = job(request.form.get('job',type=int)) if request.form.get('job') else None
+                pending = pending_bins(db(),g.user,bin_id=b['id'],run=anchor)
+                if pending:
+                    row = pending[0]
+                    job(row['job_id'])
+                    return jsonify(ok=True,redirect=url_for('bf_bin_weigh',job_id=row['job_id'],item_id=row['item_id'],flow='phone'))
+                return jsonify(ok=False,message='This bin is not waiting for a weight on this run. Scan another returned bin.'),409
             item = db().execute("""SELECT i.id AS item_id,i.weighed_at AS item_weighed,j.* FROM bf_job_bins i JOIN bf_jobs j ON j.id=i.job_id
                 WHERE i.bin_id=? AND i.direction='collect' AND j.warehouse_id=? AND j.pod_deleted_at IS NULL
                 AND j.approval_status='approved' AND j.status IN ('collected','received','complete')

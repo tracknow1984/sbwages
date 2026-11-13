@@ -16,8 +16,8 @@
   {% endif %}
   {% if binflow_driver %}<link rel="stylesheet" href="{{ url_for('static', filename='driver-portal.css') }}">{% endif %}
   <script src="{{ url_for('static', filename='app.js') }}" defer></script>
-{% if not bale_mode %}<script src="{{ url_for('static',filename='client-wording.js') }}" defer></script>{% endif %}{% if bf_surface %}{% include 'binflow/ui_assets.html' %}{% endif %}</head>
-<body class="{{ 'bf-ui ' if bf_surface }}{{ 'employee-app' if current_user and current_user.role == 'employee' else 'admin-app' }}{{ ' binflow-app' if current_user and tab == 'binflow' else '' }}{{ ' driver-mode' if driver_mode else '' }}{{ ' driver-journey' if journey_mode else '' }}{{ ' driver-account' if binflow_driver else '' }}">
+{% if not bale_mode %}<script src="{{ url_for('static',filename='client-wording.js') }}" defer></script>{% endif %}{% if bf_surface %}{% include 'binflow/ui_assets.html' %}<link rel="stylesheet" href="{{ url_for('static',filename='binflow-phone-work.css') }}">{% endif %}</head>
+<body class="{{ 'bf-field-worker ' if binflow_driver or binflow_warehouse or driver_demo }}{{ 'bf-ui ' if bf_surface }}{{ 'employee-app' if current_user and current_user.role == 'employee' else 'admin-app' }}{{ ' binflow-app' if current_user and tab == 'binflow' else '' }}{{ ' driver-mode' if driver_mode else '' }}{{ ' driver-journey' if journey_mode else '' }}{{ ' driver-account' if binflow_driver else '' }}">
 {% if journey_mode %}
 <header class="driver-appbar">
   <a class="brand" href="{{ url_for('bf_workday') }}">{{ binflow_brand() }}</a>
@@ -28,6 +28,10 @@
     <nav aria-label="BinFlow menu">
       <a href="{{ url_for('bf_workday') }}">Driver day</a>
       <a href="{{ url_for('bf_daily_pods') }}">Daily PODs</a>
+      {% if driver_demo or (binflow_driver and 'warehouse' in staff_workspaces) %}
+      {% from 'binflow/phone_warehouse_actions.html' import task_button with context %}
+      <div class="bf-phone-only bf-phone-actions">{{ task_button('weigh','Weigh now') }}{{ task_button('bale','CREATE BALE') }}</div>
+      {% endif %}
       {% if driver_demo %}<a href="{{ url_for('bf_demo_inbound') }}">Warehouse &amp; baling</a>
       {% elif not binflow_driver %}<a href="{{ url_for('bf_dashboard',demo=None) }}">Back to office</a>{% endif %}
       <form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="secondary">Sign out</button></form>

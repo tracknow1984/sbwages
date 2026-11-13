@@ -17,7 +17,7 @@
     {% if next_bin %}<a class="button primary weigh-next" href="{{ url_for('bf_bin_weigh',job_id=next_bin.job_id,item_id=next_bin.item_id,_anchor='weigh-' ~ next_bin.item_id) }}">Next bin · {{ next_bin.bin_code }}</a><p class="bf-muted">{{ waiting }} {{ 'bin' if waiting==1 else 'bins' }} waiting at this warehouse.</p>
     {% else %}<p class="bf-note">No more bins are waiting to be weighed at this warehouse.</p>{% endif %}
   {% endif %}
-  <nav aria-label="Weigh-in links"><a href="{{ url_for('bf_demo_docket' if driver_demo else 'bf_job',job_id=job.id,_anchor='pod-finalisation') }}">Review docket &amp; POD</a>
-  <a href="{{ url_for('bf_demo_inbound') if driver_demo else url_for('bf_daily_pods',date=job.scheduled_date,_anchor='pending-weigh-ins') }}">Pending weigh-ins</a></nav>
+  {% if not phone_flow %}<nav aria-label="Weigh-in links"><a href="{{ url_for('bf_demo_docket' if driver_demo else 'bf_job',job_id=job.id,_anchor='pod-finalisation') }}">Review docket &amp; POD</a>
+  <a href="{{ url_for('bf_demo_inbound') if driver_demo else url_for('bf_daily_pods',date=job.scheduled_date,_anchor='pending-weigh-ins') }}">Pending weigh-ins</a></nav>{% endif %}
 </section>
 {% endblock %}

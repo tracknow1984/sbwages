@@ -21,7 +21,7 @@ DEMO_ENDPOINTS = frozenset({
 })
 # These routes get a distinct sample URL. Losing a session never turns that URL into a live operation.
 WAREHOUSE_ENDPOINTS = frozenset({
-    'bf_warehouse_scan', 'bf_bin_weigh', 'bf_weigh', 'bf_pod_materials', 'bf_pod_sign', 'bf_bales', 'bf_bale_new', 'bf_bale_source_scan',
+    'bf_phone_weigh', 'bf_warehouse_scan', 'bf_bin_weigh', 'bf_weigh', 'bf_pod_materials', 'bf_pod_sign', 'bf_bales', 'bf_bale_new', 'bf_bale_source_scan',
     'bf_bale', 'bf_bale_correct', 'bf_bale_qr', 'bf_bale_label', 'bf_bale_image', 'bf_bale_transfer_new',
     'bf_bale_transfer', 'bf_bale_scan', 'bf_bale_transfer_action', 'bf_bale_note', 'bf_bale_signature',
     'bf_bale_storage_export',

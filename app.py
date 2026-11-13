@@ -418,6 +418,12 @@ def create_app(test_config=None):
         if mode not in workspaces(g.user):
             abort(403)
         session['binflow_workspace'] = mode
+        if mode == 'warehouse':
+            task = request.form.get('task')
+            if task in ('weigh','sign'):
+                return redirect(url_for('bf_phone_weigh',job=request.form.get('job',type=int),sign=1 if task=='sign' else None))
+            if task == 'bale':
+                return redirect(url_for('bf_bale_new'))
         if mode == 'warehouse' and 'warehouse' not in assigned_roles(g.user):
             return redirect(url_for('bf_daily_pods', _anchor='pending-weigh-ins'))
         return redirect(url_for({'manager':'bf_dashboard','driver':'bf_resume','warehouse':'bf_bales'}[mode]))

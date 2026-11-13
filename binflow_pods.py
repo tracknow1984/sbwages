@@ -63,9 +63,16 @@ def warehouse_scope(user):
     return '0=1', ()
 
 
-def pending_bins(conn, user, bin_id=None, warehouse_id=None):
+def pending_bins(conn, user, bin_id=None, warehouse_id=None, run=None):
     scope, args = warehouse_scope(user)
     filters = ''
+    if run is not None:
+        if run['truck_id'] and run['schedule_live']:
+            filters += ' AND j.truck_id=? AND j.scheduled_date=? AND j.warehouse_id=? AND j.schedule_live=1'
+            args += (run['truck_id'], run['scheduled_date'], run['warehouse_id'])
+        else:
+            filters += ' AND j.id=?'
+            args += (run['id'],)
     if bin_id is not None:
         filters += ' AND b.id=?'
         args += (bin_id,)

@@ -1,11 +1,14 @@
 <section class="bf-panel bf-pad" data-driver-scanner>
-<h2>Warehouse weigh-in</h2>
+<h2>{{ 'Scan a bin' if phone_flow else 'Warehouse weigh-in' }}</h2>
+{% if phone_flow %}<p>{{ waiting|length }} {{ 'bin' if waiting|length==1 else 'bins' }} waiting{{ ' on this run' if job }}.</p>{% endif %}
 <form method="post" action="{{ url_for('bf_warehouse_scan') }}" class="bf-form" data-scan-form data-lookup="weight">
 <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="action" value="weigh">
+{% if phone_flow %}<input type="hidden" name="flow" value="phone">{% if job %}<input type="hidden" name="job" value="{{ job.id }}">{% endif %}{% endif %}
 <p data-scan-context hidden></p>
 <div class="bf-camera-controls"><button type="button" class="primary" data-camera-start>Scan bin QR</button><button type="button" class="secondary" data-camera-stop hidden>Close camera</button></div>
 <video class="bf-camera" data-camera playsinline muted hidden aria-label="Returned bin QR scanner"></video>
-<details><summary>Enter bin ID</summary><div class="bf-scan-entry"><label>Bin ID<input name="code" data-scan-code maxlength="1000" autocomplete="off" required placeholder="Scan or enter the bin ID"></label><button type="submit" class="secondary">Open weight entry</button></div></details>
+{% set test_code = phone_flow and (driver_demo or g.live_cycle) %}
+{% if test_code %}<div>{% else %}<details><summary>{{ 'Use handheld scanner' if phone_flow else 'Enter bin ID' }}</summary>{% endif %}<div class="bf-scan-entry"><label>{{ 'Test bin code' if test_code else 'Bin ID' }}<input name="code" data-scan-code{% if test_code %} value="{{ waiting[0].bin_code }}"{% endif %} maxlength="1000" autocomplete="off" required placeholder="Scan or enter the bin ID"></label><button type="submit" class="secondary">{{ 'Accept bin code' if test_code else 'Open weight entry' }}</button></div>{% if test_code %}</div>{% else %}</details>{% endif %}
 <p class="bf-scan-feedback" data-scan-feedback role="status" aria-live="polite"></p>
 </form>
 </section>

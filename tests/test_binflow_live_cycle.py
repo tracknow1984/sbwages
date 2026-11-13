@@ -80,16 +80,36 @@ class LiveCycleTests(unittest.TestCase):
             for size in sizes:scan('return',f'LT-{size}-FULL')
         for reg in ['/binflow/warehouse','/binflow/pods?date='+date]:
             check('LT-1100-FULL',admin.get(reg))
-        self.post('/binflow/workspace',dict(workspace='warehouse'))
+        queue_path='/binflow/warehouse/weigh-now'
+        self.assertEqual(self.client.get(queue_path).status_code,403)
+        queue=self.post('/binflow/workspace',dict(workspace='warehouse',task='weigh'))
+        self.assertEqual(queue.request.path,queue_path)
+        check('Accept bin code',queue)
+        self.assertNotIn('Accept bin code',admin.get(queue_path).text)
+        self.assertNotIn('>POD Sign Off</a>',queue.text)
         for jid,sizes,mid in stops:
             for size in sizes:
                 code=f'LT-{size}-FULL'
-                found=self.post('/binflow/warehouse/scan',dict(code=code)).json
+                found=self.post('/binflow/warehouse/scan',dict(code=code,job=j1,flow='phone')).json
                 self.assertTrue(found['ok'])
+                check('name="return_to" value="phone"',self.client.get(found['redirect']))
                 row=self.rows('SELECT id,tare_g FROM bf_job_bins WHERE job_id=? AND bin_code=?',(jid,code))[0]
                 tare=row['tare_g']/1000
-                self.post(f'/binflow/pickups/{jid}/weigh/{row["id"]}',dict(tare=tare,gross=tare+{1100:100,240:25,660:75}[size],confirm_tare='yes'))
-        pod=self.client.get(f'/binflow/pickups/{j2}')
+                action_url=f'/binflow/pickups/{jid}/weigh/{row["id"]}'
+                invalid=self.post(action_url,dict(tare=tare,gross=tare-1,return_to='phone',confirm_tare='yes'))
+                check('Gross weight cannot be less',invalid)
+                check('name="return_to" value="phone"',invalid)
+                queue=self.post(action_url,dict(tare=tare,gross=tare+{1100:100,240:25,660:75}[size],confirm_tare='yes',return_to='phone'))
+                self.assertEqual(queue.request.path,queue_path)
+                self.assertNotIn('value="'+code+'"',queue.text)
+                self.assertEqual(self.post('/binflow/warehouse/scan',dict(flow='phone',code=code,job=jid)).status_code,409)
+                if jid==j1:
+                    check('Accept bin code',queue)
+                    self.assertNotIn('>POD Sign Off</a>',queue.text)
+        check('>POD Sign Off</a>',queue)
+        self.assertNotIn('data-scan-form',queue.text)
+        self.assertEqual(self.client.get(queue_path).text.count('>POD Sign Off</a>'),1)
+        pod=self.client.get(queue_path+f'?job={j2}&sign=1')
         signed=self.post(f'/binflow/pickups/{j2}/pod/sign',dict(scope='run',version=field(pod.text,'version'),run_version=field(pod.text,'run_version'),confirm='yes',signature=SIGNATURE))
         check('Uncompleted PODs',signed)
         self.assertNotIn('data-docket-trigger',signed.text)
