@@ -59,16 +59,16 @@
 .empire-nav [hidden] {display: none}
 .driver-mode .empire-nav {display: none}
 
-@media (min-width: 64rem) {
+@media (min-width: 72rem) {
   .empire-nav__tools a:last-child {margin-inline-start: auto}
 }
-@media (min-width: 64rem) and (max-width: 78rem) {
+@media (min-width: 72rem) and (max-width: 89.99rem) {
   .empire-nav {gap: 10px}
   .empire-nav__tools {padding-inline-start: 10px}
   .empire-nav__tools a {padding-inline: 6px}
   .empire-nav__tools svg {display: none}
 }
-@media (max-width: 63.99rem) {
+@media (max-width: 71.99rem) {
   .empire-nav {flex-wrap: wrap; gap: 6px}
   .empire-nav__tools {flex-wrap: wrap; flex-basis: 100%; padding-inline-start: 0; border: 0}
   .empire-nav.is-compact {flex-wrap: nowrap; justify-content: space-between}
@@ -95,4 +95,11 @@
   .empire-nav__workspaces {gap: 2px}
   .empire-nav__workspaces a {flex-direction: column; gap: 3px; min-width: 58px; padding: 5px 8px; font-size: .75rem}
   .empire-nav__more {min-height: 44px; padding: 0 10px}
+}
+
+@media (max-width: 24rem) {
+  .empire-nav {padding-inline: 5px; gap: 2px}
+  .empire-nav__workspaces {gap: 1px}
+  .empire-nav__workspaces a {min-width: 50px; padding-inline: 3px; font-size: .6875rem}
+  .empire-nav__more {flex-direction: column-reverse; gap: 2px; padding-inline: 6px; font-size: .6875rem}
 }

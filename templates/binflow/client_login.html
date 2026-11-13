@@ -1,1 +1,66 @@
-{% extends 'binflow/client_layout.html' %}{% block content %}<section class="bf-panel bf-pad bf-narrow"><span class="bf-kicker">{{ "ALL TRANSFERS" if request.args.get("transfers") else "CLIENT PORTAL" }}</span><h1>Welcome to BINFLOW</h1><p>{{ "Sign in to request a transfer and view your bookings." if request.args.get("transfers") else "Sign in to your client portal." }}</p>{% if error %}<p class="notice error" role="alert">{{ error }}</p>{% endif %}<form method="post" class="bf-form"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><label>Username<input name="username" autocomplete="username" maxlength="100" required></label><label>Password<input type="password" name="password" autocomplete="current-password" maxlength="200" required></label><button type="submit" class="primary">Sign in</button></form><p class="bf-muted">Contact your SB Empire coordinator if you need access or a password reset.</p>{% if request.args.get('transfers') and g.user and g.user.role=='admin' %}<p><a href="{{ url_for('bf_interstate_accounts') }}">View saved booking logins</a></p>{% endif %}</section>{% endblock %}
+{% from 'binflow/brand.html' import brand %}
+{% from 'binflow/icons.html' import icon %}
+{% from 'empire_brand.html' import credit %}
+{% set transfers = request.args.get('transfers') %}
+{% set scenes = [
+  ('warehouse', 'Warehouse', 'Textile collections', 'BINFLOW textile collection bins in the SB Empire warehouse, with a rigid truck at the loading bay.'),
+  ('truck', 'Transport', 'Fleet & transport', 'White SB Empire rigid truck beside collection bins at the depot.'),
+  ('textiles', 'Textiles', 'Material handling', 'Gloved hands sorting denim and other textiles beside a collection cage.')
+] %}
+<!doctype html>
+<html lang="en-AU">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#102c4c">
+  <title>BINFLOW · {{ 'All Transfers' if transfers else 'Client portal' }}</title>
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static',filename='binflow-mark.svg') }}">
+  <link rel="stylesheet" href="{{ url_for('static',filename='portal-login.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static',filename='binflow-client-login.css') }}">
+</head>
+<body class="client-portal">
+  <header class="portal-header">
+    {{ brand() }}
+    <a class="client-link" href="{{ url_for('login',audience='employee') }}">Staff sign in {{ icon('arrow') }}</a>
+  </header>
+  <main class="client-content">
+    <section class="gallery" aria-label="BinFlow operations">
+      {% for id, label, title, alt in scenes %}
+      <input class="scene-choice" type="radio" id="choose-{{ id }}" name="scene" aria-label="Show {{ label }} photo" {% if loop.first %}checked{% endif %}>
+      {% endfor %}
+      {% for id, label, title, alt in scenes %}
+      <figure class="scene scene-{{ id }}">
+        <img src="{{ url_for('static',filename='binflow-client-' ~ id ~ '.webp') }}" alt="{{ alt }}" {% if loop.first %}fetchpriority="high"{% else %}loading="lazy"{% endif %}>
+        <figcaption>{{ title }}</figcaption>
+      </figure>
+      {% endfor %}
+      <div class="gallery-controls">
+        {% for id, label, title, alt in scenes %}<label for="choose-{{ id }}">{{ label }}</label>{% endfor %}
+      </div>
+    </section>
+    <section class="sign-in" aria-labelledby="login-title">
+      <div class="login">
+        <div class="overline"><span aria-hidden="true"></span>{{ 'All Transfers' if transfers else 'Client portal' }}</div>
+        <h1 id="login-title">{{ 'Transfer sign in' if transfers else 'Client sign in' }}</h1>
+        <p class="intro">{{ 'Sign in to request a transfer and view your bookings.' if transfers else 'Access your collection schedules, transfer bookings and delivery records.' }}</p>
+        {% if error %}<p class="notice error" role="alert">{{ error }}</p>{% endif %}
+        <form method="post">
+          <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+          <label for="username">Username</label>
+          <input id="username" name="username" value="{{ request.form.get('username', '') }}" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="100" required>
+          <label for="password">Password</label>
+          <input id="password" type="password" name="password" autocomplete="current-password" maxlength="200" required>
+          <button type="submit">Sign in {{ icon('arrow') }}</button>
+        </form>
+        <details class="help"><summary>Need help signing in?</summary>
+          {% for tip in bf_public_guide[1:] %}<p>{{ tip }}</p>{% endfor %}
+        </details>
+        {% if transfers and g.user and g.user.role == 'admin' %}
+        <p><a class="manage-link" href="{{ url_for('bf_interstate_accounts') }}">View saved booking logins</a></p>
+        {% endif %}
+      </div>
+    </section>
+  </main>
+  <footer>{{ credit() }}</footer>
+</body>
+</html>

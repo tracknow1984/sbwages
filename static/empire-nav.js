@@ -3,7 +3,7 @@
   if (!nav) return;
   const button = nav.querySelector('.empire-nav__more');
   const tools = document.getElementById(button.getAttribute('aria-controls'));
-  const compact = window.matchMedia('(max-width: 63.99rem)');
+  const compact = window.matchMedia('(max-width: 71.99rem)');
   const activeTool = tools.querySelector('[aria-current="page"]');
 
   function setOpen(open) {

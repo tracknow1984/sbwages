@@ -1,4 +1,6 @@
-{% from 'empire_brand.html' import logo %}
 {% macro brand() -%}
-<span class="bf-product-brand"><span class="bf-empire-mark">{{ logo('empire-site-logo') }}</span><span class="bf-brand-wordmark">BINFLOW</span></span>
+<span class="bf-product-brand">
+  <img class="bf-brand-icon" src="{{ url_for('static', filename='binflow-mark.svg') }}" width="44" height="44" alt="">
+  <span class="bf-brand-wordmark">BINFLOW</span>
+</span>
 {%- endmacro %}

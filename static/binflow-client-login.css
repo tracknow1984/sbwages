@@ -1,0 +1,102 @@
+.client-portal {
+  --ink: #102c4c;
+  --accent: #08746d;
+  --line: #d7deda;
+  color: var(--ink);
+  background: #f8f8f4;
+  display: flex;
+  flex-direction: column;
+  max-width: 1920px;
+  min-height: 100svh;
+  margin-inline: auto;
+  padding: 0 clamp(18px, 3.2vw, 64px);
+}
+.portal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: clamp(16px, 2.1vh, 25px) 0;
+  border-bottom: 1px solid var(--line);
+}
+.bf-product-brand { display: inline-flex; align-items: center; gap: 11px; }
+.bf-brand-icon { display: block; width: 46px; height: auto; }
+.bf-brand-wordmark { color: var(--ink); font: 800 34px/1 Arial,sans-serif; letter-spacing: -1.5px; }
+.client-content {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1.18fr) minmax(0, 1fr);
+  padding-block: clamp(16px, 2.4vh, 28px);
+  gap: clamp(30px, 4.8vw, 82px);
+}
+.gallery {
+  min-height: clamp(550px, 69vh, 820px);
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background: #18333b;
+  color: white;
+  border-radius: 13px;
+}
+.scene { position: absolute; display: none; inset: 0; margin: 0; }
+.scene img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: 50% 50%; }
+.scene::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(to top, #081a22f5 0, #081a2285 15%, transparent 33%);
+}
+.scene figcaption {
+  position: absolute; z-index: 1; left: clamp(24px, 2.8vw, 48px); right: 18px; bottom: 85px;
+  font-size: clamp(32px, 3.15vw, 56px); font-weight: 550; line-height: 1.04; letter-spacing: -.055em;
+  text-shadow: 0 1px 12px #0a192b64;
+}
+.scene-choice { position: absolute; width: 1px; min-height: 0; height: 1px; overflow: hidden; clip-path: inset(50%); padding: 0; border: 0; }
+#choose-warehouse:checked ~ .scene-warehouse,
+#choose-truck:checked ~ .scene-truck,
+#choose-textiles:checked ~ .scene-textiles { display: block; }
+.gallery-controls {
+  position: absolute; z-index: 1; bottom: 23px; left: clamp(24px, 2.8vw, 48px); right: 12px;
+  display: flex; gap: 6px; flex-wrap: wrap;
+}
+.gallery-controls label {
+  display: inline-flex; align-items: center; min-height: 40px; margin: 0; padding: 0 14px;
+  border: 1px solid #acb9b9; border-radius: 100px; background: #122733d9; color: white;
+  cursor: pointer; font-size: 12px; font-weight: 650;
+}
+.gallery-controls label:hover { background: #26434c; }
+#choose-warehouse:checked ~ .gallery-controls [for=choose-warehouse],
+#choose-truck:checked ~ .gallery-controls [for=choose-truck],
+#choose-textiles:checked ~ .gallery-controls [for=choose-textiles] { background: #e2f7ee; color: #123e39; border-color: #e2f7ee; }
+#choose-warehouse:focus-visible ~ .gallery-controls [for=choose-warehouse],
+#choose-truck:focus-visible ~ .gallery-controls [for=choose-truck],
+#choose-textiles:focus-visible ~ .gallery-controls [for=choose-textiles] { outline: 3px solid white; outline-offset: 2px; }
+.sign-in { display: grid; align-items: center; justify-items: center; }
+.sign-in .login { width: min(100%, 400px); }
+.overline { display: flex; align-items: center; gap: 9px; color: #216a63; text-transform: uppercase; font: 700 11px/1.3 Arial,sans-serif; letter-spacing: .14em; }
+.overline span { width: 22px; height: 2px; background: var(--accent); }
+.sign-in h1 { margin-top: 16px; font-size: clamp(42px, 3.7vw, 62px); }
+.sign-in .intro { margin-bottom: 29px; }
+.sign-in input { border-radius: 7px; }
+.sign-in button { background: var(--ink); border-radius: 7px; }
+.sign-in button:hover { background: #1c4864; }
+.manage-link { text-decoration: underline; }
+.client-portal footer { padding: 15px 0 18px; border-color: var(--line); }
+@media (max-width: 900px) and (min-width: 701px) {
+  .client-content { grid-template-columns: 1fr 1fr; gap: 26px; }
+  .gallery-controls { gap: 4px; left: 13px; }
+  .gallery-controls label { padding-inline: 10px; }
+}
+@media (max-width: 700px) {
+  .client-content { display: flex; flex-direction: column; gap: 0; padding-top: 14px; }
+  .portal-header { padding-block: 12px; }
+  .bf-brand-icon { width: 34px; }
+  .bf-brand-wordmark { font-size: 26px; }
+  .gallery { min-height: 0; height: clamp(200px, 52vw, 285px); border-radius: 9px; background: #122d3b; }
+  .scene img { position: absolute; right: 0; width: 63%; object-position: 50% 52%; }
+  .scene::after { display: none; }
+  .scene figcaption { top: 15px; left: 12px; right: 65%; bottom: auto; font-size: clamp(20px, 4.4vw, 27px); }
+  .gallery-controls { left: 12px; right: auto; bottom: 10px; flex-direction: column; align-items: flex-start; gap: 4px; }
+  .gallery-controls label { min-height: 31px; padding-inline: 12px; font-size: 11px; }
+  .sign-in .login { padding: 28px 0 6px; }
+  .sign-in h1 { font-size: 38px; margin: 10px 0 8px; }
+  .sign-in .intro { font-size: 14px; margin-bottom: 19px; }
+}
