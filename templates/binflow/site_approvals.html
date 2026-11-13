@@ -1,0 +1,28 @@
+{% extends 'binflow/layout.html' %}
+{% block title %}Client approvals{% endblock %}
+{% block subtitle %}Review new client sites and their requested collection schedules.{% endblock %}
+{% block body %}
+<nav class="bf-chips" aria-label="Filter requests by status">{% for key,label in statuses_by_key.items() %}
+<a href="{{ url_for('bf_site_approvals',status=key) }}" {% if selected==key %}class="active" aria-current="page"{% endif %}>{{ label }} ({{ counts.get(key,0) }})</a>
+{% endfor %}</nav>
+{% for r in rows %}
+<section class="bf-panel bf-pad" id="request-{{ r.id }}">
+<div class="bf-toolbar"><div><h2>{{ r.site_name }}</h2><span>{{ r.business_name }} · {{ r.details.state }}</span></div><span class="bf-status {{ r.status }}">{{ statuses_by_key[r.status] }}</span></div>
+<p>{{ r.details.address }}{% if r.details.suburb %}, {{ r.details.suburb }}{% endif %} {{ r.details.state }} {{ r.details.postcode }}<br>
+<strong>Requested schedule</strong> · {{ r.details.schedule or 'To be arranged' }}</p>
+<details><summary>Contacts and site details</summary><dl>{% for key,label,_ in fields if key in ('group_name','contact_name','contact_number','contact_email','asic_required','contact_verified') %}
+<dt>{{ label }}</dt><dd>{{ r.details[key] or '—' }}</dd>{% endfor %}</dl></details>
+<p class="bf-muted">Submitted by {{ r.username }} · {{ r.submitted_at|bfstamp }}{% if r.reviewed_at %}<br>Reviewed by {{ r.reviewed_by }} · {{ r.reviewed_at|bfstamp }}{% endif %}</p>
+{% if r.status=='pending' %}
+<div class="bf-actions"><form method="post" action="{{ url_for('bf_review_site',rid=r.id) }}">
+<input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="primary" name="decision" value="approved">Approve for scheduling</button></form>
+<details><summary>Decline request</summary><form class="bf-form" method="post" action="{{ url_for('bf_review_site',rid=r.id) }}">
+<input type="hidden" name="csrf" value="{{ csrf_token() }}"><label>Reason for the client (optional)<textarea name="reason" maxlength="500" rows="2"></textarea></label>
+<button class="secondary" name="decision" value="declined">Decline request</button></form></details></div>
+{% elif r.status=='approved' %}<div class="bf-actions"><a class="button secondary" href="{{ url_for('bf_collection_calendar',state=r.details.state) }}">Open {{ r.details.state }} collection calendar</a>
+{% if current_user.role=='admin' %}<a href="{{ url_for('bf_client_profile',profile_id=r.profile_id) }}">Client profile</a>{% endif %}</div>
+{% elif r.reason %}<p>{{ r.reason }}</p>{% endif %}
+</section>
+{% else %}<p class="bf-panel bf-pad">{{ 'No client sites are awaiting approval.' if selected=='pending' else 'No requests with this status.' }}</p>{% endfor %}
+{% if pages>1 %}<nav class="bf-actions" aria-label="Client approval pages">{% if page>1 %}<a href="{{ url_for('bf_site_approvals',status=selected,page=page-1) }}">Previous</a>{% endif %} Page {{ page }} of {{ pages }} {% if page<pages %}<a href="{{ url_for('bf_site_approvals',status=selected,page=page+1) }}">Next</a>{% endif %}</nav>{% endif %}
+{% endblock %}

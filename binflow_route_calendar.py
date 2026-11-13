@@ -50,6 +50,8 @@ def clients(conn):
     equipment = {r['profile_id']: json.loads(r['equipment']) for r in conn.execute(
         'SELECT profile_id,equipment FROM bf_allocation_workbook_rows WHERE active=1')}
     saved = {r['location_id']: dict(r) for r in conn.execute('SELECT location_id,cycle_phase,source_frequency FROM bf_collection_profiles')}
+    approvals = {r['profile_id']: r['reviewed_at'][:10] for r in conn.execute(
+        "SELECT profile_id,reviewed_at FROM bf_client_site_requests WHERE status='approved'")}
     profiles = []
     for r in register_rows(conn):
         if r['archived']:
@@ -62,6 +64,8 @@ def clients(conn):
         p['flexible'] = not p['days']
         old = saved.get(p['id'], {})
         p['cycle_phase'] = old.get('cycle_phase', 0) if old.get('source_frequency') == p['schedule'] else 0
+        if p['profile_id'] in approvals:
+            p['available_from'] = approvals[p['profile_id']]
         p['start_date'] = (START+timedelta(weeks=p['cycle_phase'])).isoformat()
         p['end_date'] = ''
         p['geo_key'] = p['state'] + '|' + p['suburb'].strip().casefold()
@@ -193,7 +197,7 @@ def pack(stops, state, r, geo):
     return trips
 
 
-def due(p, monday):
+def recurring_days(p, monday):
     """Return allowed weekdays for one service week, or no demand. Fixed days are exact."""
     cadence = p['cadence']
     if monday < START or cadence in ('adhoc', 'unconfirmed', 'paused'):
@@ -214,6 +218,15 @@ def due(p, monday):
             if monday <= target <= monday+timedelta(days=6):
                 return [None]
     return []
+
+
+def due(profile, monday):
+    days = recurring_days(profile, monday)
+    if not profile.get('available_from'):
+        return days
+    first_day = (date.fromisoformat(profile['available_from']) - monday).days
+    # A flexible visit needs at least one remaining working day in its first week.
+    return [d for d in days if (4 if d is None else d) >= first_day]
 
 
 def elapsed(trips):
@@ -266,7 +279,8 @@ def week_plan(conn, monday, state='', geo=None, people=None):
                 if proposal and elapsed(proposal) > DAY_LIMIT:
                     reason = 'Full site service cannot fit the 06:30–15:30 depot-return day; extra truck or regional partner required.'
                 if reason:
-                    days[d if d is not None else 0]['exceptions'].append(dict(profile=p, reason=reason, fixed=d is not None))
+                    day_index = d if d is not None else next(i for i in range(5) if days[i]['date'] >= p.get('available_from', ''))
+                    days[day_index]['exceptions'].append(dict(profile=p, reason=reason, fixed=d is not None))
                 elif d is not None:
                     days[d]['stops'].extend(loads)
                 else:
@@ -278,7 +292,7 @@ def week_plan(conn, monday, state='', geo=None, people=None):
         for p, loads in flexible:
             best = None
             for d in range(5):
-                if days[d]['baling']:
+                if days[d]['baling'] or days[d]['date'] < p.get('available_from', ''):
                     continue
                 trial = pack(days[d]['stops']+loads, code, r, geo)
                 duration = elapsed(trial or [])
@@ -289,7 +303,8 @@ def week_plan(conn, monday, state='', geo=None, people=None):
                 if best is None or score < best[0]:
                     best = (score, d, trial)
             if best is None:
-                days[0]['exceptions'].append(dict(profile=p, reason='No weekday has enough time with the baling day protected; additional capacity needed.', fixed=False))
+                first_day = next(i for i in range(5) if days[i]['date'] >= p.get('available_from', ''))
+                days[first_day]['exceptions'].append(dict(profile=p, reason='No weekday has enough time with the baling day protected; additional capacity needed.', fixed=False))
             else:
                 _, d, trips = best
                 days[d]['stops'].extend(loads); days[d]['trips'] = trips

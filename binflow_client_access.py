@@ -43,7 +43,7 @@ def defaults(booking_login, national_reader=False):
     if not booking_login:
         rights.update(('calendar.view','requests.view','pods.view'))
     if national_reader:
-        rights.update(('pods.view','pods.all','profiles.view','national.view'))
+        rights.update(('pods.view','pods.all','profiles.view','profiles.add','national.view'))
     return rights
 
 def rights_for(conn, aid):
@@ -56,6 +56,9 @@ def rights_for(conn, aid):
 
 def set_context(conn, account):
     g.bf_client=account
+    g.client_site_approval = conn.execute(
+        "SELECT 1 FROM bf_client_named_defaults WHERE name='blocktexx1' AND account_id=?",
+        (account['id'],)).fetchone() is not None
     g.client_rights=rights_for(conn,account['id'])
     g.client_section = ENDPOINTS.get(request.endpoint, '').partition('.')[0]
     return g.client_rights

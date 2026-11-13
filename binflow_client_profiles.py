@@ -284,21 +284,28 @@ def filter_register(rows, args, endpoint, endpoint_args=None, supplier=False, al
                 next_url=url_for(endpoint, page=page+1, **page_args) if page<pages else None)
 
 
-def create_site(conn, values, details, stamp, who):
+def site_account(conn, values, details):
     if values['client_id'] in ('', 'new'):
         name = values['client_name'] or details['customer_site']
         if len(name) > 200 or '\x00' in name:
             raise ValueError('Client / business name must be no more than 200 characters.')
         if conn.execute('SELECT 1 FROM bf_clients WHERE name=?', (name,)).fetchone():
             raise ValueError('That client already exists. Select it under Client account to add another site.')
+        return None, name
+    try:
+        cid = int(values['client_id'])
+    except ValueError:
+        raise ValueError('Choose a valid client account.') from None
+    client = conn.execute('SELECT name FROM bf_clients WHERE id=?', (cid,)).fetchone()
+    if not client:
+        raise ValueError('Choose a valid client account.')
+    return cid, client['name']
+
+
+def create_site(conn, values, details, stamp, who):
+    cid, name = site_account(conn, values, details)
+    if cid is None:
         cid = conn.execute('INSERT INTO bf_clients(name,created_at) VALUES(?,?)', (name,stamp)).lastrowid
-    else:
-        try:
-            cid = int(values['client_id'])
-        except ValueError:
-            raise ValueError('Choose a valid client account.') from None
-        if not conn.execute('SELECT 1 FROM bf_clients WHERE id=?', (cid,)).fetchone():
-            raise ValueError('Choose a valid client account.')
     lid = conn.execute("INSERT INTO bf_locations(kind,client_id,name,state,address,created_at) VALUES('client',?,?,?,?,?)",
                        (cid,details['customer_site'],details['state'],details['address'],stamp)).lastrowid
     return save_profile(conn, details, stamp, who, location_id=lid)

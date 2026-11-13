@@ -1,5 +1,11 @@
 {% extends 'binflow/client_layout.html' %}{% block content %}
-<div class="bf-toolbar"><h1>Client profiles</h1>{% if 'profiles.add' in g.client_rights %}<a class="button primary" href="{{ url_for('bf_client_site_new') }}">Add client profile</a>{% endif %}</div>
+<div class="bf-toolbar"><h1>Client profiles</h1>{% if 'profiles.add' in g.client_rights %}<a class="button primary" href="{{ url_for('bf_client_site_new') }}">{{ 'Add client' if g.client_site_approval else 'Add client profile' }}</a>{% endif %}</div>
+{% if site_requests %}<section class="bf-panel" aria-labelledby="site-submissions">
+<div class="bf-panel-head"><h2 id="site-submissions">Your client requests</h2></div>
+<div class="bf-table-wrap"><table><thead><tr><th>Client site</th><th>Submitted</th><th>Status</th></tr></thead><tbody>
+{% for r in site_requests %}<tr id="request-{{ r.id }}"><th scope="row">{% if r.profile_id %}<a href="{{ url_for('bf_client_site_portal',pid=r.profile_id) }}">{{ r.site_name }}</a>{% else %}{{ r.site_name }}{% endif %}{% if r.business_name!=r.site_name %}<br>{{ r.business_name }}{% endif %}</th>
+<td>{{ r.submitted_at|bfstamp }}</td><td><span class="bf-status {{ r.status }}">{{ request_statuses[r.status] }}</span>{% if r.reason %}<br>{{ r.reason }}{% endif %}</td></tr>{% endfor %}
+</tbody></table></div></section>{% endif %}
 <form method="get" class="bf-filters bf-directory-filters">
   <label>Search<input type="search" name="q" value="{{ query }}" placeholder="Site, address or contact"></label>
   <label>State<select name="state"><option value="">All states</option>{% for s in states %}<option {{ 'selected' if filters.state==s }}>{{ s }}</option>{% endfor %}</select></label>

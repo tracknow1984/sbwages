@@ -1,7 +1,9 @@
 {% extends 'binflow/client_layout.html' %}{% block content %}<a href="{{ url_for('bf_client_profiles_portal') }}">← Client profiles</a>
-<h1>{{ 'Add client profile' if creating else 'Edit client profile' }}</h1>
+<h1>{{ 'Add client' if needs_approval else ('Add client profile' if creating else 'Edit client profile') }}</h1>
 <section class="bf-panel bf-pad">{% if error %}<p role="alert">{{ error }}</p>{% endif %}
 <form method="post" class="bf-form"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+{% if needs_approval %}<p>BinFlow management will review this site and its requested schedule before it becomes available for collection planning.</p>
+<input type="hidden" name="request_key" value="{{ request_key }}">{% endif %}
 {% if creating %}<label>Client account<select name="client_id"><option value="new">Create a new client</option>{% for c in clients %}<option value="{{ c.id }}" {{ 'selected' if values.client_id==c.id|string }}>{{ c.name }}</option>{% endfor %}</select></label><label>New business name (defaults to site name)<input name="client_name" value="{{ values.client_name }}" maxlength="200"></label>
 {% else %}<input type="hidden" name="version" value="{{ profile.version }}">{% endif %}
-{% include 'binflow/site_profile_fields.html' %}<button class="primary">{{ 'Add profile' if creating else 'Save changes' }}</button></form></section>{% endblock %}
+{% include 'binflow/site_profile_fields.html' %}<button class="primary">{{ 'Submit for approval' if needs_approval else ('Add profile' if creating else 'Save changes') }}</button></form></section>{% endblock %}

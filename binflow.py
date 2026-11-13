@@ -17,6 +17,7 @@ from flask import abort, flash, g, jsonify, redirect, render_template, request, 
 from prestart_media import photo_jpeg, signature_png
 from binflow_driver import migrate_driver, register_driver
 import binflow_pickup_pricing
+import binflow_site_requests
 from binflow_handover import pod_weights_ready
 from binflow_permissions import (DRIVER_ENDPOINTS, WAREHOUSE_ENDPOINTS, is_driver, is_manager, is_warehouse, is_office, workspaces, can_view_job,
     has_binflow_access, state_scope, eligible_driver, available_drivers)
@@ -133,6 +134,9 @@ def register_binflow(app, db, require):
         migrate_approvals(db())
         migrate_collections(db())
         migrate_client_profiles(db())
+        from binflow_management import migrate as migrate_management, bootstrap
+        migrate_management(db())
+        binflow_site_requests.migrate(db(), now())
         from binflow_supplier_profiles import migrate as migrate_supplier_profiles
         migrate_supplier_profiles(db())
         migrate_allocation_import(db())
@@ -185,8 +189,6 @@ def register_binflow(app, db, require):
             app.logger.warning('BinFlow pallecon replacement %s: %s', 'applied' if changed else 'already applied', json.dumps(replacement))
             calendar_summary, changed = rebuild_calendar(db(), now())
             app.logger.warning('BinFlow current client calendar %s: %s', 'rebuilt' if changed else 'already rebuilt', json.dumps(calendar_summary))
-        from binflow_management import migrate as migrate_management, bootstrap
-        migrate_management(db())
         db().commit()
         if not app.testing:
             bootstrap(db(), now())
@@ -347,6 +349,7 @@ def register_binflow(app, db, require):
                       request_dashboard=True,**request_queue(db(),state,request.args.get('requests','all'),limit=12),
                       client_count=db().execute('SELECT COUNT(*) FROM bf_clients').fetchone()[0], warehouse_count=db().execute("SELECT COUNT(*) FROM bf_locations WHERE kind='warehouse'").fetchone()[0])
 
+    binflow_site_requests.register(app, db, access, render, now, actor)
     binflow_pickup_pricing.register(app, db, require, render, success, failure, now, actor)
 
     @app.route('/binflow/setup', methods=['GET', 'POST'])

@@ -1,8 +1,10 @@
 """Client-facing national site directory. Permission checks are shared with the portal."""
 import sqlite3
+from uuid import uuid4
 from collections import defaultdict
 from flask import abort, g, redirect, render_template, request, url_for
 
+from binflow_site_requests import STATUSES, portal_requests, submit
 from binflow_client_profiles import (FIELDS, KEYS, STATES, create_site, filter_register,
     register_rows, seed_locations, update_site, validate)
 
@@ -38,7 +40,8 @@ def register(app, db, client_access, now):
                 JOIN bf_sizes s ON s.id=r.size_id WHERE r.quantity>0 AND r.location_id IN ({marks})
                 ORDER BY r.location_id,s.litres,s.name""",batch):
                 bins[item['location_id']].append(item)
-        return show('client_directory',states=STATES,view=view,bins=bins,
+        requests = portal_requests(db(), g.bf_client['id']) if g.client_site_approval else []
+        return show('client_directory', site_requests=requests, request_statuses=STATUSES, states=STATES,view=view,bins=bins,
                     show_all=request.args.get('per_page')=='all',**data)
 
     @app.get('/binflow/client/profiles/<int:pid>')
@@ -54,6 +57,8 @@ def register(app, db, client_access, now):
             db().execute('BEGIN IMMEDIATE')
         row=profile(pid) if pid else None
         values=dict(row) if row else dict.fromkeys(KEYS,'')
+        needs_approval = not row and g.client_site_approval
+        request_key = request.form.get('request_key', '') if request.method=='POST' else str(uuid4())
         error=None
         if request.method=='POST':
             try:
@@ -67,6 +72,10 @@ def register(app, db, client_access, now):
                 else:
                     if not details['address'] or not details['state']:
                         raise ValueError('Enter a street address and state for the collection site.')
+                    if needs_approval:
+                        rid = submit(db(), g.bf_client['id'], request_key, values, details, now())
+                        db().commit()
+                        return redirect(url_for('bf_client_profiles_portal', _anchor=f'request-{rid}'), code=303)
                     pid=create_site(db(),values,details,now(),who)
                 db().commit()
                 return redirect(url_for('bf_client_site_portal',pid=pid),code=303)
@@ -75,7 +84,7 @@ def register(app, db, client_access, now):
                 error=str(exc) if isinstance(exc,ValueError) else 'This client site already exists.'
         clients=[] if row else db().execute('SELECT id,name FROM bf_clients ORDER BY name').fetchall()
         return show('client_directory_form',values=values,profile=row,clients=clients,creating=not row,
-                    fields=FIELDS,states=STATES,error=error),400 if error else 200
+                    fields=FIELDS,states=STATES,error=error,needs_approval=needs_approval,request_key=request_key),400 if error else 200
 
     @app.route('/binflow/client/profiles/new',methods=['GET','POST'])
     @client_access

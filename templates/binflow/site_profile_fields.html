@@ -16,6 +16,6 @@
 <label>Contact Verified?<select name="contact_verified"><option value="no" {{ 'selected' if values.contact_verified=='no' }}>No</option><option value="yes" {{ 'selected' if values.contact_verified=='yes' }}>Yes</option></select></label>
 </div><p class="bf-muted">Keep multiple contacts in the same order across names, emails and numbers. Mark verified after checking these details with the site.</p></fieldset>
 <fieldset><legend>Service & access</legend><div class="bf-grid">
-<label>Schedule<textarea name="schedule" maxlength="500" rows="2" placeholder="e.g. Weekly — Monday, Wednesday, Friday">{{ values.schedule }}</textarea></label>
+<label>{{ 'Requested collection schedule' if needs_approval else 'Schedule' }}<textarea name="schedule" maxlength="500" rows="2" placeholder="e.g. Weekly — Monday, Wednesday, Friday">{{ values.schedule }}</textarea></label>
 <label>ASIC Required<select name="asic_required">{% for value,label in [('unknown','Not confirmed'),('yes','Yes'),('no','No')] %}<option value="{{ value }}" {{ 'selected' if values.asic_required==value }}>{{ label }}</option>{% endfor %}</select></label>
-</div><p class="bf-muted">{% if supplier|default(false) %}Record the agreed service or delivery schedule for this supplier site.{% else %}The schedule records the site's service agreement. Set dated collections in the collection calendar.{% endif %}</p></fieldset>
+</div><p class="bf-muted">{% if needs_approval %}Include any preferred collection days or frequency for management to review.{% elif supplier|default(false) %}Record the agreed service or delivery schedule for this supplier site.{% else %}The schedule records the site's service agreement. Set dated collections in the collection calendar.{% endif %}</p></fieldset>

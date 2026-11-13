@@ -1,6 +1,6 @@
 {% set active_key = category if section == 'suppliers' else section %}
 {% macro menu_link(key, label, endpoint, icon) -%}
-  <a href="{{ url_for(endpoint, **kwargs) }}" data-bf-icon="{{ icon }}"{% if active_key == key %} class="active" aria-current="page"{% endif %}>{{ label }}{% if key == 'requests' and bf_request_count %} <strong class="bf-request-badge">{{ bf_request_count }}</strong>{% endif %}</a>
+  <a href="{{ url_for(endpoint, **kwargs) }}" data-bf-icon="{{ icon }}"{% if active_key == key %} class="active" aria-current="page"{% endif %}>{{ label }}{% if key == 'site_approvals' and site_approval_count %} <strong class="bf-request-badge">{{ site_approval_count }}</strong>{% endif %}{% if key == 'requests' and bf_request_count %} <strong class="bf-request-badge">{{ bf_request_count }}</strong>{% endif %}</a>
 {%- endmacro %}
 {% set is_admin = current_user.role == 'admin' %}
 <aside class="bf-office-sidebar no-print">
@@ -22,6 +22,7 @@
     <div class="bf-menu-group" role="group" aria-labelledby="bf-menu-customers">
       <h2 id="bf-menu-customers">Customers</h2>
       {% if is_admin %}{{ menu_link('profiles', 'Client Profiles', 'bf_client_profiles', 'clients') }}{% endif %}
+      {{ menu_link('site_approvals', 'Client approvals', 'bf_site_approvals', 'clients') }}
       {{ menu_link('allocations', 'State Allocations', 'bf_allocations', 'allocations') }}
     </div>
 

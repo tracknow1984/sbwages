@@ -95,7 +95,7 @@ class PortalPermissionTests(unittest.TestCase):
         self.assertNotIn('Allocate bins',page)
         self.assertNotIn('Alpha QLD',main.get(national+'&state=NSW').text)
         self.assertEqual(other.get(national).status_code,403)
-        self.assertEqual(main.get('/binflow/client/profiles/new').status_code,403)
+        self.assertEqual(main.get('/binflow/client/profiles/new').status_code,200)
         self.assertIn('Alpha NSW',main.get('/binflow/client/profiles').text)
         self.initial_delivery()
         token=self.rows('SELECT pod_token FROM bf_jobs WHERE id=1')[0]['pod_token']
@@ -108,7 +108,7 @@ class PortalPermissionTests(unittest.TestCase):
         self.assertEqual(main.get(docket).status_code,200)
         self.assertEqual(other.get(pdf).status_code,403)
         self.assertEqual(other.get(docket).status_code,404)
-        all_rights=['invoices.view','bookings.view','bookings.add','pods.view','pods.all','profiles.view','national.view']
+        all_rights=['invoices.view','bookings.view','bookings.add','pods.view','pods.all','profiles.view','profiles.add','national.view']
         self.rights(aid,all_rights,['pods.view'])
         self.assertEqual(main.get(pdf).status_code,404)
         self.assertEqual(main.get(docket+'/signature.png').status_code,404)
