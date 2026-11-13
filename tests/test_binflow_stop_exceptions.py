@@ -140,7 +140,15 @@ class StopExceptionTests(unittest.TestCase):
         self.assertIn('completed and locked',locked.text)
         self.assertEqual(len(self.rows('SELECT id FROM bf_jobs')),before)
         cancelled,rebooked=[s[0] for s in stops[2:]]
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("""INSERT INTO bf_collection_requests(request_key,bin_id,site_id,client_id,bin_code,
+                requester,contact,status,job_id,created_at,updated_at)
+                SELECT 'missed-scan-test',i.bin_id,j.site_id,l.client_id,i.bin_code,'Site contact','',
+                    'scheduled',j.id,j.created_at,j.created_at FROM bf_jobs j JOIN bf_locations l ON l.id=j.site_id
+                    JOIN bf_job_bins i ON i.job_id=j.id WHERE j.id=? AND i.direction='collect' LIMIT 1""",(cancelled,))
         self.post(f'/binflow/cancelled-jobs/{cancelled}',dict(decision='approved'))
+        self.assertEqual(self.rows("SELECT status,resolution FROM bf_collection_requests WHERE request_key='missed-scan-test'"),
+                         [dict(status='closed',resolution='Site closed')])
         self.post(f'/binflow/cancelled-jobs/{rebooked}',dict(decision='rescheduled',date='2026-10-21'))
         self.post(f'/binflow/cancelled-jobs/{rebooked}',dict(decision='rescheduled',date='2026-10-22'))
         self.assertEqual(len(self.rows('SELECT id FROM bf_jobs')),before+1)
