@@ -35,7 +35,7 @@ class DriverPortalTests(unittest.TestCase):
         self.assertIn('<h1>Welcome - Driver</h1>', response.text)
         def menu_links(page, label):
             nav = re.search(r'<nav[^>]*aria-label="' + label + r'"[^>]*>(.*?)</nav>', page.text, re.S).group(1)
-            return re.findall(r'<a href="([^"]+)"[^>]*>.*?<span>([^<]+)</span></a>', nav, re.S)
+            return re.findall(r'<a href="([^"]+)"[^>]*>.*?<span>([^<]+)</span>(?:<strong[^>]*>\d+</strong>)?</a>', nav, re.S)
 
         self.assertLess(response.text.index('<h1>'), response.text.index('aria-label="Driver menu"'))
         primary = [('/employee/hit-me', 'EMPIRE WIRE'), ('/employee/timesheet', 'MY TIMESHEET'),

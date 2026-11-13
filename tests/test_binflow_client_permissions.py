@@ -214,7 +214,7 @@ class PortalPermissionTests(unittest.TestCase):
             self.assertNotIn('Other pickup',page.text)
             self.assertNotIn('Other pending',page.text)
             self.assertEqual('bf-date-grid-week' in page.text,view=='week')
-        self.assertIn('bf-date-grid-week',self.client.get(CAL).text)
+        self.assertNotIn('bf-date-grid-week',self.client.get(CAL).text)
         self.assertEqual(first.get(CLIENT+'/2').status_code,404)
 
     def test_delivered_bulk_booking_stays_on_its_pickup_date(self):

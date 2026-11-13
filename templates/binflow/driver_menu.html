@@ -18,6 +18,7 @@
 {% endif %}
 <nav class="driver-menu-list no-print" aria-label="{{ 'My Details menu' if personal else 'Driver menu' }}">
   {% for label, endpoint, symbol in actions %}
-    <a href="{{ url_for(endpoint) }}"{% if endpoint == 'bf_resume' %} class="driver-menu-start"{% endif %}>{{ icon(symbol) }}<span>{{ label }}</span></a>
+    <a href="{{ url_for(endpoint) }}"{% if endpoint == 'bf_resume' %} class="driver-menu-start"{% endif %}>{{ icon(symbol) }}<span>{{ label }}</span>{% if endpoint=='employee_hit_me' %}<strong class="driver-unread" data-wire-count aria-label="{{ summary.unread }} unread messages" {% if not summary.unread %}hidden{% endif %}>{{ summary.unread }}</strong>{% endif %}</a>
   {% endfor %}
 </nav>
+{% if not personal %}<div class="notice-live hidden" data-notice-status="{{ url_for('hit_me_status') }}" data-notice-latest="{{ summary.latest }}" role="status"><strong>New Empire Wire message</strong><a href="{{ url_for('employee_hit_me') }}">View messages</a></div>{% endif %}

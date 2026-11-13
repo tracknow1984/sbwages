@@ -67,7 +67,7 @@
       </nav>
       <div class="dispatch-detail">
         <div class="dispatch-heading"><h3>{{ selected.date.strftime('%A, %d %b') }}</h3>
-          <div><a href="{{ url_for('bf_collection_calendar',date=selected.date.isoformat(),view='week') }}">Collection calendar</a><a href="{{ url_for('bf_interstate_calendar',date=selected.date.isoformat(),view='week') }}">All transfers</a></div>
+          <div><a href="{{ url_for('bf_collection_calendar',date=selected.date.isoformat(),view='week') }}">Collection calendar</a><a href="{{ url_for('bf_interstate_calendar',date=selected.date.isoformat(),view='month') }}">All transfers</a></div>
         </div>
         {% if dispatch.jobs or dispatch.pickups %}
           <ul class="dispatch-records">

@@ -168,10 +168,17 @@ if (liveNotices) {
       const response = await fetch(liveNotices.dataset.noticeStatus, {headers: {'Accept':'application/json'}, cache:'no-store'});
       if (!response.ok || !response.headers.get('content-type')?.includes('application/json')) return;
       const status = await response.json();
-      if (status.latest > Number(liveNotices.dataset.noticeLatest)) liveNotices.classList.remove('hidden');
+      const badge = document.querySelector('[data-wire-count]');
+      if (badge) {
+        badge.textContent = status.unread;
+        badge.hidden = !status.unread;
+        badge.setAttribute('aria-label', status.unread + ' unread messages');
+      }
+      liveNotices.classList.toggle('hidden', !status.unread || status.latest <= Number(liveNotices.dataset.noticeLatest));
     } catch (_) { /* Keep the current page usable while offline. */ }
   };
-  setInterval(checkNotices, 30000);
+  setInterval(checkNotices, 15000);
+  window.addEventListener('pageshow',checkNotices);
   document.addEventListener('visibilitychange',checkNotices);
 }
 

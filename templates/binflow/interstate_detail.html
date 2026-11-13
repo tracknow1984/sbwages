@@ -1,6 +1,13 @@
 {% extends 'binflow/interstate_base.html' %}
 {% from 'binflow/freight_amounts.html' import breakdown %}
 {% from 'binflow/purchase_order_status.html' import badge as po_badge %}
+{% macro dispatch_picker(opts) %}
+  <label>Send load to<select name="dispatch_to" {% if opts.choices %}required{% endif %}>
+    <option value="">{{ 'Choose recipient' if opts.choices else 'Awaiting assignment' }}</option>
+    {% for key,name in opts.choices.items() %}<option value="{{ key }}" {{ 'selected' if key==opts.preferred }}>{{ name }} · {{ 'Empire Wire' if key.startswith('driver:') else 'Supplier email' }}</option>{% endfor %}
+  </select></label>
+  {% if opts.choices %}<label class="bf-check"><input type="checkbox" name="remember_driver" value="yes"> {{ 'Save this state’s RIGID driver or this route’s supplier as the default' if opts.rigid else 'Save supplier as the default for this route and vehicle' }}</label>{% else %}<small>Approving now leaves this load awaiting dispatch. Add a {{ opts.state }} driver or a transport supplier with an email address to send it.</small>{% endif %}
+{% endmacro %}
 {% block transfer_content %}
 <a href="{{ url_for('bf_client_interstate' if external else 'bf_interstate_calendar',date=b.pickup_date) }}">← Transfer calendar</a>
 <section class="bf-panel bf-pad"><div class="bf-toolbar"><div><small>IT-{{ '%06d'|format(b.id) }}</small>{% if b.account_id %}<small> · Billing client</small>{% endif %}<h2>{{ b.client_name }}</h2></div><span class="{{ 'it-delivered-badge' if status=='Delivered' else 'bf-badge' }}">{{ status }}</span></div>
@@ -80,12 +87,21 @@
 {% if b.goods %}<h3>{{ 'Goods and quantities' if b.handling=='bulk' else 'Load notes' }}</h3><p class="it-goods">{{ b.goods }}</p>{% endif %}
 <p>Booking confirmation · {{ b.email }}{% if b.locked_at %} · {{ {'pending':'Pending','sending':'Sending','failed':'Email not sent','sent':'Email sent'}[b.email_status] }}{% endif %}</p>
 {% if not external %}<p class="bf-muted">Requested by {{ b.created_by }}{% if b.locked_at %} · Locked by {{ b.locked_by }} on {{ b.locked_at|display_datetime }}{% endif %}</p>{% endif %}
+{% if not external and current_user.role=='admin' %}
+  {% if handoff %}
+    <p><strong>Load dispatch · {{ handoff.recipient }}</strong> · {{ handoff.event }} · {% if handoff.target.startswith('driver:') %}Sent via Empire Wire{% elif handoff.status=='sent' %}Sent to {{ handoff.address }}{% elif handoff.status in ['uncertain','sending'] %}Check supplier receipt before retrying{% elif handoff.status=='failed' %}Supplier email failed{% else %}{{ handoff.status|capitalize }}{% endif %}</p>
+    {% if handoff.status in ['failed','queued','uncertain','sending'] %}<form method="post" action="{{ url_for('bf_interstate_dispatch_recipient',bid=b.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ b.version }}"><button class="secondary" name="retry" value="{{ handoff.id }}">Retry supplier email</button></form>{% endif %}
+  {% endif %}
+  {% if route_options and b.locked_at and (not handoff or handoff.event=='On hold') %}
+    <form method="post" class="bf-form" action="{{ url_for('bf_interstate_dispatch_recipient',bid=b.id) }}"><h3>Load awaiting dispatch</h3><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ b.version }}">{{ dispatch_picker(route_options) }}<button class="primary">Send load</button></form>
+  {% endif %}
+{% endif %}
 {% if not external and current_user.role=='admin' and not b.cancelled_at %}
   {% if not b.locked_at %}<div class="it-tools">
-    <form method="post" action="{{ url_for('bf_interstate_lock',bid=b.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ b.version }}">{% if change %}
-      <button class="primary" name="decision" value="approved">Approve new dates &amp; email client</button>
-      <button class="secondary" name="decision" value="original">Keep original dates &amp; email client</button>
-    {% else %}<button class="primary">Lock dates &amp; email confirmation</button>{% endif %}</form></div>
+    <form method="post" class="bf-form" action="{{ url_for('bf_interstate_lock',bid=b.id) }}">{{ dispatch_picker(route_options) }}<input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ b.version }}">{% if change %}
+      <button class="primary" name="decision" value="approved">Approve new dates &amp; send load</button>
+      <button class="secondary" name="decision" value="original">Keep original dates &amp; send load</button>
+    {% else %}<button class="primary">Approve &amp; send load</button>{% endif %}</form></div>
   {% elif b.email_status!='sent' %}<form method="post" action="{{ url_for('bf_interstate_email',bid=b.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="secondary">Retry confirmation email</button>{% if b.email_status=='sending' %}<small> If sending is interrupted, check the recipient before retrying after 10 minutes.</small>{% else %}<small> Check the email connection before retrying.</small>{% endif %}</form>{% endif %}
 {% endif %}
 {% if not external and current_user.role=='admin' and (b.bulk_delivered_at or billed or manifest and manifest.status in ['received','handed_over']) %}<p><a href="{{ url_for('bf_invoices') }}">Review transfer invoice</a></p>{% endif %}

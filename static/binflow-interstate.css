@@ -113,3 +113,11 @@
 .it-reschedule {margin:.75rem 0 1.25rem;max-width:46rem}
 .it-reschedule summary {color:#214b73}
 .it-share-actions {display:flex;flex-wrap:wrap;gap:.65rem 1rem;padding:.65rem .85rem;border-top:1px solid #e2e9ee}
+
+.it-vehicle-key {display:flex;gap:.4rem;flex-wrap:wrap;margin-left:auto}
+.it-vehicle-tag,.it-event .it-vehicle-tag {display:inline-block;border-radius:.3rem;padding:.14rem .45rem;background:#475569;color:white;font-size:.74rem;font-weight:750;line-height:1.35}
+.it-dispatch-calendar [data-vehicle="RIGID"],.it-vehicle-tag[data-truck="RIGID"] {--vehicle-colour:#00655b}
+.it-dispatch-calendar [data-vehicle="SEMI TRAILER"],.it-vehicle-tag[data-truck="SEMI TRAILER"] {--vehicle-colour:#964000}
+.it-dispatch-calendar [data-vehicle="B-DOUBLE"],.it-vehicle-tag[data-truck="B-DOUBLE"] {--vehicle-colour:#653399}
+.it-dispatch-calendar [data-vehicle] {border-top:3px solid var(--vehicle-colour,#64748b)}
+.it-vehicle-tag[data-truck] {background:var(--vehicle-colour,#475569)}

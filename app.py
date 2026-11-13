@@ -1130,7 +1130,7 @@ def create_app(test_config=None):
     @require('employee')
     def employee_dashboard():
         if is_driver(db(), g.user):
-            return render_template('employee_dashboard.html', tab='home')
+            return render_template('employee_dashboard.html', tab='home', summary=notice_summary())
         day=today()
         ending=profile_end(day,g.user['work_week'])
         entry=db().execute('SELECT e.*,s.status AS sheet_status FROM entries e JOIN sheets s ON s.id=e.sheet_id WHERE e.user_id=? AND e.work_date=?', (g.user['id'],day.isoformat())).fetchone()

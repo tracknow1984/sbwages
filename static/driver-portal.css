@@ -60,3 +60,5 @@ body.driver-account.driver-mode>.main{max-width:600px;}
 .driver-account .driver-docket-list span{display:block;font-size:13px;margin-top:5px;color:#66758a;}
 @media(max-width:600px){.driver-account .bf-week{gap:3px;}.driver-account .bf-week a{font-size:10px;padding:12px 2px;}.driver-account .bf-filters input,.driver-account .bf-filters select{font-size:16px;}.driver-quick-nav a{font-size:12px;}}
 @media print{.driver-menu-list,.driver-quick-nav{display:none!important;}}
+
+.driver-unread {padding:.15rem .55rem;border-radius:1rem;background:#a81937;color:white;font-variant-numeric:tabular-nums}
