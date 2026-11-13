@@ -561,6 +561,9 @@ def create_app(test_config=None):
             WHERE u.role='employee' ORDER BY u.status,u.first_name,u.last_name""",(EDITION,)).fetchall()
         return render_template('staff.html', people=people, active=sum(p['status'] == 'active' for p in people), tab='staff')
 
+    from binflow_staff_retest import register as register_staff_retest
+    register_staff_retest(app, db, require, today)
+
     @app.route('/admin/staff/new', methods=['GET', 'POST'])
     @require('admin')
     def add_staff():

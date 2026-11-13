@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+{% block content %}
+<a class="back" href="{{ url_for('edit_staff', user_id=user_id) }}">← Test Driver</a>
+<header class="page-heading"><h1>Queensland testdriver · BinFlow retest</h1></header>
+<section class="panel form-panel">
+<h2>{{ 'Review test activity' if has_activity or flags else 'Ready to start the day' }}</h2>
+<dl>{% for label, qty in counts.items() %}<dt>{{ label }}</dt><dd>{{ qty }}</dd>{% endfor %}</dl>
+{% if flags %}<ul>{% for flag in flags %}<li>{{ flag }}</li>{% endfor %}</ul>
+{% elif has_activity %}
+<p>Reset this driver’s BinFlow day and saved progress. A recovery copy is kept for the office.</p>
+<form method="post"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ version }}"><button class="primary">Reset Queensland testdriver</button></form>
+{% else %}<p>Sign in as testdriver, select <strong>Start Bin Flow</strong>, then <strong>Start day</strong>.</p>{% endif %}
+</section>
+{% endblock %}
