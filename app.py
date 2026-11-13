@@ -456,18 +456,6 @@ def create_app(test_config=None):
                 flash('Too many sign-in attempts. Please try again in 15 minutes.', 'error')
                 return render_template('login.html', audience=audience), 429
             user = db().execute('SELECT * FROM users WHERE username=? AND role=?', (username, audience)).fetchone()
-            if audience=='employee' and username=='testdriver' and not user:
-                from binflow_live_cycle import authenticate
-                from binflow_testdriver import credential_version
-                from binflow import now
-                live_driver=authenticate(db(),app,username,request.form.get('password',''),now())
-                if live_driver:
-                    session.clear()
-                    session.update(uid=live_driver['id'],version=live_driver['auth_version'],live_test_driver=credential_version(app))
-                    session.permanent=True
-                    db().execute('DELETE FROM login_attempts WHERE key IN (?,?)',(key,ipkey))
-                    db().commit()
-                    return redirect(url_for('employee_dashboard'))
             # Perform a password hash check even for unknown users.
             hashed = user['password_hash'] if user and user['password_hash'] else app.config['DUMMY_HASH']
             matched = check_password_hash(hashed, request.form.get('password', ''))
@@ -487,6 +475,18 @@ def create_app(test_config=None):
                 if user['role'] == 'employee' and request.args.get('handbook') == '1':
                     return redirect(url_for('employee_induction'))
                 return redirect(destination)
+            if audience=='employee' and username=='testdriver':
+                from binflow_live_cycle import authenticate
+                from binflow_testdriver import credential_version
+                from binflow import now
+                live_driver=authenticate(db(),app,username,request.form.get('password',''),now())
+                if live_driver:
+                    session.clear()
+                    session.update(uid=live_driver['id'],version=live_driver['auth_version'],live_test_driver=credential_version(app))
+                    session.permanent=True
+                    db().execute('DELETE FROM login_attempts WHERE key IN (?,?)',(key,ipkey))
+                    db().commit()
+                    return redirect(url_for('employee_dashboard'))
             flash('Username or password is incorrect, or your account is inactive.', 'error')
         return render_template('login.html', audience=audience)
 

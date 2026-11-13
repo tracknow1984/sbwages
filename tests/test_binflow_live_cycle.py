@@ -16,6 +16,10 @@ class LiveCycleTests(unittest.TestCase):
     post=legacy.BinFlowTests.post
 
     def test_employee_actions_reach_the_normal_office_registers(self):
+        import sqlite3
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("""INSERT INTO users(role,first_name,email,username,password_hash)
+                VALUES('employee','Existing','existing@example.invalid','testdriver',?)""",(generate_password_hash('existing-login'),))
         admin=self.client
         self.app.config['BINFLOW_TESTDRIVER_HASH']=generate_password_hash('field-test-password')
         self.client=self.app.test_client()
@@ -85,7 +89,6 @@ class LiveCycleTests(unittest.TestCase):
         self.assertTrue(draft['issue'])
         from binflow_management import permitted_pod
         from binflow_rental import report
-        import sqlite3
         with sqlite3.connect(self.path) as conn:
             conn.row_factory=sqlite3.Row
             self.assertFalse(permitted_pod(conn,{'id':run['payer_id']},j1,{'pods.view','pods.all'}))
