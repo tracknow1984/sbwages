@@ -87,6 +87,9 @@ def run_data(conn, truck_id, run_date, driver_id, today):
     loading_job = next((j for j in jobs if waiting and j['id']==waiting[0]['job_id']), None)
     outstanding = returns + unused
     depot_id = outstanding[0]['warehouse_id'] if outstanding else (jobs[-1]['warehouse_id'] if jobs else cancelled_run['warehouse_id'] if cancelled_run else None)
+    if simple_flow and outstanding:
+        arrived_ids={r[0] for r in conn.execute('SELECT warehouse_id FROM bf_run_depot_arrivals WHERE truck_id=? AND run_date=?',(truck_id,run_date))}
+        depot_id=next((r['warehouse_id'] for r in outstanding if r['warehouse_id'] in arrived_ids),depot_id)
     depot = conn.execute('SELECT * FROM bf_locations WHERE id=?',(depot_id,)).fetchone() if depot_id else None
     depot_arrived = bool(depot and conn.execute('SELECT 1 FROM bf_run_depot_arrivals WHERE truck_id=? AND run_date=? AND warehouse_id=?',
                                               (truck_id,run_date,depot_id)).fetchone())
@@ -264,7 +267,7 @@ def driver_plan_data(conn,user,run_date,state=''):
     return dict(groups=list(groups.values()),holds=[dict(h,checks=json.loads(h['checks_json'])) for h in holds],plans=plans)
 
 
-def register_runs(app, db, access, require, render, success, failure, now, actor):
+def register_runs(app, db, access, require, render, success, failure, now, actor, event):
     today = lambda: driver_today(db(),g.user,now())
 
     def data_for(truck_id, run_date):
@@ -436,7 +439,7 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
                         if data['stage']!='return_empty' or not any(i['id']==empty['item_id'] for i in data['scan_rows']):
                             raise ValueError('Follow the current depot and scan step.')
                         from binflow_stop_exceptions import receive_empty
-                        receive_empty(conn,empty['item_id'],actor(),now(),app.extensions['bf_record_bin_event'])
+                        receive_empty(conn,empty['item_id'],actor(),now(),event)
                         mark_returned(conn,truck_id,run_date,now())
                     conn.commit()
                 except ValueError:

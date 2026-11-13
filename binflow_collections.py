@@ -282,7 +282,10 @@ def register_collections(app,db,access,require,render,success,now,actor):
         closed={}
         for (region,day),info in locks.items():
             closed.setdefault(day,{})[region]=info
-        return render(template, section='collection_calendar', closed_days=closed, **data)
+        test_closed={}
+        for (region,day),info in closeouts(db(),start.isoformat(),end.isoformat(),data['selected'],test=True).items():
+            test_closed.setdefault(day,{})[region]=info
+        return render(template, section='collection_calendar', closed_days=closed, test_closed_days=test_closed, **data)
 
     @app.route('/binflow/locations/<int:location_id>/collection-profile',methods=['GET','POST'])
     @require('admin')

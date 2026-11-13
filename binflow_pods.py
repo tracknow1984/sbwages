@@ -177,6 +177,10 @@ def register_pods(app, db, access, require, render, success, failure, now, pdf):
             (SELECT COUNT(*) FROM bf_job_bins i WHERE i.job_id=j.id AND i.direction='collect' AND i.weighed_at IS NULL) AS unweighed
             FROM bf_jobs j WHERE j.scheduled_date=? AND j.approval_status='approved' AND j.status!='cancelled' AND ''' + clause +
             ' ORDER BY j.client_name,j.site_name,j.id', (run_date,)).fetchall()
+        if view=='signed' and g.user['role']=='admin' and not g.get('bf_demo_token'):
+            test=db().execute('SELECT client_id FROM bf_live_cycle').fetchone()
+            test_only=request.args.get('live_test')=='1'
+            rows=[j for j in rows if bool(test and j['pod_client_id']==test['client_id'])==test_only]
         return [j for j in rows if can_view_job(db(), g.user, j) and (not request.args.get('state') or request.args['state']==j['state'])]
 
     def closed_job(job_id, require_signed=True):

@@ -36,6 +36,32 @@ class StopExceptionTests(unittest.TestCase):
         self.action('depart')
         self.assertEqual(self.stage(),'navigate')
 
+    def test_all_stops_cancelled_still_requires_both_empty_receipts(self):
+        self.depart(['BF000003','BF000004'])
+        self.action('cancel-stop',job_id=2,reason='Closed all day')
+        self.assertEqual(self.stage(),'navigate_depot')
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("UPDATE bf_bins SET service_status='damaged' WHERE status='empty' AND truck_id IS NULL")
+        driver=self.client
+        self.client=self.app.test_client()
+        self.login()
+        self.post('/binflow/cancelled-jobs/2',dict(decision='rescheduled',date='2026-10-21'))
+        repl=self.rows('SELECT replacement_id FROM bf_stop_exceptions WHERE job_id=2')[0]['replacement_id']
+        self.assertTrue(repl)
+        def reserved():
+            return [i['bin_code'] for i in self.rows("SELECT bin_code FROM bf_job_bins WHERE job_id=? AND direction='deliver' AND active=1 ORDER BY bin_code",(repl,))]
+        self.assertEqual(reserved(),[])
+        self.client=driver
+        self.action('depot-arrival',warehouse_id=1)
+        self.assertEqual(self.stage(),'return_empty')
+        self.assertTrue(self.scan('return_empty','BF000003').json['ok'])
+        self.assertIsNone(self.rows('SELECT returned_at FROM bf_runs WHERE truck_id=1')[0]['returned_at'])
+        self.assertEqual(reserved(),['BF000003'])
+        self.assertTrue(self.scan('return_empty','BF000004').json['ok'])
+        self.assertEqual(reserved(),['BF000003','BF000004'])
+        self.assertEqual(self.stage(),'done')
+        self.assertEqual(self.rows('SELECT id FROM bf_jobs WHERE truck_id=1 AND pod_signed_at IS NOT NULL'),[])
+
     def test_partial_stop_keeps_delivered_bin_and_returns_only_unused_empty(self):
         self.depart(['BF000003','BF000004'])
         self.action('client-arrival',job_id=2)
@@ -49,6 +75,13 @@ class StopExceptionTests(unittest.TestCase):
         self.assertEqual(self.stage(),'return_empty')
         self.assertTrue(self.scan('return_empty','BF000004').json['ok'])
         self.assertEqual(self.stage(),'signoff')
+        self.post('/logout');self.login()
+        exc=self.rows('SELECT job_id FROM bf_stop_exceptions WHERE original_id=2')[0]['job_id']
+        self.post(f'/binflow/cancelled-jobs/{exc}',dict(decision='rescheduled',date='2026-10-21'))
+        repl=self.rows('SELECT replacement_id FROM bf_stop_exceptions WHERE job_id=?',(exc,))[0]['replacement_id']
+        bins=self.rows('SELECT direction,bin_code FROM bf_job_bins WHERE job_id=?',(repl,))
+        self.assertEqual(len(bins),3)
+        self.assertNotIn('BF000003',[i['bin_code'] for i in bins])
 
     def test_four_stops_eight_empties_two_exchanges_two_missed(self):
         # Fixture already has the first two empties and two full bins allocated.
