@@ -9,11 +9,21 @@ from flask import abort, flash, g, redirect, render_template, request, session, 
 def reset(conn, run, stamp):
     # Anchor the scope to the provisioning record, then check the fixtures before touching stock.
     params=dict(client=run['client_id'],truck=run['truck_id'],uid=run['driver_id'],origin=run['origin_id'],dest=run['destination_id'],payer=run['payer_id'],day=stamp[:10])
-    jobs=conn.execute("SELECT id,code,site_id FROM bf_jobs WHERE pod_client_id=:client ORDER BY code",params).fetchall()
+    original="SELECT id FROM bf_jobs WHERE pod_client_id=:client AND code IN ('LIVE-TEST-POD-01','LIVE-TEST-POD-02')"
+    jobs=conn.execute(f"SELECT id,code,site_id FROM bf_jobs WHERE id IN ({original}) ORDER BY code",params).fetchall()
     if [r['code'] for r in jobs]!=['LIVE-TEST-POD-01','LIVE-TEST-POD-02']:
         raise ValueError('The two live test allocations need review before restarting.')
     jid="SELECT id FROM bf_jobs WHERE pod_client_id=:client"
-    bins=conn.execute(f"""SELECT i.bin_id,b.code,i.direction,j.site_id FROM bf_job_bins i
+    extras=f"SELECT id FROM bf_jobs WHERE id IN ({jid}) AND id NOT IN ({original})"
+    # Only follow descendants recorded by this cancellation workflow. Reject unrelated test-client work.
+    known=conn.execute(f"""WITH RECURSIVE links(parent,child) AS (
+        SELECT original_id,job_id FROM bf_stop_exceptions WHERE original_id!=job_id UNION ALL
+        SELECT job_id,replacement_id FROM bf_stop_exceptions WHERE replacement_id IS NOT NULL),
+        family(id) AS ({original} UNION SELECT l.child FROM links l JOIN family f ON f.id=l.parent)
+        SELECT id FROM family ORDER BY id""",params).fetchall()
+    if {r[0] for r in known}!={r[0] for r in conn.execute(jid,params)}:
+        raise ValueError('This test client has other jobs. Review them before restarting.')
+    bins=conn.execute(f"""SELECT DISTINCT i.bin_id,b.code,i.direction,j.site_id FROM bf_job_bins i
         JOIN bf_bins b ON b.id=i.bin_id JOIN bf_jobs j ON j.id=i.job_id WHERE i.job_id IN ({jid})""",params).fetchall()
     codes={f'LT-{n}-{suffix}' for n in (1100,240,660) for suffix in ('EMPTY','FULL')}
     if len(bins)!=6 or {b['code'] for b in bins}!=codes:
@@ -36,7 +46,12 @@ def reset(conn, run, stamp):
     # Capture tested scope before deleting the source rows used to identify bales or inspections.
     conn.execute(f'CREATE TEMP TABLE reset_bales AS {bale}',params)
     conn.execute('CREATE TEMP TABLE reset_inspections AS SELECT prestart_id FROM bf_run_inspections WHERE truck_id=:truck AND driver_id=:uid',params)
+    # Recover original item ownership before removing partial-stop or replacement records.
+    moved=conn.execute(f"""SELECT i.id,e.original_id FROM bf_job_bins i JOIN bf_stop_exceptions e ON e.job_id=i.job_id
+        WHERE e.original_id IN ({original}) AND e.original_id!=e.job_id""",params).fetchall()
     removed = (
+        ('bf_unused_returns',f'item_id IN (SELECT id FROM bf_job_bins WHERE job_id IN ({jid}))'),
+        ('bf_stop_exceptions',f'job_id IN ({jid})'),('bf_allocation_history',f'job_id IN ({extras})'),
         ('bf_bale_storage',f'transfer_id IN ({transfers})'),
         ('bf_bale_events',f'bale_id IN reset_bales OR transfer_id IN ({transfers})'),
         ('bf_bale_transfer_items',f'transfer_id IN ({transfers})'),
@@ -73,6 +88,11 @@ def reset(conn, run, stamp):
         raise ValueError('The recovery copy could not be verified. Reopen the restart page and try again.')
     for table,where in removed:
         conn.execute(f'DELETE FROM {table} WHERE {where}',params)
+    conn.execute(f"UPDATE bf_job_bins SET active=0 WHERE job_id IN ({jid})",params)
+    for item in moved:
+        conn.execute('UPDATE bf_job_bins SET job_id=? WHERE id=?',(item['original_id'],item['id']))
+    conn.execute(f"DELETE FROM bf_job_bins WHERE job_id IN ({extras})",params)
+    conn.execute(f"DELETE FROM bf_jobs WHERE id IN ({extras})",params)
     conn.execute('DROP TABLE reset_bales')
     conn.execute('DROP TABLE reset_inspections')
     for b in bins:

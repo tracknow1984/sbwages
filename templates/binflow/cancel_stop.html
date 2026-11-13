@@ -1,0 +1,10 @@
+<details class="bf-panel bf-pad">
+  <summary>Cancel this job</summary>
+  <form class="bf-form" method="post" action="{{ url_for('bf_run_action',truck_id=truck.id,action='cancel-stop') }}">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="date" value="{{ run_date }}">
+    <input type="hidden" name="job_id" value="{{ current.id }}">
+    <label>Why can’t you finish {{ current.site_name }}?<textarea name="reason" maxlength="500" required></textarea></label>
+    <p>Scanned exchanges stay recorded. Bring any unused empties back to the depot.</p>
+    <button class="secondary bf-next">Send cancellation to operations</button>
+  </form>
+</details>

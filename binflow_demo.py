@@ -64,6 +64,8 @@ def install_demo_database(app, real_db, now):
         conn.execute('PRAGMA foreign_keys=ON')
         from binflow_live_cycle import migrate as migrate_live_cycle
         migrate_live_cycle(conn)
+        from binflow_stop_exceptions import migrate as migrate_stop_exceptions
+        migrate_stop_exceptions(conn)
         from binflow_reports import migrate_timings
         migrate_timings(conn)
         from binflow_bin_condition import migrate as migrate_bin_condition

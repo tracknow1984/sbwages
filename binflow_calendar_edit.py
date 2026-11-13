@@ -84,7 +84,13 @@ def calendar_progress_response(conn):
         state = request.args.get('state','')
         if not 0 <= (last-first).days <= 41 or state not in ('',*STATES):
             raise ValueError('Choose one calendar month and a valid state.')
-        response = jsonify(days=progress(conn,first,last,state))
+        days=progress(conn,first,last,state)
+        if not g.get('bf_client'):
+            from binflow_stop_exceptions import closeouts
+            for (region,day),info in closeouts(conn,first.isoformat(),last.isoformat(),state).items():
+                record=days.get(region+':'+day)
+                if record is not None: record['closed']=info
+        response = jsonify(days=days)
         response.headers['Cache-Control'] = 'no-store'
         return response
     except (ValueError,TypeError) as exc:
@@ -111,6 +117,8 @@ def calendar_weeks_response(conn, editable=False):
                                   status=row['status'] if row else 'draft',
                                   driver=row['driver_name'] if row else None))
                 if editable:
+                    from binflow_stop_exceptions import closeouts
+                    weeks[-1]['closed']={day:info for (_,day),info in closeouts(conn,start,(first+timedelta(days=6)).isoformat(),state).items()}
                     weeks[-1]['token'] = fingerprint(row,plan)
             first += timedelta(days=7)
         return jsonify(weeks=weeks)
@@ -163,7 +171,10 @@ def register_calendar_edit(app, db, require, now, actor):
                     conn.rollback()
                     return jsonify(error='This calendar changed in another session. Reload before saving; no moves were applied.'), 409
                 rows[identity], original[identity], plans[identity] = row, plan, copy.deepcopy(plan)
+            from binflow_stop_exceptions import ensure_day_open
             for operation in operations:
+                ensure_day_open(conn,operation['state'],operation['source'])
+                ensure_day_open(conn,operation['state'],operation['target'])
                 apply_move(plans, operation)
 
             # Cross-week transfers retain the docket, physical reservations and truck.

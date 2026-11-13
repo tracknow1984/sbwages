@@ -154,12 +154,12 @@ def register_pods(app, db, access, require, render, success, failure, now, pdf):
         try: run_date = valid_date(request.args.get('date', now()[:10]))
         except ValueError as error: abort(400, str(error))
         view = request.args.get('view', 'active')
-        if view not in ('active', 'unfinished', 'archived', 'deleted'): abort(400)
+        if view not in ('active', 'unfinished', 'archived', 'deleted','signed'): abort(400)
         if view in ('archived','deleted') and g.user['role'] != 'admin': abort(403)
         return run_date, view
 
     def daily_jobs(run_date, view):
-        clause = {'active': 'j.pod_deleted_at IS NULL AND j.pod_archived_at IS NULL',
+        clause = {'signed':'j.pod_deleted_at IS NULL AND j.pod_signed_at IS NOT NULL', 'active': 'j.pod_deleted_at IS NULL AND j.pod_archived_at IS NULL',
                   'unfinished': 'j.pod_deleted_at IS NULL AND j.pod_archived_at IS NULL AND j.pod_signed_at IS NULL',
                   'archived': 'j.pod_deleted_at IS NULL AND j.pod_archived_at IS NOT NULL',
                   'deleted': 'j.pod_deleted_at IS NOT NULL'}[view]
@@ -177,7 +177,7 @@ def register_pods(app, db, access, require, render, success, failure, now, pdf):
             (SELECT COUNT(*) FROM bf_job_bins i WHERE i.job_id=j.id AND i.direction='collect' AND i.weighed_at IS NULL) AS unweighed
             FROM bf_jobs j WHERE j.scheduled_date=? AND j.approval_status='approved' AND j.status!='cancelled' AND ''' + clause +
             ' ORDER BY j.client_name,j.site_name,j.id', (run_date,)).fetchall()
-        return [j for j in rows if can_view_job(db(), g.user, j)]
+        return [j for j in rows if can_view_job(db(), g.user, j) and (not request.args.get('state') or request.args['state']==j['state'])]
 
     def closed_job(job_id, require_signed=True):
         j = db().execute('SELECT * FROM bf_jobs WHERE id=?', (job_id,)).fetchone()

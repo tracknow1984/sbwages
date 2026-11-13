@@ -128,6 +128,8 @@ def clean_plan(conn, raw, original, state, start, week_id):
     from binflow_route_calendar import clients
     if not isinstance(raw,dict) or not isinstance(raw.get('days'),list) or len(raw['days'])!=7:
         raise ValueError('A schedule must contain all seven days.')
+    from binflow_stop_exceptions import closeouts
+    locked=closeouts(conn,start,(date.fromisoformat(start)+timedelta(days=6)).isoformat(),state)
     people={p['profile_id']:p for p in clients(conn) if p['id'] and p['state']==state}
     old_items={i['id']:i for d in original['days'] for i in d['items']}
     old_days={d['date']:d for d in original['days']}
@@ -136,6 +138,15 @@ def clean_plan(conn, raw, original, state, start, week_id):
         expected=(date.fromisoformat(start)+timedelta(days=offset)).isoformat()
         if not isinstance(day,dict) or day.get('date')!=expected or not isinstance(day.get('items'),list):
             raise ValueError('Keep each day inside the selected week. Choose another week to plan it.')
+        if (state,expected) in locked:
+            signature=lambda d: (d.get('notes',''),[(i.get('id'),i.get('kind'),i.get('job_id'),i.get('profile_id'),i.get('time',''),i.get('notes','')) for i in d['items']])
+            if signature(day)!=signature(old_days[expected]):
+                raise ValueError(f'{state} {expected} is completed and locked.')
+            cleaned['days'].append(old_days[expected])
+            keys.update(i['id'] for i in day['items'])
+            job_ids.update(i['job_id'] for i in day['items'] if i['kind']=='job')
+            count+=len(day['items'])
+            continue
         if len(day['items'])>100: raise ValueError('A day can contain at most 100 stops.')
         note=day.get('notes','')
         if not isinstance(note,str) or len(note)>1000: raise ValueError('Day notes must be under 1,001 characters.')
@@ -154,7 +165,9 @@ def clean_plan(conn, raw, original, state, start, week_id):
                 if type(jid)!=int or jid in job_ids: raise ValueError('Add each job / allocation only once.')
                 job_ids.add(jid)
                 job=conn.execute('SELECT * FROM bf_jobs WHERE id=? AND state=?',(jid,state)).fetchone()
-                if not job or job['status']=='cancelled' or job['approval_status']=='rejected':
+                historical = bool(job and job['status']=='cancelled' and key in old_items and old_items[key].get('job_id')==jid
+                                  and job['scheduled_date']==expected)
+                if not job or (job['status']=='cancelled' and not historical) or (job['approval_status']=='rejected' and not historical):
                     raise ValueError('A selected job is unavailable. Reload and review the schedule.')
                 if job['schedule_week_id'] and job['schedule_week_id']!=week_id:
                     raise ValueError('This job belongs to another saved week. Remove it there before adding it here.')
@@ -202,6 +215,8 @@ def sync_jobs(conn, old, plan, row, driver_id, publish, uid, actor, stamp, revie
         new=positions.get(jid);prior=previous.get(jid)
         if scope and not any(scope[0]<=key<=scope[1] for key in
                 ([new[0]] if new else [])+([prior[0]] if prior else [])+([job['scheduled_date']] if jid in extra_jobs else [])):
+            continue
+        if job['status']=='cancelled' and new==prior:
             continue
         # A no-op save must not disturb an active run, but any actual planning change is locked.
         changed = (new!=prior or (publish and (job['driver_id']!=driver_id or not job['schedule_live']))
@@ -306,6 +321,8 @@ def clear_preview(conn, state, period, chosen):
     fingerprint=dict(state=state,period=period,first=first_key,last=last_key,
         weeks=[dict(start=w['start'],revision=w['row']['revision'] if w['row'] else 0,plan=w['plan']) for w in weeks],jobs=actual)
     token=hashlib.sha256(json.dumps(fingerprint,sort_keys=True).encode()).hexdigest()
+    from binflow_stop_exceptions import closeouts
+    if closeouts(conn,first_key,last_key,state) and not blocked: blocked=1
     summary=dict(state=state,period=period,first=first_key,last=last_key,weeks=len(weeks),items=total,jobs=len(affected),
                  published=sum(bool(w['row'] and w['row']['status']=='published') for w in weeks),blocked=blocked,token=token)
     return summary,weeks,actual

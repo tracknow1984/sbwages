@@ -1,0 +1,28 @@
+{% extends 'binflow/layout.html' %}
+{% block title %}Cancelled jobs{% endblock %}
+{% block subtitle %}Missed stops for operations review{% endblock %}
+{% block body %}
+<p><a href="{{ url_for('bf_collection_calendar',state=selected) }}">Back to collection calendar</a></p>
+{% for item in rows %}
+<section class="bf-panel bf-pad">
+  <span class="bf-kicker">{{ item.state }} · {{ item.scheduled_date|display_date }}</span>
+  <h2>{{ item.site_name }}</h2>
+  <p>{{ item.code }} · Reported by {{ item.reported_by }} · {{ item.reported_at|display_datetime }}</p>
+  <p><strong>Reason</strong> · {{ item.reason }}</p>
+  {% if item.original_id!=item.job_id %}<p>Partial exchange · <a href="{{ url_for('bf_job',job_id=item.original_id) }}">View completed movements</a></p>{% endif %}
+  {% if item.empties_due %}<p>{{ item.empties_due }} unused {{ 'empty is' if item.empties_due==1 else 'empties are' }} due back.</p>{% endif %}
+  {% if item.decision=='pending' %}
+  <div class="bf-actions">
+    <form class="bf-form" method="post" action="{{ url_for('bf_decide_cancel',job_id=item.job_id) }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}"><label>New collection date<input type="date" name="date" min="{{ today }}" required></label>
+      <button class="primary" name="decision" value="rescheduled">Reschedule</button>
+    </form>
+    <form method="post" action="{{ url_for('bf_decide_cancel',job_id=item.job_id) }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="secondary" name="decision" value="approved">Approve cancellation</button>
+    </form>
+  </div>
+  {% else %}<p>{{ 'Rescheduled' if item.decision=='rescheduled' else 'Cancellation approved' }} · {{ item.reviewed_by }} · {{ item.reviewed_at|display_datetime }}
+  {% if item.replacement_id %} · <a href="{{ url_for('bf_job',job_id=item.replacement_id) }}">{{ item.new_code }} · {{ item.new_date|display_date }}</a>{% endif %}</p>{% endif %}
+</section>
+{% else %}<p class="bf-panel bf-pad">No cancelled stops for review.</p>{% endfor %}
+{% endblock %}

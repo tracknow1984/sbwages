@@ -9,6 +9,7 @@
 {% block title %}State collection calendar{% endblock %}
 {% block subtitle %}Collections, depot runs and baling days at a glance.{% endblock %}
 {% block body %}
+{% if not portal_calendar and (current_user.role=='admin' or binflow_manager) %}<p><a class="button secondary" href="{{ url_for('bf_cancelled_jobs',state=selected) }}">Cancelled jobs · Operations review</a></p>{% endif %}
 {% if expanded_calendar %}
 <link rel="stylesheet" href="{{ url_for('static',filename='binflow-calendar-edit.css') }}">
 <script src="{{ url_for('static',filename='binflow-calendar-edit.js') }}" defer></script>
@@ -45,8 +46,9 @@
       <tbody>{% for week in calendar_weeks %}<tr>{% for date in week %}{% set key=date.isoformat() %}
         <td class="{{ 'outside' if view=='month' and date.month!=chosen.month }} {{ 'today' if key==today }} {{ 'weekend' if date.weekday()>4 }}" data-date="{{ key }}" aria-label="{{ date.strftime('%A %d %B %Y') }}">
           <div class="bf-date-heading"><time datetime="{{ key }}">{{ date.day }}</time>{% if date.day==1 or view=='week' %}<span>{{ date.strftime('%b') }}</span>{% endif %}{% if key==today %}<span class="bf-date-today">Today</span>{% endif %}{% if expanded_calendar and date>=route_start %}<button type="button" class="bf-day-expand" data-expand-date="{{ key }}" aria-label="Expand {{ date.strftime('%A %d %B') }}">↗</button>{% endif %}</div>
+          {% include 'binflow/calendar_closed_day.html' %}
           <div class="bf-date-events">{% for event in calendar_events.get(key,[]) %}{% set group=event.group %}{% set day=event.day %}
-            {% if calendar_edit %}<button type="button" class="bf-day-grip" draggable="true" data-drag-state="{{ group.state }}" data-drag-date="{{ key }}" aria-label="Move whole {{ group.state }} day {{ key }}">⠿ Move {{ group.state }} day</button>{% endif %}
+            {% if calendar_edit and (closed_days is undefined or group.state not in closed_days.get(key,{})) %}<button type="button" class="bf-day-grip" draggable="true" data-drag-state="{{ group.state }}" data-drag-date="{{ key }}" aria-label="Move whole {{ group.state }} day {{ key }}">⠿ Move {{ group.state }} day</button>{% endif %}
             <button type="button" class="bf-cal-event {{ 'is-baling' if day.baling and not day.trips else '' }} {{ 'needs-attention' if day.over_limit or day.exceptions }}" data-state="{{ group.state }}" {% if expanded_calendar %}data-expand-state="{{ group.state }}" data-expand-date="{{ key }}" aria-controls="calendar-expanded-day"{% else %}data-calendar-open="{{ event.dialog_id }}" aria-haspopup="dialog" aria-controls="{{ event.dialog_id }}"{% endif %} aria-label="{{ group.state }} {{ date.strftime('%A %d %B') }}: {{ 'baling' if day.baling else 'collection runs' }}, {{ day.profiles|length }} sites{% if day.exceptions %}, needs arrangement{% endif %}">
               <span class="bf-cal-event-top"><strong>{{ group.state }}</strong><span class="bf-cal-event-hours">{% if day.saved_status %}{{ day.saved_status|capitalize }}{% elif day.minutes %}{{ '%.1f'|format(day.minutes/60) }}h{% if day.over_limit %} !{% endif %}{% else %}Booked{% endif %}</span></span>
               <span class="bf-cal-event-title">{% if day.saved_status %}{{ day.saved_items|length }} scheduled {{ 'item' if day.saved_items|length==1 else 'items' }}{% elif day.baling %}Baling{% if day.trips %} + collections{% endif %}{% elif day.trips %}{{ day.profiles|length }} {{ 'site' if day.profiles|length==1 else 'sites' }} · {{ day.trips|length }} {{ 'load' if day.trips|length==1 else 'loads' }}{% elif day.exceptions %}Needs arrangement{% else %}{{ day.jobs|length }} booked {{ 'job' if day.jobs|length==1 else 'jobs' }}{% endif %}</span>

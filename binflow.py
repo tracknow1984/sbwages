@@ -156,6 +156,8 @@ def register_binflow(app, db, require):
         migrate_invoices(db())
         from binflow_live_cycle import migrate as migrate_live_cycle
         migrate_live_cycle(db())
+        from binflow_stop_exceptions import migrate as migrate_stop_exceptions
+        migrate_stop_exceptions(db())
         db().commit()
         tare_update = apply_standard_tares(db(), now())
         if tare_update:
@@ -256,6 +258,8 @@ def register_binflow(app, db, require):
         from binflow_pod_records import label as custody_label
         db().execute('INSERT INTO bf_events(bin_id,job_id,event,from_location,to_location,actor,notes,created_at,from_truck,to_truck,from_label,to_label) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
                      (bin_id, job_id, label, origin, target, actor(), notes, now(), from_truck, to_truck, custody_label(db(),origin,from_truck), custody_label(db(),target,to_truck)))
+
+    app.extensions['bf_record_bin_event']=event
 
     def job(job_id):
         row = db().execute('SELECT j.*,u.first_name||\' \'||u.last_name AS driver_name FROM bf_jobs j LEFT JOIN users u ON u.id=j.driver_id WHERE j.id=?', (job_id,)).fetchone()
@@ -657,6 +661,8 @@ def register_binflow(app, db, require):
                 if site['state'] != warehouse['state']:
                     raise ValueError('Choose a warehouse in the same state as the client site. Bin pools stay within their state.')
                 scheduled = date.fromisoformat(text_field('scheduled_date'))
+                from binflow_stop_exceptions import ensure_day_open
+                ensure_day_open(db(),site['state'],scheduled.isoformat())
                 driver = request.form.get('driver_id', '')
                 if driver and not eligible_driver(db(), driver, site['state']):
                     raise ValueError('Choose an active driver or contractor allocated to this state, or a manager.')
@@ -799,6 +805,9 @@ def register_binflow(app, db, require):
                 reopen_requests(db(),job_id,actor(),now())
                 for item in rows:
                     event(item['bin_id'], 'Job cancelled; reservation released', job_id, notes=reason)
+                db().execute("""INSERT OR IGNORE INTO bf_stop_exceptions
+                    (job_id,original_id,reason,reported_at,reported_by,decision,reviewed_at,reviewed_by)
+                    VALUES(?,?,?,?,?,'approved',?,?)""",(job_id,job_id,reason,now(),actor(),now(),actor()))
                 return success('Job cancelled. Bins are available again.', 'bf_job', job_id=job_id)
             if action == 'exchange':
                 if j['status'] in ('collected','received','complete'):
@@ -1047,7 +1056,13 @@ def register_binflow(app, db, require):
         selected = request.args.get('state',g.user['working_state'] if g.get('live_cycle') else default)
         if selected and selected not in regions:
             abort(403 if selected in STATES else 400)
-        return render('warehouse', section='warehouse', stock=[b for b in stock if b['state']==selected],
+        scope,scope_args=warehouse_scope(g.user)
+        unused=db().execute(f"""SELECT i.bin_code,t.name AS truck,w.name AS depot,u.returned_at
+            FROM bf_unused_returns u JOIN bf_job_bins i ON i.id=u.item_id JOIN bf_jobs j ON j.id=i.job_id
+            JOIN bf_locations w ON w.id=j.warehouse_id JOIN bf_trucks t ON t.id=j.truck_id
+            WHERE {scope} AND w.state=? AND (u.returned_at IS NULL OR substr(u.returned_at,1,10)=?)
+            ORDER BY u.returned_at IS NOT NULL,t.name,i.bin_code""",(*scope_args,selected,now()[:10])).fetchall()
+        return render('warehouse', section='warehouse',unused=unused, stock=[b for b in stock if b['state']==selected],
                       warehouse_states=regions,selected_state=selected,counts=counts,
                       available=[b for b in available if b['state']==selected])
 
@@ -1202,6 +1217,8 @@ def register_binflow(app, db, require):
     register_journey(app,db,access,render,success,failure,now)
     from binflow_reports import register_reports
     register_reports(app,db,require,render,now)
+    from binflow_stop_exceptions import register as register_stop_exceptions
+    register_stop_exceptions(app,db,access,render,now,actor,success,failure,event)
     from binflow_demo import register_demo
     register_demo(app,db,access,render,now)
     from binflow_live_cycle import register as register_live_cycle

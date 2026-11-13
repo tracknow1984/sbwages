@@ -61,8 +61,13 @@
     await loading.get(cacheKey);
     if (!weeks.has(identity(state,day))) throw Error('Choose a date from 26 October 2026 onwards.');
   }
+  function lockedDay(state,day){
+    return Boolean(weeks.get(identity(state,day))?.closed?.[day] ||
+      root.querySelector('td[data-date="'+day+'"] [data-closed-state="'+state+'"]'));
+  }
   function apply(op) {
     const a = dayAt(op.state,op.source), b = dayAt(op.state,op.target);
+    if (lockedDay(op.state,op.source) || lockedDay(op.state,op.target)) throw Error('This day is completed and locked. Choose another date.');
     if (!a || !b) throw Error('Load both dates before moving work.');
     const crossWeek = monday(op.source) !== monday(op.target);
     if (op.kind === 'day') {
@@ -134,7 +139,7 @@
       card.append(top,el('span',day.items.length+' scheduled '+(day.items.length===1?'item':'items'),'bf-cal-event-title'));
       card.append(el('span',day.items.slice(0,3).map(i=>i.title).join(' · ')+(day.items.length>3?' +'+(day.items.length-3)+' more':''),'bf-calendar-items-preview'));
       if(pending.length){card.classList.add('needs-attention');card.append(el('span',pending.length+' fixed visits need arrangement','bf-cal-event-warning'));}
-      if(editable && day.items.length)list.append(grip(week.state,day.date));list.append(card);
+      if(editable && day.items.length && !week.closed?.[day.date])list.append(grip(week.state,day.date));list.append(card);
     }
     if(expanded)drawPanel();changed();
     root.dispatchEvent(new Event('calendar-progress-redraw'));
@@ -157,16 +162,22 @@
     panel.querySelector('[data-expanded-state]').textContent=state+' · '+day.items.length+' scheduled items';
     panel.querySelector('[data-expanded-region]').value=state;
     panel.querySelector('[data-expanded-status]').textContent=(week.status==='published'?'Published to '+week.driver:'Draft · approval required')+' · '+(day.estimate_valid&&day.estimate_minutes?(day.estimate_minutes/60).toFixed(1)+'h original estimate':'Review route and working hours after changes');
-    if(editable) panel.querySelector('[data-whole-day-target]').value=date;
+    const locked=lockedDay(state,date);
+    if(editable) {
+      panel.querySelector('[data-whole-day-target]').value=date;
+      panel.querySelector('[data-whole-day-move]').hidden=locked;
+      panel.querySelectorAll('[data-day-action]').forEach(control=>control.disabled=locked);
+      if(locked) panel.querySelector('[data-expanded-status]').textContent='Completed · Day locked';
+    }
     panel.querySelector('[data-expanded-notes]').textContent=day.notes||'';
     const list=panel.querySelector('[data-expanded-stops]');list.replaceChildren();
     day.items.forEach((item,n)=>{
       const card=el('article',undefined,'bf-expanded-stop');card.dataset.stopId=item.id;
-      if (editable) card.append(grip(state,date,item));
+      if (editable && !locked) card.append(grip(state,date,item));
       card.append(el('small','Stop '+(n+1)+(item.time?' · '+item.time:'')),el('strong',item.title),el('p',item.address),el('p',item.detail));
       if(item.notes)card.append(el('p',item.notes));
       list.append(card);
-      if (!editable) return;
+      if (!editable || locked) return;
       const actions=el('div',undefined,'bf-expanded-stop-actions');
       const up=button('↑',()=>stage({kind:'item',state,source:date,target:date,item_id:item.id,before:day.items[n-1]?.id}));
       up.disabled=n===0;up.setAttribute('aria-label','Move '+item.title+' earlier');

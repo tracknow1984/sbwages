@@ -70,6 +70,10 @@ def run_data(conn, truck_id, run_date, driver_id, today):
         FROM bf_job_bins i JOIN bf_jobs j ON j.id=i.job_id
         WHERE j.truck_id=? AND j.scheduled_date=? AND j.schedule_live=1 AND j.approval_status='approved' AND j.status!='cancelled'
         ORDER BY j.run_order,j.id,i.direction,i.bin_code''', (truck_id, run_date)).fetchall()
+    from binflow_stop_exceptions import unused_rows
+    unused = unused_rows(conn,truck_id,run_date)
+    cancelled_run = conn.execute("""SELECT j.warehouse_id FROM bf_jobs j JOIN bf_stop_exceptions e ON e.job_id=j.id
+        WHERE j.truck_id=? AND j.scheduled_date=? ORDER BY j.run_order DESC LIMIT 1""",(truck_id,run_date)).fetchone()
     current = next((j for j in jobs if j['status']=='scheduled'), None)
     hold = conn.execute('''SELECT i.*,p.checks_json,p.notes,p.employee_name,p.submitted_at FROM bf_run_inspections i
         JOIN prestarts p ON p.id=i.prestart_id WHERE i.truck_id=? AND i.passed=0 AND i.resolved_at IS NULL
@@ -81,7 +85,8 @@ def run_data(conn, truck_id, run_date, driver_id, today):
     waiting = [r for r in rows if r['direction']=='deliver' and not r['loaded_at'] and not r['delivered_at']]
     returns = [r for r in rows if r['direction']=='collect' and not r['returned_at']]
     loading_job = next((j for j in jobs if waiting and j['id']==waiting[0]['job_id']), None)
-    depot_id = returns[0]['warehouse_id'] if returns else jobs[-1]['warehouse_id'] if jobs else None
+    outstanding = returns + unused
+    depot_id = outstanding[0]['warehouse_id'] if outstanding else (jobs[-1]['warehouse_id'] if jobs else cancelled_run['warehouse_id'] if cancelled_run else None)
     depot = conn.execute('SELECT * FROM bf_locations WHERE id=?',(depot_id,)).fetchone() if depot_id else None
     depot_arrived = bool(depot and conn.execute('SELECT 1 FROM bf_run_depot_arrivals WHERE truck_id=? AND run_date=? AND warehouse_id=?',
                                               (truck_id,run_date,depot_id)).fetchone())
@@ -102,10 +107,10 @@ def run_data(conn, truck_id, run_date, driver_id, today):
         stage='acceptance'
     elif workday and not passed:
         stage='prestart'
-    elif not jobs:
+    elif not jobs and not cancelled_run:
         stage = 'empty'
     elif run['returned_at']:
-        if weights['weighed'] < weights['expected']:
+        if weights and weights['weighed'] < weights['expected']:
             stage = 'weighing'
         elif any(not j['pod_signed_at'] and not j['pod_deleted_at'] for j in jobs):
             stage = 'signoff'
@@ -136,6 +141,9 @@ def run_data(conn, truck_id, run_date, driver_id, today):
             stage,action,scan_rows = 'navigate',None,[]
     elif simple_flow and depot and not depot_arrived:
         stage = 'navigate_depot'
+    elif unused and (not returns or not any(r['warehouse_id']==depot_id for r in returns)):
+        stage,action='return_empty','return_empty'
+        scan_rows=[r for r in unused if r['warehouse_id']==depot_id]
     elif returns:
         stage, action, scan_rows = 'return', 'return', returns
         if simple_flow:
@@ -145,7 +153,7 @@ def run_data(conn, truck_id, run_date, driver_id, today):
     onboard = conn.execute('''SELECT b.code,b.truck_load,s.name AS size_name,j.client_name,j.site_name FROM bf_bins b
         JOIN bf_sizes s ON s.id=b.size_id LEFT JOIN bf_job_bins i ON i.bin_id=b.id AND i.active=1
         LEFT JOIN bf_jobs j ON j.id=i.job_id WHERE b.truck_id=? ORDER BY b.code''',(truck_id,)).fetchall()
-    step_key = stage+':'+str(loading_job['id'] if stage=='load' and loading_job else depot_id if stage=='return' else current['id'] if current else '')
+    step_key = stage+':'+str(loading_job['id'] if stage=='load' and loading_job else depot_id if stage in ('return','return_empty') else current['id'] if current else '')
     if stage == 'weighing':
         step_key = f"weighing:{weights['weighed']}/{weights['expected']}"
     operating_state = run_operating_state(conn, truck_id, run_date, truck['state'])
@@ -203,6 +211,10 @@ def mark_returned(conn, truck_id, run_date, timestamp):
         return
     if conn.execute('''SELECT 1 FROM bf_job_bins i JOIN bf_jobs j ON j.id=i.job_id WHERE j.truck_id=? AND j.scheduled_date=?
         AND j.schedule_live=1 AND j.status!='cancelled' AND i.direction='collect' AND i.returned_at IS NULL''', (truck_id,run_date)).fetchone():
+        return
+    if conn.execute("""SELECT 1 FROM bf_unused_returns u JOIN bf_job_bins i ON i.id=u.item_id
+        JOIN bf_jobs j ON j.id=i.job_id WHERE j.truck_id=? AND j.scheduled_date=? AND u.returned_at IS NULL""",
+        (truck_id,run_date)).fetchone():
         return
     conn.execute('UPDATE bf_runs SET returned_at=COALESCE(returned_at,?) WHERE truck_id=? AND run_date=?', (timestamp,truck_id,run_date))
 
@@ -366,6 +378,10 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
                                  (now(),json.dumps([dict(r) for r in data['onboard']]),truck_id,run_date))
                 db().execute('UPDATE bf_runs SET departed_at=? WHERE truck_id=? AND run_date=?',(now(),truck_id,run_date))
                 message='Run started. Follow your first client stop.'
+            elif action=='cancel-stop':
+                from binflow_stop_exceptions import report_stop
+                report_stop(db(),data,request.form.get('job_id',type=int),request.form.get('reason','').strip(),g.user,actor(),now())
+                message='Stop sent to operations. Return any unused empties to the depot.'
             elif action=='client-arrival':
                 if data['stage']!='navigate' or request.form.get('job_id',type=int)!=data['current']['id']:
                     raise ValueError('Refresh and follow your current stop.')
@@ -378,7 +394,7 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
                 db().execute('INSERT OR IGNORE INTO bf_run_depot_arrivals VALUES(?,?,?,?,?)',
                              (truck_id,run_date,data['depot']['id'],now(),g.user['id']))
                 mark_returned(db(),truck_id,run_date,now())
-                message='Depot arrival saved. Scan each full bin off the truck.'
+                message='Depot arrival saved. Scan the bins as you unload them.'
             elif action=='arrive':
                 if data['stage'] not in ('arrive','done','weighing','signoff'):
                     raise ValueError('Finish all client stops and scan every returning bin first.')
@@ -400,11 +416,37 @@ def register_runs(app, db, access, require, render, success, failure, now, actor
             run_date=valid_date(request.form.get('date',''))
             data=data_for(truck_id,run_date)
             requested_action=request.form.get('action') or data['action']
-            if requested_action not in ('load','deliver','collect','return'):
+            if requested_action not in ('load','deliver','collect','return','return_empty'):
                 raise ValueError('Refresh and follow the current scan step.')
             value=request.form.get('code','').strip()[:1000]
             if value.startswith(('http://','https://')):
                 value=urlparse(value).path.rstrip('/').split('/')[-1]
+            if requested_action=='return_empty':
+                # Keep use of the existing event writer for both driver and warehouse receipts.
+                conn=db()
+                conn.execute('BEGIN IMMEDIATE')
+                try:
+                    data=data_for(truck_id,run_date)
+                    empty=conn.execute("""SELECT u.item_id,u.returned_at FROM bf_unused_returns u
+                        JOIN bf_job_bins i ON i.id=u.item_id JOIN bf_jobs j ON j.id=i.job_id JOIN bf_bins b ON b.id=i.bin_id
+                        WHERE j.truck_id=? AND j.scheduled_date=? AND (b.code=? COLLATE NOCASE OR b.token=?)
+                        ORDER BY u.returned_at IS NULL DESC,u.item_id DESC LIMIT 1""",(truck_id,run_date,value,value)).fetchone()
+                    if not empty: raise ValueError('Scan an unused empty from this run.')
+                    if not empty['returned_at']:
+                        if data['stage']!='return_empty' or not any(i['id']==empty['item_id'] for i in data['scan_rows']):
+                            raise ValueError('Follow the current depot and scan step.')
+                        from binflow_stop_exceptions import receive_empty
+                        receive_empty(conn,empty['item_id'],actor(),now(),app.extensions['bf_record_bin_event'])
+                        mark_returned(conn,truck_id,run_date,now())
+                    conn.commit()
+                except ValueError:
+                    conn.rollback()
+                    raise
+                from flask import render_template
+                data=data_for(truck_id,run_date)
+                return jsonify(ok=True,message='Unused empty returned to stock.',duplicate=bool(empty['returned_at']),
+                               stage=data['stage'],step_key=data['step_key'],remaining=data['remaining'],
+                               redirect=url_for('bf_run',truck_id=truck_id,date=run_date),html=render_template('binflow/run_bins.html',**data))
             row=db().execute('''SELECT i.job_id FROM bf_bins b JOIN bf_job_bins i ON i.bin_id=b.id
                 JOIN bf_jobs j ON j.id=i.job_id WHERE (b.code=? COLLATE NOCASE OR b.token=?)
                 AND j.truck_id=? AND j.scheduled_date=? AND j.status!='cancelled'

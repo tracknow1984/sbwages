@@ -93,7 +93,7 @@ ENDPOINTS = frozenset("""
 bf_live_restart static index logout login employee_dashboard bf_live_labels bf_live_label_qr bf_workday bf_resume bf_switch_workspace
 bf_start_workday bf_accept_overview bf_overview_state bf_workday_vehicle bf_finish_workday
 bf_workday_break bf_clock_state bf_run bf_run_state bf_run_prestart bf_accept_run bf_load_list
-bf_run_scan bf_run_action bf_workday_plan_state bf_daily_pods bf_warehouse bf_phone_weigh bf_warehouse_scan
+bf_run_scan bf_run_action bf_workday_plan_state bf_daily_pods bf_warehouse bf_receive_unused bf_phone_weigh bf_warehouse_scan
 bf_qr_image bf_job bf_bin_weigh bf_weigh bf_pod_materials bf_pod_sign bf_pod bf_pod_pdf bf_pod_record bf_pod_signature bf_pod_qr bf_pod_journey
 bf_bales bf_bale_new bf_bale_source_scan bf_bale bf_bale_label bf_bale_image bf_bale_qr
 bf_bale_transfer_new bf_bale_transfer bf_bale_scan bf_bale_transfer_action bf_bale_note bf_bale_signature
@@ -130,12 +130,12 @@ def register(app, db, access, require, render):
         if run:
             jobs=db().execute("""SELECT j.id,j.code,j.site_name,j.status,j.pod_signed_at,j.scheduled_date,
                     COUNT(i.id) AS expected,COUNT(i.returned_at) AS returned,COUNT(i.weighed_at) AS weighed,
-                    SUM(i.net_g) AS net_g FROM bf_jobs j JOIN bf_job_bins i ON i.job_id=j.id AND i.direction='collect'
+                    SUM(i.net_g) AS net_g FROM bf_jobs j LEFT JOIN bf_job_bins i ON i.job_id=j.id AND i.direction='collect'
                     WHERE j.pod_client_id=? GROUP BY j.id ORDER BY j.run_order""",(run['client_id'],)).fetchall()
             bins=db().execute("""SELECT i.bin_code,i.direction,i.loaded_at,i.delivered_at,i.picked_up_at,i.returned_at,
-                    i.weighed_at,i.net_g,j.site_name,j.pod_signed_at,bs.bale_id,b.code AS bale_code
+                    i.weighed_at,i.net_g,j.site_name,j.status,j.pod_signed_at,bs.bale_id,b.code AS bale_code,u.item_id AS unused_item,u.returned_at AS empty_received
                     FROM bf_job_bins i JOIN bf_jobs j ON j.id=i.job_id
-                    LEFT JOIN bf_bale_sources bs ON bs.item_id=i.id LEFT JOIN bf_bales b ON b.id=bs.bale_id
+                    LEFT JOIN bf_unused_returns u ON u.item_id=i.id LEFT JOIN bf_bale_sources bs ON bs.item_id=i.id LEFT JOIN bf_bales b ON b.id=bs.bale_id
                     WHERE j.pod_client_id=? ORDER BY j.run_order,i.direction DESC,i.bin_id""",(run['client_id'],)).fetchall()
             bales=db().execute('SELECT id,code,net_g,status FROM bf_bales WHERE origin_id=? ORDER BY id',(run['origin_id'],)).fetchall()
             transfers=db().execute("""SELECT t.id,t.code,t.status,COUNT(i.bale_id) AS bales,SUM(i.net_g) AS net_g

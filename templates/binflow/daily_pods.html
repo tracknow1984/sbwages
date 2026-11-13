@@ -15,13 +15,13 @@
 {% endif %}
 {% if progress %}{% include 'binflow/pod_backlog.html' %}{% endif %}
 <div class="bf-toolbar"><form method="get" class="bf-filters">
-  {% if driver_demo %}<input type="hidden" name="demo" value="{{ driver_demo }}">{% endif %}<label>Run date<input type="date" name="date" value="{{ run_date }}" required></label>
-  <label>View<select name="view" data-autosubmit>{% for key,label in [('active','Active PODs'),('unfinished','Uncompleted PODs'),('archived','Archived PODs'),('deleted','Deleted PODs')] if key in ('active','unfinished') or (current_user.role=='admin' and not driver_demo) %}<option value="{{ key }}" {{ 'selected' if view==key }}>{{ label }}</option>{% endfor %}</select></label>
+  {% if request.args.get('state') %}<input type="hidden" name="state" value="{{ request.args.get('state') }}">{% endif %}{% if driver_demo %}<input type="hidden" name="demo" value="{{ driver_demo }}">{% endif %}<label>Run date<input type="date" name="date" value="{{ run_date }}" required></label>
+  <label>View<select name="view" data-autosubmit>{% for key,label in [('active','Active PODs'),('signed','Completed PODs'),('unfinished','Uncompleted PODs'),('archived','Archived PODs'),('deleted','Deleted PODs')] if key in ('active','unfinished','signed') or (current_user.role=='admin' and not driver_demo) %}<option value="{{ key }}" {{ 'selected' if view==key }}>{{ label }}</option>{% endfor %}</select></label>
   <button class="primary">Show PODs</button>
   <a href="{{ url_for('bf_workday',date=run_date,summary='1') if binflow_driver or driver_demo else url_for('bf_warehouse') if binflow_warehouse else url_for('bf_collection_calendar',date=run_date) }}">{{ 'Driver day' if binflow_driver or driver_demo else 'Warehouse stock' if binflow_warehouse else 'Collection calendar' }}</a>
 </form>{% if current_user.role=='admin' and not driver_demo %}<div class="bf-actions"><a class="button secondary pod-tool-icon" href="{{ url_for('bf_pods_export',date=run_date,view=view) }}" aria-label="Export list CSV" title="Export list CSV">{{ icon('download') }}</a><a href="{{ url_for('bf_client_accounts') }}">Manage client access</a></div>{% endif %}</div>
 {% if view=='deleted' %}<p class="bf-note">Deleted PODs are hidden from the active list and client portal. Restore a POD to view, email or export it again. Bin movements remain recorded.</p>{% endif %}
-<section class="bf-panel" id="pod-list"><div class="bf-panel-head"><h2>{{ {'active':'Active PODs','unfinished':'Uncompleted PODs','archived':'Archived PODs','deleted':'Deleted PODs'}[view] }}</h2></div>
+<section class="bf-panel" id="pod-list"><div class="bf-panel-head"><h2>{{ {'active':'Active PODs','signed':'Completed PODs','unfinished':'Uncompleted PODs','archived':'Archived PODs','deleted':'Deleted PODs'}[view] }}</h2></div>
 {% if view == 'active' and jobs %}
   {% for region, state_jobs in jobs|groupby('state') %}
   <section class="pod-state-group" aria-labelledby="pod-state-{{ loop.index }}">

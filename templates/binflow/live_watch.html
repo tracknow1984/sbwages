@@ -14,7 +14,7 @@
 <section class="bf-panel bf-pad"><h2>Bin movements</h2><div class="bf-table-wrap"><table class="bf-plan-table">
 <thead><tr><th>Bin</th><th>Stop</th><th>Last recorded step</th></tr></thead><tbody>
 {% for i in bins %}<tr><td data-label="Bin">{{ i.bin_code }}</td><td data-label="Stop">{{ i.site_name }}</td><td data-label="Last recorded step">
-{% if i.bale_id %}<a href="{{ url_for('bf_bale',bid=i.bale_id) }}">Baled · {{ i.bale_code }}</a>
+{% if i.empty_received %}Unused empty received at warehouse{% elif i.unused_item %}Unused empty on truck · return due{% elif i.status=='cancelled' %}Missed stop · no pickup{% elif i.bale_id %}<a href="{{ url_for('bf_bale',bid=i.bale_id) }}">Baled · {{ i.bale_code }}</a>
 {% elif i.direction=='collect' and i.pod_signed_at %}POD signed · {{ i.net_g|bfkg }} kg
 {% elif i.weighed_at %}Weighed · {{ i.net_g|bfkg }} kg{% elif i.returned_at %}Scanned into warehouse
 {% elif i.picked_up_at %}Collected onto truck{% elif i.delivered_at %}Delivered to client{% elif i.loaded_at %}Loaded onto truck

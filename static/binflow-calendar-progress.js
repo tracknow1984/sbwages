@@ -9,8 +9,17 @@
  function draw(){
   const opened=new Set([...root.querySelectorAll('[data-progress-key][open]')].map(n=>n.dataset.progressKey));
   root.querySelectorAll('[data-progress-key]').forEach(n=>n.remove());
+  if(root.hasAttribute('data-calendar-editor'))root.querySelectorAll('[data-closed-state]').forEach(n=>n.remove());
   for(const [key,day] of Object.entries(data)){
    const cell=root.querySelector('td[data-date="'+day.date+'"] .bf-date-events');if(!cell)continue;
+   if(day.closed && root.hasAttribute('data-calendar-editor')){
+    const lock=node('div','','bf-note');lock.dataset.closedState=day.state;
+    const link=node('a','Completed PODs ('+day.closed.pods+')');
+    link.href='/binflow/pods?'+new URLSearchParams({view:'signed',state:day.state,date:day.date});
+    lock.append(node('strong',day.state+' · Day locked'),document.createElement('br'),link);
+    cell.before(lock);
+    cell.querySelectorAll('[data-drag-state="'+day.state+'"]').forEach(n=>n.remove());
+   }
    const details=node('details','','bf-calendar-progress');details.dataset.progressKey=key;details.open=opened.has(key);
    const summary=node('summary','');
    summary.append(node('span',(root.dataset.state?'':day.state+' · ')+day.entries.length+' pickups','bf-progress-total'));

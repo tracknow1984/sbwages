@@ -1,0 +1,1 @@
+{% if closed_days is defined %}{% for region,summary in closed_days.get(key,{}).items() %}<div class="bf-note" data-closed-state="{{ region }}"><strong>{{ region }} · Day locked</strong><br><a href="{{ url_for('bf_daily_pods',date=key,state=region,view='signed') }}">Completed PODs ({{ summary.pods }})</a></div>{% endfor %}{% endif %}

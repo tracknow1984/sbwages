@@ -276,7 +276,13 @@ def register_collections(app,db,access,require,render,success,now,actor):
     @access
     def bf_collection_calendar():
         template, data = collection_calendar_view(db(), request.args, now()[:10])
-        return render(template, section='collection_calendar', **data)
+        from binflow_stop_exceptions import closeouts
+        start,end,*_=calendar_period(data['chosen'],data['view'])
+        locks=closeouts(db(),start.isoformat(),end.isoformat(),data['selected'])
+        closed={}
+        for (region,day),info in locks.items():
+            closed.setdefault(day,{})[region]=info
+        return render(template, section='collection_calendar', closed_days=closed, **data)
 
     @app.route('/binflow/locations/<int:location_id>/collection-profile',methods=['GET','POST'])
     @require('admin')

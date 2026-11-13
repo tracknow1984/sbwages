@@ -187,7 +187,9 @@ def finish_blockers(conn,day):
     if any(j['status'] in ('scheduled','collected') for j in jobs):
         reasons.append('Complete every client stop and warehouse return first. Ask the office to resolve any cancelled work.')
     run=conn.execute('SELECT returned_at FROM bf_runs WHERE truck_id=? AND run_date=?',(day['truck_id'],day['work_date'])).fetchone()
-    if jobs and (not run or not run['returned_at']): reasons.append('Confirm that you are back at the warehouse.')
+    missed=conn.execute("""SELECT 1 FROM bf_stop_exceptions e JOIN bf_jobs j ON j.id=e.job_id
+        WHERE j.truck_id=? AND j.scheduled_date=? LIMIT 1""",(day['truck_id'],day['work_date'])).fetchone()
+    if (jobs or missed) and (not run or not run['returned_at']): reasons.append('Confirm that you are back at the warehouse.')
     return reasons
 
 
