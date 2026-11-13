@@ -1,0 +1,23 @@
+name: Verify BinFlow driver closeout
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - name: Check client scripts
+        run: |
+          node --check static/binflow-calendar-edit.js
+          node --check static/binflow-calendar-progress.js
+      - name: Test driver, warehouse, calendar and POD closeout
+        env:
+          PYTHONPATH: .:tests
+        run: python -m unittest -v test_binflow_stop_exceptions test_binflow_calendar_progress test_binflow_live_cycle test_binflow_journey test_binflow_pods
