@@ -1,9 +1,46 @@
-{% extends 'base.html' %}{% block content %}
-<section class="auth-card"><span class="eyebrow">{{ 'ADMIN PORTAL' if audience == 'admin' else 'EMPLOYEE PORTAL' }}</span><h1>Welcome back.</h1><p class="muted">{{ 'Choose BinFlow from your dashboard to return to your saved work.' if audience == 'employee' and request.args.get('resume') else 'Manage your team and review weekly timesheets.' if audience == 'admin' else 'Your details, your hours, all in one place.' }}</p>
-<form method="post" class="stack"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
-<label>Username<input name="username" autocomplete="username" required autofocus maxlength="80"></label>
-<label>Password<input name="password" type="password" autocomplete="current-password" required maxlength="200"></label>
-<button class="primary full" type="submit">Sign in</button></form>
-<p class="small muted">{{ 'Use your administrator account to sign in.' if audience == 'admin' else 'First time here or forgotten your password? Ask admin to email you a password setup link.' }}</p>
-<a class="auth-switch" href="{{ url_for('login', audience='employee' if audience == 'admin' else 'admin',resume=request.args.get('resume')) }}">{{ 'Employee sign in' if audience == 'admin' else 'Administrator sign in' }} <span aria-hidden="true">→</span></a>
-</section>{% endblock %}
+{% from 'empire_brand.html' import logo, credit %}
+{% from 'binflow/icons.html' import icon %}
+{% set admin = audience == 'admin' %}
+<!doctype html>
+<html lang="en-AU">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ 'Administrator' if admin else 'Employee' }} sign in · SB Empire</title>
+  <meta name="description" content="Sign in to the SB Empire {{ 'administration' if admin else 'employee' }} portal.">
+  <link rel="stylesheet" href="{{ url_for('static',filename='portal-login.css') }}">
+</head>
+<body>
+  <main class="portal">
+    <aside class="depot" aria-label="SB Empire">
+      <div class="depot-caption">Building Opportunities<br><span>&amp; Delivering Solutions</span></div>
+    </aside>
+    <section class="access" aria-labelledby="login-title">
+      <header class="masthead">
+        <a href="{{ url_for('index') }}" aria-label="SB Empire home">{{ logo('portal-logo') }}</a>
+        <a class="client-link" href="{{ url_for('bf_client_login') }}">Client portal {{ icon('arrow') }}</a>
+      </header>
+      <div class="login">
+        <nav class="roles" aria-label="Choose a portal">
+          {% for role,label in [('employee','Employee'),('admin','Administration')] %}
+          <a href="{{ url_for('login',audience=role,resume=request.args.get('resume'),handbook=request.args.get('handbook')) }}" {% if role==audience %}aria-current="page"{% endif %}>{{ label }}</a>
+          {% endfor %}
+        </nav>
+        <h1 id="login-title">{{ 'Administrator' if admin else 'Employee' }} sign in</h1>
+        <p class="intro">{% if admin %}Access your management dashboard and business operations.{% elif request.args.get('resume') %}Choose BinFlow from your dashboard to return to your saved work.{% else %}Access your timesheets, workday and staff details.{% endif %}</p>
+        {% for category,message in get_flashed_messages(with_categories=true) %}<p class="notice {{ category }}" role="alert">{{ message }}</p>{% endfor %}
+        <form method="post">
+          <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+          <label for="username">Username</label>
+          <input id="username" name="username" value="{{ request.form.get('username','') }}" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="80" required>
+          <label for="password">Password</label>
+          <input id="password" type="password" name="password" autocomplete="current-password" maxlength="200" required>
+          <button type="submit">Sign in {{ icon('arrow') }}</button>
+        </form>
+        {% if not admin %}<details class="help"><summary>Need help signing in?</summary><p>For first-time access or a forgotten password, ask your administrator to email you a password setup link.</p></details>{% endif %}
+      </div>
+      <footer>{{ credit() }}</footer>
+    </section>
+  </main>
+</body>
+</html>

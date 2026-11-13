@@ -1,6 +1,7 @@
+{% from 'empire_brand.html' import logo %}
 <!doctype html><html lang="en-AU"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Employee verification · SB Empire</title><link rel="stylesheet" href="{{ url_for('static',filename='employee-qr.css') }}"></head>
 <body class="emp-verify"><main>
-<header><img src="{{ url_for('static',filename='sb-empire-header.webp') }}" width="200" height="35" alt="SB Empire"><p>Employee verification</p><h1>{{ person.first_name }} {{ person.last_name }}</h1></header>
+<header>{{ logo('empire-site-logo') }}<p>Employee verification</p><h1>{{ person.first_name }} {{ person.last_name }}</h1></header>
 <section><h2>Driver licence</h2>
 {% if person.licence_class or person.licence_state or person.licence_expiry or person.suffix %}
 <dl>{% for label,value in [('Class',person.licence_class),('Issued in',person.licence_state),('Number ending',person.suffix)] %}{% if value %}<div><dt>{{ label }}</dt><dd>{{ value }}</dd></div>{% endif %}{% endfor %}

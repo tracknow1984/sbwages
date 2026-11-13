@@ -1,4 +1,5 @@
 {% from 'binflow/brand.html' import brand as binflow_brand %}
+{% from 'empire_brand.html' import logo, credit %}
 {% set bf_surface = tab == 'binflow' or (request.endpoint or '').startswith('bf_') %}
 <!doctype html>
 <html lang="en-AU">
@@ -33,7 +34,7 @@
   </details></div>
 </header>
 {% else %}
-<header class="topbar"><a class="brand" href="{{ url_for('index') }}">{% if bf_surface %}{{ binflow_brand() }}{% else %}<img class="brand-logo" src="{{ url_for('static', filename='sb-empire-header.webp') }}" alt="SB Empire — Building Opportunities and Delivering Solutions" width="320" height="56">{% endif %}</a>
+<header class="topbar"><a class="brand" href="{{ url_for('index') }}">{% if bf_surface %}{{ binflow_brand() }}{% else %}{{ logo('empire-site-logo') }}{% endif %}</a>
 {% if current_user %}<div class="user-menu"><span>{{ current_user.first_name }}<small>{{ 'Administrator' if current_user.role == 'admin' else (assigned_roles(current_user)|map('upper')|join(' · ') or 'Employee') }}</small></span><form action="{{ url_for('logout') }}" method="post"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="ghost" type="submit">Sign out</button></form></div>{% endif %}</header>
 {% if current_user and not induction_gate and not binflow_driver and not (bale_mode and (binflow_manager or binflow_warehouse)) %}
 {% if current_user.role == 'admin' %}{% include 'admin_navigation.html' %}
@@ -69,5 +70,5 @@
 </nav>{% endif %}
 {% with messages = get_flashed_messages(with_categories=true) %}{% for category,message in messages if not journey_mode or category!='success' %}<div class="notice {{ category }}" role="alert">{{ message }}</div>{% endfor %}{% endwith %}
 {% block content %}{% endblock %}
-</main><footer>{{ 'BINFLOW · SB EMPIRE' if bf_surface else 'SB EMPIRE' }} <span>{{ 'Bin management · Collections · Warehouse' if bf_surface else 'Staff, Timesheets & Operations · Australia / Brisbane' }}</span></footer>
+</main><footer>{{ 'BINFLOW · SB EMPIRE' if bf_surface else 'SB EMPIRE' }} <span>{{ 'Bin management · Collections · Warehouse' if bf_surface else credit() }}</span></footer>
 </body></html>

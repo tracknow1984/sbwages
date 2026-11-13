@@ -4,7 +4,7 @@
 .emp-verify main {max-width:37rem;margin:1.25rem auto;padding:0 .85rem}
 .emp-verify header,.emp-verify section {border-radius:.8rem;padding:1.15rem 1.35rem;margin:.65rem 0;background:#fff}
 .emp-verify header {background:#122739;color:white;border-top:.32rem solid #28ae9f}
-.emp-verify header img {display:block;max-width:100%;object-fit:contain;object-position:left}
+.emp-verify header img {display:block;width:84px;height:auto;max-width:100%;background:#fff;border-radius:5px;padding:5px;object-fit:contain}
 .emp-verify h1 {font-size:1.85rem;margin:0;line-height:1.15}
 .emp-verify header p {color:#cbdce8;margin:1rem 0 .25rem}
 .emp-verify h2 {font-size:1.12rem;margin:0 0 .55rem}
