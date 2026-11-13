@@ -23,7 +23,7 @@
   </div></header>
   {% if not external %}
   <div class="it-calendar-key">
-    <div class="it-calendar-counts" aria-label="Scheduled activity in this view"><strong>{{ counts.Pickup }}</strong> {{ 'pickup' if counts.Pickup==1 else 'pickups' }} <span aria-hidden="true">·</span> <strong>{{ counts.Delivery }}</strong> {{ 'delivery' if counts.Delivery==1 else 'deliveries' }}</div>
+    <div class="it-calendar-counts" aria-label="Bookings in this view"><strong>{{ booking_count }}</strong> {{ 'booking' if booking_count==1 else 'bookings' }}</div>
     {% if legend %}<details class="it-client-key" {{ 'open' if legend|length <= 6 }}><summary>Client colours</summary><ul>{% for colour,name in legend|dictsort(by='value') %}<li data-record-text data-client-colour="{{ colour }}"><i aria-hidden="true"></i>{{ name }}</li>{% endfor %}</ul></details>{% endif %}
   </div>
   {% endif %}
@@ -31,20 +31,18 @@
     <span>{{ po_badge(false) }} Add a number or file</span>
     <span>{{ po_badge(true) }} Number or file supplied</span>
   </div>
-  <div class="bf-calendar-grid-wrap"><table class="bf-date-grid {{ 'bf-date-grid-week' if view=='week' }}" aria-label="Scheduled interstate pickups and deliveries">
+  <div class="bf-calendar-grid-wrap"><table class="bf-date-grid {{ 'bf-date-grid-week' if view=='week' }}" aria-label="Transfer bookings by pickup date">
     <thead><tr>{% for day in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}<th scope="col">{{ day }}</th>{% endfor %}</tr></thead>
     <tbody>{% for week in weeks %}<tr>{% for day in week %}{% set iso=day.isoformat() %}
       <td class="{{ 'outside' if view=='month' and day.month!=chosen.month }} {{ 'today' if iso==today }}"><div class="bf-date-heading">{% if view=='week' %}<span class="it-mobile-day">{{ day.strftime('%a') }}</span>{% endif %}{% if can_add %}<a href="{{ url_for('bf_client_interstate_new' if external else 'bf_interstate_new',pickup=iso) }}" aria-label="Request pickup on {{ day.strftime('%d %B %Y') }}"><time datetime="{{ iso }}">{{ day.day }}</time></a>{% else %}<time datetime="{{ iso }}">{{ day.day }}</time>{% endif %}</div>
-        {% for kind,b in events[iso] %}
-          {% set info=previews[b.id] %}
-          <a class="it-event {{ kind|lower }}" data-po-status="{{ 'received' if info.po_received else 'required' }}" {{ preview_link(info) }}>
-            <span class="it-leg">{{ 'Local RIGID · ' if external and b.rigid_hours_units }}{{ kind }} · {{ places[b.origin if kind=='Pickup' else b.destination][1] }}</span>
-            <strong>{{ info.billing_name }}</strong>
-            {{ po_badge(info.po_received) }}
-            {% set company=b.pickup_company if kind=='Pickup' else b.delivery_company %}
-            {% if company and company!=info.billing_name %}<span>{{ company }}</span>{% endif %}
+        {% for b in events[iso] %}
+          <a class="it-event pickup" data-po-status="{{ 'received' if b.po_received else 'required' }}"{% if b.status=='Delivered' %} data-delivered="true"{% endif %} {{ preview_link(b) }}>
+            {% if b.status=='Delivered' %}<span class="it-delivered-badge">Delivered</span>{% endif %}
+            <strong>{{ b.billing_name }}</strong>
+            {% if b.pickup_company and b.pickup_company!=b.billing_name %}<span>{{ b.pickup_company }}</span>{% endif %}
             <span class="it-card-meta">{{ route(b) }}{% if b.vehicle and not b.rigid_hours_units %} · {{ vehicle(b) }}{% endif %}</span>
-            {% if view=='week' %}<span class="it-card-meta">{{ reference(b) }} · {{ info.status }}</span>{% endif %}
+            {{ po_badge(b.po_received) }}
+            {% if view=='week' %}<span class="it-card-meta">{{ reference(b) }}{% if b.status!='Delivered' %} · {{ b.status }}{% endif %}</span>{% endif %}
           </a>
         {% endfor %}
       </td>{% endfor %}</tr>{% endfor %}</tbody></table></div>

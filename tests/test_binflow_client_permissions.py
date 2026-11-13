@@ -217,6 +217,32 @@ class PortalPermissionTests(unittest.TestCase):
         self.assertIn('bf-date-grid-week',self.client.get(CAL).text)
         self.assertEqual(first.get(CLIENT+'/2').status_code,404)
 
+    def test_delivered_bulk_booking_stays_on_its_pickup_date(self):
+        self.account('delivery-client')
+        client = self.visit('delivery-client')
+        self.send(client,CLIENT+'/new',data(pickup_date='2026-11-12',delivery_date='2026-11-12'))
+        self.assertEqual(self.post(CAL+'/1/bulk',dict(action='deliver')).status_code,409)
+        self.post(CAL+'/1/lock',dict(version=1))
+        self.send(client,CLIENT+'/1/purchase-order',dict(po_revision=0,po_number='PO-55'))
+        self.assertNotIn('Mark delivered',client.get(CLIENT+'/1').text)
+        page = self.post(CAL+'/1/bulk',dict(action='deliver'))
+        self.assertEqual(page.status_code,200)
+        self.assertIn('Delivery recorded',page.text)
+        self.assertNotIn('Mark delivered',page.text)
+        first = self.rows('SELECT bulk_dispatched_at,bulk_delivered_at FROM bf_interstate_bookings')[0]
+        self.assertTrue(first['bulk_delivered_at'])
+        self.assertIsNone(first['bulk_dispatched_at'])
+        self.post(CAL+'/1/bulk',dict(action='deliver'))
+        self.assertEqual(self.post(CAL+'/1/bulk',dict(action='dispatch')).status_code,409)
+        self.assertEqual(first,self.rows('SELECT bulk_dispatched_at,bulk_delivered_at FROM bf_interstate_bookings')[0])
+        for browser,base in ((client,CLIENT),(self.client,CAL)):
+            for view in ('week','month'):
+                page=browser.get(base+'?date=2026-11-12&view='+view).text
+                self.assertEqual(page.count('class="it-event pickup"'),1)
+                self.assertIn('data-po-status="received" data-delivered="true"',page)
+                self.assertIn('>Delivered</span>',page)
+                self.assertIn('PO-55',page)
+
     def test_purchase_order_number_file_approval_and_account_permissions(self):
         import io
         from reportlab.pdfgen.canvas import Canvas
@@ -233,7 +259,7 @@ class PortalPermissionTests(unittest.TestCase):
         for bid in (1,2,3):
             self.post(f'{CAL}/{bid}/lock',dict(version=1))
         week=CLIENT+'?date=2026-11-13&view=week'
-        self.assertEqual(client.get(week).text.count('data-po-status="required"'),4)
+        self.assertEqual(client.get(week).text.count('data-po-status="required"'),2)
         self.assertEqual(self.send(other,path,fields).status_code,404)
         self.assertEqual(self.send(client,path,dict(po_revision=0,po_number=' ')).status_code,400)
         self.assertEqual(self.send(client,path,dict(fields,po_file=(io.BytesIO(b'not a PDF'),'wrong.pdf'))).status_code,400)
@@ -242,7 +268,7 @@ class PortalPermissionTests(unittest.TestCase):
         self.assertEqual(self.rows('SELECT booking_id FROM bf_interstate_purchase_orders'),[])
         self.assertIn('PO-100',self.send(client,path,fields).text)
         self.assertEqual(client.get(path+'/file').status_code,404)
-        self.assertEqual(client.get(week).text.count('data-po-status="received"'),2)
+        self.assertEqual(client.get(week).text.count('data-po-status="received"'),1)
         out=io.BytesIO()
         pdf=Canvas(out)
         pdf.drawString(50,750,'Purchase order 100')
@@ -265,7 +291,7 @@ class PortalPermissionTests(unittest.TestCase):
         self.assertEqual(other.get(path+'/file').status_code,404)
         for view in ['week','month']:
             page=client.get(CLIENT+'?date=2026-11-13&view='+view).text
-            self.assertEqual(page.count('data-po-status="received"'),4)
+            self.assertEqual(page.count('data-po-status="received"'),2)
             self.assertIn('Purchase order legend',page)
         self.rights(aid,['invoices.view','bookings.view','bookings.add'],['bookings.view'])
         self.assertNotIn('Save PO',client.get(CLIENT+'/1').text)
@@ -479,7 +505,7 @@ class PortalPermissionTests(unittest.TestCase):
             self.assertIn('local RIGID',msg['Subject'])
             self.assertIn('Billable hours: 5.25',msg.get_content())
             self.assertIn('AUD $708.75 ex GST',msg.get_content())
-        self.assertIn('Local RIGID · Pickup',client.get(CLIENT+'?date='+form['pickup_date']).text)
+        self.assertIn('Local RIGID · NSW',client.get(CLIENT+'?date='+form['pickup_date']).text)
         self.assertEqual(self.send(client,CLIENT+'/1/edit',dict(form,version=3)).status_code,409)
 
     def test_unpriced_local_booking_gets_hourly_price_when_locked(self):

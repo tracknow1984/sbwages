@@ -3,7 +3,14 @@
 {% from 'binflow/purchase_order_status.html' import badge as po_badge %}
 {% block transfer_content %}
 <a href="{{ url_for('bf_client_interstate' if external else 'bf_interstate_calendar',date=b.pickup_date) }}">← Transfer calendar</a>
-<section class="bf-panel bf-pad"><div class="bf-toolbar"><div><small>IT-{{ '%06d'|format(b.id) }}</small>{% if b.account_id %}<small> · Billing client</small>{% endif %}<h2>{{ b.client_name }}</h2></div><span class="bf-badge">{{ status }}</span></div>
+<section class="bf-panel bf-pad"><div class="bf-toolbar"><div><small>IT-{{ '%06d'|format(b.id) }}</small>{% if b.account_id %}<small> · Billing client</small>{% endif %}<h2>{{ b.client_name }}</h2></div><span class="{{ 'it-delivered-badge' if status=='Delivered' else 'bf-badge' }}">{{ status }}</span></div>
+{% if not external and b.locked_at and not b.cancelled_at and b.handling=='bulk' and not b.bulk_delivered_at %}
+<form method="post" class="it-tools" action="{{ url_for('bf_interstate_bulk',bid=b.id) }}">
+  <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+  {% if not b.bulk_dispatched_at %}<button class="secondary" name="action" value="dispatch">Mark dispatched</button>{% endif %}
+  <button class="primary" name="action" value="deliver">Mark delivered</button>
+</form>
+{% elif b.bulk_delivered_at %}<p>Delivery recorded {{ b.bulk_delivered_at|display_datetime }}</p>{% endif %}
 <p>{% if b.rigid_hours_units %}Local transfer · {{ places[b.origin][1] }}{% else %}{{ places[b.origin][0] }} → {{ places[b.destination][0] }}{% endif %} · {{ 'Internal' if b.job_type=='internal' else 'External · subcontractor' }} · {{ 'Scan each bale' if b.handling=='scanned' else 'Bulk movement' }}</p>
  {% if b.vehicle %}<p>Vehicle <strong>{{ 'B DOUBLE' if b.vehicle=='B-DOUBLE' else b.vehicle }}</strong></p>{% if b.rigid_hours_units %}<p>Requested {{ b.rigid_hours_units|hours }} hours · Billable {{ [minimum*100,b.rigid_hours_units]|max|hours }} hours{% if b.rigid_hourly_cents is not none %} at {{ b.rigid_hourly_cents|money }} per hour ex GST{% endif %}</p>{% endif %}{% if b.account_id %}<h3>Freight price · AUD ex GST</h3>{{ breakdown(price) }}{% endif %}{% endif %}
 {% if b.cancelled_at %}<div class="bf-note"><strong>Load cancelled · {{ b.cancelled_at|display_datetime }}</strong>
@@ -82,10 +89,8 @@
   {% elif b.email_status!='sent' %}<form method="post" action="{{ url_for('bf_interstate_email',bid=b.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="secondary">Retry confirmation email</button>{% if b.email_status=='sending' %}<small> If sending is interrupted, check the recipient before retrying after 10 minutes.</small>{% else %}<small> Check the email connection before retrying.</small>{% endif %}</form>{% endif %}
 {% endif %}
 {% if not external and current_user.role=='admin' and (b.bulk_delivered_at or billed or manifest and manifest.status in ['received','handed_over']) %}<p><a href="{{ url_for('bf_invoices') }}">Review transfer invoice</a></p>{% endif %}
-{% if not external and b.locked_at %}
-  {% if b.handling=='scanned' %}
-    {% if manifest and manifest.status!='cancelled' %}<a class="button primary" href="{{ url_for('bf_bale_transfer',tid=manifest.id) }}">Open {{ manifest.code }} · {{ manifest.expected_bales }} bales</a>
-    {% else %}<a class="button primary" href="{{ url_for('bf_bale_transfer_new',booking=b.id) }}">Start bale manifest</a>{% endif %}
-  {% elif not b.bulk_delivered_at %}<form method="post" action="{{ url_for('bf_interstate_bulk',bid=b.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="action" value="{{ 'deliver' if b.bulk_dispatched_at else 'dispatch' }}"><button class="primary">{{ 'Mark bulk load delivered' if b.bulk_dispatched_at else 'Mark bulk load dispatched' }}</button></form>{% endif %}
+{% if not external and b.locked_at and not b.cancelled_at and b.handling=='scanned' %}
+  {% if manifest and manifest.status!='cancelled' %}<a class="button primary" href="{{ url_for('bf_bale_transfer',tid=manifest.id) }}">{{ 'Receive bales' if manifest.status=='transit' else 'Open manifest' }} · {{ manifest.code }} · {{ manifest.expected_bales }} bales{% if manifest.status=='handed_over' %} · Handed over{% endif %}</a>
+  {% else %}<a class="button primary" href="{{ url_for('bf_bale_transfer_new',booking=b.id) }}">Start bale manifest</a>{% endif %}
 {% endif %}
 </section>{% endblock %}

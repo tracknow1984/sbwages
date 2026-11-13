@@ -110,13 +110,15 @@ class BookingTests(unittest.TestCase):
             self.assertEqual(msg['To'],'booking@example.invalid')
             self.assertIn('17 Nov 2026',msg.get_content())
         self.assertIn('class="it-event pickup"',self.client.get(week).text)
-        self.assertIn('class="it-event delivery"',self.client.get(CAL+'?date=2026-11-17').text)
+        self.assertNotIn('class="it-event',self.client.get(CAL+'?date=2026-11-17&view=week').text)
         self.assertNotIn('class="it-event',self.client.get(week+'&state=WA').text)
         self.assertEqual(self.client.get('/binflow/bales/transfers/new?booking=1').status_code,404)
-        self.assertEqual(self.post(CAL+'/1/bulk',dict(action='deliver')).status_code,409)
+        self.assertIn('Mark delivered',self.client.get(CAL+'/1').text)
         self.post(CAL+'/1/bulk',dict(action='dispatch'))
         self.assertIn('Delivered',self.post(CAL+'/1/bulk',dict(action='deliver')).text)
         self.assertFalse(self.rows('SELECT * FROM bf_bale_transfer_items'))
+        self.assertIn('data-delivered="true"',self.client.get(week).text)
+
 
     def test_calendar_clients_keep_their_colours_and_preview_the_correct_booking(self):
         import re
@@ -164,8 +166,10 @@ class BookingTests(unittest.TestCase):
         self.scan('BA0000001','receive')
         self.assertTrue(self.scan('BA0000001','receive').json['duplicate'])
         self.assertEqual(self.rows('SELECT status FROM bf_bale_transfers')[0]['status'],'transit')
+        self.assertNotIn('data-delivered="true"',self.client.get(CAL+'?date=2026-11-13').text)
         self.scan('BA0000002','receive')
         self.assertEqual(self.rows('SELECT status FROM bf_bale_transfers')[0]['status'],'received')
+        self.assertIn('data-delivered="true"',self.client.get(CAL+'?date=2026-11-13').text)
         self.assertEqual(self.rows('SELECT DISTINCT status,warehouse_id FROM bf_bales'),[dict(status='stored',warehouse_id=2)])
         self.assertNotIn('Hand over to BlockTexx storage',self.client.get('/binflow/bales/transfers/1').text)
 

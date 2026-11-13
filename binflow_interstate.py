@@ -29,7 +29,7 @@ LANES = {'QLD-VIC': 3, 'NSW-QLD': 2, 'SA-VIC': 2, 'QLD-SA': 4, 'QLD-WA': 5}
 FIELDS = ('job_type','handling','origin','destination','pickup_date','delivery_date','client_name',
           'pickup_address','pickup_contact','pickup_phone','delivery_address','delivery_contact',
           'delivery_phone','email','goods','vehicle','pickup_company','delivery_company')
-PROGRESS = {'loading':'Loading','transit':'In transit','received':'Received','handed_over':'Handed over'}
+PROGRESS = {'loading':'Loading','transit':'In transit','received':'Delivered','handed_over':'Delivered'}
 
 
 def migrate(conn):
@@ -317,8 +317,8 @@ def register(app, db, access, require, render, client_access, now, actor):
             args += (*points,*points)
         limits = (start.isoformat(),end.isoformat())
         rows = db().execute(select+""" WHERE b.locked_at IS NOT NULL
-            AND (pickup_date BETWEEN ? AND ? OR delivery_date BETWEEN ? AND ?)"""+scope+
-            ' ORDER BY b.client_name,b.id',(*limits,*limits,*args)).fetchall()
+            AND b.cancelled_at IS NULL AND b.pickup_date BETWEEN ? AND ?"""+scope+
+            ' ORDER BY b.client_name,b.id',(*limits,*args)).fetchall()
         pending = db().execute(select+' WHERE b.locked_at IS NULL AND b.cancelled_at IS NULL'+scope+
                                ' ORDER BY b.pickup_date,b.id',args).fetchall()
         cancelled = db().execute(select+""" WHERE b.cancelled_at IS NOT NULL
@@ -327,7 +327,6 @@ def register(app, db, access, require, render, client_access, now, actor):
         events = defaultdict(list)
         previews = {}
         legend = {}
-        counts = {'Pickup':0,'Delivery':0}
         colours = dispatch_colours(db()) if not external and (rows or pending) else {}
         for booking in (*rows,*pending):
             name = booking['billing_name']
@@ -339,13 +338,10 @@ def register(app, db, access, require, render, client_access, now, actor):
             if not external and booking['locked_at']:
                 legend.setdefault(preview['colour'],name)
         for row in rows:
-            for field,label in [('pickup_date','Pickup'),('delivery_date','Delivery')]:
-                if limits[0] <= row[field] <= limits[1]:
-                    events[row[field]].append((label,row))
-                    counts[label] += 1
+            events[row['pickup_date']].append(previews[row['id']])
         return page('interstate_calendar',external,view=view,state=state,chosen=chosen,
                     previous=previous,following=following,title=title,weeks=weeks,events=events,pending=pending,cancelled=cancelled,
-                    previews=previews,legend=legend,counts=counts,today=now()[:10],can_update_booking=can_update_booking(external))
+                    previews=previews,legend=legend,booking_count=len(rows),today=now()[:10],can_update_booking=can_update_booking(external))
 
     @app.get('/binflow/interstate-transfers')
     @access
@@ -727,12 +723,12 @@ def register(app, db, access, require, render, client_access, now, actor):
     def bf_interstate_bulk(bid):
         db().execute('BEGIN IMMEDIATE')
         row = booking(bid)
-        if not row['locked_at'] or row['handling']!='bulk':
+        if not row['locked_at'] or row['cancelled_at'] or row['handling']!='bulk':
             abort(409)
         action = request.form.get('action')
-        if action=='dispatch':
+        if action=='dispatch' and not row['bulk_delivered_at']:
             db().execute('UPDATE bf_interstate_bookings SET bulk_dispatched_at=? WHERE id=? AND bulk_dispatched_at IS NULL',(now(),bid))
-        elif action=='deliver' and row['bulk_dispatched_at']:
+        elif action=='deliver':
             db().execute('UPDATE bf_interstate_bookings SET bulk_delivered_at=? WHERE id=? AND bulk_delivered_at IS NULL',(now(),bid))
         else:
             abort(409)
