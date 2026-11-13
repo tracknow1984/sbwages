@@ -1,0 +1,18 @@
+<div data-pod-record>
+  {% if ready %}
+    {% include 'binflow/pod_document.html' %}
+    {% if billing %}{% include 'binflow/pod_billing.html' %}{% endif %}
+  {% else %}
+  <article class="bf-pod">
+    <header><div><span class="bf-kicker">{{ job.state }} · {{ job.scheduled_date|display_date }}</span><h2>{{ job.code }}</h2></div>
+      <strong class="bf-status">{{ pod_status(job) }}</strong></header>
+    <h3>{{ job.site_name }}</h3><p>{{ job.client_name }}<br>{{ job.site_address }}</p>
+    <p><strong>Return warehouse</strong> · {{ job.warehouse_name }}</p>
+    <div class="bf-table-wrap"><table><thead><tr><th>Bin</th><th>Movement</th><th>Material</th><th>Net weight</th></tr></thead>
+    <tbody>{% for i in items %}<tr><td>{{ i.bin_code }}</td><td>{{ 'Collection' if i.direction=='collect' else 'Delivery' }}</td>
+      <td>{{ i.material_name or '—' }}</td><td>{{ (i.net_g|bfkg ~ ' kg') if i.net_g is not none else ('Pending' if i.direction=='collect' else '—') }}</td></tr>
+    {% else %}<tr><td colspan="4">No bins allocated.</td></tr>{% endfor %}</tbody></table></div>
+  </article>
+  {% endif %}
+  <p><a href="{{ url_for('bf_pod' if ready else 'bf_job',job_id=job.id) }}">{{ 'Open full POD' if ready else 'Open docket' }}</a></p>
+</div>

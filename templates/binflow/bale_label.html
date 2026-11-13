@@ -1,1 +1,24 @@
-{% extends 'binflow/bale_base.html' %}{% block title %}Print bale label{% endblock %}{% block bale_body %}<div class="no-print bf-toolbar"><button type="button" class="primary" data-print>Print label</button><a href="{{ url_for('bf_bale',bid=bale.id) }}">Back to bale</a><p>100 × 150 mm label · print at 100%, with browser headers and footers off.</p></div><article class="bf-bale-label"><strong class="bf-kicker">{{ "SAMPLE BALE · TRAINING" if driver_demo else "BINFLOW · SB EMPIRE" }}</strong><h2>{{ bale.code }}</h2><img src="{{ url_for('bf_bale_image',bid=bale.id) }}" alt="QR code for {{ bale.code }}"><h3>{{ bale.material_name }}</h3><strong class="bf-label-weight">{{ bale.net_g|bfkg }} kg net</strong><p>{{ bale.created_at|display_date }} · Label v{{ bale.version }}</p></article>{% endblock %}
+{% extends 'binflow/bale_base.html' %}
+{% block title %}Print bale label{% endblock %}
+{% block bale_body %}
+<link rel="stylesheet" href="{{ url_for('static',filename='binflow-bale-label.css') }}">
+<div class="no-print bf-toolbar">
+  <button type="button" class="primary" data-print>Print label</button>
+  <a href="{{ url_for('bf_bale',bid=bale.id) }}">Back to bale</a>
+  <p>100 × 150 mm label · Print at 100%, with browser headers and footers off.</p>
+</div>
+<article class="bf-bale-label">
+  <img class="bale-brand" src="{{ url_for('static',filename='blocktexx-logo-tagline.png') }}" alt="BlockTexx">
+  {% if driver_demo %}<strong class="bale-training">Sample bale · Training</strong>{% endif %}
+  <div class="bale-material"><span>Material classification</span>
+    <h2 class="{{ 'bale-long-material' if bale.material_name|length > 24 else '' }}">{{ bale.material_name }}</h2>
+  </div>
+  <img class="bale-qr" src="{{ url_for('bf_bale_image',bid=bale.id) }}" alt="QR code for {{ bale.code }}">
+  <strong class="bale-id">{{ bale.code }}</strong>
+  <div class="bale-label-facts">
+    <div><span>Date created</span><strong>{{ bale.created_at|display_date }}</strong></div>
+    <div><span>Net weight</span><strong>{{ bale.net_g|bfkg }} kg</strong></div>
+  </div>
+  <small>BinFlow · Label v{{ bale.version }}</small>
+</article>
+{% endblock %}

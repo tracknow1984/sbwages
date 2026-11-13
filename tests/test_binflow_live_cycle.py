@@ -34,6 +34,14 @@ class LiveCycleTests(unittest.TestCase):
         j1,j2=[j['id'] for j in jobs]
         check(jobs[0]['code'],admin.get('/binflow/pods?date='+RUN_DATE))
         self.assertEqual(len(jobs),2)
+        listing=admin.get('/binflow/pods?date='+RUN_DATE)
+        check('id="pod-state-1">NSW',listing)
+        check(f'data-pod-preview="/binflow/pickups/{j1}/pod?preview=1"',listing)
+        pending=admin.get(f'/binflow/pickups/{j1}/pod?preview=1')
+        check('HANDOVER PENDING',pending)
+        check('LT-240-FULL',pending)
+        self.assertNotIn('Warehouse final sign-off',pending.text)
+        self.assertEqual(admin.get(f'/binflow/pickups/{j1}/pod.pdf').status_code,400)
         check('LIVE-TEST-POD-02',admin.get('/admin/binflow/live-test'))
         self.assertEqual(self.client.get('/admin/binflow/live-test').status_code,403)
         truck=run['truck_id']
@@ -87,6 +95,9 @@ class LiveCycleTests(unittest.TestCase):
         self.assertNotIn('data-docket-trigger',signed.text)
         for jid,val in ((j1,'$220.00'),(j2,'$132.00')):
             check(val,admin.get(f'/binflow/pickups/{jid}/pod'))
+            preview=admin.get(f'/binflow/pickups/{jid}/pod?preview=1')
+            check('Warehouse final sign-off',preview)
+            check(val,preview)
             check('$352.00',self.client.get(f'/binflow/pickups/{jid}/pod'))
         draft=self.rows("SELECT * FROM bf_auto_drafts WHERE group_key LIKE 'pods:live-test:%'")[0]
         check('$352.00',admin.get('/binflow/invoices/review/'+draft['id']))
@@ -111,7 +122,10 @@ class LiveCycleTests(unittest.TestCase):
             f=self.post('/binflow/bales/new',dict(fields,source_code=bins,source_item=items,weight=125 if jid==j1 else 75,confirm_sources='yes'))
             bale=re.search(r'BA\d{7}',f.text)[0];codes.append(bale)
             check(bale,admin.get('/binflow/bales'))
-            check('Print label',self.client.get(f.request.path+'/label'))
+            label=self.client.get(f.request.path+'/label')
+            for part in ('Print label','blocktexx-logo-tagline.png','Date created',date[8:10]+'.'+date[5:7]+'.'+date[:4],
+                         'COTTON' if jid==j1 else 'PC MIX',bale):
+                check(part,label)
         f=self.client.get('/binflow/bales/transfers/new')
         warehouse=admin.get('/binflow/warehouse?state=NSW')
         for code in codes:check(code,warehouse)

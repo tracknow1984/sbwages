@@ -1,0 +1,30 @@
+{% from 'binflow/icons.html' import icon %}
+<div class="bf-table-wrap"><table class="bf-plan-table"><thead><tr><th>Client / site</th><th>Docket</th><th>POD status</th><th>Net weight</th>{% if current_user.role=='admin' and not driver_demo %}<th>Pickup value · ex GST</th>{% endif %}<th>Actions</th></tr></thead><tbody>
+{% for j in state_jobs %}{% set ready=pod_weights_ready(j) %}<tr>
+  <td data-label="Client / site"><strong>{{ j.client_name }}</strong><br>{{ j.site_name }}</td>
+  <td data-label="Docket"><a href="{{ url_for('bf_job',job_id=j.id) }}" data-docket-trigger aria-describedby="docket-{{ j.id }}">{{ j.code }}</a>
+    <div id="docket-{{ j.id }}" class="docket-preview" role="tooltip" popover="manual"><strong>{{ j.code }} · {{ j.site_name }}</strong>
+      <span>{{ j.site_address }} · {{ j.state }}</span><span>{{ j.scheduled_date|display_date }} · {{ j.warehouse_name }}</span>
+      <span>{{ j.collection_bins }} collection {{ 'bin' if j.collection_bins==1 else 'bins' }} · {{ j.net|bfkg }} kg recorded</span><span>{{ pod_status(j) }}</span></div></td>
+  <td data-label="POD status">{% if view=='deleted' %}<span class="bf-status cancelled">Deleted</span>{% elif pod_final(j) %}<span class="bf-status complete">{{ 'Archived' if view=='archived' else 'Closed · Client available' }}</span>{% elif ready %}Weighed · awaiting sign-off{% elif j.status=='complete' %}Awaiting remaining run weights{% elif j.collected_at %}Open · {{ j.unweighed }} bins awaiting final weight{% else %}Awaiting client handover{% endif %}</td>
+  <td data-label="Net weight">{{ j.net|bfkg }} kg</td>
+  {% if current_user.role=='admin' and not driver_demo %}<td data-label="Pickup value · ex GST">
+    {% set cents=pickup_cents(j) %}{{ cents|money if cents is not none else '—' }}</td>{% endif %}
+  <td data-label="Actions"><div class="bf-pod-actions">
+    {% if not j.pod_deleted_at %}
+      {% if j.collected_at and not pod_final(j) and (current_user.role=='admin' or binflow_manager or binflow_warehouse) %}<a class="button primary pod-tool-icon" href="{{ url_for('bf_bin_weigh',job_id=j.id,item_id=j.next_weight_item,_anchor='weigh-' ~ j.next_weight_item) if j.next_weight_item else url_for('bf_job',job_id=j.id,_anchor='pod-finalisation') }}" aria-label="{{ 'Review & sign off' if ready else 'Check weigh-in' }}" title="{{ 'Review & sign off' if ready else 'Check weigh-in' }}">{{ icon('check' if ready else 'weigh') }}</a>{% endif %}
+      <a class="button secondary pod-tool-icon" href="{{ url_for('bf_pod' if ready else 'bf_job',job_id=j.id) }}"
+         data-pod-preview="{{ url_for('bf_pod',job_id=j.id,preview=1) }}" aria-haspopup="dialog"
+         aria-label="View POD {{ j.code }}" title="View POD">{{ icon('view') }}</a>
+      {% if ready %}<a class="button secondary pod-tool-icon" href="{{ url_for('bf_pod_pdf',job_id=j.id) }}" aria-label="Export PDF" title="Export PDF">{{ icon('download') }}</a>{% endif %}
+      {% if current_user.role=='admin' and not driver_demo and pod_final(j) %}<a class="button secondary pod-tool-icon" href="{{ url_for('bf_email_pod',job_id=j.id) }}" aria-label="Email" title="Email">{{ icon('mail') }}</a>{% endif %}
+    {% endif %}
+    {% if current_user.role=='admin' and not driver_demo and (pod_final(j) or (view in ('archived','deleted') and j.status=='complete')) %}
+    <form method="post" action="{{ url_for('bf_file_pod',job_id=j.id) }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ j.pod_version }}"><input type="hidden" name="view" value="{{ view }}">
+      {% if view in ('active','unfinished') %}<button class="secondary pod-tool-icon" name="action" value="archive" aria-label="Archive" title="Archive">{{ icon('archive') }}</button>{% else %}<button class="secondary pod-tool-icon" name="action" value="restore" aria-label="Restore" title="Restore">{{ icon('undo') }}</button>{% endif %}
+      {% if view!='deleted' and pod_final(j) %}<button class="secondary bf-delete-pod pod-tool-icon" name="action" value="delete" aria-label="Delete" title="Delete">{{ icon('bin') }}</button>{% endif %}
+    </form>{% endif %}
+  </div></td>
+</tr>{% else %}<tr><td colspan="{{ 6 if current_user.role=='admin' and not driver_demo else 5 }}">{{ 'All PODs for this date are complete or there are none scheduled.' if view=='unfinished' else 'No ' ~ view ~ ' PODs for this date.' }}</td></tr>{% endfor %}
+</tbody></table></div>

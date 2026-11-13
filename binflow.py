@@ -1001,9 +1001,13 @@ def register_binflow(app, db, require):
     def bf_pod(job_id):
         j = job(job_id)
         ensure_pod_available(j)
-        if j['status'] in ('scheduled','cancelled'):
+        preview = request.args.get('preview') == '1'
+        if j['status'] == 'cancelled' or (j['status'] == 'scheduled' and not preview):
             abort(400, 'Confirm the physical handover before creating a POD.')
-        if not pod_weights_ready(db(), j):
+        if preview and j['approval_status'] != 'approved':
+            abort(404)
+        ready = pod_weights_ready(db(), j)
+        if not ready and not preview:
             abort(409, 'POD pending. Complete all warehouse weights for this run first.')
         rows = items(job_id)
         billing = None
@@ -1011,7 +1015,8 @@ def register_binflow(app, db, require):
                 and (g.user['role']=='admin' or g.get('live_cycle') or getattr(g,'bf_demo_token',None))):
             from binflow_auto_invoices import pod_billing
             billing = pod_billing(db(), job_id, now())
-        return render('pod', section='pods', job=j, items=rows, billing=billing, net=sum(i['net_g'] or 0 for i in rows))
+        return render('pod_preview' if preview else 'pod', section='pods', job=j, items=rows,
+                      ready=ready, billing=billing, net=sum(i['net_g'] or 0 for i in rows))
 
     @app.get('/binflow/pickups/<int:job_id>/evidence/<kind>')
     @access
