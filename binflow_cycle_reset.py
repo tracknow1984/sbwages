@@ -1,4 +1,8 @@
 """Restart the two dedicated LIVE TEST dockets without changing their printed bin labels."""
+import base64
+import json
+import zlib
+
 from flask import abort, flash, g, redirect, render_template, request, session, url_for
 
 
@@ -32,7 +36,7 @@ def reset(conn, run, stamp):
     # Capture tested scope before deleting the source rows used to identify bales or inspections.
     conn.execute(f'CREATE TEMP TABLE reset_bales AS {bale}',params)
     conn.execute('CREATE TEMP TABLE reset_inspections AS SELECT prestart_id FROM bf_run_inspections WHERE truck_id=:truck AND driver_id=:uid',params)
-    for table,where in (
+    removed = (
         ('bf_bale_storage',f'transfer_id IN ({transfers})'),
         ('bf_bale_events',f'bale_id IN reset_bales OR transfer_id IN ({transfers})'),
         ('bf_bale_transfer_items',f'transfer_id IN ({transfers})'),
@@ -51,7 +55,23 @@ def reset(conn, run, stamp):
         ('bf_run_acceptance_history','truck_id=:truck'),('bf_runs','truck_id=:truck'),
         ('prestart_photos','prestart_id IN reset_inspections'),('bf_run_inspections','prestart_id IN reset_inspections'),
         ('prestarts','id IN reset_inspections AND user_id=:uid'),('bf_driver_resume','user_id=:uid'),
-    ):
+    )
+    # Keep the exact pre-restart rows, including signatures and QR identifiers, in
+    # the same transaction as the reset. A failed archive or reset rolls back both.
+    changed = (('bf_live_cycle','id=1'),('bf_jobs',f'id IN ({jid})'),
+               ('bf_job_bins',f'job_id IN ({jid})'),('bf_bins',f'id IN ({bids})'))
+    archive = {table: [dict(row) for row in conn.execute(f'SELECT * FROM {table} WHERE {where}',params)]
+               for table,where in (*changed,*removed)}
+    payload = json.dumps(archive, separators=(',',':'),
+                         default=lambda value: {'base64': base64.b64encode(value).decode('ascii')}).encode()
+    conn.execute('''CREATE TABLE IF NOT EXISTS bf_live_restart_archive (
+        generation INTEGER PRIMARY KEY, saved_at TEXT NOT NULL, rows_zlib BLOB NOT NULL)''')
+    generation = run['generation']
+    conn.execute('INSERT INTO bf_live_restart_archive VALUES(?,?,?)',(generation,stamp,zlib.compress(payload)))
+    stored = conn.execute('SELECT rows_zlib FROM bf_live_restart_archive WHERE generation=?',(generation,)).fetchone()[0]
+    if zlib.decompress(stored) != payload:
+        raise ValueError('The recovery copy could not be verified. Reopen the restart page and try again.')
+    for table,where in removed:
         conn.execute(f'DELETE FROM {table} WHERE {where}',params)
     conn.execute('DROP TABLE reset_bales')
     conn.execute('DROP TABLE reset_inspections')

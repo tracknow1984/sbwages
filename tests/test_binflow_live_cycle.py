@@ -136,6 +136,14 @@ class LiveCycleTests(unittest.TestCase):
         check('Both stops and all six bin labels',restarted)
         watch=admin.get('/admin/binflow/live-test')
         check('Ready to start',watch)
+        import json, zlib
+        archived=json.loads(zlib.decompress(self.rows(
+            'SELECT rows_zlib FROM bf_live_restart_archive WHERE generation=?',(generation,))[0]['rows_zlib']))
+        self.assertEqual({row['code'] for row in archived['bf_jobs']},{job['code'] for job in jobs})
+        self.assertEqual(len(archived['bf_bins']),6)
+        self.assertEqual(len(archived['bf_bales']),2)
+        self.assertTrue(archived['bf_workdays'][0]['finished_at'])
+        self.assertTrue(archived['prestarts'][0]['signature_image']['base64'])
         for code in codes:self.assertNotIn(code,watch.text)
         self.assertFalse(self.rows('SELECT id FROM bf_auto_drafts WHERE account_id=?',(run['payer_id'],)))
         self.assertFalse(self.rows('SELECT id FROM prestarts WHERE user_id=?',(run['driver_id'],)))
