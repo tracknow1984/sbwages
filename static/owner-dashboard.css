@@ -21,12 +21,10 @@
   color: white;
   background: #102f3b;
 }
-.owner-aerial { position: absolute; z-index: -2; right: 0; top: 0; height: 100%; width: 55%; object-fit: cover; object-position: 65% 54%; }
-.owner-hero::before {
-  content: ''; position: absolute; z-index: -1; inset: 0;
-  background: linear-gradient(95deg,#102f3b 18%,#102f3b 40%,#102f3bf2 50%,#102f3b7d 70%,#102f3b23);
-}
-.owner-hero-content { padding: clamp(22px,2.7vw,40px); }
+.owner-banner { position:relative; }
+.owner-banner img { width:100%; height:auto; aspect-ratio:3.5; object-fit:cover; object-position:center 62%; display:block; }
+.owner-hero-content { position:absolute; top:0; left:0; padding:clamp(17px,2.5vw,36px); text-shadow:0 2px 8px #07141f; }
+.owner-summary { display:flex; align-items:center; justify-content:space-between; gap:18px; padding:16px clamp(16px,2.5vw,36px); background:#102935; }
 .owner-date,.owner-kicker { font-size: 11px; line-height: 1.4; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
 .owner-date { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; color: #c2e2df; }
 .owner-date span { border-left: 1px solid #759391; padding-left: 12px; }
@@ -36,7 +34,7 @@
 .owner-today a:last-child { border: 0; padding: 0; }
 .owner-today strong { font-size: clamp(23px,2vw,32px); line-height: 1; color: #fff; letter-spacing: -.025em; }
 .owner-today span { font-size: 13px; font-weight: 550; }
-.owner-tour { position: absolute; right: 18px; bottom: 16px; display: inline-flex; align-items: center; gap: 7px; padding: 7px 11px; border: 1px solid #ffffff50; border-radius: 7px; background: #102e38df; color: white; font-size: 12px; font-weight: 650; }
+.owner-tour { display: inline-flex; align-items: center; gap: 7px; padding: 7px 11px; border: 1px solid #ffffff50; border-radius: 7px; background: #102e38df; color: white; font-size: 12px; font-weight: 650; }
 .owner-tour .bf-icon { width: 15px; height: 15px; }
 .owner-hero a:focus-visible { outline-color: #fff; outline-offset: -2px; }
 
@@ -115,25 +113,29 @@
 @media(max-width:390px) { .schedule-states { grid-template-columns:1fr; } }
 @media(max-width:850px) {
   .owner-grid { grid-template-columns: 1fr; }
-  .owner-aerial { width: 70%; }
+
   .owner-today { max-width: 77%; }
 }
 @media(max-width:600px) {
   .owner-hero-content { padding: 20px 16px 15px; }
-  .owner-hero::before { background: linear-gradient(100deg,#102f3b 10%,#102f3bf7 34%,#102f3bd9 65%,#102f3b88); }
-  .owner-hero h1 { margin-bottom: 18px; }
+  .owner-banner { display:flex; flex-direction:column-reverse; }
+  .owner-banner img { aspect-ratio:auto; }
+  .owner-hero-content { position:static; text-shadow:none; }
+  .owner-summary { flex-wrap:wrap; }
+  .owner-hero h1 { margin-bottom:0; }
   .owner-today { max-width: none; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
   .owner-today a { padding-right: 8px; }
   .owner-today span { font-size: 12px; }
-  .owner-tour { position: relative; inset: auto; margin: 0 16px 14px; }
+  .owner-tour { margin:0; }
   .dispatch-chart { gap: 1px; }
   .dispatch-chart small { font-size: 10px; }
   .month-ledger { grid-template-columns: 1fr; }
   .month-ledger a+a { border-left: 0; border-top: 1px solid var(--line); }
 }
 @media print {
-  .owner-aerial,.owner-tour,.owner-wire { display:none; }
+  .owner-banner img,.owner-tour,.owner-wire { display:none; }
   .owner-hero { background: white; }
-  .owner-hero::before { content:none; }
+  .owner-hero-content { position:static; text-shadow:none; }
+  .owner-summary { background:white; }
   .owner-hero h1,.owner-hero .owner-date,.owner-today a,.owner-today strong { color:#132f3b; }
 }

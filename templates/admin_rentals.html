@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+{% block browser_title %}Rentals · SB Empire{% endblock %}
+{% block content %}
+<div class="page-heading"><div><h1>Rentals</h1></div>
+  {% if config.RENTALS_EMBED_ENABLED %}<a class="button secondary" href="https://sb-empire-portal.onrender.com/" target="_blank" rel="noopener noreferrer">Open in new tab ↗</a>{% endif %}
+</div>
+{% if config.RENTALS_EMBED_ENABLED %}
+<iframe class="rentals-frame" src="https://sb-empire-portal.onrender.com/" title="SB Empire rentals portal" referrerpolicy="no-referrer"></iframe>
+{% else %}
+<section class="panel register-section">
+  <h2>Rentals portal</h2>
+  <p>Open Rentals in its own tab. Your SB Empire menu stays here.</p>
+  <a class="button primary" href="https://sb-empire-portal.onrender.com/" target="_blank" rel="noopener noreferrer">Open Rentals ↗</a>
+</section>
+{% endif %}
+{% endblock %}

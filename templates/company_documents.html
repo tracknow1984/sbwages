@@ -1,0 +1,54 @@
+{% extends 'base.html' %}
+{% block browser_title %}{{ folder.name ~ ' · ' if folder }}Documents · SB Empire{% endblock %}
+{% block content %}
+{% if folder %}<a class="back" href="{{ url_for('admin_documents') }}">← All folders</a>{% endif %}
+<div class="page-heading"><div><span class="eyebrow">{{ 'DOCUMENTS' if folder else 'ADMINISTRATION' }}</span>
+  <h1>{{ folder.name if folder else 'Documents' }}</h1></div></div>
+{% if not folder %}
+<section class="panel register-section" aria-labelledby="folders-heading">
+  <h2 id="folders-heading">Folders</h2>
+  <form method="post" action="{{ url_for('create_document_folder') }}" class="register-form">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+    <label>Folder name<input name="name" maxlength="100" placeholder="e.g. Insurance" required></label>
+    <button class="primary">Create folder</button>
+  </form>
+  {% if folders %}<ul class="register-folders">{% for f in folders %}<li>
+    <a href="{{ url_for('admin_document_folder',folder_id=f.id) }}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>
+      <strong>{{ f.name }}</strong><small>{{ f.total }} {{ 'file' if f.total == 1 else 'files' }}</small></a>
+  </li>{% endfor %}</ul>{% else %}<p class="muted">Create your first folder to start filing documents.</p>{% endif %}
+</section>
+<section class="panel register-section" id="staff-documents">
+  <div class="panel-head"><h2>{{ 'Archived staff documents' if archived else 'Staff documents' }}</h2>
+    <a href="{{ url_for('admin_documents',archived=0 if archived else 1,_anchor='staff-documents') }}">{{ 'View active' if archived else 'View archived' }}</a>
+  </div>
+  {% include 'document_table.html' %}
+</section>
+{% else %}
+<section class="panel register-section">
+  <h2>Upload documents</h2>
+  <form method="post" enctype="multipart/form-data" action="{{ url_for('upload_company_documents',folder_id=folder.id) }}" class="register-form">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="upload_key" value="{{ upload_key }}">
+    <label>Choose files<input type="file" name="document" accept=".pdf,.jpg,.jpeg,.png" multiple required></label>
+    <button class="primary">Upload files</button>
+  </form>
+  <small class="muted">PDF, JPG or PNG · Up to {{ max_files }} files per upload · {{ size_mb }} MB per file</small>
+</section>
+<section class="panel register-section">
+  <h2>Files <small class="muted">({{ files|length }})</small></h2>
+  {% if files %}
+  <div class="table-wrap"><table><thead><tr><th>File</th><th>Uploaded</th><th>Actions</th></tr></thead><tbody>
+    {% for f in files %}{% set file_url=url_for('company_document_file',folder_id=folder.id,file_id=f.id) %}
+    <tr><td><strong>{{ f.filename }}</strong><small>{{ '%.1f'|format(f.size/1024) }} KB</small></td><td>{{ f.uploaded_at|display_date }}</td>
+      <td><div class="actions"><a class="button secondary compact" href="{{ file_url }}" data-preview="{{ f.mime_type }}" data-name="{{ f.filename }}">Quick view</a>
+        <a href="{{ file_url }}?download=1" class="button secondary compact">Download</a></div></td></tr>
+    {% endfor %}
+  </tbody></table></div>
+  <dialog class="register-preview" aria-labelledby="preview-name"><div class="panel-head">
+    <strong id="preview-name"></strong><form method="dialog"><button autofocus class="secondary compact">Close</button></form>
+  </div><div class="preview-body"></div></dialog>
+  <script defer src="{{ url_for('static',filename='admin-document-preview.js') }}"></script>
+  {% else %}<p class="muted">This folder is empty.</p>{% endif %}
+</section>
+{% endif %}
+{% endblock %}

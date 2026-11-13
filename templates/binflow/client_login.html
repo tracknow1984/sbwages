@@ -4,7 +4,7 @@
 {% set transfers = request.args.get('transfers') %}
 {% set scenes = [
   ('warehouse', 'Warehouse', 'Textile collections', 'BINFLOW textile collection bins in the SB Empire warehouse, with a rigid truck at the loading bay.'),
-  ('truck', 'Transport', 'Fleet & transport', 'White SB Empire rigid truck beside collection bins at the depot.'),
+  ('truck', 'Transport', 'Fleet & transport', 'SB Empire rigid truck beside collection bins, with 1800 672 274 on the cab door.'),
   ('textiles', 'Textiles', 'Material handling', 'Gloved hands sorting denim and other textiles beside a collection cage.')
 ] %}
 <!doctype html>
@@ -17,6 +17,7 @@
   <link rel="icon" type="image/svg+xml" href="{{ url_for('static',filename='binflow-mark.svg') }}">
   <link rel="stylesheet" href="{{ url_for('static',filename='portal-login.css') }}">
   <link rel="stylesheet" href="{{ url_for('static',filename='binflow-client-login.css') }}">
+  <script defer src="{{ url_for('static',filename='binflow-client-gallery.js') }}"></script>
 </head>
 <body class="client-portal">
   <header class="portal-header">
@@ -26,17 +27,12 @@
   <main class="client-content">
     <section class="gallery" aria-label="BinFlow operations">
       {% for id, label, title, alt in scenes %}
-      <input class="scene-choice" type="radio" id="choose-{{ id }}" name="scene" aria-label="Show {{ label }} photo" {% if loop.first %}checked{% endif %}>
-      {% endfor %}
-      {% for id, label, title, alt in scenes %}
-      <figure class="scene scene-{{ id }}">
+      <figure class="scene scene-{{ id }}"{% if not loop.first %} hidden{% endif %}>
         <img src="{{ url_for('static',filename='binflow-client-' ~ id ~ '.webp') }}" alt="{{ alt }}" {% if loop.first %}fetchpriority="high"{% else %}loading="lazy"{% endif %}>
         <figcaption>{{ title }}</figcaption>
       </figure>
       {% endfor %}
-      <div class="gallery-controls">
-        {% for id, label, title, alt in scenes %}<label for="choose-{{ id }}">{{ label }}</label>{% endfor %}
-      </div>
+      <button type="button" class="gallery-toggle" hidden>Pause slideshow</button>
     </section>
     <section class="sign-in" aria-labelledby="login-title">
       <div class="login">

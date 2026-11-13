@@ -13,10 +13,14 @@
 {% set selected = dispatch.selected %}
 <div class="owner-overview">
   <header class="owner-hero">
-    <img class="owner-aerial" src="{{ url_for('site_tour_media',view_id='overview') }}" alt="">
-    <div class="owner-hero-content">
-      <p class="owner-date"><time datetime="{{ today.isoformat() }}">{{ today.strftime('%A, %d %B %Y') }}</time><span>Brisbane</span></p>
-      <h1>Business overview</h1>
+    <div class="owner-banner">
+      <img src="{{ url_for('static',filename='owner-dawn-fleet.webp') }}" width="1750" height="585" fetchpriority="high" alt="SB Empire earthworks, transport, buildings and containers. Operations in Brisbane, Sydney, Melbourne and Adelaide.">
+      <div class="owner-hero-content">
+        <p class="owner-date"><time datetime="{{ today.isoformat() }}">{{ today.strftime('%A, %d %B %Y') }}</time><span>Brisbane</span></p>
+        <h1>Business overview</h1>
+      </div>
+    </div>
+    <div class="owner-summary">
       <div class="owner-today">
         {% for label, value, href in [
           ('Active employees', counts.staff, url_for('admin_staff')),
@@ -26,8 +30,8 @@
           <a href="{{ href }}"><strong>{{ value }}</strong><span>{{ label }}</span></a>
         {% endfor %}
       </div>
+      <a class="owner-tour" href="{{ url_for('admin_site_tour') }}">{{ icon('pin') }} Lot 3 site tour <span aria-hidden="true">↗︎</span></a>
     </div>
-    <a class="owner-tour" href="{{ url_for('admin_site_tour') }}">{{ icon('pin') }} Lot 3 site tour <span aria-hidden="true">↗︎</span></a>
   </header>
 
   <section class="owner-card schedule-approvals" id="schedule-approvals" aria-labelledby="schedule-title">

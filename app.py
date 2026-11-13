@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 
 from flask import Flask, abort, flash, g, redirect, render_template, request, session, url_for, send_file
 from PIL import Image
+from company_documents import SCHEMA as COMPANY_DOCUMENT_SCHEMA, register as register_company_documents
 from document_uploads import MAX_STAFF_FILES, read_document
 from werkzeug.security import check_password_hash, generate_password_hash
 from lunch import deduct_lunch, migrate_lunch
@@ -150,6 +151,7 @@ def create_app(test_config=None):
         SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax',
         SESSION_COOKIE_SECURE=os.environ.get('COOKIE_SECURE', 'true').lower() == 'true',
         PERMANENT_SESSION_LIFETIME=timedelta(hours=12), MAX_CONTENT_LENGTH=6 * 1024 * 1024, DOCUMENT_MAX_BYTES=5 * 1024 * 1024,
+        RENTALS_EMBED_ENABLED=os.environ.get('RENTALS_EMBED_ENABLED', '').lower() == 'true',
         APP_URL=os.environ.get('APP_URL', '').rstrip('/'),
         ADMIN_USERNAME=os.environ.get('ADMIN_USERNAME', 'admin'), ADMIN_EMAIL=os.environ.get('ADMIN_EMAIL', ''),
         ADMIN_PASSWORD=os.environ.get('ADMIN_PASSWORD', ''),
@@ -178,7 +180,7 @@ def create_app(test_config=None):
             conn.close()
 
     with app.app_context():
-        db().executescript(SCHEMA)
+        db().executescript(SCHEMA + COMPANY_DOCUMENT_SCHEMA)
         # Additive migration: keep every existing timesheet and password intact.
         db().execute('BEGIN IMMEDIATE')
         # Widen the saved rental-rate range while preserving existing yearly scenarios.
@@ -274,7 +276,7 @@ def create_app(test_config=None):
             request.max_content_length = 6 * 1024 * 1024
         elif request.endpoint in ('employee_prestart', 'bf_run_prestart'):
             request.max_content_length = 32 * 1024 * 1024
-        elif request.endpoint == 'upload_staff_documents':
+        elif request.endpoint in ('upload_staff_documents', 'upload_company_documents'):
             request.max_content_length = MAX_STAFF_FILES * app.config['DOCUMENT_MAX_BYTES'] + 128 * 1024
         elif request.endpoint == 'upload_licence_photos':
             request.max_content_length = 12 * 1024 * 1024
@@ -320,11 +322,13 @@ def create_app(test_config=None):
                 "img-src 'self' data:", "img-src 'self' data: https://tile.openstreetmap.org")
         if request.endpoint in ('bf_client_interstate_new','bf_client_interstate_edit','bf_interstate_new','bf_interstate_edit'):
             response.headers['Content-Security-Policy'] += "; connect-src 'self' https://photon.komoot.io"
-        if request.endpoint == 'document_file':
+        if request.endpoint in ('document_file', 'company_document_file'):
             response.headers['Content-Security-Policy'] = "sandbox; default-src 'none'; frame-ancestors 'self'"
             response.headers['X-Frame-Options'] = 'SAMEORIGIN'
-        elif request.endpoint == 'view_document':
+        elif request.endpoint in ('view_document', 'admin_document_folder'):
             response.headers['Content-Security-Policy'] += "; frame-src 'self'"
+        elif request.endpoint == 'admin_rentals':
+            response.headers['Content-Security-Policy'] += "; frame-src https://sb-empire-portal.onrender.com"
         if app.config['SESSION_COOKIE_SECURE']:
             response.headers['Strict-Transport-Security'] = 'max-age=31536000'
         return response
@@ -1497,11 +1501,12 @@ def create_app(test_config=None):
         return render_template('documents.html', documents=document_rows(user_id=g.user['id']), admin_view=False, tab='documents',
                                person=g.user, upload_key=secrets.token_urlsafe(24), max_staff_files=MAX_STAFF_FILES)
 
-    @app.get('/admin/documents')
+    register_company_documents(app, db, require, timestamp, document_rows)
+
+    @app.get('/admin/rentals')
     @require('admin')
-    def admin_documents():
-        archived = request.args.get('archived') == '1'
-        return render_template('documents.html', documents=document_rows(archived=archived), archived=archived, admin_view=True, tab='documents')
+    def admin_rentals():
+        return render_template('admin_rentals.html', tab='rentals')
 
     def accessible_document(document_id):
         if not g.user:

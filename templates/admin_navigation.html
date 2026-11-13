@@ -1,7 +1,7 @@
 {% from 'binflow/icons.html' import icon %}
 {% set workspaces = [
   ('dashboard', 'Dashboard', 'admin_dashboard', 'overview'),
-  ('rentals', 'Rentals', 'https://sb-empire-portal.onrender.com/', 'rental-key'),
+  ('rentals', 'Rentals', 'admin_rentals', 'rental-key'),
   ('binflow', 'BinFlow', 'bf_dashboard', 'bin'),
   ('traxpress', 'Traxpress', 'tx_stock', 'truck')
 ] %}
@@ -15,7 +15,9 @@
   ('settings', 'Settings', 'admin_settings', 'settings')
 ] %}
 {% macro nav_link(key, label, endpoint, symbol) -%}
-  <a href="{{ endpoint if key == 'rentals' else url_for(endpoint) }}"{% if tab == key %} aria-current="page"{% endif %}>{{ icon(symbol) }}{{ label }}</a>
+  {% if key == 'rentals' and not config.RENTALS_EMBED_ENABLED %}
+    <a href="https://sb-empire-portal.onrender.com/" target="_blank" rel="noopener noreferrer" title="Open Rentals in a new tab">{{ icon(symbol) }}{{ label }}</a>
+  {% else %}<a href="{{ url_for(endpoint) }}"{% if tab == key %} aria-current="page"{% endif %}>{{ icon(symbol) }}{{ label }}</a>{% endif %}
 {%- endmacro %}
 <nav class="empire-nav no-print" aria-label="Main navigation">
   <div class="empire-nav__workspaces">
