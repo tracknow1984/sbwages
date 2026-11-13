@@ -1,15 +1,23 @@
 {% extends 'binflow/layout.html' %}{% from 'binflow/freight_amounts.html' import breakdown %}
-{% block title %}Pricing matrix{% endblock %}{% block subtitle %}{{ client.name }} · Base rates in AUD ex GST{% endblock %}
+{% block title %}{{ 'Supplier rate card' if supplier_card else 'Pricing matrix' }}{% endblock %}{% block subtitle %}{{ owner.name }} · {{ 'Supplier rates' if supplier_card else 'Base rates' }} in AUD ex GST{% endblock %}
 {% block body %}
 <link rel="stylesheet" href="{{ url_for('static',filename='binflow-interstate.css') }}">
-<a href="{{ url_for('bf_interstate_accounts',_anchor='login-'~client.id) }}">← Client login</a>
+{% if supplier_card %}
+<nav class="bf-actions" aria-label="Supplier navigation">
+  <a href="{{ url_for('bf_supplier_profiles',category='industry-suppliers') }}">← Industry suppliers</a>
+  <a href="{{ url_for('bf_supplier_profile',profile_id=owner.id) }}">Supplier profile</a>
+</nav>
+{% else %}<a href="{{ url_for('bf_interstate_accounts',_anchor='login-'~owner.id) }}">← Client login</a>{% endif %}
 <section class="bf-panel bf-pad it-matrix">
   <form method="post" class="bf-form">
     <input type="hidden" name="csrf" value="{{ csrf_token() }}">
     <input type="hidden" name="layout" value="routes">
     <input type="hidden" name="version" value="{{ version }}">
-    <div class="bf-toolbar"><div><h2>Interstate routes</h2><span>Weekly fuel surcharge · {{ fuel.bps|hours }}% <a href="{{ url_for('bf_weekly_fuel') }}">Edit</a></span></div>
-      <button class="primary">Save pricing matrix</button></div>
+    <div class="bf-toolbar"><div><h2>Interstate routes</h2>
+      {% if supplier_card %}
+      <label>Supplier weekly fuel surcharge (%)<input name="supplier_fuel" type="number" inputmode="decimal" min="0" max="10000" step=".01" value="{{ fuel_value }}" required></label>
+      {% else %}<span>Weekly fuel surcharge · {{ fuel_bps|hours }}% <a href="{{ url_for('bf_weekly_fuel') }}">Edit</a></span>{% endif %}
+      </div><button class="primary">{{ 'Save rate card' if supplier_card else 'Save pricing matrix' }}</button></div>
     <details class="it-local-hourly" {% if error %}open{% endif %}>
       <summary>Local RIGID · {{ minimum }}-hour minimum</summary>
       <label>Hourly rate (AUD ex GST)<input type="number" inputmode="decimal" min="0" max="1000000" step=".01" name="rigid_hourly" value="{{ hourly_value }}"></label>
@@ -26,6 +34,6 @@
           </tr>{% endfor %}
         </tbody></table>
     </div>
-    <small class="bf-muted">Blank rates display “Price to be confirmed”.</small>
+    <small class="bf-muted">{{ 'Leave unquoted routes blank.' if supplier_card else 'Blank rates display “Price to be confirmed”.' }}</small>
   </form>
 </section>{% endblock %}

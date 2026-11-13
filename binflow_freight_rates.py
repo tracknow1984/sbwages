@@ -1,4 +1,4 @@
-"""Client freight pricing. Monetary amounts are AUD cents ex GST, percentages are basis points."""
+"""Client and supplier freight pricing. Monetary amounts are AUD cents ex GST, percentages are basis points."""
 import hashlib
 import json
 from itertools import combinations
@@ -6,6 +6,7 @@ from itertools import combinations
 from flask import abort, flash, g, redirect, render_template, request, url_for
 from binflow_collections import STATES
 from binflow_sizes import amount
+from binflow_supplier_profiles import is_transport_supplier
 
 VEHICLES = ('SEMI TRAILER', 'B-DOUBLE')
 MIN_RIGID_HOURS = 4
@@ -15,8 +16,11 @@ ROUTES = tuple(route for a, b in combinations(ROUTE_STATES, 2) for route in ((a,
 MATRIX_VEHICLES = ('B-DOUBLE', 'SEMI TRAILER')
 
 
-def matrix_version(saved, hourly):
-    return hashlib.sha256(json.dumps([saved, hourly], sort_keys=True).encode()).hexdigest()
+def matrix_version(saved, hourly, fuel_bps=None):
+    fields = [saved, hourly]
+    if fuel_bps is not None:
+        fields.append(fuel_bps)
+    return hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest()
 
 
 def migrate(conn):
@@ -125,20 +129,44 @@ def register(app, db, require, render, client_access, now, actor):
     @app.route('/binflow/interstate-transfers/access/<int:aid>/rates',methods=['GET','POST'])
     @require('admin')
     def bf_interstate_rates(aid):
+        return edit_rate_card(aid, supplier=False)
+
+    @app.route('/binflow/supplier-profiles/site/<int:profile_id>/rates', methods=['GET', 'POST'])
+    @require('admin')
+    def bf_supplier_rates(profile_id):
+        return edit_rate_card(profile_id, supplier=True)
+
+    def edit_rate_card(owner_id, supplier):
         conn = db()
-        account = conn.execute('SELECT id,name,username FROM bf_client_accounts WHERE id=?',(aid,)).fetchone()
-        origin = request.args.get('origin','QLD')
-        if not account:
-            abort(404)
-        if origin not in STATES:
-            abort(400)
         if request.method == 'POST':
             conn.execute('BEGIN IMMEDIATE')
-        rows = conn.execute("""SELECT origin,destination,vehicle,cents FROM bf_interstate_rates
-            WHERE account_id=? AND vehicle IN (?,?)""", (aid,*MATRIX_VEHICLES))
+        origin = request.args.get('origin', 'QLD')
+        if supplier:
+            owner = conn.execute("""SELECT id,customer_site AS name,category,group_name
+                FROM bf_supplier_site_profiles WHERE id=?""", (owner_id,)).fetchone()
+            if not owner or not is_transport_supplier(owner):
+                abort(404)
+            table, owner_column = 'bf_supplier_freight_rates', 'supplier_id'
+            terms = conn.execute("""SELECT rigid_hourly_cents,fuel_bps FROM bf_supplier_freight_terms
+                WHERE supplier_id=?""", (owner_id,)).fetchone()
+            hourly = terms['rigid_hourly_cents'] if terms else None
+            fuel_bps = terms['fuel_bps'] if terms else 0
+            card_url = url_for('bf_supplier_rates', profile_id=owner_id)
+        else:
+            owner = conn.execute('SELECT id,name FROM bf_client_accounts WHERE id=?', (owner_id,)).fetchone()
+            if not owner:
+                abort(404)
+            if origin not in STATES:
+                abort(400)
+            table, owner_column = 'bf_interstate_rates', 'account_id'
+            hourly = hourly_rate(conn, owner_id)
+            fuel_bps = current_fuel(conn)['bps']
+            card_url = url_for('bf_interstate_rates', aid=owner_id)
+        rows = conn.execute(f"""SELECT origin,destination,vehicle,cents FROM {table}
+            WHERE {owner_column}=? AND vehicle IN (?,?)""", (owner_id, *MATRIX_VEHICLES))
         saved = {f"{r['origin']}:{r['destination']}:{r['vehicle']}":r['cents'] for r in rows}
-        hourly = hourly_rate(conn,aid)
-        version = matrix_version(saved,hourly)
+        version = matrix_version(saved, hourly, fuel_bps if supplier else None)
+        fuel_value = f'{fuel_bps/100:.2f}'
         values = {key:f'{cents/100:.2f}' for key,cents in saved.items()}
         hourly_value = '' if hourly is None else f'{hourly/100:.2f}'
         error = None
@@ -147,7 +175,7 @@ def register(app, db, require, render, client_access, now, actor):
             posted_names = {key:key for key in keys}
             expected_version = version
             # A single-state form opened before deployment can still save its original rows.
-            if request.form.get('layout') != 'routes' and any(key.count(':')==1 for key in request.form):
+            if not supplier and request.form.get('layout') != 'routes' and any(key.count(':')==1 for key in request.form):
                 posted_names = {key:key.split(':',1)[1] for key in keys if key.startswith(origin+':')}
                 previous = {name:saved[key] for key,name in posted_names.items() if key in saved}
                 expected_version = matrix_version(previous,hourly)
@@ -158,6 +186,9 @@ def register(app, db, require, render, client_access, now, actor):
                     raise ValueError('Some rate fields are missing. Reload the matrix before saving.')
                 values.update({key:request.form[name].strip() for key,name in posted_names.items()})
                 hourly_value = request.form.get('rigid_hourly',hourly_value).strip()
+                if supplier:
+                    fuel_value = request.form.get('supplier_fuel', '').strip()
+                    updated_fuel = amount(fuel_value, 'Supplier fuel surcharge (%)', 10000, 100)
                 updated_hourly = amount(hourly_value,'Local RIGID hourly rate',1000000,100,optional=True)
                 upserts, removals = [], []
                 for key in posted_names:
@@ -165,30 +196,37 @@ def register(app, db, require, render, client_access, now, actor):
                     cents = amount(values[key],f'{pickup} → {delivery} {vehicle}',1000000,100,optional=True)
                     if cents == saved.get(key):
                         continue
-                    route = (aid,pickup,delivery,vehicle)
+                    route = (owner_id,pickup,delivery,vehicle)
                     if cents is None:
                         removals.append(route)
                     else:
                         upserts.append((*route,cents))
-                conn.executemany("""INSERT INTO bf_interstate_rates(account_id,origin,destination,vehicle,cents)
-                    VALUES(?,?,?,?,?) ON CONFLICT(account_id,origin,destination,vehicle)
+                conn.executemany(f"""INSERT INTO {table}({owner_column},origin,destination,vehicle,cents)
+                    VALUES(?,?,?,?,?) ON CONFLICT({owner_column},origin,destination,vehicle)
                     DO UPDATE SET cents=excluded.cents""",upserts)
-                conn.executemany("""DELETE FROM bf_interstate_rates
-                    WHERE account_id=? AND origin=? AND destination=? AND vehicle=?""",removals)
-                if updated_hourly is None:
-                    conn.execute('DELETE FROM bf_rigid_hourly_rates WHERE account_id=?',(aid,))
+                conn.executemany(f"""DELETE FROM {table}
+                    WHERE {owner_column}=? AND origin=? AND destination=? AND vehicle=?""",removals)
+                if supplier:
+                    conn.execute("""INSERT INTO bf_supplier_freight_terms(supplier_id,rigid_hourly_cents,fuel_bps)
+                        VALUES(?,?,?) ON CONFLICT(supplier_id) DO UPDATE SET
+                        rigid_hourly_cents=excluded.rigid_hourly_cents,fuel_bps=excluded.fuel_bps""",
+                        (owner_id, updated_hourly, updated_fuel))
+                elif updated_hourly is None:
+                    conn.execute('DELETE FROM bf_rigid_hourly_rates WHERE account_id=?',(owner_id,))
                 else:
                     conn.execute("""INSERT INTO bf_rigid_hourly_rates VALUES(?,?) ON CONFLICT(account_id)
-                        DO UPDATE SET cents=excluded.cents""",(aid,updated_hourly))
+                        DO UPDATE SET cents=excluded.cents""",(owner_id,updated_hourly))
                 conn.commit()
-                flash(f'Pricing matrix saved for {account["name"]}.','success')
-                return redirect(url_for('bf_interstate_rates',aid=aid),code=303)
+                label = 'Supplier rate card' if supplier else 'Pricing matrix'
+                flash(f'{label} saved for {owner["name"]}.', 'success')
+                return redirect(card_url, code=303)
             except ValueError as exc:
                 conn.rollback()
                 error = str(exc)
-        setting = current_fuel(conn)
-        _, minimum_price = rigid_quote(hourly,0,setting['bps'])
-        prices = {key:quote(base,setting['bps']) for key,base in saved.items()}
-        return render('interstate_rates',section='interstate',client=account,routes=ROUTES,
-                      vehicles=MATRIX_VEHICLES,values=values,version=version,error=error,fuel=setting,prices=prices,
-                      hourly_value=hourly_value,minimum=MIN_RIGID_HOURS,minimum_price=minimum_price),400 if error else 200
+        _, minimum_price = rigid_quote(hourly, 0, fuel_bps)
+        prices = {key: quote(base, fuel_bps) for key, base in saved.items()}
+        return render('interstate_rates', section='suppliers' if supplier else 'interstate',
+                      supplier_card=supplier, owner=owner, routes=ROUTES, vehicles=MATRIX_VEHICLES,
+                      values=values, version=version, error=error, fuel_bps=fuel_bps, fuel_value=fuel_value,
+                      prices=prices, hourly_value=hourly_value, minimum=MIN_RIGID_HOURS,
+                      minimum_price=minimum_price), 400 if error else 200

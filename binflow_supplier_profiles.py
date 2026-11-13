@@ -30,6 +30,15 @@ CREATE TABLE IF NOT EXISTS bf_supplier_profile_history (
  id INTEGER PRIMARY KEY, profile_id INTEGER NOT NULL REFERENCES bf_supplier_site_profiles(id),
  snapshot TEXT NOT NULL, changed_at TEXT NOT NULL, changed_by TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS bf_supplier_freight_rates (
+ supplier_id INTEGER NOT NULL REFERENCES bf_supplier_site_profiles(id) ON DELETE CASCADE,
+ origin TEXT NOT NULL, destination TEXT NOT NULL, vehicle TEXT NOT NULL,
+ cents INTEGER NOT NULL CHECK(cents>=0), PRIMARY KEY(supplier_id,origin,destination,vehicle)
+);
+CREATE TABLE IF NOT EXISTS bf_supplier_freight_terms (
+ supplier_id INTEGER PRIMARY KEY REFERENCES bf_supplier_site_profiles(id) ON DELETE CASCADE,
+ rigid_hourly_cents INTEGER CHECK(rigid_hourly_cents>=0), fuel_bps INTEGER NOT NULL CHECK(fuel_bps>=0)
+);
 '''
 
 
@@ -45,6 +54,10 @@ def category_label(category):
 
 def site_label(category):
     return 'Company Name' if category=='industry-suppliers' else 'Supplier Site'
+
+
+def is_transport_supplier(profile):
+    return profile['category'] == 'industry-suppliers' and profile['group_name'].strip().upper() == 'TRANSPORT'
 
 
 def supplier_details(category, values, previous=None):
@@ -74,6 +87,7 @@ def overview(conn):
 
 
 def register_suppliers(app, db, require, render, now, actor):
+    app.add_template_global(is_transport_supplier, 'bf_is_transport_supplier')
     app.add_template_global(CATEGORIES, 'bf_supplier_categories')
 
     @app.get('/binflow/supplier-profiles')

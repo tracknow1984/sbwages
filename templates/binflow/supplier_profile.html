@@ -3,6 +3,7 @@
 {% block subtitle %}Supplier Register / {{ category_label }}{% endblock %}
 {% block body %}
 <section class="bf-panel bf-pad bf-profile-editor">
+{% if profile and bf_is_transport_supplier(profile) %}<p><a class="button secondary" href="{{ url_for('bf_supplier_rates',profile_id=profile.id) }}">Rate card</a></p>{% endif %}
 {% if error %}<p class="bf-note" role="alert">{{ error }}</p>{% endif %}
 <form method="post" class="bf-form bf-profile-form">
 <input type="hidden" name="csrf" value="{{ csrf_token() }}">

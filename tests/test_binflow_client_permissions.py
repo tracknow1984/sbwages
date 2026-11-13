@@ -17,7 +17,7 @@ def matrix_fields(page):
         def handle_starttag(self, tag, attributes):
             attrs = dict(attributes)
             name = attrs.get('name', '')
-            if tag == 'input' and (':' in name or name in ('version','layout','rigid_hourly')):
+            if tag == 'input' and (':' in name or name in ('version','layout','rigid_hourly','supplier_fuel')):
                 values[name] = attrs.get('value','')
 
     values = {}
