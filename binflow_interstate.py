@@ -279,6 +279,8 @@ def register(app, db, access, require, render, client_access, now, actor):
         return url_for('bf_client_interstate_detail' if external else 'bf_interstate_detail',bid=bid)
 
     def show_calendar(external):
+        if external and request.args.get('responses')=='1':
+            abort(403)
         view = request.args.get('view','month')
         state = request.args.get('state','')
         vehicle_filter = request.args.get('vehicle','')
@@ -293,13 +295,18 @@ def register(app, db, access, require, render, client_access, now, actor):
             abort(400)
         scope = ' AND b.account_id=?' if external else ''
         args = (g.bf_client['id'],) if external else ()
-        select = """SELECT b.*, COALESCE(a.name,b.client_name) AS billing_name,
+        dispatch_fields = dispatch_join = ''
+        if not external:
+            dispatch_fields = """,d.event AS handoff_event,d.target AS handoff_target,d.recipient AS handoff_recipient,
+                d.status AS send_status,d.sent_at AS handed_at,d.decision AS dispatch_decision,d.decided_at"""
+            dispatch_join = """LEFT JOIN bf_load_dispatches d ON d.id=(
+                SELECT MAX(k.id) FROM bf_load_dispatches k WHERE k.booking_id=b.id)"""
+        select = f"""SELECT b.*, COALESCE(a.name,b.client_name) AS billing_name,
                        t.status AS manifest_status, t.code AS manifest_code, m.expected_bales, changes.id AS date_change_id,
-                       po.booking_id IS NOT NULL AS po_received, po.number AS po_number, po.filename AS po_filename,
-                       d.event AS handoff_event,d.target AS handoff_target,d.recipient AS handoff_recipient,
-                       d.status AS send_status,d.sent_at AS handed_at,d.decision AS dispatch_decision,d.decided_at
+                       po.booking_id IS NOT NULL AS po_received, po.number AS po_number, po.filename AS po_filename
+                       {dispatch_fields}
                 FROM bf_interstate_bookings b LEFT JOIN bf_client_accounts a ON a.id=b.account_id
-                LEFT JOIN bf_load_dispatches d ON d.id=(SELECT MAX(k.id) FROM bf_load_dispatches k WHERE k.booking_id=b.id)
+                {dispatch_join}
                 LEFT JOIN bf_interstate_manifests m ON m.transfer_id=(
                     SELECT MAX(x.transfer_id) FROM bf_interstate_manifests x WHERE x.booking_id=b.id)
                 LEFT JOIN bf_bale_transfers t ON t.id=m.transfer_id
@@ -337,7 +344,7 @@ def register(app, db, access, require, render, client_access, now, actor):
             from app import display_datetime
             return {'bookings': {str(b['id']): dict(
                 label=dispatch.response_label(b['handoff_event'],b['handoff_target'],b['send_status'],b['dispatch_decision']),
-                decision=b['dispatch_decision'] or 'pending',recipient='' if external else b['handoff_recipient'] or '',
+                decision=b['dispatch_decision'] or 'pending',recipient=b['handoff_recipient'] or '',
                 sent=display_datetime(b['handed_at']) if b['handed_at'] else '',
                 responded=display_datetime(b['decided_at']) if b['decided_at'] else '') for b in rows}}
         pending = db().execute(select+' WHERE b.locked_at IS NULL AND b.cancelled_at IS NULL'+scope+

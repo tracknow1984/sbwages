@@ -46,8 +46,10 @@
     } catch { /* Keep the last known status on screen until the connection returns. */ }
     finally { refreshing = false; }
   }
-  setInterval(refreshResponses, 15000);
-  document.addEventListener('visibilitychange',refreshResponses);
+  if (preview.hasAttribute('data-live-dispatch')) {
+    setInterval(refreshResponses, 15000);
+    document.addEventListener('visibilitychange',refreshResponses);
+  }
 
   let trigger = null, pinned = false, closeTimer, returnFocus = false;
   function position() {

@@ -243,6 +243,51 @@ class PortalPermissionTests(unittest.TestCase):
                 self.assertIn('>Delivered</span>',page)
                 self.assertIn('PO-55',page)
 
+    def test_dispatch_responses_are_office_only_on_all_client_surfaces(self):
+        from io import BytesIO
+        from openpyxl import load_workbook
+
+        self.account('blocktexx1')
+        portal=self.visit('blocktexx1')
+        calendar='?date=2026-11-13'
+        labels=[]
+        with sqlite3.connect(self.path) as conn:
+            actor=conn.execute("SELECT id FROM users WHERE role='admin' LIMIT 1").fetchone()[0]
+        for target, who in [('driver:12','driver'),('supplier:23','supplier')]:
+            for decision in (None,'approved','denied'):
+                self.send(portal,CLIENT+'/new',data())
+                bid=self.rows('SELECT MAX(id) AS id FROM bf_interstate_bookings')[0]['id']
+                self.post(f'{CAL}/{bid}/lock',dict(version=1))
+                with sqlite3.connect(self.path) as conn:
+                    conn.execute("""INSERT INTO bf_load_dispatches(booking_id,version,event,target,recipient,address,
+                        title,body,actor_id,status,decision,sent_at,decided_at)
+                        VALUES(?,2,'Assigned',?,'Internal recipient','','','',?,'sent',?,'2028-06-18T14:37:00+10:00',?)""",
+                        (bid,target,actor,decision,'2028-06-19T09:21:00+10:00' if decision else None))
+                labels.append((decision.capitalize()+' by '+who) if decision else
+                              ('Pending driver' if who=='driver' else 'Pending external supplier'))
+
+        office=self.client.get(CAL+calendar)
+        self.assertEqual(office.status_code,200)
+        for label in labels:
+            self.assertIn(label,office.text)
+        updates=self.client.get(CAL+calendar+'&responses=1').json['bookings']
+        self.assertEqual({r['label'] for r in updates.values()},set(labels))
+        self.assertEqual(portal.get(CLIENT+calendar+'&responses=1').status_code,403)
+        private=labels+['Internal recipient','18.06.2028','19.06.2028','data-dispatch-label','data-dispatch-preview','data-live-dispatch']
+        for path in [CLIENT+calendar+'&view='+v for v in ('month','week')]+[CLIENT+'/1',CLIENT+'/6']:
+            page=portal.get(path)
+            self.assertEqual(page.status_code,200)
+            self.assertIn('Scheduled',page.text)
+            for value in private:
+                self.assertNotIn(value,page.text)
+        export=portal.get(CLIENT+calendar+'&export=month')
+        self.assertEqual(export.status_code,200)
+        sheet=load_workbook(BytesIO(export.data)).active
+        contents=' '.join(str(v) for row in sheet.values for v in row)
+        self.assertIn('Scheduled',contents)
+        for value in private:
+            self.assertNotIn(value,contents)
+
     def test_purchase_order_number_file_approval_and_account_permissions(self):
         import io
         from reportlab.pdfgen.canvas import Canvas
