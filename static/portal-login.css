@@ -54,7 +54,7 @@ a:focus-visible, button:focus-visible, summary:focus-visible {
   padding: clamp(19px, 2.5vw, 42px) clamp(26px, 4.4vw, 78px) 14px;
 }
 .masthead { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.portal-logo { display: block; width: 84px; height: auto; }
+.portal-logo { display: block; width: clamp(120px, 12vw, 168px); height: auto; }
 .client-link {
   display: inline-flex;
   align-items: center;
