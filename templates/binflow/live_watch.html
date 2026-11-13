@@ -2,14 +2,26 @@
 {% block title %}Live test run{% endblock %}
 {% block subtitle %}Follow the test driver from Wetherill Park through both collections and the interstate transfer.{% endblock %}
 {% block body %}
+<script defer src="{{ url_for('static',filename='binflow-live-watch.js') }}"></script>
+<p class="bf-muted" data-watch-status>Updates every 10 seconds while this page is open.</p>
+<div data-live-watch>
 {% if not run %}<p>Sign in as testdriver on a second device or in a private window to create the two live allocations.</p>{% else %}
 <div class="bf-toolbar"><strong>Driver day · {{ 'Finished' if day and day.finished_at else 'Started' if day else 'Ready to start' }}</strong>
 <a class="button secondary" href="{{ url_for('bf_live_watch') }}">Refresh records</a></div>
 <section class="bf-panel bf-pad"><h2>Collections and PODs</h2>
 {% for j in jobs %}<p><a href="{{ url_for('bf_job',job_id=j.id) }}"><strong>{{ j.code }}</strong> · {{ j.site_name }}</a><br>{{ j.status|capitalize }} · {{ j.returned }}/{{ j.expected }} bins returned · {{ j.weighed }}/{{ j.expected }} weighed{% if j.net_g is not none %} · {{ j.net_g|bfkg }} kg net{% endif %}{% if j.pod_signed_at %} · <a href="{{ url_for('bf_pod',job_id=j.id) }}">Signed POD &amp; draft invoice</a>{% endif %}</p>{% endfor %}
 <a href="{{ url_for('bf_daily_pods',date=jobs[0].scheduled_date,_anchor='pending-weigh-ins') }}">Open Daily PODs and pending weigh-ins</a></section>
+<section class="bf-panel bf-pad"><h2>Bin movements</h2><div class="bf-table-wrap"><table class="bf-plan-table">
+<thead><tr><th>Bin</th><th>Stop</th><th>Last recorded step</th></tr></thead><tbody>
+{% for i in bins %}<tr><td data-label="Bin">{{ i.bin_code }}</td><td data-label="Stop">{{ i.site_name }}</td><td data-label="Last recorded step">
+{% if i.bale_id %}<a href="{{ url_for('bf_bale',bid=i.bale_id) }}">Baled · {{ i.bale_code }}</a>
+{% elif i.direction=='collect' and i.pod_signed_at %}POD signed · {{ i.net_g|bfkg }} kg
+{% elif i.weighed_at %}Weighed · {{ i.net_g|bfkg }} kg{% elif i.returned_at %}Scanned into warehouse
+{% elif i.picked_up_at %}Collected onto truck{% elif i.delivered_at %}Delivered to client{% elif i.loaded_at %}Loaded onto truck
+{% elif i.direction=='collect' %}Awaiting collection{% else %}Awaiting loading{% endif %}</td></tr>{% endfor %}
+</tbody></table></div></section>
 <section class="bf-panel bf-pad"><h2>Bales and interstate manifests</h2>
 {% for b in bales %}<p><a href="{{ url_for('bf_bale',bid=b.id) }}">{{ b.code }}</a> · {{ b.net_g|bfkg }} kg · {{ b.status|replace('_',' ') }}</p>{% else %}<p>Bales appear here when you finish scanning their source bins and create the bale.</p>{% endfor %}
 {% for t in transfers %}<p><a href="{{ url_for('bf_bale_transfer',tid=t.id) }}">{{ t.code }} · Open manifest</a> · {{ t.bales }} bales · {{ (t.net_g or 0)|bfkg }} kg · {{ t.status|replace('_',' ') }}</p>{% endfor %}
 <a href="{{ url_for('bf_bales',warehouse=run.origin_id) }}">Open NSW bale stock and available bins</a> · <a href="{{ url_for('bf_bales',warehouse=run.destination_id) }}">Open Brisbane stock</a></section>
-{% endif %}{% endblock %}
+{% endif %}</div>{% endblock %}

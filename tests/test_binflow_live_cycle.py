@@ -55,6 +55,7 @@ class LiveCycleTests(unittest.TestCase):
         stops=[(j1,[1100,240],mats['COTTON']),(j2,[660],mats['PC MIX'])]
         for _,sizes,_ in stops:
             for size in sizes:scan('load',f'LT-{size}-EMPTY')
+        check('Loaded onto truck',admin.get('/admin/binflow/live-test'))
         action('depart')
         for jid,sizes,mid in stops:
             action('client-arrival',job_id=jid)

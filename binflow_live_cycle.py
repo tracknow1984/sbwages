@@ -121,19 +121,24 @@ def register(app, db, access, require, render):
     @require('admin')
     def bf_live_watch():
         run=db().execute('SELECT * FROM bf_live_cycle').fetchone()
-        jobs=bales=transfers=[]
+        jobs,bins,bales,transfers=[],[],[],[]
         day=None
         if run:
             jobs=db().execute("""SELECT j.id,j.code,j.site_name,j.status,j.pod_signed_at,j.scheduled_date,
                     COUNT(i.id) AS expected,COUNT(i.returned_at) AS returned,COUNT(i.weighed_at) AS weighed,
                     SUM(i.net_g) AS net_g FROM bf_jobs j JOIN bf_job_bins i ON i.job_id=j.id AND i.direction='collect'
                     WHERE j.pod_client_id=? GROUP BY j.id ORDER BY j.run_order""",(run['client_id'],)).fetchall()
+            bins=db().execute("""SELECT i.bin_code,i.direction,i.loaded_at,i.delivered_at,i.picked_up_at,i.returned_at,
+                    i.weighed_at,i.net_g,j.site_name,j.pod_signed_at,bs.bale_id,b.code AS bale_code
+                    FROM bf_job_bins i JOIN bf_jobs j ON j.id=i.job_id
+                    LEFT JOIN bf_bale_sources bs ON bs.item_id=i.id LEFT JOIN bf_bales b ON b.id=bs.bale_id
+                    WHERE j.pod_client_id=? ORDER BY j.run_order,i.direction DESC,i.bin_id""",(run['client_id'],)).fetchall()
             bales=db().execute('SELECT id,code,net_g,status FROM bf_bales WHERE origin_id=? ORDER BY id',(run['origin_id'],)).fetchall()
             transfers=db().execute("""SELECT t.id,t.code,t.status,COUNT(i.bale_id) AS bales,SUM(i.net_g) AS net_g
                     FROM bf_bale_transfers t LEFT JOIN bf_bale_transfer_items i ON i.transfer_id=t.id
                     WHERE t.origin_id=? GROUP BY t.id ORDER BY t.id""",(run['origin_id'],)).fetchall()
             day=db().execute('SELECT * FROM bf_workdays WHERE user_id=? ORDER BY id DESC LIMIT 1',(run['driver_id'],)).fetchone()
-        return render('live_watch',section='driver_test',run=run,jobs=jobs,day=day,bales=bales,transfers=transfers)
+        return render('live_watch',section='driver_test',run=run,jobs=jobs,bins=bins,day=day,bales=bales,transfers=transfers)
 
     @app.get('/binflow/driver/live-test/labels')
     @access
