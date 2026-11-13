@@ -42,6 +42,27 @@ class DailyPODTests(unittest.TestCase):
         with client.session_transaction() as s:s['bf_client_uid']=1;s['bf_client_version']=1
         return client
 
+    def test_single_bin_next_and_read_only_receipt(self):
+        self.initial_delivery()
+        self.job(collect=(1,2))
+        self.exchange(2,(1,2))
+        self.post('/binflow/pickups/2/receive',dict(confirmed=[1,2]))
+        first,second=self.rows("SELECT id,bin_code FROM bf_job_bins WHERE job_id=2 AND direction='collect' ORDER BY bin_code")
+        def url(row):
+            return '/binflow/pickups/2/weigh/'+str(row['id'])
+        form=dict(gross='55',tare='5',confirm_tare='yes',return_to='bin')
+        self.assertEqual(self.client.get('/binflow/pickups/2').text.count('name="gross"'),1)
+        saved=self.post(url(first),form)
+        self.assertEqual(saved.request.path,url(first))
+        self.assertIn('Weight saved · Locked',saved.text)
+        self.assertIn('Next bin · '+second['bin_code'],saved.text)
+        self.assertNotIn('name="gross"',saved.text)
+        self.assertNotIn(url(first)+'#weigh-',self.client.get('/binflow/pods').text)
+        self.assertIn('cannot be overwritten',self.post(url(first),dict(form,gross='99')).text)
+        self.assertEqual(self.rows('SELECT gross_g FROM bf_job_bins WHERE id=?',(first['id'],))[0]['gross_g'],55000)
+        self.assertEqual(self.client.get(url(second)).text.count('name="gross"'),1)
+        self.assertIn('No more bins',self.post(url(second),form).text)
+
     def test_returns_survive_date_changes_and_week_closes_only_after_signature(self):
         from pod_helpers import sign_pod
         self.initial_delivery()

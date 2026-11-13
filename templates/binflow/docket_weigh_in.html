@@ -1,0 +1,9 @@
+{% set pending=namespace(rows=[]) %}{% for row in items if row.direction=='collect' and not row.weighed_at and (row.returned_at or (not job.scan_mode and job.received_at)) %}{% set pending.rows=pending.rows+[row] %}{% endfor %}
+{% if pending.rows %}{% set i=pending.rows[0] %}
+<link rel="stylesheet" href="{{ url_for('static',filename='binflow-weigh.css') }}">
+<section class="bf-panel bf-pad weigh-card" id="weigh-{{ i.id }}">
+  <p class="weigh-eyebrow">Warehouse weigh-in · {{ pending.rows|length }} pending on this docket</p>
+  <h2>{{ i.bin_code }}</h2><p>{{ i.size_name }} · Pickup material · {{ i.material_name or 'Unclassified' }}</p>
+  {% include 'binflow/single_weight_form.html' %}
+</section>
+{% else %}<p class="bf-note">{{ 'All weights on this docket are complete.' if job.status=='complete' else 'No returned bins are waiting for a weight on this docket.' }}</p>{% endif %}

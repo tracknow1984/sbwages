@@ -27,6 +27,22 @@ class PrestartTests(unittest.TestCase):
         self.post('/logout')
         self.login('alex','test-staff-password')
 
+    def test_preview_uses_signed_record_and_respects_staff_access(self):
+        self.prepare()
+        posted=self.post('/employee/prestart',self.form('T595 BOBCAT'))
+        uid=self.query('SELECT id FROM prestarts')[0]['id']
+        preview=f'/employee/prestart/{uid}?preview=1'
+        page=self.client.get(preview)
+        self.assertIn(b'data-signed-prestart',page.data)
+        self.assertIn(b'All check results',page.data)
+        self.assertIn(b'Signature of Alex Example',page.data)
+        self.assertNotIn(b'<form',page.data)
+        self.post('/logout');self.login('jordan','test-staff-password')
+        self.assertEqual(self.client.get(preview).status_code,404)
+        self.post('/logout');self.login('admin','test-admin-password','admin')
+        self.assertIn(b'data-inspection-row',self.client.get('/admin/prestart').data)
+        self.assertIn(b'data-signed-prestart',self.client.get(f'/admin/prestart/{uid}?preview=1').data)
+
     def test_prestart_asset_checklists_and_delivery(self):
         self.prepare()
         for asset in ASSETS:

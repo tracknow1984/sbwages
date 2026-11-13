@@ -109,6 +109,7 @@
       output.textContent = gross.value === '' ? '— kg' : value < 0 ? 'Check gross / tare' : value.toLocaleString('en-AU', {maximumFractionDigits:3}) + ' kg';
     };
     [gross, tare].forEach(input => input.addEventListener('input', calc));
+    calc();
   });
   root.querySelectorAll('[data-signature]').forEach(container => {
     const canvas = container.querySelector('canvas'), ctx = canvas.getContext('2d'), hidden = container.querySelector('input');

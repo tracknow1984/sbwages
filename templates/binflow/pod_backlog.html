@@ -9,12 +9,7 @@
       <td data-label="Bin QR"><div class="pod-bin"><img src="{{ url_for('bf_qr_image',bin_id=i.bin_id) }}" width="72" height="72" loading="lazy" alt="QR code for {{ i.bin_code }}"><div><strong>{{ i.bin_code }}</strong><br>{{ i.size_name }}</div></div></td>
       <td data-label="Warehouse return"><strong>{{ i.warehouse }}</strong><br>{{ i.arrived|display_datetime }}{% if i.hours is not none %}<br><span class="{{ 'pod-aged' if i.hours>=48 else 'bf-muted' }}">{{ (i.hours // 24) ~ 'd ' if i.hours>=24 }}{{ i.hours % 24 }}h waiting</span>{% endif %}</td>
       <td data-label="Collection">{{ i.client_name }} · {{ i.site_name }}<br><a href="{{ url_for('bf_job',job_id=i.job_id) }}">{{ i.code }}</a> · {{ i.collected_at|display_date }}</td>
-      <td data-label="Weight entry"><details class="pod-entry"><summary>Weigh bin</summary>
-        <form class="bf-weigh-form" method="post" action="{{ url_for('bf_weigh',job_id=i.job_id,item_id=i.item_id) }}">
-          <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="return_to" value="pods"><input type="hidden" name="date" value="{{ run_date }}">
-          {% include 'binflow/bin_weight_fields.html' %}
-        </form>
-      </details></td>
+      <td data-label="Weight entry"><a class="button secondary" href="{{ url_for('bf_bin_weigh',job_id=i.job_id,item_id=i.item_id,_anchor='weigh-' ~ i.item_id) }}">Weigh bin</a></td>
     </tr>{% endfor %}
   </tbody></table></div>
   {% else %}<p class="bf-note">All returned bins in your warehouse queue have been weighed.</p>{% endfor %}

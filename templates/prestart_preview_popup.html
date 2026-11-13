@@ -1,0 +1,7 @@
+<link rel="stylesheet" href="{{ url_for('static',filename='prestart-preview.css') }}">
+<script defer src="{{ url_for('static',filename='prestart-preview.js') }}"></script>
+<div id="prestart-preview" role="dialog" aria-label="Completed prestart preview" popover="manual" hidden>
+  <header class="preview-bar"><strong>Completed prestart</strong><button class="secondary compact" type="button" data-preview-close>Close</button></header>
+  <div class="preview-body" data-preview-content tabindex="0" aria-live="polite"></div>
+  <footer><a data-full-prestart>Open signed record</a></footer>
+</div>

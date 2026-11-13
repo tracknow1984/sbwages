@@ -302,7 +302,7 @@ def register_binflow(app, db, require):
                                job_statuses=JOB_STATUSES, **values)
 
     def action_redirect(endpoint, values):
-        if endpoint != 'bf_daily_pods' and getattr(g, 'bf_demo_warehouse', False) and request.endpoint in ('bf_weigh','bf_pod_materials','bf_pod_sign'):
+        if endpoint not in ('bf_daily_pods','bf_bin_weigh') and getattr(g, 'bf_demo_warehouse', False) and request.endpoint in ('bf_weigh','bf_pod_materials','bf_pod_sign'):
             return redirect(url_for('bf_demo_docket', job_id=request.view_args['job_id']))
         return redirect(url_for(endpoint, **values))
 
@@ -876,11 +876,31 @@ def register_binflow(app, db, require):
         except ValueError as error:
             return failure(error, 'bf_job', job_id=job_id)
 
+    @app.get('/binflow/pickups/<int:job_id>/weigh/<int:item_id>')
+    @access
+    def bf_bin_weigh(job_id,item_id):
+        if not (is_office(g.user) or is_warehouse(g.user) or g.get('bf_demo_warehouse')):
+            abort(403)
+        j=job(job_id)
+        ensure_pod_available(j)
+        item=db().execute("SELECT * FROM bf_job_bins WHERE id=? AND job_id=? AND direction='collect'",
+                          (item_id,job_id)).fetchone()
+        if not item: abort(404)
+        waiting=pending_bins(db(),g.user,warehouse_id=j['warehouse_id'])
+        # Finish this docket first, then advance to the oldest returned bin at this depot.
+        waiting.sort(key=lambda row: row['job_id']!=job_id)
+        next_bin=next((row for row in waiting if row['item_id']!=item_id),None)
+        ready=any(row['item_id']==item_id for row in waiting)
+        return render('bin_weigh',section='pods',job=j,i=item,ready=ready,waiting=len(waiting),
+                      next_bin=next_bin,practice=g.get('bf_demo_practice',{}),weigh_screen=True)
+
     @app.post('/binflow/pickups/<int:job_id>/weigh/<int:item_id>')
     @access
     def bf_weigh(job_id, item_id):
         endpoint, target = 'bf_job', dict(job_id=job_id)
-        if request.form.get('return_to') == 'pods':
+        if request.form.get('return_to') == 'bin':
+            endpoint,target='bf_bin_weigh',dict(job_id=job_id,item_id=item_id,_anchor='weigh-'+str(item_id))
+        elif request.form.get('return_to') == 'pods':
             try:
                 selected = valid_date(request.form.get('date', now()[:10]))
             except ValueError as error:
@@ -896,6 +916,7 @@ def register_binflow(app, db, require):
             db().execute('BEGIN IMMEDIATE')
             j = job(job_id)
             ensure_approved(j)
+            ensure_pod_available(j)
             item = db().execute("SELECT * FROM bf_job_bins WHERE id=? AND job_id=? AND direction='collect'", (item_id,job_id)).fetchone()
             if not item:
                 abort(404)
@@ -936,9 +957,7 @@ def register_binflow(app, db, require):
                 AND (i.returned_at IS NOT NULL OR j.received_at IS NOT NULL) ORDER BY j.id DESC LIMIT 1""",
                 (b['id'],b['location_id'])).fetchone()
             if item and can_view_job(db(),g.user,item):
-                endpoint = 'bf_demo_docket' if getattr(g,'bf_demo_warehouse',False) else 'bf_job'
-                anchor = 'pod-finalisation' if item['item_weighed'] else 'weigh-'+str(item['item_id'])
-                target = url_for(endpoint,job_id=item['id'],_anchor=anchor)
+                target = url_for('bf_bin_weigh',job_id=item['id'],item_id=item['item_id'],_anchor='weigh-'+str(item['item_id']))
                 return jsonify(ok=True,redirect=target)
         return jsonify(ok=False,message='Scan a returned bin waiting at your warehouse for weighing.'),409
 

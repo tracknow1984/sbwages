@@ -19,7 +19,7 @@ DRIVER_ENDPOINTS = frozenset({
 
 
 WAREHOUSE_ENDPOINTS = frozenset({
-    'bf_live_restart','bf_live_labels','bf_live_label_qr','bf_warehouse', 'bf_warehouse_scan', 'bf_job', 'bf_weigh', 'bf_pod', 'bf_pod_pdf',
+    'bf_live_restart','bf_live_labels','bf_live_label_qr','bf_warehouse', 'bf_warehouse_scan', 'bf_bin_weigh', 'bf_job', 'bf_weigh', 'bf_pod', 'bf_pod_pdf',
     'bf_pod_materials', 'bf_pod_sign', 'bf_daily_pods', 'bf_pod_record', 'bf_pod_qr',
     'bf_pod_signature', 'bf_pod_journey', 'bf_evidence', 'bf_qr_image',
 })
