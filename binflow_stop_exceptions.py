@@ -6,7 +6,7 @@ from flask import abort, g, request
 
 from binflow_approvals import allocation_history
 from binflow_permissions import is_office
-from binflow_qr import reopen_requests, request_history
+from binflow_qr import request_history
 
 
 def migrate(conn):
@@ -258,7 +258,12 @@ def register(app,db,access,render,now,actor,success,failure,event):
                 replacement=rebook(conn,source,request.form.get('date'),g.user['id'],actor(),stamp)
             elif action=='approved':
                 replacement=None
-                reopen_requests(conn,job_id,actor(),stamp)
+                requests=conn.execute("SELECT id FROM bf_collection_requests WHERE job_id=? AND status='scheduled'",
+                                      (job_id,)).fetchall()
+                for linked in requests:
+                    conn.execute("UPDATE bf_collection_requests SET status='closed',resolution=?,updated_at=? WHERE id=?",
+                                 (exc['reason'],stamp,linked['id']))
+                    request_history(conn,linked['id'],'Cancellation approved',actor(),stamp,exc['reason'])
             else: raise ValueError('Choose reschedule or approve cancellation.')
             conn.execute('UPDATE bf_stop_exceptions SET decision=?,reviewed_at=?,reviewed_by=?,replacement_id=? WHERE job_id=?',
                          (action,stamp,actor(),replacement,job_id))
