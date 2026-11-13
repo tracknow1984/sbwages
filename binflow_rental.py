@@ -49,12 +49,12 @@ def summarise(sites, sizes):
 def report(conn):
     sizes = {r['id']: dict(r) for r in conn.execute('SELECT * FROM bf_sizes ORDER BY litres,id')}
     clients = {r['id']: dict(id=r['id'], name=r['name'], sites=[], pending=False)
-               for r in conn.execute('SELECT id,name FROM bf_clients ORDER BY name')}
+               for r in conn.execute('SELECT id,name FROM bf_clients WHERE id NOT IN (SELECT client_id FROM bf_live_cycle) ORDER BY name')}
     sites = {}
     for row in conn.execute('''SELECT l.*,cp.id AS contact_profile_id,cp.customer_site,cp.group_name,cp.suburb,
         sp.active AS target_active,sp.review_note FROM bf_locations l
         LEFT JOIN bf_client_site_profiles cp ON cp.location_id=l.id
-        LEFT JOIN bf_site_profiles sp ON sp.location_id=l.id WHERE l.kind='client' '''):
+        LEFT JOIN bf_site_profiles sp ON sp.location_id=l.id WHERE l.kind='client' AND l.client_id NOT IN (SELECT client_id FROM bf_live_cycle) '''):
         site = dict(id=row['id'], name=row['customer_site'] or row['name'], state=row['state'],
                     address=row['address'], suburb=row['suburb'] or '', group=row['group_name'] or '',
                     contact_profile_id=row['contact_profile_id'], target_status='saved' if row['target_active'] else
@@ -69,7 +69,8 @@ def report(conn):
             sites[row['location_id']]['proposed'][row['size_id']] += row['quantity']
     # Current custody only: reservations and rotation pools do not create rent.
     for row in conn.execute('''SELECT b.* FROM bf_bins b JOIN bf_locations l ON l.id=b.location_id AND b.archived=0
-        WHERE l.kind='client' AND b.truck_id IS NULL AND b.status IN ('at_client','full')'''):
+        WHERE l.kind='client' AND l.client_id NOT IN (SELECT client_id FROM bf_live_cycle)
+        AND b.truck_id IS NULL AND b.status IN ('at_client','full')'''):
         site = sites[row['location_id']]
         if row['service_status'] != 'lost':
             site['actual'][row['size_id']] += 1

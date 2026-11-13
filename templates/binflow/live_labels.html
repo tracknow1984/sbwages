@@ -1,0 +1,11 @@
+{% extends 'binflow/layout.html' %}
+{% block title %}Live test bin labels{% endblock %}
+{% block subtitle %}Wetherill Park · Smithfield · Fairfield{% endblock %}
+{% block body %}
+<section class="bf-panel bf-pad no-print"><p>Scan the label or enter the printed ID at each step. For a desktop walkthrough, use the Scan button or enter the ID shown in the scan list. The truck leaves with three empties and returns with three full bins.</p>
+<button class="primary" type="button" data-print>Print scan sheet</button> <a href="{{ url_for('bf_workday') }}">Driver day</a></section>
+<div class="bf-grid">{% for row in rows %}<article class="bf-panel bf-pad">
+<img src="{{ url_for('bf_live_label_qr',bin_id=row.bin_id) }}" width="100" height="100" alt="QR for {{ row.bin_code }}"><h2>{{ row.bin_code }}</h2>
+<p>{{ row.site_name }} · {{ 'Deliver empty' if row.direction=='deliver' else 'Collect full' }}</p>
+{% if row.direction=='collect' %}<p>Suggested net weight · {{ '75 kg PC MIX' if '660' in row.bin_code else '100 kg COTTON' if '1100' in row.bin_code else '25 kg COTTON' }}. Empty tare {{ row.tare_g|bfkg }} kg.</p>{% endif %}</article>{% endfor %}</div>
+{% endblock %}

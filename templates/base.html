@@ -58,6 +58,7 @@
   {% set personal_page = tab in ('details','payslips','history','induction','documents','leave') %}
   <a class="driver-menu-back no-print" href="{{ url_for('employee_details_menu' if personal_page else 'employee_dashboard') }}"><span aria-hidden="true">←</span> {{ 'My Details' if personal_page else 'Driver menu' }}</a>
 {% endif %}
+{% if g.live_cycle and tab=='binflow' %}<p class="bf-note no-print"><strong>LIVE TEST</strong> · Records appear in the live admin registers. <a href="{{ url_for('bf_live_labels') }}">Bin IDs &amp; QR labels</a></p>{% endif %}
 {% block dashboard_greeting %}{% endblock %}
  {% if not induction_gate and not driver_demo and not session.testdriver_version and staff_workspaces|length > 1 and (bf_surface or (current_user.role=='employee' and not binflow_driver)) %}
 <form class="bf-workspaces no-print" method="post" action="{{ url_for('bf_switch_workspace') }}" aria-label="BinFlow workspace">

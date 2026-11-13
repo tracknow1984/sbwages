@@ -164,10 +164,12 @@ def populate_collection_profiles(conn, stamp):
 
 
 def profile_rows(conn,state=''):
+    from binflow_live_cycle import client_calendar
+    site_filter = " AND l.client_id NOT IN (SELECT client_id FROM bf_live_cycle) " if client_calendar() else ''
     rows=conn.execute('''SELECT l.id,l.name,l.state,l.address,c.name AS client_name,p.*,
         w.name AS warehouse_name FROM bf_locations l JOIN bf_clients c ON c.id=l.client_id
         LEFT JOIN bf_collection_profiles p ON p.location_id=l.id
-        LEFT JOIN bf_locations w ON w.id=p.warehouse_id WHERE l.kind='client' '''+
+        LEFT JOIN bf_locations w ON w.id=p.warehouse_id WHERE l.kind='client' '''+site_filter+
         ('AND l.state=? ' if state else '')+'ORDER BY l.state,c.name,l.name',(state,) if state else ()).fetchall()
     quantities=defaultdict(list)
     for r in conn.execute('''SELECT r.location_id,r.quantity,s.name FROM bf_site_requirements r
@@ -206,11 +208,12 @@ def dated(value):
 
 
 def calendar_data(conn,start,end,state=''):
+    from binflow_live_cycle import client_job_filter
     profiles=profile_rows(conn,state);by_id={p['id']:p for p in profiles}
     jobs=conn.execute('''SELECT j.*,
         EXISTS(SELECT 1 FROM bf_job_bins i WHERE i.job_id=j.id AND i.direction='collect') AS collects,
         EXISTS(SELECT 1 FROM bf_job_bins i WHERE i.job_id=j.id AND (i.loaded_at IS NOT NULL OR i.picked_up_at IS NOT NULL)) AS moved
-        FROM bf_jobs j WHERE scheduled_date BETWEEN ? AND ? AND status!='cancelled' '''+
+        FROM bf_jobs j WHERE scheduled_date BETWEEN ? AND ? AND status!='cancelled' '''+ client_job_filter()+
         ('AND state=? ' if state else '')+'ORDER BY scheduled_date,state,client_name,id',
         (start.isoformat(),end.isoformat(),state) if state else (start.isoformat(),end.isoformat())).fetchall()
     booked={(j['site_id'],j['scheduled_date']) for j in jobs if j['collects']}
@@ -261,7 +264,9 @@ def collection_calendar_view(conn, args, today, default_view='week'):
                   following=following.isoformat(),today=today)
     if enabled(conn):
         return 'route_calendar', {**common, **view_data(conn,start,end,state)}
-    counts = {r['state']:r['n'] for r in conn.execute("SELECT state,COUNT(*) n FROM bf_locations WHERE kind='client' GROUP BY state")}
+    from binflow_live_cycle import client_calendar
+    filtered = " AND client_id NOT IN (SELECT client_id FROM bf_live_cycle)" if client_calendar() else ''
+    counts = {r['state']:r['n'] for r in conn.execute("SELECT state,COUNT(*) n FROM bf_locations WHERE kind='client'"+filtered+" GROUP BY state")}
     return 'collection_calendar', dict(common, weeks=weeks, days=DAYS, state_counts=counts,
                                        **calendar_data(conn,start,end,state))
 

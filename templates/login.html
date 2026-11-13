@@ -34,7 +34,7 @@
         <form method="post">
           <input type="hidden" name="csrf" value="{{ csrf_token() }}">
           <label for="username">Username</label>
-          <input id="username" name="username" value="{{ request.form.get('username','testdriver' if practice else '') }}" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="80" required>
+          <input id="username" name="username" value="{{ request.form.get('username','testdriver' if practice or (audience=='employee' and request.args.get('driver_test')=='1') else '') }}" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="80" required>
           <label for="password">Password</label>
           <input id="password" type="password" name="password" autocomplete="current-password" maxlength="200" required>
           <button type="submit">Sign in {{ icon('arrow') }}</button>

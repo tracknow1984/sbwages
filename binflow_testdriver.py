@@ -27,7 +27,7 @@ def guard(app, db):
         session.clear()
         return redirect(url_for('bf_testdriver_login'))
     endpoint = request.endpoint
-    if endpoint in ('static', 'logout', 'bf_testdriver_login', 'login'):
+    if endpoint in ('static', 'logout', 'bf_testdriver_login', 'bf_testdriver_entry', 'login'):
         return None
     if endpoint in ('index', 'employee_dashboard', 'bf_resume'):
         return redirect(url_for('bf_demo_cycle'))

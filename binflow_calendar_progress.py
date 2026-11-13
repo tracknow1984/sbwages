@@ -6,6 +6,7 @@ STATES = ('QLD','NSW','VIC','SA','WA','TAS','ACT','NT')
 
 
 def progress(conn, first, last, state=''):
+    from binflow_live_cycle import client_job_filter
     from binflow_schedule import get_plan
     from binflow_route_calendar import START
     result = {}
@@ -18,7 +19,7 @@ def progress(conn, first, last, state=''):
             AND next.schedule_live=1 AND next.approval_status='approved'
             ORDER BY next.run_order,next.id LIMIT 1) AS active_job
         FROM bf_jobs j LEFT JOIN bf_runs r ON r.truck_id=j.truck_id AND r.run_date=j.scheduled_date
-        WHERE j.scheduled_date BETWEEN ? AND ?""" + (" AND j.state=?" if state else ""),
+        WHERE j.scheduled_date BETWEEN ? AND ?""" + client_job_filter() + (" AND j.state=?" if state else ""),
         (first.isoformat(),last.isoformat(),state) if state else (first.isoformat(),last.isoformat()))]
     actual = defaultdict(list)
     for job in jobs:

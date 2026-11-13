@@ -4,14 +4,19 @@
     <h1>Welcome - {{ [current_user.first_name, current_user.last_name]|join(' ')|trim or current_user.username }}</h1>
     {% if not binflow_driver %}<p>Your workday, in one place.</p>{% endif %}
   </div>
-  {% if not binflow_driver %}<a class="hero-action" href="{{ url_for('employee_timesheet') }}">Open my timesheet <span aria-hidden="true">↗</span></a>{% endif %}
+  {% if not binflow_driver and not g.live_cycle %}<a class="hero-action" href="{{ url_for('employee_timesheet') }}">Open my timesheet <span aria-hidden="true">↗</span></a>{% endif %}
 </section>
 {% endblock %}
 {% block content %}
 {% if session.get('driver_requested_page') %}
   <p><a class="button secondary" href="{{ session.driver_requested_page }}">{{ 'Open scanned bin' if session.driver_requested_page.startswith('/binflow/qr/') else 'Open requested BinFlow page' }}</a></p>
 {% endif %}
-{% if binflow_driver %}
+{% if g.live_cycle %}
+<nav class="driver-menu-list" aria-label="Live test driver">
+<a class="driver-menu-start" href="{{ url_for('bf_workday') }}"><span>START BIN FLOW</span></a>
+<a href="{{ url_for('bf_live_labels') }}"><span>LIVE TEST BIN LABELS</span></a>
+</nav><p>Smithfield and Fairfield · NSW rigid. Your scans update the live BinFlow registers.</p>
+{% elif binflow_driver %}
   {% include 'binflow/driver_menu.html' %}
 {% else %}
 <div class="staff-stats"><a href="{{ url_for('employee_hit_me') }}"><span class="stat-symbol" aria-hidden="true">EW</span><div><strong>{{ summary.unread }}</strong><span>Unread notices</span></div></a><a href="{{ url_for('employee_leave') }}"><span class="stat-symbol" aria-hidden="true">AL</span><div><strong>{{ leave_pending }}</strong><span>Leave pending</span></div></a><a href="{{ url_for('employee_documents') }}"><span class="stat-symbol" aria-hidden="true">↑</span><div><strong class="stat-word">Upload</strong><span>Staff documents</span></div></a></div>

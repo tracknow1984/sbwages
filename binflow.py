@@ -154,6 +154,8 @@ def register_binflow(app, db, require):
         migrate_interstate(db())
         from binflow_invoices import migrate as migrate_invoices
         migrate_invoices(db())
+        from binflow_live_cycle import migrate as migrate_live_cycle
+        migrate_live_cycle(db())
         db().commit()
         tare_update = apply_standard_tares(db(), now())
         if tare_update:
@@ -967,7 +969,7 @@ def register_binflow(app, db, require):
         rows = items(job_id)
         billing = None
         if (j['pod_signed_at'] and any(i['direction']=='collect' for i in rows)
-                and (g.user['role']=='admin' or getattr(g,'bf_demo_token',None))):
+                and (g.user['role']=='admin' or g.get('live_cycle') or getattr(g,'bf_demo_token',None))):
             from binflow_auto_invoices import pod_billing
             billing = pod_billing(db(), job_id, now())
         return render('pod', section='pods', job=j, items=rows, billing=billing, net=sum(i['net_g'] or 0 for i in rows))
@@ -1103,6 +1105,8 @@ def register_binflow(app, db, require):
     register_reports(app,db,require,render,now)
     from binflow_demo import register_demo
     register_demo(app,db,access,render,now)
+    from binflow_live_cycle import register as register_live_cycle
+    register_live_cycle(app,db,access,require,render)
     from binflow_rental import register as register_rental
     register_rental(app,db,require,render,now)
     from binflow_xero import register as register_xero

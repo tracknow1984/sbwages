@@ -53,7 +53,9 @@ def run_workday(conn,uid,truck_id,run_date):
 def available_trucks(conn, day, state):
     """A truck's base can differ from the state of its work for this day."""
     return conn.execute("""SELECT t.* FROM bf_trucks t
-        WHERE NOT EXISTS (SELECT 1 FROM bf_workdays d WHERE d.truck_id=t.id AND d.user_id!=:driver
+        WHERE NOT EXISTS (SELECT 1 FROM bf_live_cycle x WHERE (x.driver_id=:driver AND x.truck_id!=t.id)
+            OR (x.driver_id!=:driver AND x.truck_id=t.id))
+        AND NOT EXISTS (SELECT 1 FROM bf_workdays d WHERE d.truck_id=t.id AND d.user_id!=:driver
             AND (d.finished_at IS NULL OR d.work_date=:date))
         AND NOT EXISTS (SELECT 1 FROM bf_runs r WHERE r.truck_id=t.id AND r.run_date=:date
             AND (r.driver_id!=:driver OR r.returned_at IS NOT NULL))
@@ -277,8 +279,11 @@ def register_workdays(app,db,access,require,render,success,failure,now):
             db().execute('UPDATE bf_workdays SET flow_version=? WHERE id=?',(2 if request.form.get('flow_version')=='2' else 0,wid))
             if getattr(g,'bf_demo_token',None):
                 db().execute('UPDATE bf_jobs SET scheduled_date=?',(key,))
+            if g.get('live_cycle'):
+                db().execute("UPDATE bf_jobs SET scheduled_date=? WHERE pod_client_id=? AND status='scheduled'",
+                             (key,g.live_cycle['client_id']))
             day=owned(wid)
-            if g.user['role']=='employee' and not getattr(g,'bf_demo_token',None): start_entry(db(),g.user,day,stamp)
+            if g.user['role']=='employee' and not g.get('live_cycle') and not getattr(g,'bf_demo_token',None): start_entry(db(),g.user,day,stamp)
             workday_event(db(),wid,g.user['id'],'Day started',received,source)
             return success('Day started. Review your daily overview.','bf_workday')
         except (ValueError,sqlite3.IntegrityError) as error:
@@ -346,10 +351,10 @@ def register_workdays(app,db,access,require,render,success,failure,now):
             if notes: summary+='\n'+notes
             if day['break_started_at'] and not day['break_finished_at']:
                 raise ValueError('Finish your recorded break before finishing the day.')
-            if g.user['role']=='employee' and not getattr(g,'bf_demo_token',None): finish_entries(db(),g.user,day,finish,summary)
+            if g.user['role']=='employee' and not g.get('live_cycle') and not getattr(g,'bf_demo_token',None): finish_entries(db(),g.user,day,finish,summary)
             db().execute('UPDATE bf_workdays SET finished_at=?,finish_received_at=?,phone_finished_at=?,notes=? WHERE id=?',
                          (finish.isoformat(),received,phone,notes,day_id))
             workday_event(db(),day_id,g.user['id'],'Day finalised',received,source)
-            return success('Sample day finished. No wages were changed.' if getattr(g,'bf_demo_token',None) else 'Day finalised. Your daily timesheet is committed.' if g.user['role']=='employee' else 'Driver day finalised. Admin accounts do not create wage entries.','bf_workday',day=day_id,summary='1')
+            return success('Live test day finished.' if g.get('live_cycle') else 'Sample day finished. No wages were changed.' if getattr(g,'bf_demo_token',None) else 'Day finalised. Your daily timesheet is committed.' if g.user['role']=='employee' else 'Driver day finalised. Admin accounts do not create wage entries.','bf_workday',day=day_id,summary='1')
         except ValueError as error:
             return failure(error,'bf_workday',summary='1')
