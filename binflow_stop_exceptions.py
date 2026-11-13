@@ -1,7 +1,6 @@
 """Missed stops, unused bin custody and collection calendar closeout."""
 import json
 import secrets
-from datetime import date, timedelta
 
 from flask import abort, g, request
 
@@ -108,6 +107,12 @@ def receive_empty(conn, item_id, who, stamp, event):
                  (row['warehouse_id'],row['bin_id']))
     conn.execute('UPDATE bf_job_bins SET active=0 WHERE id=?',(item_id,))
     conn.execute('UPDATE bf_unused_returns SET returned_at=?,received_by=? WHERE item_id=?',(stamp,who,item_id))
+    # A replacement can be scheduled while the empty is still in transit. Transfer its
+    # reservation only after this receipt, inside the same transaction as the custody change.
+    conn.execute("""UPDATE bf_job_bins SET active=1 WHERE bin_id=? AND direction='deliver' AND active=0
+        AND job_id=(SELECT j.id FROM bf_stop_exceptions e JOIN bf_jobs j ON j.id=e.replacement_id
+            WHERE e.job_id=? AND j.status='scheduled' AND j.approval_status='pending')""",
+        (row['bin_id'],row['job_id']))
     event(row['bin_id'],'Unused empty returned to warehouse',row['job_id'],target=row['warehouse_id'],from_truck=row['truck_id'])
     return True
 
@@ -171,6 +176,7 @@ def rebook(conn, source, new_date, uid, who, stamp):
     jid=copy_stop(conn,source,new_date,uid,stamp)
     quantity={'collect':{},'deliver':{}}
     for item in planned:
+        reserve_now=True
         if item['direction']=='collect':
             b=conn.execute("""SELECT * FROM bf_bins b WHERE id=? AND location_id=? AND status IN ('at_client','full')
                 AND archived=0 AND NOT EXISTS(SELECT 1 FROM bf_job_bins i WHERE i.bin_id=b.id AND i.active=1)""",
@@ -183,12 +189,19 @@ def rebook(conn, source, new_date, uid, who, stamp):
                     WHERE i.bin_id=b.id AND j.pod_client_id=?))
                 ORDER BY b.id!=?,b.id LIMIT 1""",(source['warehouse_id'],item['size_id'],int(test),
                     source['pod_client_id'],item['bin_id'])).fetchone()
+            if not b:
+                b=conn.execute("""SELECT b.* FROM bf_unused_returns u JOIN bf_job_bins i ON i.id=u.item_id
+                    JOIN bf_bins b ON b.id=i.bin_id JOIN bf_jobs j ON j.id=i.job_id
+                    WHERE i.id=? AND i.active=1 AND u.returned_at IS NULL AND b.truck_load='empty'
+                        AND b.truck_id=j.truck_id AND b.archived=0 AND b.service_status='in_service'""",
+                    (item['id'],)).fetchone()
+                reserve_now=False
         if not b:
             raise ValueError(f"No available {item['size_name']} bin for {item['direction']} at this stop. Check the bin location or receive the unused empties, then retry.")
         counts=quantity[item['direction']]
         counts[b['size_id']]=counts.get(b['size_id'],0)+1
-        conn.execute("""INSERT INTO bf_job_bins(job_id,bin_id,direction,bin_code,size_name,tare_g)
-            VALUES(?,?,?,?,?,?)""",(jid,b['id'],item['direction'],b['code'],item['size_name'],b['tare_g']))
+        conn.execute("""INSERT INTO bf_job_bins(job_id,bin_id,direction,bin_code,size_name,tare_g,active)
+            VALUES(?,?,?,?,?,?,?)""",(jid,b['id'],item['direction'],b['code'],item['size_name'],b['tare_g'],int(reserve_now)))
     _,loading=site_plan(conn,source['site_id'],source['warehouse_id'],quantity['collect'],new_date)
     for row in loading:
         row['selected']=quantity['deliver'].get(row['size_id'],0)

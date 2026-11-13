@@ -259,8 +259,6 @@ def register_binflow(app, db, require):
         db().execute('INSERT INTO bf_events(bin_id,job_id,event,from_location,to_location,actor,notes,created_at,from_truck,to_truck,from_label,to_label) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
                      (bin_id, job_id, label, origin, target, actor(), notes, now(), from_truck, to_truck, custody_label(db(),origin,from_truck), custody_label(db(),target,to_truck)))
 
-    app.extensions['bf_record_bin_event']=event
-
     def job(job_id):
         row = db().execute('SELECT j.*,u.first_name||\' \'||u.last_name AS driver_name FROM bf_jobs j LEFT JOIN users u ON u.id=j.driver_id WHERE j.id=?', (job_id,)).fetchone()
         if not row:
@@ -1201,7 +1199,7 @@ def register_binflow(app, db, require):
 
     from binflow_bin_condition import register as register_bin_condition
     register_bin_condition(app,db,require,success,failure,event)
-    register_runs(app, db, access, require, render, success, failure, now, actor)
+    register_runs(app, db, access, require, render, success, failure, now, actor, event)
 
     register_gps(app, db, access, require, render, success, failure, now, actor)
     register_portal(app, db, access, require, render, success, failure, now, actor, bf_pod_pdf.__wrapped__)

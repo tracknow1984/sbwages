@@ -15,7 +15,7 @@
 {% endif %}
 {% if progress %}{% include 'binflow/pod_backlog.html' %}{% endif %}
 <div class="bf-toolbar"><form method="get" class="bf-filters">
-  {% if request.args.get('state') %}<input type="hidden" name="state" value="{{ request.args.get('state') }}">{% endif %}{% if driver_demo %}<input type="hidden" name="demo" value="{{ driver_demo }}">{% endif %}<label>Run date<input type="date" name="date" value="{{ run_date }}" required></label>
+  {% if request.args.get('live_test')=='1' %}<input type="hidden" name="live_test" value="1">{% endif %}{% if request.args.get('state') %}<input type="hidden" name="state" value="{{ request.args.get('state') }}">{% endif %}{% if driver_demo %}<input type="hidden" name="demo" value="{{ driver_demo }}">{% endif %}<label>Run date<input type="date" name="date" value="{{ run_date }}" required></label>
   <label>View<select name="view" data-autosubmit>{% for key,label in [('active','Active PODs'),('signed','Completed PODs'),('unfinished','Uncompleted PODs'),('archived','Archived PODs'),('deleted','Deleted PODs')] if key in ('active','unfinished','signed') or (current_user.role=='admin' and not driver_demo) %}<option value="{{ key }}" {{ 'selected' if view==key }}>{{ label }}</option>{% endfor %}</select></label>
   <button class="primary">Show PODs</button>
   <a href="{{ url_for('bf_workday',date=run_date,summary='1') if binflow_driver or driver_demo else url_for('bf_warehouse') if binflow_warehouse else url_for('bf_collection_calendar',date=run_date) }}">{{ 'Driver day' if binflow_driver or driver_demo else 'Warehouse stock' if binflow_warehouse else 'Collection calendar' }}</a>
