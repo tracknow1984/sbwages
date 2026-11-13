@@ -292,7 +292,7 @@ def create_app(test_config=None):
                 g.user = dict(user, binflow_workspace=selected if selected in modes else next(iter(modes), None))
             else:
                 session.clear()
-        if not g.user and not session.get('testdriver_version') and request.endpoint != 'bf_lunch_worker' and (request.path.startswith(('/binflow/driver/', '/training/')) or
+        if not g.user and not session.get('testdriver_version') and request.endpoint not in ('bf_lunch_worker','bf_testdriver_login') and (request.path.startswith(('/binflow/driver/', '/training/')) or
                            request.args.get('demo') and request.path.startswith('/binflow/')):
             # Never replay an expired scan or restore a training token supplied by a URL.
             if request.method=='GET' and request.endpoint=='bf_demo_cycle':
@@ -309,6 +309,15 @@ def create_app(test_config=None):
         if session.get('testdriver_version'):
             from binflow_testdriver import guard
             return guard(app, db)
+        if g.user and session.get('live_test_driver'):
+            from binflow_live_cycle import guard
+            from binflow_testdriver import credential_version
+            g.live_cycle = db().execute('SELECT * FROM bf_live_cycle WHERE driver_id=?',(g.user['id'],)).fetchone()
+            if not g.live_cycle or credential_version(app) != session.get('live_test_driver'):
+                session.clear()
+                return redirect(url_for('login',audience='employee'))
+            guard(db(),g.live_cycle)
+            return None
         return enforce_employee_induction(db)
 
     @app.after_request
@@ -413,7 +422,11 @@ def create_app(test_config=None):
             return redirect(url_for('bf_daily_pods', _anchor='pending-weigh-ins'))
         return redirect(url_for({'manager':'bf_dashboard','driver':'bf_resume','warehouse':'bf_bales'}[mode]))
 
-    @app.route('/binflow/testdriver/login', methods=['GET', 'POST'])
+    @app.get('/binflow/testdriver/login')
+    def bf_testdriver_entry():
+        return redirect(url_for('login',audience='employee',driver_test=1))
+
+    @app.route('/binflow/driver/practice-login', methods=['GET', 'POST'])
     def bf_testdriver_login():
         from binflow_testdriver import credential_version, restore_run
         if request.method == 'POST':
@@ -443,6 +456,18 @@ def create_app(test_config=None):
                 flash('Too many sign-in attempts. Please try again in 15 minutes.', 'error')
                 return render_template('login.html', audience=audience), 429
             user = db().execute('SELECT * FROM users WHERE username=? AND role=?', (username, audience)).fetchone()
+            if audience=='employee' and username=='testdriver' and not user:
+                from binflow_live_cycle import authenticate
+                from binflow_testdriver import credential_version
+                from binflow import now
+                live_driver=authenticate(db(),app,username,request.form.get('password',''),now())
+                if live_driver:
+                    session.clear()
+                    session.update(uid=live_driver['id'],version=live_driver['auth_version'],live_test_driver=credential_version(app))
+                    session.permanent=True
+                    db().execute('DELETE FROM login_attempts WHERE key IN (?,?)',(key,ipkey))
+                    db().commit()
+                    return redirect(url_for('employee_dashboard'))
             # Perform a password hash check even for unknown users.
             hashed = user['password_hash'] if user and user['password_hash'] else app.config['DUMMY_HASH']
             matched = check_password_hash(hashed, request.form.get('password', ''))
@@ -1176,6 +1201,8 @@ def create_app(test_config=None):
     @app.get('/employee/dashboard')
     @require('employee')
     def employee_dashboard():
+        if g.get('live_cycle'):
+            return render_template('employee_dashboard.html',tab='home',summary={})
         if is_driver(db(), g.user):
             return render_template('employee_dashboard.html', tab='home', summary=notice_summary())
         day=today()

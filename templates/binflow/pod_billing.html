@@ -9,7 +9,7 @@
   {% if line.rate_units is not none %}
   <p>This POD · {{ line.net|money }} ex GST + {{ line.tax|money }} GST = <strong>{{ (line.net + line.tax)|money }} incl GST</strong></p>{% endif %}
   {% if draft.issue %}<p class="bf-note">{{ draft.issue }}</p>{% endif %}
-  {% if driver_demo %}
+  {% if driver_demo or g.live_cycle %}
   <details><summary>Fortnightly invoice · {{ billing.lines|length }} PODs · {{ billing.total|money }} incl GST</summary>
     <ul>{% for entry in billing.lines %}<li>{{ entry.description }} · {{ (entry.net+entry.tax)|money }} incl GST</li>{% endfor %}</ul>
   </details>

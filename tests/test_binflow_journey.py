@@ -386,7 +386,7 @@ class DriverJourneyTests(unittest.TestCase):
         tables=('users','bf_jobs','bf_bins','bf_runs','bf_bales','bf_bale_transfers','bf_auto_drafts','bf_driver_resume','entries','sheets','prestarts')
         before={t:self.rows('SELECT * FROM '+t) for t in tables}
         self.client=self.app.test_client()
-        login='/binflow/testdriver/login'
+        login='/binflow/driver/practice-login'
         self.assertIn('Test driver sign in', self.client.get(login).text)
         self.assertNotIn('Signed in as testdriver',self.post(login,dict(username='testdriver',password='wrong')).text)
         credentials=dict(username='testdriver',password='practice-only')

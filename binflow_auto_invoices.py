@@ -71,9 +71,11 @@ def reconcile(conn, stamp, *, pods_only=False):
             grp['issues'].add(issue)
 
     pods = conn.execute("""SELECT j.id,j.code,j.site_name,j.pod_client_id,j.client_name,j.pod_signed_at,
-        j.pod_version, SUM(i.net_g) AS net,COUNT(*) AS bins,COUNT(i.net_g) AS weighed,r.units,
+        j.pod_version, SUM(i.net_g) AS net,COUNT(*) AS bins,COUNT(i.net_g) AS weighed,COALESCE(r.units,CASE WHEN test.id IS NOT NULL THEN 16000 END) AS units,
+        test.id AS live_test,
         m.account_id,a.name AS payer FROM bf_jobs j JOIN bf_job_bins i ON i.job_id=j.id AND i.direction='collect'
         LEFT JOIN bf_job_pickup_rates p ON p.job_id=j.id LEFT JOIN bf_pickup_rates r ON r.id=p.rate_id
+        LEFT JOIN bf_live_cycle test ON test.client_id=j.pod_client_id
         LEFT JOIN bf_pod_bill_to m ON m.client_id=j.pod_client_id LEFT JOIN bf_client_accounts a ON a.id=m.account_id
         WHERE j.status='complete' AND j.approval_status='approved' AND j.pod_signed_at IS NOT NULL
           AND j.pod_deleted_at IS NULL AND NOT EXISTS(SELECT 1 FROM bf_auto_claims c WHERE c.source='pod:'||j.id)
@@ -87,6 +89,9 @@ def reconcile(conn, stamp, *, pods_only=False):
         aid = j['account_id']
         payer = f'a{aid}' if aid else f"c{j['pod_client_id'] or j['client_name']}"
         problem = ('Set the collection billing account in Billing setup.' if not aid else '')
+        if j['live_test']:
+            payer = 'live-test'
+            problem = 'Live test collection. Internal draft only.'
         if j['units'] is None or j['weighed'] != j['bins']:
             problem = 'A signed POD has no recorded collection rate or final weight. Review the source before billing.'
         net = ((j['net'] or 0)*(j['units'] or 0)+50000)//100000

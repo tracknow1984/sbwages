@@ -330,7 +330,8 @@ def week_plan(conn, monday, state='', geo=None, people=None):
                            adhoc=[p for p in ps if p['cadence']=='adhoc'],
                            exceptions=sum(len(d['exceptions']) for d in days)))
     # Actual booked work remains visible and does not silently disappear in a reset.
-    for row in conn.execute("SELECT id,code,state,scheduled_date,status FROM bf_jobs WHERE scheduled_date BETWEEN ? AND ? AND status!='cancelled'",
+    from binflow_live_cycle import client_job_filter
+    for row in conn.execute("SELECT j.id,j.code,j.state,j.scheduled_date,j.status FROM bf_jobs j WHERE scheduled_date BETWEEN ? AND ? AND status!='cancelled'"+client_job_filter(),
                             (monday.isoformat(), (monday+timedelta(days=6)).isoformat())):
         for group in output:
             if group['state'] == row['state']:
@@ -439,6 +440,15 @@ def view_data(conn, start, end, state):
                 profiles=[], trips=[], jobs=[], exceptions=[], baling=any(i['kind']=='baling' for i in d['items']),
                 minutes=d['estimate_minutes'] if d['estimate_valid'] else 0, over_limit=False,
                 saved_items=d['items'], saved_notes=d['notes'], saved_status=saved['status']) for d in plan['days']]
+            from binflow_live_cycle import client_calendar
+            if not client_calendar():
+                scheduled={item['job_id'] for d in plan['days'] for item in d['items'] if item['kind']=='job'}
+                for job in conn.execute("""SELECT j.id,j.code,j.scheduled_date,j.status FROM bf_jobs j
+                        JOIN bf_live_cycle x ON x.client_id=j.pod_client_id WHERE j.state=?
+                        AND j.scheduled_date BETWEEN ? AND ? AND j.status!='cancelled'""",
+                        (region,days[0]['date'],days[-1]['date'])):
+                    if job['id'] not in scheduled:
+                        next(d for d in days if d['date']==job['scheduled_date'])['jobs'].append(dict(job))
             group = dict(state=region, resource=plan['resource'], days=days,
                 minutes=sum(d['minutes'] for d in days), staff_shortfall=False, baling_day='',
                 issues=['Saved calendar plan. Expand each day to check edited routes and working hours.'],

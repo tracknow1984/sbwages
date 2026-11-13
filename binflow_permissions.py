@@ -7,7 +7,7 @@ WORKING_STATES = ('QLD', 'NSW', 'VIC', 'SA', 'WA', 'ACT')
 # Supporting routes belong to Driver day or Daily PODs.
 # New operations routes remain office-only until explicitly reviewed here.
 DRIVER_ENDPOINTS = frozenset({
-    'bf_week_schedule', 'bf_week_schedule_version',
+    'bf_live_labels','bf_live_label_qr','bf_week_schedule', 'bf_week_schedule_version',
     'bf_accept_overview', 'bf_overview_state', 'bf_workday_break', 'bf_clock_state', 'bf_test_prestart',
     'bf_demo_cycle', 'bf_demo_docket', 'bf_demo_start', 'bf_demo_labels', 'bf_demo_qr', 'bf_demo_inbound',
     'bf_workday', 'bf_start_workday', 'bf_workday_vehicle', 'bf_finish_workday',
@@ -19,7 +19,7 @@ DRIVER_ENDPOINTS = frozenset({
 
 
 WAREHOUSE_ENDPOINTS = frozenset({
-    'bf_warehouse', 'bf_warehouse_scan', 'bf_job', 'bf_weigh', 'bf_pod', 'bf_pod_pdf',
+    'bf_live_labels','bf_live_label_qr','bf_warehouse', 'bf_warehouse_scan', 'bf_job', 'bf_weigh', 'bf_pod', 'bf_pod_pdf',
     'bf_pod_materials', 'bf_pod_sign', 'bf_daily_pods', 'bf_pod_record', 'bf_pod_qr',
     'bf_pod_signature', 'bf_pod_journey', 'bf_evidence', 'bf_qr_image',
 })
@@ -144,6 +144,9 @@ def can_view_job(conn, user, job):
         # Client portal PDFs have their own account/scope check before calling the renderer.
         return True
     if not state_allowed(user, job['state']):
+        return False
+    from flask import g, has_request_context
+    if has_request_context() and g.get('live_cycle') and job['pod_client_id']!=g.live_cycle['client_id']:
         return False
     if is_office(user):
         return True

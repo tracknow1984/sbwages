@@ -91,7 +91,7 @@
   <div class="bf-calendar-dialog-body">
     {% if day.saved_status %}
     <p><strong>{{ day.saved_status|capitalize }}{% if group.driver_name %} · {{ group.driver_name }}{% endif %}</strong></p>
-    <ol>{% for item in day.saved_items %}<li><strong>{{ item.title }}</strong><p>{{ item.time }} {{ item.detail }}{% if item.notes %} · {{ item.notes }}{% endif %}</p></li>{% endfor %}</ol>{% if day.saved_notes %}<p>{{ day.saved_notes }}</p>{% endif %}
+    <ol>{% for item in day.saved_items %}<li><strong>{{ item.title }}</strong><p>{{ item.time }} {{ item.detail }}{% if item.notes %} · {{ item.notes }}{% endif %}</p></li>{% endfor %}</ol>{% for job in day.jobs %}<p><a href="{{ url_for('bf_job',job_id=job.id) }}">{{ job.code }}</a></p>{% endfor %}{% if day.saved_notes %}<p>{{ day.saved_notes }}</p>{% endif %}
     {% else %}
     <p><strong>Start &amp; return: {{ group.resource.depot }}</strong></p>
     <div class="bf-chips">{% if day.minutes %}<span>{{ '%.1f'|format(day.minutes/60) }} h estimated</span>{% else %}<span>Job duration to confirm</span>{% endif %}<span>{{ group.resource.capacity|int }} positions per load</span>{% if day.trips %}<span>06:30 start · {{ day.finish }} estimated finish</span>{% endif %}</div>

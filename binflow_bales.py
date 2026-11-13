@@ -148,7 +148,7 @@ def readiness(conn,wid,stamp):
     elif current:conn.execute("UPDATE bf_bale_pickups SET status='cleared',updated_at=? WHERE id=?",(stamp,current['id']))
 
 
-TRANSFER_SELECT = """SELECT t.*,m.booking_id,m.expected_bales,b.locked_at AS booking_confirmed_at,COALESCE(m.blocktexx_handover,1) AS requires_handover
+TRANSFER_SELECT = """SELECT t.*,m.booking_id,m.expected_bales,b.locked_at AS booking_confirmed_at,COALESCE(m.blocktexx_handover,NOT EXISTS(SELECT 1 FROM bf_live_cycle x WHERE x.origin_id=t.origin_id AND x.destination_id=t.destination_id)) AS requires_handover
     FROM bf_bale_transfers t LEFT JOIN bf_interstate_manifests m ON m.transfer_id=t.id
     LEFT JOIN bf_interstate_bookings b ON b.id=m.booking_id"""
 
@@ -161,6 +161,10 @@ def register(app,db,access,require,render,success,failure,now,actor):
     def allowed(wid):
         w=db().execute("SELECT * FROM bf_locations WHERE id=? AND kind='warehouse'",(wid,)).fetchone()
         if not w:abort(404)
+        if g.get('live_cycle'):
+            if wid not in (g.live_cycle['origin_id'],g.live_cycle['destination_id']):
+                abort(403)
+            return w
         if g.user['role']!='admin' and not getattr(g,'bf_demo_warehouse',False):
             assigned=db().execute('SELECT warehouse_id FROM bf_bale_managers WHERE user_id=?',(g.user['id'],)).fetchone()
             if w['state']!=g.user['working_state'] or (assigned and assigned['warehouse_id']!=wid):abort(403)
@@ -168,6 +172,8 @@ def register(app,db,access,require,render,success,failure,now,actor):
 
     def warehouses():
         rows=db().execute("SELECT * FROM bf_locations WHERE kind='warehouse' ORDER BY state,name").fetchall()
+        if g.get('live_cycle'):
+            return [w for w in rows if w['id'] in (g.live_cycle['origin_id'],g.live_cycle['destination_id'])]
         if g.user['role']=='admin' or getattr(g,'bf_demo_warehouse',False):return rows
         assigned=db().execute('SELECT warehouse_id FROM bf_bale_managers WHERE user_id=?',(g.user['id'],)).fetchone()
         return [w for w in rows if w['state']==g.user['working_state'] and (not assigned or assigned['warehouse_id']==w['id'])]
@@ -240,7 +246,7 @@ def register(app,db,access,require,render,success,failure,now,actor):
             WHERE b.locked_at IS NOT NULL AND b.handling='scanned' AND NOT EXISTS
             (SELECT 1 FROM bf_interstate_manifests m JOIN bf_bale_transfers t ON t.id=m.transfer_id
              WHERE m.booking_id=b.id AND t.status!='cancelled') ORDER BY b.pickup_date,b.id""")
-            if PLACES[r['origin']][1] in regions]
+            if not g.get('live_cycle') and PLACES[r['origin']][1] in regions]
         return view('bales',booked=booked,places=PLACES,cards=cards,totals=totals,warehouses=ws,selected=selected,state=state,transfers=transfers,bales=rows,ready_bins=ready_bins)
 
     def source_item(b, wid, mid):
@@ -538,7 +544,10 @@ def register(app,db,access,require,render,success,failure,now,actor):
         bid = request.args.get('booking',type=int)
         booking = None
         origins = warehouses()
-        if 'booking' in request.args:
+        if g.get('live_cycle'):
+            origins=[w for w in origins if w['id']==g.live_cycle['origin_id']]
+            destinations=db().execute("SELECT *,1 AS hub FROM bf_locations WHERE id=?",(g.live_cycle['destination_id'],)).fetchall()
+        elif 'booking' in request.args:
             booking = db().execute("""SELECT * FROM bf_interstate_bookings WHERE id=?
                 AND locked_at IS NOT NULL AND handling='scanned'""",(bid,)).fetchone()
             if not booking: abort(404)
@@ -604,6 +613,8 @@ def register(app,db,access,require,render,success,failure,now,actor):
                 return failure(error,'bf_bale_transfer_new',**({'booking':bid} if booking else {}))
         carriers = db().execute("""SELECT id,customer_site,suburb,state,address FROM bf_supplier_site_profiles
             WHERE category='industry-suppliers' ORDER BY customer_site COLLATE NOCASE,state,suburb,address,id""").fetchall()
+        if g.get('live_cycle'):
+            carriers=[r for r in carriers if r['id']==g.live_cycle['carrier_id']]
         return view('bale_transfer_new',carriers=carriers,vehicle_types=VEHICLE_TYPES,warehouses=origins,selected=request.args.get('warehouse',type=int),
                     request_key=secrets.token_urlsafe(24),destinations=destinations,booking=booking)
 

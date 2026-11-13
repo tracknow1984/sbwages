@@ -60,7 +60,8 @@ def site_guard(alias='j'):
 
 
 def pod_scope(account, rights):
-    final="j.status='complete' AND j.pod_signed_at IS NOT NULL AND j.pod_deleted_at IS NULL"
+    final="""j.status='complete' AND j.pod_signed_at IS NOT NULL AND j.pod_deleted_at IS NULL
+        AND NOT EXISTS (SELECT 1 FROM bf_live_cycle x WHERE x.client_id=j.pod_client_id)"""
     if 'pods.view' not in rights:
         return '0',()
     if 'pods.all' in rights:

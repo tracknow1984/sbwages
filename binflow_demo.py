@@ -62,6 +62,8 @@ def install_demo_database(app, real_db, now):
         conn = sqlite3.connect(path, timeout=15)
         conn.row_factory = sqlite3.Row
         conn.execute('PRAGMA foreign_keys=ON')
+        from binflow_live_cycle import migrate as migrate_live_cycle
+        migrate_live_cycle(conn)
         from binflow_reports import migrate_timings
         migrate_timings(conn)
         from binflow_bin_condition import migrate as migrate_bin_condition
