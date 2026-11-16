@@ -241,18 +241,23 @@ def register(app, db, require, render, client_access, now, actor):
         conn = db()
         values = request.form if request.method=='POST' else request.args
         raw_bid = values.get('booking','')
-        if request.method=='POST':
-            conn.execute('BEGIN IMMEDIATE')
         booking = booked_transfer(conn,raw_bid) if raw_bid else None
         error = None
         if request.method=='POST':
             try:
                 key = xero.uuid_text(values.get('draft_key'))
                 if conn.execute('SELECT 1 FROM bf_rental_invoices WHERE id=?',(key,)).fetchone():
+                    return redirect(url_for('bf_rental_invoice',identifier=key))
+                tenant = xero.verify_draft_connection(app,conn)
+                conn.execute('BEGIN IMMEDIATE')
+                if conn.execute('SELECT 1 FROM bf_rental_invoices WHERE id=?',(key,)).fetchone():
                     conn.rollback()
                     return redirect(url_for('bf_rental_invoice',identifier=key))
+                booking = booked_transfer(conn,raw_bid) if raw_bid else None
                 aid,cat,snapshot,invoice = draft_values(conn,values,booking)
                 cfg = xero.config(conn)
+                if tenant != cfg['tenant_id']:
+                    raise ValueError('The Xero organisation changed. Review the invoice again.')
                 invoice['Reference']='BF-INV-'+key
                 conn.execute("""INSERT INTO bf_rental_invoices(id,tenant_id,tenant_name,period_start,period_end,
                   mode,status,reference,snapshot_json,payload_json,created_by,created_at,category_id,portal_account_id,booking_id)

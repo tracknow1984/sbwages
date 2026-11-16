@@ -59,6 +59,10 @@ class XeroError(ValueError):
     pass
 
 
+class XeroAuthorisationError(XeroError):
+    """Xero refused access before accepting the invoice."""
+
+
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs):
         return None
@@ -81,6 +85,8 @@ def request_json(url, method='GET', headers=None, data=None):
                     401: 'Xero authorisation expired or was rejected. Reconnect to Xero.',
                     403: 'Your Xero user does not have the required access. Check permissions and reconnect.',
                     429: 'Xero is temporarily rate limiting requests. Try checking the result shortly.'}
+        if exc.code in (401,403):
+            raise XeroAuthorisationError(messages[exc.code]) from None
         raise XeroError(messages.get(exc.code, 'Xero could not complete the request. Check the result before retrying.')) from None
     except (URLError, TimeoutError, OSError, json.JSONDecodeError):
         raise XeroError('Xero could not be reached. Check the result before retrying an invoice export.') from None
@@ -164,7 +170,7 @@ def api(app, conn, path, method='GET', payload=None, key=None, tenant_id=None):
     tenant = tenant_id or cfg['tenant_id']
     if not tenant:
         raise XeroError('Select the Xero organisation first.')
-    if tenant_id and cfg['tenant_id'] and cfg['tenant_id'] != tenant_id:
+    if tenant_id and cfg['tenant_id'] != tenant_id and (cfg['tenant_id'] or path != 'Organisation'):
         raise XeroError('The Xero organisation changed. Prepare a new preview.')
     headers = {'Authorization': 'Bearer ' + token, 'Xero-tenant-id': uuid_text(tenant)}
     if payload is not None:
@@ -198,6 +204,19 @@ def organisation(app, conn, tenant=None):
     if len(rows) != 1 or rows[0].get('BaseCurrency') != 'AUD':
         raise XeroError('Choose an Australian-dollar Xero organisation for BinFlow rental invoices.')
     return rows[0]
+
+
+def verify_draft_connection(app, conn, expected_tenant=None):
+    cfg = config(conn)
+    tenant = cfg['tenant_id']
+    if not tenant or not cfg['token_cipher']:
+        raise XeroError('Connect Xero and select your billing organisation first.')
+    if expected_tenant is not None and tenant != expected_tenant:
+        raise XeroError('Reconnect the Xero organisation selected for this invoice.')
+    org = organisation(app, conn, tenant)
+    if uuid_text(org.get('OrganisationID')) != tenant:
+        raise XeroError('Xero returned a different organisation. Check the Xero connection.')
+    return tenant
 
 
 def contact_directory(app, conn, tenant):
@@ -517,10 +536,11 @@ def register(app, db, require, render, now, actor):
     @require('admin')
     def bf_rental_invoice_preview():
         try:
+            tenant = verify_draft_connection(app, db())
             db().execute('BEGIN IMMEDIATE')
             cfg = config(db())
-            if not cfg['token_cipher']:
-                raise XeroError('Connect to Xero first.')
+            if not cfg['token_cipher'] or cfg['tenant_id'] != tenant:
+                raise XeroError('The Xero connection changed. Review the invoice again.')
             snapshot = prepare_snapshot(db(), request.form)
             identifier = str(uuid4())
             reference = ('BF-TEST-' if snapshot['mode'] == 'test' else 'BF-RENT-') + identifier
@@ -560,8 +580,9 @@ def register(app, db, require, render, now, actor):
         try:
             if request.form.get('confirm_draft') != 'yes':
                 raise XeroError('Confirm the recipient and amount before creating the Xero draft.')
-            if config(db())['tenant_id'] != item['tenant_id']:
-                raise XeroError('The Xero organisation changed. Reconnect the original organisation before exporting.')
+            if item['status'] != 'preview':
+                raise XeroError('This export has already been attempted. Check its saved result below.')
+            verify_draft_connection(app, db(), item['tenant_id'])
             db().execute('BEGIN IMMEDIATE')
             claimed = db().execute("UPDATE bf_rental_invoices SET status='sending',attempted_at=? WHERE id=? AND status='preview'",
                                    (now(), identifier)).rowcount
@@ -581,7 +602,8 @@ def register(app, db, require, render, now, actor):
                 flash('Test draft created in Xero. Keep it as a draft while checking the connection.' if item['mode'] == 'test'
                       else 'Draft created in Xero. Review and approve it in Xero when ready.', 'success')
             except XeroError as exc:
-                db().execute("UPDATE bf_rental_invoices SET status='uncertain',error=? WHERE id=?", (str(exc), identifier))
+                state = 'preview' if isinstance(exc,XeroAuthorisationError) else 'uncertain'
+                db().execute("UPDATE bf_rental_invoices SET status=?,error=? WHERE id=? AND status='sending'", (state,str(exc),identifier))
                 db().commit()
                 raise
         except XeroError as exc:

@@ -1,10 +1,14 @@
 {% macro invoice_action(b, invoice) %}
-{% if invoice and (invoice.status or b.locked_at and not b.cancelled_at) %}
-  <a class="button secondary" href="{{ url_for('bf_rental_invoice',identifier=invoice.id) if invoice.status else url_for('bf_auto_review',did=invoice.id) }}">{{ 'Open Xero draft' if invoice.xero_status=='DRAFT' else 'Open invoice' if invoice.status=='created' else 'Check invoice' if invoice.status in ('sending','uncertain') else 'Review invoice draft' }}</a>
+{% if invoice and invoice.status %}
+  <a class="button secondary" href="{{ url_for('bf_rental_invoice',identifier=invoice.id) }}">{{ 'Open Xero draft' if invoice.xero_status=='DRAFT' else 'Open invoice' if invoice.status=='created' else 'Check Xero result' if invoice.status in ('sending','uncertain') else 'Review unsent invoice' }}</a>
 {% elif b.locked_at and not b.cancelled_at %}
+  {% if billing_tenant %}
   <form method="post" action="{{ url_for('bf_transfer_invoice_draft',bid=b.id) }}">
     <input type="hidden" name="csrf" value="{{ csrf_token() }}">
-    <button class="secondary">Create invoice draft</button>
+    <input type="hidden" name="tenant" value="{{ billing_tenant }}">
+    <button class="secondary">Create draft in Xero</button>
   </form>
+  {% else %}<a class="button secondary" href="{{ url_for('bf_xero_settings') }}">Connect Xero to invoice</a>{% endif %}
+  {% if invoice %}<a href="{{ url_for('bf_auto_review',did=invoice.id) }}">Review unsent invoice</a>{% endif %}
 {% endif %}
 {% endmacro %}

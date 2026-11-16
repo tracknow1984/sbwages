@@ -1,11 +1,11 @@
 {% extends 'binflow/layout.html' %}
 {% block title %}Xero connection{% endblock %}
-{% block subtitle %}Connect your accounting organisation and prepare bin rental drafts.{% endblock %}
+{% block subtitle %}Manage the Xero organisation used for BinFlow invoices.{% endblock %}
 {% block body %}
 <div class="bf-actions"><a class="button secondary" href="{{ url_for('bf_setup') }}">Back to setup</a><a class="button primary" href="{{ url_for('bf_rental_invoices') }}">Rental invoices</a></div>
 {% if error %}<p role="alert" class="bf-rental-warning">{{ error }}</p>{% endif %}
-<section class="bf-panel bf-pad"><h2>{{ 'Connected to ' ~ tenant_name if connected else 'Choose your organisation' if authorised else 'Connect to Xero' }}</h2>
-{% if connected %}<p>Rental exports create draft sales invoices. Review and send them from Xero.</p>
+<section class="bf-panel bf-pad"><h2>{{ 'Selected organisation · ' ~ tenant_name if connected else 'Choose your organisation' if authorised else 'Connect to Xero' }}</h2>
+{% if connected %}<p>BinFlow checks this organisation before creating a draft invoice.</p>
 <p>Last successful connection test: {{ tested or 'Not tested yet' }}</p>
 <form method="post" action="{{ url_for('bf_xero_test') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="primary">Test connection</button></form>
 {% elif authorised %}<form class="bf-form" method="post" action="{{ url_for('bf_xero_organisation') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">

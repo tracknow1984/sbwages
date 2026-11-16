@@ -315,20 +315,32 @@ def register(app,db,require,render,now,actor):
     @require('admin')
     def bf_transfer_invoice_draft(bid):
         conn = db()
+        def existing_or_eligible():
+            booking = conn.execute('SELECT locked_at,cancelled_at FROM bf_interstate_bookings WHERE id=?',(bid,)).fetchone()
+            if not booking:
+                abort(404)
+            existing = transfer_invoices(conn,[bid]).get(bid)
+            if existing and existing['status']:
+                return redirect(url_for('bf_rental_invoice',identifier=existing['id']), code=303)
+            if not booking['locked_at'] or booking['cancelled_at']:
+                abort(409, 'Only confirmed transfers can be invoiced.')
+        existing = existing_or_eligible()
+        if existing:
+            return existing
+        try:
+            tenant = xero.verify_draft_connection(app,conn,request.form.get('tenant'))
+        except xero.XeroError as exc:
+            flash('Invoice was not sent. ' + str(exc),'error')
+            return redirect(url_for('bf_xero_settings'),code=303)
         conn.execute('BEGIN IMMEDIATE')
-        booking = conn.execute('SELECT locked_at,cancelled_at FROM bf_interstate_bookings WHERE id=?',(bid,)).fetchone()
-        if not booking:
-            abort(404)
-        existing = transfer_invoices(conn, [bid]).get(bid)
-        if existing and existing['status']:
-            conn.commit()
-            return redirect(url_for('bf_rental_invoice',identifier=existing['id']), code=303)
-        if not booking['locked_at'] or booking['cancelled_at']:
-            abort(409, 'Only confirmed transfers can be added to invoice drafts.')
+        existing = existing_or_eligible()
+        if existing:
+            conn.rollback()
+            return existing
         reconcile(conn, now(), requested_transfer=bid)
-        draft = transfer_invoices(conn, [bid])[bid]
+        draft = row(transfer_invoices(conn,[bid])[bid]['id'])
         conn.commit()
-        return redirect(url_for('bf_auto_review',did=draft['id']), code=303)
+        return submit_invoice(draft['id'],True,draft['version'],tenant,from_booking=True)
 
     @app.get('/binflow/invoices/review/<did>')
     @require('admin')
@@ -371,18 +383,31 @@ def register(app,db,require,render,now,actor):
     @require('admin')
     def bf_auto_approve(did):
         save_draft = request.endpoint=='bf_auto_xero_draft'
+        d = row(did)
+        if save_draft and d['kind']!='Transport':
+            abort(404)
+        if d['state']!='open':
+            return redirect(url_for('bf_auto_review',did=did))
+        tenant = request.form.get('tenant','')
+        if save_draft:
+            try:
+                xero.verify_draft_connection(app,db(),tenant)
+            except xero.XeroError as exc:
+                flash('Invoice was not sent. ' + str(exc),'error')
+                return redirect(url_for('bf_auto_review',did=did))
+        return submit_invoice(did,save_draft,request.form.get('version'),tenant)
+
+    def submit_invoice(did,save_draft,version,tenant,*,from_booking=False):
         conn=db()
         try:
             conn.execute('BEGIN IMMEDIATE');reconcile(conn,now());d=row(did)
-            if save_draft and d['kind']!='Transport':
-                abort(404)
-            if d['state']!='open' or request.form.get('version')!=d['version']:
+            if d['state']!='open' or version!=d['version']:
                 raise ValueError('The draft changed. Review its current lines before continuing.')
             if d['kind']!='Transport' and d['end']>=now()[:10]:
                 raise ValueError('This fortnight is still collecting charges.')
             if d['issue']: raise ValueError(d['issue'])
             cfg,link,account,tax=approval_settings(conn,d)
-            if request.form.get('contact')!=link['contact_id'] or request.form.get('tenant')!=cfg['tenant_id']:
+            if tenant!=cfg['tenant_id'] or (not from_booking and request.form.get('contact')!=link['contact_id']):
                 raise ValueError('The billing contact or organisation changed. Review the draft again.')
             lines=json.loads(d['lines']);net,gst=totals(lines)
             if not lines or net<=0: raise ValueError('There are no positive billable charges.')
@@ -411,8 +436,17 @@ def register(app,db,require,render,now,actor):
                 result=xero.records(xero.api(app,conn,'Invoices','POST',dict(Invoices=[invoice]),key=did,tenant_id=cfg['tenant_id']),'Invoices')
                 if len(result)!=1: raise ValueError('Unexpected invoice response from Xero.')
                 record_remote(conn,did,result[0])
+            except xero.XeroAuthorisationError as exc:
+                # A rejected request is safe to try again after reconnecting.
+                conn.execute('BEGIN IMMEDIATE')
+                removed = conn.execute("DELETE FROM bf_rental_invoices WHERE id=? AND status='sending'",(did,)).rowcount
+                if removed:
+                    conn.execute('DELETE FROM bf_auto_claims WHERE draft_id=?',(did,))
+                    conn.execute("UPDATE bf_auto_drafts SET state='open' WHERE id=?",(did,))
+                conn.commit()
+                raise ValueError('Invoice was not sent. ' + str(exc)) from exc
             except (ValueError,OSError) as exc:
-                conn.execute("UPDATE bf_rental_invoices SET status='uncertain',error=? WHERE id=?",(str(exc),did));conn.commit()
+                conn.execute("UPDATE bf_rental_invoices SET status='uncertain',error=? WHERE id=? AND status='sending'",(str(exc),did));conn.commit()
                 raise ValueError('Check the saved reference in Xero to confirm the result.') from exc
             flash('Draft created in Xero.' if save_draft else 'Invoice approved in Xero.','success')
         except (ValueError,sqlite3.IntegrityError) as exc:

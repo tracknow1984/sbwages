@@ -4,6 +4,7 @@
 {% block body %}
 <div class="bf-actions"><a class="button secondary" href="{{ url_for('bf_invoices') }}">All invoices</a>{% if invoice.category_id==1 %}<a class="button secondary" href="{{ url_for('bf_rental_invoices') }}">All rental invoices</a>{% endif %}<a class="button secondary" href="{{ url_for('bf_xero_settings') }}">Xero connection</a></div>
 <section class="bf-panel bf-pad">
+{% if invoice.status=='preview' %}<p><strong>Unsent · BinFlow only</strong></p>{% endif %}
 {% if invoice.mode=='test' %}<p class="bf-rental-warning"><strong>TEST ONLY - sample quantities.</strong> This draft is for checking the connection. Do not approve or send it as a customer charge.</p>{% endif %}
 <h2>Bill to {{ snapshot.contact.name }}</h2><p>Income account: {{ snapshot.account.code }} - {{ snapshot.account.name }}<br>Tax: {{ snapshot.tax.name }} ({{ snapshot.tax.rate }}%)</p>
 <p>Invoice date: {{ invoice_date }} · Due date: {{ due_date }}</p>

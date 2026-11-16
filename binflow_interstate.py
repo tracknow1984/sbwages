@@ -268,6 +268,9 @@ def register(app, db, access, require, render, client_access, now, actor):
         data.update(places=PLACES,lanes=LANES,regions=STATES,vehicles=freight.VEHICLES,external=external)
         if external:
             return render_template('binflow/'+template+'.html',account=g.bf_client,**data)
+        if template in ('interstate_calendar','interstate_detail') and g.user['role']=='admin':
+            connection = db().execute('SELECT tenant_id FROM bf_xero_config WHERE id=1 AND token_cipher IS NOT NULL').fetchone()
+            data['billing_tenant'] = connection['tenant_id'] if connection else None
         return render(template,section='interstate',**data)
 
     def booking(bid, external=False):

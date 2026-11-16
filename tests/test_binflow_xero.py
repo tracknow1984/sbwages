@@ -17,6 +17,12 @@ CONTACT = '22222222-2222-4222-8222-222222222222'
 INVOICE = '33333333-3333-4333-8333-333333333333'
 
 
+def connected_organisation(test):
+    def organisation(app, conn, tenant):
+        return {'OrganisationID': TENANT, 'Name': 'Test Organisation', 'BaseCurrency': 'AUD'}
+    return patch('binflow_xero.organisation', new=organisation)(test)
+
+
 class XeroRentalTests(unittest.TestCase):
     setUp = fixtures.RentalIncomeTests.setUp
     tearDown = fixtures.RentalIncomeTests.tearDown
@@ -158,6 +164,7 @@ class XeroRentalTests(unittest.TestCase):
         saved = json.loads(xero.decrypt(self.app, xero.config(conn)['token_cipher']))
         self.assertEqual(saved['refresh_token'], 'rotated-refresh')
 
+    @connected_organisation
     def test_sample_invoice_math_payload_and_inventory_unchanged(self):
         self.connect()
         before = self.rows('SELECT * FROM bf_bins')
@@ -178,6 +185,7 @@ class XeroRentalTests(unittest.TestCase):
         self.assertIn(b'$11.95', page.data)
         self.assertEqual(self.rows('SELECT * FROM bf_bins'), before)
 
+    @connected_organisation
     def test_actual_requires_billable_inventory_review_and_complete_rates(self):
         self.connect()
         self.preview(mode='actual', reviewed_period='yes')
@@ -202,6 +210,7 @@ class XeroRentalTests(unittest.TestCase):
         self.assertEqual(snapshot['lines'][0]['bins'], 1)
         self.assertEqual(snapshot['subtotal'], 362)
 
+    @connected_organisation
     def test_period_overlap_blocks_until_unsent_preview_cancelled(self):
         self.connect()
         with self.connection() as conn:
@@ -214,6 +223,7 @@ class XeroRentalTests(unittest.TestCase):
         self.preview(mode='actual', reviewed_period='yes')
         self.assertEqual(len(self.rows('SELECT * FROM bf_rental_invoices')), 2)
 
+    @connected_organisation
     def test_preview_validation_rejects_dates_quantities_and_untrusted_choices(self):
         self.connect()
         for overrides in ({'period_end': '2026-10-20'}, {'sample_quantity': '0'}, {'sample_quantity': '11'},
@@ -225,6 +235,7 @@ class XeroRentalTests(unittest.TestCase):
         self.preview()
         self.assertFalse(self.rows('SELECT * FROM bf_rental_invoices'))
 
+    @connected_organisation
     def test_frozen_preview_and_double_click_create_only_one_draft(self):
         self.connect()
         self.preview()
@@ -248,6 +259,7 @@ class XeroRentalTests(unittest.TestCase):
         self.post('/binflow/rental-invoices/'+item['id']+'/cancel')
         self.assertEqual(self.invoice()['status'], 'created')
 
+    @connected_organisation
     def test_timeout_is_reconciled_without_another_creation(self):
         self.connect()
         self.preview()
@@ -264,6 +276,7 @@ class XeroRentalTests(unittest.TestCase):
             self.assertEqual(remote.call_args.args[1], 'GET')
         self.assertEqual(self.invoice()['status'], 'created')
 
+    @connected_organisation
     def test_organisation_change_cannot_reroute_saved_invoice(self):
         self.connect()
         self.preview()
@@ -275,6 +288,7 @@ class XeroRentalTests(unittest.TestCase):
             remote.assert_not_called()
         self.assertEqual(self.invoice()['status'], 'preview')
 
+    @connected_organisation
     def test_invalid_remote_result_never_records_success_or_retries(self):
         self.connect()
         for response in ([], {'Invoices': None}, {'Invoices': [{'Status': 'AUTHORISED', 'InvoiceID': INVOICE}]}):
@@ -285,6 +299,22 @@ class XeroRentalTests(unittest.TestCase):
                 self.post(base+'/create', {'confirm_draft': 'yes'})
                 remote.assert_called_once()
             self.assertEqual(self.invoice()['status'], 'uncertain')
+
+    def test_offline_connection_blocks_preparation_and_leaves_existing_preview_unsent(self):
+        self.connect()
+        with patch('binflow_xero.request_json',side_effect=xero.XeroError('Connection unavailable.')) as remote:
+            self.preview()
+            self.assertFalse(self.rows('SELECT * FROM bf_rental_invoices'))
+            self.assertEqual(remote.call_args.args[1],'GET')
+        with patch('binflow_xero.organisation',return_value=dict(OrganisationID=TENANT)):
+            self.preview()
+        item = self.invoice()
+        with patch('binflow_xero.request_json',side_effect=xero.XeroError('Connection unavailable.')) as remote:
+            self.post('/binflow/rental-invoices/'+item['id']+'/create',{'confirm_draft':'yes'})
+            remote.assert_called_once()
+            self.assertEqual(remote.call_args.args[1],'GET')
+        self.assertEqual(self.invoice()['status'],'preview')
+        self.assertIsNone(self.invoice()['attempted_at'])
 
     def test_connection_test_reads_only_and_rejects_foreign_currency(self):
         self.connect()
@@ -297,6 +327,7 @@ class XeroRentalTests(unittest.TestCase):
         with patch('binflow_xero.request_json', return_value={'Organisations': [{'BaseCurrency': 'USD'}]}):
             self.assertIn(b'Australian-dollar', self.post('/binflow/xero/test').data)
 
+    @connected_organisation
     def test_all_actions_require_csrf_and_admin(self):
         self.connect()
         self.preview()

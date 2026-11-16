@@ -30,6 +30,7 @@ class ClientInvoiceTests(TestCase):
         return dict(dict(draft_key=str(uuid4()),client=aid,category=2,invoice_date='2026-11-11',due_date='2026-11-25',
                          account_code='200',tax_type='OUTPUT',description='Local transport',quantity='2.5',unit_rate='125.30'),**updates)
 
+    @billing.connected_organisation
     def test_categories_billing_draft_and_isolated_issued_documents(self):
         self.connect()
         aid = self.account('freight-buyer')
@@ -86,6 +87,7 @@ class ClientInvoiceTests(TestCase):
             pdf.assert_called_once()
         self.assertIn('All invoices',self.client.get('/binflow/rental-invoices/'+item['id']).text)
 
+    @billing.connected_organisation
     def test_approved_booking_uses_frozen_rate_po_and_one_invoice_per_transfer(self):
         self.connect()
         aid=self.account('booker')
@@ -112,6 +114,7 @@ class ClientInvoiceTests(TestCase):
         self.post(BASE+'/new',self.values(aid,booking=str(bid)))
         self.assertEqual(len(self.rows('SELECT * FROM bf_rental_invoices WHERE status="preview"')),1)
 
+    @billing.connected_organisation
     def test_existing_actual_rentals_are_matched_by_tenant_and_xero_contact(self):
         self.connect()
         aid=self.account('rental-buyer')
