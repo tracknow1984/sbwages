@@ -8,7 +8,7 @@ from unittest.mock import patch
 import test_binflow as legacy
 import test_binflow_invoices as invoices
 from test_binflow_invoices import BASE
-from test_binflow_interstate import CLIENT, data
+from test_binflow_interstate import CAL, CLIENT, data
 import test_binflow_xero as billing
 from pod_helpers import sign_pod
 
@@ -139,3 +139,66 @@ class AutoInvoiceTests(unittest.TestCase):
         draft=self.rows("SELECT * FROM bf_auto_drafts WHERE group_key='transfer:2'")[0]
         self.assertEqual((draft['issue'],draft['account_id']),('',aid))
         self.assertEqual([i['net'] for i in json.loads(draft['lines'])],[24000,3000])
+
+    def test_calendar_creates_one_transport_draft_and_exports_as_xero_draft(self):
+        self.configure()
+        client = self.visit('billing-client')
+        self.send(client, CLIENT+'/new', data())
+        self.post(CAL+'/1/lock', dict(version=1))
+        self.post(CAL+'/1/purchase-order', dict(po_number='PO-217', po_revision=0))
+        with sqlite3.connect(self.path) as conn:
+            conn.execute('UPDATE bf_interstate_bookings SET rate_cents=150000,fuel_bps=2000 WHERE id=1')
+
+        calendar = CAL+'?date=2026-11-13'
+        action = CAL+'/1/invoice-draft'
+        for path in (calendar, CAL+'/1'):
+            self.assertIn(action, self.client.get(path).text)
+        self.assertNotIn(action, client.get(CLIENT+'?date=2026-11-13').text)
+        self.assertNotIn(action, client.get(CLIENT+'/1').text)
+        self.assertNotIn('Review invoice', self.send(client, action, {}).text)
+
+        with patch('binflow_xero.api') as api:
+            local = self.post(action)
+            self.assertIn('Create draft in Xero', local.text)
+            self.assertNotIn('Approve and issue in Xero', local.text)
+            self.assertIn('PO-217', local.text)
+            self.assertIn('Fuel surcharge', local.text)
+            self.assertIn('$1,980.00', local.text)
+            self.assertIn('Review invoice draft', self.client.get(calendar).text)
+            self.post(action)
+            api.assert_not_called()
+
+        drafts = self.rows("SELECT * FROM bf_auto_drafts WHERE kind='Transport'")
+        self.assertEqual(len(drafts), 1)
+        draft = drafts[0]
+        path = BASE+'/review/'+draft['id']
+        form = dict(version=draft['version'], tenant=billing.TENANT, contact=billing.CONTACT)
+        remote = dict(InvoiceID=billing.INVOICE, InvoiceNumber='INV-TRANSPORT', Reference='BF-'+draft['id'],
+                      Type='ACCREC', Status='DRAFT', Contact={'ContactID':billing.CONTACT}, Total=1980)
+        with patch('binflow_xero.api',return_value={'Invoices':[remote]}) as api:
+            self.post(path+'/approve',form)
+            api.assert_not_called()
+            self.assertIn('Saved as a draft in Xero', self.post(path+'/xero-draft',form).text)
+            self.post(path+'/xero-draft',form)
+            self.assertIn('INV-TRANSPORT', self.post(action).text)
+            api.assert_called_once()
+            self.assertEqual(api.call_args.args[4]['Invoices'][0]['Status'], 'DRAFT')
+            self.assertEqual(api.call_args.kwargs['key'], draft['id'])
+        self.assertIn('Open Xero draft', self.client.get(calendar).text)
+        self.post(CAL+'/1/bulk',dict(action='deliver'))
+        self.client.get(BASE)
+        self.assertEqual(len(self.rows("SELECT id FROM bf_auto_drafts WHERE kind='Transport'")),1)
+        self.assertEqual(len(self.rows("SELECT id FROM bf_rental_invoices WHERE booking_id=1")),1)
+
+    def test_calendar_draft_without_xero_and_cancelled_load(self):
+        self.post(CAL+'/new',data())
+        action = CAL+'/1/invoice-draft'
+        self.assertEqual(self.post(action).status_code,409)
+        self.post(CAL+'/1/lock',dict(version=1))
+        self.assertIn('The transfer needs a billing account.',self.post(action).text)
+        self.assertIn('Needs setup',self.client.get(BASE).text)
+        version=self.rows('SELECT version FROM bf_interstate_bookings WHERE id=1')[0]['version']
+        self.post(CAL+'/1/cancel',dict(version=version,reason='Load withdrawn'))
+        self.assertEqual(self.post(action).status_code,409)
+        self.client.get(BASE)
+        self.assertFalse(self.rows("SELECT * FROM bf_auto_drafts WHERE kind='Transport'"))

@@ -2,12 +2,12 @@
 {% block title %}Invoices{% endblock %}
 {% block subtitle %}{% endblock %}
 {% block body %}
-<p class="bf-muted">Review automatically prepared drafts. Approval issues the invoice in Xero.</p>
+<p class="bf-muted">Review invoice drafts. Transport invoices can also be saved to Xero as drafts.</p>
 {% for kind,title in [('Bin Rental','Bin Rentals'),('Transport','Interstate Transfers'),('POD Collections','POD Invoices')] %}
-<section class="bf-panel bf-pad"><h2>{{ title }}</h2>
+<section class="bf-panel bf-pad"{% if kind=='Transport' %} id="transport-drafts"{% endif %}><h2>{{ title }}</h2>
 {% if kind=='POD Collections' %}<p>Each signed collection adds its net kilograms to the billing client’s fortnight. Open an approved batch to download or email the invoice and signed PODs.</p>{% endif %}
 <div class="bf-table-wrap"><table class="bf-plan-table"><thead><tr><th>Billing client</th><th>Period</th><th>Total incl GST</th><th>Stage</th><th></th></tr></thead><tbody>
-{% for d in drafts if d.kind==kind %}<tr><td data-label="Billing client">{{ d.client }}</td><td data-label="Period">{{ d.start|display_date }}{% if d.start!=d.end %} – {{ d.end|display_date }}{% endif %}</td><td data-label="Total incl GST">{{ 'Pricing incomplete' if d.issue else d.total|money }}</td><td data-label="Stage">{{ 'Approved' if d.state=='approved' else 'Check Xero' if d.state=='sending' else 'Needs setup' if d.issue else 'Fortnight open' if d.kind!='Transport' and d.end>=today else 'Ready for review' }}</td>
+{% for d in drafts if d.kind==kind %}<tr><td data-label="Billing client">{{ d.client }}</td><td data-label="Period">{{ d.start|display_date }}{% if d.start!=d.end %} – {{ d.end|display_date }}{% endif %}</td><td data-label="Total incl GST">{{ 'Pricing incomplete' if d.issue else d.total|money }}</td><td data-label="Stage">{{ 'Approved' if d.state=='approved' else 'Xero draft' if d.state=='drafted' else 'Check Xero' if d.state=='sending' else 'Needs setup' if d.issue else 'Fortnight open' if d.kind!='Transport' and d.end>=today else 'Ready for review' }}</td>
 <td data-label="Action"><a class="button secondary" href="{{ url_for('bf_auto_review',did=d.id) }}">{{ d.invoice_number or 'Review draft' }}</a></td></tr>{% else %}<tr><td colspan="5">No {{ title|lower }} to review.</td></tr>{% endfor %}</tbody></table></div></section>{% endfor %}
 <section class="bf-panel bf-pad"><h2>Invoice history</h2>
 {% if history %}<div class="bf-table-wrap"><table><thead><tr><th>Invoice</th><th>Client</th><th>Category</th><th>Prepared</th><th>Last known status</th></tr></thead><tbody>

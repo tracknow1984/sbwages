@@ -60,7 +60,7 @@ def totals(lines):
     return sum(i['net'] for i in lines), sum(i['tax'] for i in lines)
 
 
-def reconcile(conn, stamp, *, pods_only=False):
+def reconcile(conn, stamp, *, pods_only=False, requested_transfer=None):
     """Refresh open drafts within the caller's write transaction. Issued lines are immutable."""
     defaults = conn.execute('SELECT * FROM bf_billing_defaults WHERE id=1').fetchone()
     groups = {}
@@ -101,7 +101,7 @@ def reconcile(conn, stamp, *, pods_only=False):
                     net_g=j['net'],rate_units=j['units'])],problem)
 
     if not pods_only:
-        add_transport_and_rental(conn, stamp, add, defaults)
+        add_transport_and_rental(conn, stamp, add, defaults, requested_transfer)
     query = "SELECT * FROM bf_auto_drafts WHERE state='open'"
     if pods_only:
         query += " AND kind='POD Collections'"
@@ -134,20 +134,25 @@ def reconcile(conn, stamp, *, pods_only=False):
         conn.execute('INSERT OR REPLACE INTO bf_auto_billing_clock VALUES(1,?)',(stamp,))
 
 
-def add_transport_and_rental(conn, stamp, add, defaults):
+def add_transport_and_rental(conn, stamp, add, defaults, requested_transfer):
     from binflow_invoices import transport_lines
     start,end = fortnight(date.fromisoformat(stamp[:10]))
     transfers = conn.execute("""SELECT b.*,a.name AS payer,p.number AS po,
         f.account_id AS billing_account,f.rate_cents AS billing_rate,f.fuel_bps AS billing_fuel,
-        COALESCE(b.bulk_delivered_at,t.signed_at,t.received_at) AS finished
+        COALESCE(b.bulk_delivered_at,t.signed_at,t.received_at,b.pickup_date) AS billing_date,
+        (b.bulk_delivered_at IS NOT NULL OR t.id IS NOT NULL) AS delivered
         FROM bf_interstate_bookings b
         LEFT JOIN bf_auto_transfer_terms f ON f.booking_id=b.id AND f.booking_version=b.version
         LEFT JOIN bf_client_accounts a ON a.id=COALESCE(b.account_id,f.account_id)
         LEFT JOIN bf_interstate_purchase_orders p ON p.booking_id=b.id
-        LEFT JOIN bf_interstate_manifests m ON m.booking_id=b.id LEFT JOIN bf_bale_transfers t ON t.id=m.transfer_id
-        WHERE b.locked_at IS NOT NULL AND (b.bulk_delivered_at IS NOT NULL OR t.status IN ('received','handed_over'))
+        LEFT JOIN bf_bale_transfers t ON t.id=(
+            SELECT MAX(m.transfer_id) FROM bf_interstate_manifests m JOIN bf_bale_transfers mt ON mt.id=m.transfer_id
+            WHERE m.booking_id=b.id AND mt.status IN ('received','handed_over'))
+        WHERE b.locked_at IS NOT NULL AND b.cancelled_at IS NULL
+          AND (b.bulk_delivered_at IS NOT NULL OR t.id IS NOT NULL OR b.id=? OR EXISTS(
+              SELECT 1 FROM bf_auto_drafts d WHERE d.group_key='transfer:'||b.id AND d.state='open'))
         AND NOT EXISTS(SELECT 1 FROM bf_rental_invoices x WHERE x.booking_id=b.id AND x.status!='cancelled')
-        AND NOT EXISTS(SELECT 1 FROM bf_auto_claims c WHERE c.source='transfer:'||b.id) ORDER BY b.id""")
+        AND NOT EXISTS(SELECT 1 FROM bf_auto_claims c WHERE c.source='transfer:'||b.id) ORDER BY b.id""", (requested_transfer,))
     for b in transfers:
         b = dict(b)
         if b['billing_account']:
@@ -156,11 +161,11 @@ def add_transport_and_rental(conn, stamp, add, defaults):
                 b.update(rate_cents=b['billing_rate'],fuel_bps=b['billing_fuel'])
         entries = transport_lines(b)
         source = f"transfer:{b['id']}"
-        lines = [charge(source,desc,rate) for desc,qty,rate in entries]
-        issue = '' if entries else 'The delivered transfer has no confirmed transport price.'
+        lines = [charge(source,desc,rate,delivered=bool(b['delivered'])) for desc,qty,rate in entries]
+        issue = '' if entries else 'The transfer has no confirmed transport price.'
         if not b['account_id']:
             issue = 'The transfer needs a billing account.'
-        day = b['finished'][:10]
+        day = b['billing_date'][:10]
         add(source,'Transport',day,day,b['account_id'],b['payer'] or b['client_name'],lines,issue)
     # Keep the established two-week actual rental calculation, using the last observed stock
     # in each period. Never reconstruct a closed fortnight from today's stock.
@@ -212,6 +217,18 @@ def refresh(conn, stamp, always=False):
     except Exception:
         conn.rollback()
         raise
+
+
+def transfer_invoices(conn, booking_ids):
+    """Find the active invoice or local draft for each booking in the current view."""
+    rows = conn.execute("""
+        SELECT b.value AS booking_id, COALESCE(i.id,d.id) AS id,i.status,i.xero_status
+        FROM json_each(?) b
+        LEFT JOIN bf_rental_invoices i ON i.booking_id=b.value AND i.status!='cancelled'
+        LEFT JOIN bf_auto_drafts d ON d.group_key='transfer:'||b.value AND d.state='open'
+        WHERE i.id IS NOT NULL OR d.id IS NOT NULL
+    """, (json.dumps(booking_ids),))
+    return {r['booking_id']:r for r in rows}
 
 
 def register(app,db,require,render,now,actor):
@@ -279,6 +296,10 @@ def register(app,db,require,render,now,actor):
                     conn.execute('INSERT OR REPLACE INTO bf_billing_emails VALUES(?,?)',(aid,address))
                 else: abort(400)
                 conn.commit();flash('Billing setup saved.','success')
+                if action=='transfer_terms':
+                    draft = transfer_invoices(conn,[transfer['id']]).get(transfer['id'])
+                    if draft:
+                        return redirect(url_for('bf_auto_review',did=draft['id']))
                 return redirect(url_for('bf_auto_billing_setup'))
             except ValueError as exc:
                 conn.rollback();flash(str(exc),'error')
@@ -289,6 +310,25 @@ def register(app,db,require,render,now,actor):
             connected=bool(cfg['tenant_id'] and cfg['token_cipher']),clients=conn.execute("""SELECT c.id,c.name,a.name AS payer
             FROM bf_clients c LEFT JOIN bf_pod_bill_to m ON m.client_id=c.id LEFT JOIN bf_client_accounts a ON a.id=m.account_id
             ORDER BY c.name""").fetchall(),emails=conn.execute('SELECT e.email,a.name FROM bf_billing_emails e JOIN bf_client_accounts a ON a.id=e.account_id').fetchall())
+
+    @app.post('/binflow/interstate-transfers/<int:bid>/invoice-draft')
+    @require('admin')
+    def bf_transfer_invoice_draft(bid):
+        conn = db()
+        conn.execute('BEGIN IMMEDIATE')
+        booking = conn.execute('SELECT locked_at,cancelled_at FROM bf_interstate_bookings WHERE id=?',(bid,)).fetchone()
+        if not booking:
+            abort(404)
+        existing = transfer_invoices(conn, [bid]).get(bid)
+        if existing and existing['status']:
+            conn.commit()
+            return redirect(url_for('bf_rental_invoice',identifier=existing['id']), code=303)
+        if not booking['locked_at'] or booking['cancelled_at']:
+            abort(409, 'Only confirmed transfers can be added to invoice drafts.')
+        reconcile(conn, now(), requested_transfer=bid)
+        draft = transfer_invoices(conn, [bid])[bid]
+        conn.commit()
+        return redirect(url_for('bf_auto_review',did=draft['id']), code=303)
 
     @app.get('/binflow/invoices/review/<did>')
     @require('admin')
@@ -305,12 +345,16 @@ def register(app,db,require,render,now,actor):
             email=conn.execute('SELECT email FROM bf_billing_emails WHERE account_id=?',(d['account_id'],)).fetchone(),
             invoice=conn.execute('SELECT * FROM bf_rental_invoices WHERE id=?',(did,)).fetchone())
 
-    def record_remote(conn,did,remote):
+    def record_remote(conn,did,remote,*,rechecking=False):
         item=conn.execute('SELECT * FROM bf_rental_invoices WHERE id=?',(did,)).fetchone()
         payload=json.loads(item['payload_json'])['Invoices'][0]
-        if (remote.get('Reference')!=item['reference'] or remote.get('Contact',{}).get('ContactID')!=payload['Contact']['ContactID']
-                or remote.get('Status') not in ('AUTHORISED','PAID') or remote.get('HasErrors')):
-            raise ValueError('Xero has not confirmed this authorised invoice and billing contact.')
+        valid_statuses = {'AUTHORISED','PAID'}
+        if payload['Status']=='DRAFT':
+            valid_statuses = {'DRAFT','AUTHORISED','PAID'} if rechecking else {'DRAFT'}
+        if (remote.get('Type')!='ACCREC' or remote.get('Reference')!=item['reference']
+                or remote.get('Contact',{}).get('ContactID')!=payload['Contact']['ContactID']
+                or remote.get('Status') not in valid_statuses or remote.get('HasErrors')):
+            raise ValueError('Xero did not confirm the expected invoice status and billing contact.')
         reviewed = json.loads(item['snapshot_json'])
         if remote.get('CurrencyCode') not in (None,'AUD') or (remote.get('Total') is not None and
                 Decimal(str(remote['Total']))*100 != reviewed['subtotal']+reviewed['gst']):
@@ -318,17 +362,22 @@ def register(app,db,require,render,now,actor):
         invoice_id=xero.uuid_text(remote.get('InvoiceID'))
         conn.execute("UPDATE bf_rental_invoices SET status='created',xero_status=?,invoice_id=?,invoice_number=?,error='' WHERE id=?",
                      (remote['Status'],invoice_id,str(remote.get('InvoiceNumber','')),did))
-        conn.execute("UPDATE bf_auto_drafts SET state='approved' WHERE id=?",(did,))
+        state = 'drafted' if remote['Status']=='DRAFT' else 'approved'
+        conn.execute("UPDATE bf_auto_drafts SET state=? WHERE id=?",(state,did))
         conn.commit()
 
+    @app.post('/binflow/invoices/review/<did>/xero-draft',endpoint='bf_auto_xero_draft')
     @app.post('/binflow/invoices/review/<did>/approve')
     @require('admin')
     def bf_auto_approve(did):
+        save_draft = request.endpoint=='bf_auto_xero_draft'
         conn=db()
         try:
             conn.execute('BEGIN IMMEDIATE');reconcile(conn,now());d=row(did)
+            if save_draft and d['kind']!='Transport':
+                abort(404)
             if d['state']!='open' or request.form.get('version')!=d['version']:
-                raise ValueError('The draft changed. Review its current lines before approving.')
+                raise ValueError('The draft changed. Review its current lines before continuing.')
             if d['kind']!='Transport' and d['end']>=now()[:10]:
                 raise ValueError('This fortnight is still collecting charges.')
             if d['issue']: raise ValueError(d['issue'])
@@ -337,6 +386,8 @@ def register(app,db,require,render,now,actor):
                 raise ValueError('The billing contact or organisation changed. Review the draft again.')
             lines=json.loads(d['lines']);net,gst=totals(lines)
             if not lines or net<=0: raise ValueError('There are no positive billable charges.')
+            if d['kind']=='Transport' and not save_draft and not lines[0]['delivered']:
+                raise ValueError('This transfer can be saved as a Xero draft before delivery.')
             category=conn.execute('SELECT id FROM bf_invoice_categories WHERE name=? COLLATE NOCASE',(d['kind'],)).fetchone()[0]
             bid=int(d['group_key'].split(':')[1]) if d['kind']=='Transport' else None
             if d['kind']=='Bin Rental' and conn.execute("""SELECT 1 FROM bf_rental_invoices WHERE category_id=1 AND
@@ -344,7 +395,7 @@ def register(app,db,require,render,now,actor):
                 raise ValueError('This rental fortnight already has an invoice.')
             ref='BF-'+did
             issued_date=now()[:10]
-            invoice=dict(Type='ACCREC',Status='AUTHORISED',CurrencyCode='AUD',LineAmountTypes='Exclusive',Reference=ref,
+            invoice=dict(Type='ACCREC',Status='DRAFT' if save_draft else 'AUTHORISED',CurrencyCode='AUD',LineAmountTypes='Exclusive',Reference=ref,
                 Contact={'ContactID':link['contact_id']},Date=issued_date,DueDate=(date.fromisoformat(issued_date)+timedelta(days=14)).isoformat(),
                 LineItems=[dict(Description=i['description'],Quantity=1,UnitAmount=i['net']/100,
                     AccountCode=account['code'],TaxType=tax['code']) for i in lines])
@@ -362,8 +413,8 @@ def register(app,db,require,render,now,actor):
                 record_remote(conn,did,result[0])
             except (ValueError,OSError) as exc:
                 conn.execute("UPDATE bf_rental_invoices SET status='uncertain',error=? WHERE id=?",(str(exc),did));conn.commit()
-                raise ValueError('Xero approval needs reconciliation. Check the saved reference before retrying.') from exc
-            flash('Invoice approved in Xero.','success')
+                raise ValueError('Check the saved reference in Xero to confirm the result.') from exc
+            flash('Draft created in Xero.' if save_draft else 'Invoice approved in Xero.','success')
         except (ValueError,sqlite3.IntegrityError) as exc:
             conn.rollback();flash(str(exc),'error')
         return redirect(url_for('bf_auto_review',did=did))
@@ -373,13 +424,13 @@ def register(app,db,require,render,now,actor):
     def bf_auto_check(did):
         from urllib.parse import urlencode
         conn=db();d=row(did)
-        if d['state']!='sending': abort(409)
+        if d['state'] not in ('sending','drafted'): abort(409)
         item=conn.execute('SELECT * FROM bf_rental_invoices WHERE id=?',(did,)).fetchone()
         try:
             query=urlencode({'where':'Reference=="'+item['reference']+'"'})
             matches=xero.records(xero.api(app,conn,'Invoices?'+query,tenant_id=item['tenant_id']),'Invoices')
             if len(matches)!=1: raise ValueError('No unique invoice confirmed in Xero. Check the saved reference.')
-            record_remote(conn,did,matches[0]);flash('Approved invoice confirmed.','success')
+            record_remote(conn,did,matches[0],rechecking=True);flash('Xero invoice status confirmed.','success')
         except ValueError as exc: conn.rollback();flash(str(exc),'error')
         return redirect(url_for('bf_auto_review',did=did))
 

@@ -55,7 +55,7 @@ def contacts(conn, tenant):
 def booked_transfer(conn, bid):
     row = conn.execute("""SELECT b.*,p.number AS po FROM bf_interstate_bookings b
         LEFT JOIN bf_interstate_purchase_orders p ON p.booking_id=b.id
-        WHERE b.id=? AND b.locked_at IS NOT NULL AND b.account_id IS NOT NULL""",(bid,)).fetchone()
+        WHERE b.id=? AND b.locked_at IS NOT NULL AND b.cancelled_at IS NULL AND b.account_id IS NOT NULL""",(bid,)).fetchone()
     if not row:
         abort(404)
     return row
@@ -241,11 +241,12 @@ def register(app, db, require, render, client_access, now, actor):
         conn = db()
         values = request.form if request.method=='POST' else request.args
         raw_bid = values.get('booking','')
+        if request.method=='POST':
+            conn.execute('BEGIN IMMEDIATE')
         booking = booked_transfer(conn,raw_bid) if raw_bid else None
         error = None
         if request.method=='POST':
             try:
-                conn.execute('BEGIN IMMEDIATE')
                 key = xero.uuid_text(values.get('draft_key'))
                 if conn.execute('SELECT 1 FROM bf_rental_invoices WHERE id=?',(key,)).fetchone():
                     conn.rollback()

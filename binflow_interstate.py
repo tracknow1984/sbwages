@@ -14,6 +14,7 @@ from urllib.parse import quote, urlencode
 from flask import abort, flash, g, redirect, render_template, request, send_file, url_for
 from werkzeug.security import generate_password_hash
 
+from binflow_auto_invoices import transfer_invoices
 from binflow_collections import STATES, calendar_period, dated
 from binflow_pods import send_smtp
 from document_uploads import read_document
@@ -367,7 +368,8 @@ def register(app, db, access, require, render, client_access, now, actor):
                 legend.setdefault(preview['colour'],name)
         for row in rows:
             events[row['pickup_date']].append(previews[row['id']])
-        return page('interstate_calendar',external,view=view,state=state,chosen=chosen,
+        invoices = transfer_invoices(db(), list(previews)) if not external and g.user['role']=='admin' else {}
+        return page('interstate_calendar',external,invoices=invoices,view=view,state=state,chosen=chosen,
                     previous=previous,following=following,title=title,weeks=weeks,events=events,pending=pending,cancelled=cancelled,
                     previews=previews,legend=legend,vehicle_filter=vehicle_filter,calendar_vehicles=calendar_vehicles,booking_count=len(rows),today=now()[:10],can_update_booking=can_update_booking(external))
 
@@ -581,13 +583,14 @@ def register(app, db, access, require, render, client_access, now, actor):
         manifest_status = manifest['status'] if manifest else None
         status = booking_status(row, manifest_status, change)
         history = db().execute('SELECT action,reason,changed_at,changed_by FROM bf_load_changes WHERE booking_id=? ORDER BY id DESC',(bid,)).fetchall()
-        billed = None if external else db().execute("SELECT id FROM bf_rental_invoices WHERE booking_id=? AND status IN ('sending','created','uncertain')",(bid,)).fetchone()
         office = not external and g.user['role']=='admin'
+        invoice = transfer_invoices(db(), [bid]).get(bid) if office else None
+        billed = invoice and invoice['status'] in ('sending','created','uncertain')
         handoff = dispatch.last(db(),bid) if office else None
         route_options = dispatch.options(db(),row,PLACES[row['origin']][1],PLACES[row['destination']][1]) if office and not row['cancelled_at'] and not has_delivered(row,manifest) else None
         if route_options and handoff and handoff['event']=='On hold' and handoff['target'] in route_options['choices']:
             route_options['preferred'] = handoff['target']
-        return page('interstate_detail',external,handoff=handoff,route_options=route_options,history=history,billed=billed,change_error=change_error,
+        return page('interstate_detail',external,handoff=handoff,route_options=route_options,history=history,invoice=invoice,billed=billed,change_error=change_error,
                     editable=not row['cancelled_at'] and not has_delivered(row,manifest),b=row,manifest=manifest,status=status,po=po_metadata(bid),
                     po_error=po_error,can_update_booking=can_update_booking(external), change=change,
                     movable=can_move_dates(row, manifest_status), date_error=date_error,

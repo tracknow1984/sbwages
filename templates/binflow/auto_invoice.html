@@ -1,13 +1,22 @@
 {% extends 'binflow/layout.html' %}{% block title %}{{ d.kind }} invoice{% endblock %}
 {% block subtitle %}{{ d.client }} · {{ d.start|display_date }} – {{ d.end|display_date }}{% endblock %}
-{% block body %}<a href="{{ url_for('bf_invoices') }}">← All Invoices</a>
-<section class="bf-panel bf-pad"><h2>{{ 'Approved invoice' if d.state=='approved' else 'Review invoice' }}</h2>
+{% block body %}{% if d.kind=='Transport' %}<a href="{{ url_for('bf_interstate_detail',bid=d.group_key.split(':')[1]) }}">← Transfer booking</a> · {% endif %}<a href="{{ url_for('bf_invoices') }}">← All Invoices</a>
+<section class="bf-panel bf-pad"><h2>{{ 'Approved invoice' if d.state=='approved' else 'Xero draft' if d.state=='drafted' else 'Review invoice' }}</h2>
 {% if link %}<p>Bill to <strong>{{ link.contact_name }}</strong> · {{ cfg.tenant_name }}</p>{% endif %}
 <div class="bf-table-wrap"><table class="bf-plan-table"><thead><tr><th>Charge</th><th>Net</th><th>GST</th></tr></thead><tbody>
 {% for i in lines %}<tr><td data-label="Charge">{{ i.description }}{% if i.job_id %} · <a href="{{ url_for('bf_pod_pdf',job_id=i.job_id) }}">Signed POD</a>{% endif %}</td><td data-label="Net">{{ i.net|money }}</td><td data-label="GST">{{ i.tax|money }}</td></tr>{% endfor %}
 </tbody></table></div><p>Subtotal {{ net|money }} · GST {{ tax|money }}</p><h3>Total AUD {{ (net+tax)|money }}</h3>
 {% if d.state=='open' %}{% if reason %}<p class="bf-note">{{ reason }} <a href="{{ url_for('bf_auto_billing_setup',booking=d.group_key.split(':')[1],_anchor='transfer-terms') if d.kind=='Transport' and d.issue else url_for('bf_auto_billing_setup') }}">Billing setup</a></p>{% endif %}
-{% if not ready %}<p>The fortnight closes on {{ d.end|display_date }}.</p>{% elif not reason %}<form method="post" action="{{ url_for('bf_auto_approve',did=d.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ d.version }}"><input type="hidden" name="contact" value="{{ link.contact_id }}"><input type="hidden" name="tenant" value="{{ cfg.tenant_id }}"><button class="primary">Approve and issue in Xero</button></form>{% endif %}
+{% if not ready %}<p>The fortnight closes on {{ d.end|display_date }}.</p>{% elif not reason %}
+<form method="post" action="{{ url_for('bf_auto_xero_draft' if d.kind=='Transport' else 'bf_auto_approve',did=d.id) }}" class="it-tools">
+  <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ d.version }}">
+  <input type="hidden" name="contact" value="{{ link.contact_id }}"><input type="hidden" name="tenant" value="{{ cfg.tenant_id }}">
+  {% if d.kind=='Transport' %}<button class="primary">Create draft in Xero</button>
+    {% if lines and lines[0].delivered %}<button class="secondary" formaction="{{ url_for('bf_auto_approve',did=d.id) }}">Approve and issue in Xero</button>{% endif %}
+  {% else %}<button class="primary">Approve and issue in Xero</button>{% endif %}
+</form>{% endif %}
+{% elif d.state=='drafted' %}<p>Saved as a draft in Xero{% if invoice.invoice_number %} · <strong>{{ invoice.invoice_number }}</strong>{% endif %}</p>
+<p>Reference {{ invoice.reference }}</p><form method="post" action="{{ url_for('bf_auto_check',did=d.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="secondary">Check Xero status</button></form>
 {% elif d.state=='sending' %}<p>{{ invoice.error or 'Waiting for Xero confirmation.' }} Reference {{ invoice.reference }}</p><form method="post" action="{{ url_for('bf_auto_check',did=d.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="secondary">Check Xero result</button></form>
 {% else %}<p>Approved in Xero · {{ invoice.invoice_number }}</p>{% if d.kind=='POD Collections' %}<a class="button secondary" href="{{ url_for('bf_auto_download',did=d.id) }}">Download invoice and PODs (.zip)</a>
 {% if d.sent_at %}<p>Emailed {{ d.sent_at|display_datetime }}</p>{% elif d.mail_state %}<p>Email delivery awaiting confirmation.</p>{% elif email %}<form method="post" action="{{ url_for('bf_auto_email',did=d.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="email" value="{{ email.email }}"><button class="primary">Email batch to {{ email.email }}</button></form>{% else %}<a href="{{ url_for('bf_auto_billing_setup') }}">Set the client’s billing email</a>{% endif %}{% endif %}{% endif %}

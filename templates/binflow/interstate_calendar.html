@@ -1,4 +1,5 @@
 {% extends 'binflow/interstate_base.html' %}
+{% from 'binflow/transfer_invoice_action.html' import invoice_action with context %}
 {% from 'binflow/purchase_order_status.html' import badge as po_badge %}
 {% macro reference(b) %}IT-{{ '%06d'|format(b.id) }}{% endmacro %}
 {% macro route(b) %}{% if b.rigid_hours_units %}Local RIGID · {{ places[b.origin][1] }}{% else %}{{ places[b.origin][1] }} → {{ places[b.destination][1] }}{% endif %}{% endmacro %}
@@ -11,7 +12,8 @@
 <div class="it-tools">
   {% if can_add %}<a class="button primary" href="{{ url_for('bf_client_interstate_new' if external else 'bf_interstate_new') }}">{{ 'Request a transfer' if external else 'New transfer booking' }}</a>{% endif %}
   <a class="button secondary" href="{{ url_for(cal, date=chosen, export='month') }}" data-bf-icon="download" title="Download all {{ chosen.strftime('%B %Y') }} transfers across all states as an Excel table">Export month</a>
-  {% if not external and current_user.role=='admin' %}<a class="button secondary" href="{{ url_for('bf_interstate_accounts') }}">External booking logins</a>{% endif %}
+  {% if not external and current_user.role=='admin' %}<a class="button secondary" href="{{ url_for('bf_invoices',_anchor='transport-drafts') }}">Invoice drafts</a>
+  <a class="button secondary" href="{{ url_for('bf_interstate_accounts') }}">External booking logins</a>{% endif %}
 </div>
 <section class="bf-calendar-shell it-dispatch-calendar{{ ' it-client-po-calendar' if external }}">
   <header class="bf-calendar-toolbar"><div class="bf-calendar-heading"><div class="bf-calendar-arrows">
@@ -98,6 +100,7 @@
   </div>
   {% endif %}
   {% if not external and current_user.role=='admin' and not b.bulk_delivered_at and b.manifest_status not in ['received','handed_over'] %}<div class="it-tools"><a class="button secondary" href="{{ url_for('bf_interstate_edit',bid=id) }}">Modify load</a><a href="{{ url_for('bf_interstate_detail',bid=id,cancel=1,_anchor='cancel-load') }}">Cancel load</a></div>{% endif %}
+  {% if not external and current_user.role=='admin' and (b.locked_at or invoices.get(id)) %}<div class="it-tools">{{ invoice_action(b,invoices.get(id)) }}</div>{% endif %}
   <footer><span>{{ 'Subcontracted' if b.job_type=='external' else 'Internal job' }}</span><a href="{{ url_for('bf_client_interstate_detail' if external else 'bf_interstate_detail',bid=id) }}">Open booking</a></footer>
 </template>
 {% endfor %}
