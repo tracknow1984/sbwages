@@ -258,11 +258,11 @@ def register(app, db, require, render, client_access, now, actor):
                 cfg = xero.config(conn)
                 if tenant != cfg['tenant_id']:
                     raise ValueError('The Xero organisation changed. Review the invoice again.')
-                invoice['Reference']='BF-INV-'+key
+                xero.set_invoice_po(app,invoice,booking['po'] if booking else values.get('po_number'),key)
                 conn.execute("""INSERT INTO bf_rental_invoices(id,tenant_id,tenant_name,period_start,period_end,
                   mode,status,reference,snapshot_json,payload_json,created_by,created_at,category_id,portal_account_id,booking_id)
                   VALUES(?,?,?,?,?,'actual','preview',?,?,?,?,?,?,?,?)""",(key,cfg['tenant_id'],cfg['tenant_name'],
-                    invoice['Date'],invoice['Date'],invoice['Reference'],json.dumps(snapshot),json.dumps({'Invoices':[invoice]}),
+                    invoice['Date'],invoice['Date'],'BF-INV-'+key,json.dumps(snapshot),json.dumps({'Invoices':[invoice]}),
                     actor(),now(),cat,aid,booking['id'] if booking else None))
                 conn.commit()
                 return redirect(url_for('bf_rental_invoice',identifier=key))

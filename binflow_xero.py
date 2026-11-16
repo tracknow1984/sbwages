@@ -1,8 +1,8 @@
 """Admin-only Xero OAuth and reviewed, draft-only fortnightly rental invoices.
 
-Credentials stay encrypted in the existing persistent database. A durable outbox
-claims an export before the HTTP request; uncertain outcomes are reconciled by
-reference rather than blindly resent. No approval, email or payment API exists.
+Credentials stay encrypted in the existing persistent database. The outbox keeps
+its unique internal reference. The saved Xero payload holds the customer's PO and
+the source link used to identify the export if the response is interrupted.
 """
 import base64
 import hashlib
@@ -351,10 +351,60 @@ def prepare_snapshot(conn, values):
                 lines=lines, subtotal=sum(x['net'] for x in lines), gst=sum(x['tax'] for x in lines))
 
 
-def invoice_payload(snapshot, reference, today):
+def po_reference(number):
+    number = (number or '').strip()
+    if not number or len(number)>100 or not number.isprintable():
+        raise XeroError('Enter a purchase order number of up to 100 characters before invoicing.')
+    return number
+
+
+def booking_po(conn, bid):
+    row = conn.execute('SELECT number FROM bf_interstate_purchase_orders WHERE booking_id=?',(bid,)).fetchone()
+    return row['number'] if row and row['number'] else ''
+
+
+def set_invoice_po(app, invoice, number, identifier):
+    # The source link uniquely identifies this invoice when a customer reuses their PO.
+    invoice['Reference'] = po_reference(number)
+    invoice['Url'] = app.config['APP_URL'].rstrip('/') + url_for('bf_rental_invoice',identifier=identifier)
+
+
+def find_exported_invoice(app, conn, item):
+    invoice = json.loads(item['payload_json'])['Invoices'][0]
+    tenant = item['tenant_id']
+    if item['invoice_id']:
+        iid = uuid_text(item['invoice_id'])
+        rows = records(api(app,conn,'Invoices/'+iid,tenant_id=tenant),'Invoices')
+        matches = [r for r in rows if r.get('InvoiceID')==iid and r.get('Type')=='ACCREC']
+    else:
+        # Historical exports used their unique BinFlow reference. New exports use a shared PO
+        # and must also match the unique source link before attaching a Xero invoice ID.
+        reference = invoice['Reference']
+        source = invoice.get('Url')
+        matches = []
+        page = 1
+        seen = set()
+        while True:
+            query = urlencode({'where':'Reference=='+json.dumps(reference,ensure_ascii=False),'page':page})
+            rows = records(api(app,conn,'Invoices?'+query,tenant_id=tenant),'Invoices')
+            matches.extend(r for r in rows if r.get('Reference')==reference and r.get('Type')=='ACCREC'
+                           and (not source or r.get('Url')==source))
+            if len(rows)<100 or len(matches)>1:
+                break
+            ids = {r.get('InvoiceID') for r in rows}
+            if None in ids or seen.intersection(ids):
+                raise XeroError('Xero returned an incomplete invoice search. Check again before continuing.')
+            seen.update(ids)
+            page += 1
+    if len(matches)!=1:
+        raise XeroError('Could not identify one matching BinFlow invoice in Xero. Check the invoice before retrying.')
+    return matches[0]
+
+
+def invoice_payload(snapshot, today):
     return {'Invoices': [dict(Type='ACCREC', Status='DRAFT', CurrencyCode='AUD', LineAmountTypes='Exclusive',
         Contact={'ContactID': snapshot['contact']['id']}, Date=today.isoformat(), DueDate=(today + timedelta(days=14)).isoformat(),
-        Reference=reference, LineItems=[dict(
+        LineItems=[dict(
             Description=('TEST ONLY - sample quantities - ' if snapshot['mode'] == 'test' else '') +
                 f"Bin rental {line['size']}: {line['bins']} bins x 2 weeks, {snapshot['start']} to {snapshot['end']}",
             Quantity=line['bins'] * 2, UnitAmount=line['rate'] / 100,
@@ -525,7 +575,9 @@ def register(app, db, require, render, now, actor):
         cfg = config(db())
         opts, error = directory_for_page(app,db(),cfg,request.args.get('refresh')=='yes')
         stamp = date.fromisoformat(now()[:10])
-        history = db().execute('SELECT id,reference,period_start,period_end,mode,status,invoice_number FROM bf_rental_invoices WHERE category_id=1 ORDER BY created_at DESC,rowid DESC LIMIT 30').fetchall()
+        history = db().execute("""SELECT id,json_extract(payload_json,'$.Invoices[0].Reference') AS reference,
+            period_start,period_end,mode,status,invoice_number FROM bf_rental_invoices WHERE category_id=1
+            ORDER BY created_at DESC,rowid DESC LIMIT 30""").fetchall()
         return render('rental_invoices', section='rental', connected=bool(cfg['tenant_id'] and cfg['token_cipher']),
                       tenant_name=cfg['tenant_name'], options=opts, error=error, history=history,
                       period_start=(stamp - timedelta(days=13)).isoformat(), period_end=stamp.isoformat(),
@@ -544,7 +596,8 @@ def register(app, db, require, render, now, actor):
             snapshot = prepare_snapshot(db(), request.form)
             identifier = str(uuid4())
             reference = ('BF-TEST-' if snapshot['mode'] == 'test' else 'BF-RENT-') + identifier
-            payload = invoice_payload(snapshot, reference, date.fromisoformat(now()[:10]))
+            payload = invoice_payload(snapshot, date.fromisoformat(now()[:10]))
+            set_invoice_po(app,payload['Invoices'][0],request.form.get('po_number'),identifier)
             # Prevent overlapping actual bills, including two simultaneous submissions.
             if snapshot['mode'] == 'actual' and db().execute("""SELECT 1 FROM bf_rental_invoices
                 WHERE tenant_id=? AND category_id=1 AND mode='actual' AND status!='cancelled' AND period_start<=? AND period_end>=?""",
@@ -569,8 +622,9 @@ def register(app, db, require, render, now, actor):
         item = saved_invoice(identifier)
         snapshot = json.loads(item['snapshot_json'])
         payload = json.loads(item['payload_json'])['Invoices'][0]
+        po = booking_po(db(),item['booking_id']) if item['booking_id'] else (payload['Reference'] if payload.get('Url') else '')
         return render('rental_invoice', section='rental' if item['category_id']==1 else 'invoices', invoice=item, snapshot=snapshot,
-                      invoice_date=payload['Date'], due_date=payload['DueDate'],
+                      invoice_date=payload['Date'], due_date=payload['DueDate'],po_number=po,xero_reference=payload['Reference'],
                       total=snapshot['subtotal'] + snapshot['gst'])
 
     @app.post('/binflow/rental-invoices/<identifier>/create')
@@ -584,15 +638,22 @@ def register(app, db, require, render, now, actor):
                 raise XeroError('This export has already been attempted. Check its saved result below.')
             verify_draft_connection(app, db(), item['tenant_id'])
             db().execute('BEGIN IMMEDIATE')
-            claimed = db().execute("UPDATE bf_rental_invoices SET status='sending',attempted_at=? WHERE id=? AND status='preview'",
-                                   (now(), identifier)).rowcount
+            item = saved_invoice(identifier)
+            payload = json.loads(item['payload_json'])
+            invoice = payload['Invoices'][0]
+            po = booking_po(db(),item['booking_id']) if item['booking_id'] else (
+                invoice['Reference'] if invoice.get('Url') else request.form.get('po_number'))
+            set_invoice_po(app,invoice,po,identifier)
+            claimed = db().execute("""UPDATE bf_rental_invoices SET status='sending',attempted_at=?,payload_json=?
+                                   WHERE id=? AND status='preview'""",(now(),json.dumps(payload),identifier)).rowcount
             db().commit()
             if not claimed:
                 raise XeroError('This export has already been attempted. Check its saved result below.')
             try:
-                result = api(app, db(), 'Invoices', 'POST', json.loads(item['payload_json']), key=identifier, tenant_id=item['tenant_id'])
+                result = api(app, db(), 'Invoices', 'POST', payload, key=identifier, tenant_id=item['tenant_id'])
                 invoices = records(result, 'Invoices')
-                if len(invoices) != 1 or invoices[0].get('Status') != 'DRAFT' or invoices[0].get('HasErrors'):
+                if (len(invoices)!=1 or invoices[0].get('Status')!='DRAFT' or invoices[0].get('HasErrors')
+                        or invoices[0].get('Reference')!=invoice['Reference']):
                     raise XeroError('Xero did not confirm a draft. Check the Xero result before taking further action.')
                 remote = invoices[0]
                 iid = uuid_text(remote.get('InvoiceID'))
@@ -607,6 +668,7 @@ def register(app, db, require, render, now, actor):
                 db().commit()
                 raise
         except XeroError as exc:
+            db().rollback()
             flash(str(exc), 'error')
         return redirect(url_for('bf_rental_invoice', identifier=identifier))
 
@@ -617,11 +679,9 @@ def register(app, db, require, render, now, actor):
         try:
             if item['status'] not in ('sending', 'uncertain', 'created'):
                 raise XeroError('This invoice has not been exported.')
-            result = api(app, db(), 'Invoices?' + urlencode({'where': 'Reference=="' + item['reference'] + '"'}), tenant_id=item['tenant_id'])
-            matches = [x for x in records(result, 'Invoices') if x.get('Reference') == item['reference'] and x.get('Type') == 'ACCREC']
-            if len(matches) != 1:
-                raise XeroError('No unique Xero invoice was found. Check Xero manually; automatic resending remains blocked to prevent duplicates.')
-            remote = matches[0]
+            remote = find_exported_invoice(app,db(),item)
+            if remote.get('Reference')!=json.loads(item['payload_json'])['Invoices'][0]['Reference']:
+                raise XeroError('The invoice reference has changed in Xero. Check the current purchase order.')
             db().execute("UPDATE bf_rental_invoices SET status='created',invoice_id=?,invoice_number=?,xero_status=?,error='' WHERE id=?",
                          (uuid_text(remote.get('InvoiceID')), str(remote.get('InvoiceNumber', ''))[:255], str(remote.get('Status', ''))[:30], identifier))
             db().commit()
@@ -638,3 +698,41 @@ def register(app, db, require, render, now, actor):
         db().commit()
         flash('Unsent preview cancelled.' if changed else 'Only an unsent preview can be cancelled here.', 'success' if changed else 'error')
         return redirect(url_for('bf_rental_invoice', identifier=identifier))
+
+    @app.post('/binflow/rental-invoices/<identifier>/purchase-order-reference')
+    @require('admin')
+    def bf_xero_update_po(identifier):
+        item = saved_invoice(identifier)
+        if item['status']!='created' or item['xero_status']!='DRAFT' or not item['invoice_id']:
+            abort(409,'Open a confirmed Xero draft to update its reference.')
+        invoice = json.loads(item['payload_json'])['Invoices'][0]
+        try:
+            po = po_reference(request.form.get('po_number'))
+            if item['booking_id'] and po != booking_po(db(),item['booking_id']):
+                raise XeroError('The booking PO changed. Check its current number before updating Xero.')
+            iid = uuid_text(item['invoice_id'])
+            path = 'Invoices/'+iid
+            def draft_from(result):
+                docs = records(result,'Invoices')
+                if (len(docs)!=1 or docs[0].get('InvoiceID')!=iid or docs[0].get('Status')!='DRAFT'
+                        or docs[0].get('Type')!='ACCREC' or docs[0].get('HasErrors')
+                        or docs[0].get('Contact',{}).get('ContactID')!=invoice['Contact']['ContactID']):
+                    raise XeroError('Xero did not confirm this invoice as a draft for the same customer.')
+                return docs[0]
+            remote = draft_from(api(app,db(),path,tenant_id=item['tenant_id']))
+            if remote.get('Reference') != po:
+                if remote.get('Reference') != invoice['Reference']:
+                    raise XeroError('The reference has changed in Xero. Review this invoice in Xero.')
+                key = hashlib.sha256(json.dumps([identifier,invoice['Reference'],po]).encode()).hexdigest()
+                change = {'Invoices':[{'InvoiceID':iid,'Reference':po}]}
+                remote = draft_from(api(app,db(),path,'POST',change,key=key,tenant_id=item['tenant_id']))
+                if remote.get('Reference') != po:
+                    raise XeroError('Xero did not confirm the purchase order reference.')
+            db().execute("""UPDATE bf_rental_invoices SET payload_json=json_set(payload_json,'$.Invoices[0].Reference',?)
+                            WHERE id=? AND invoice_id=? AND json_extract(payload_json,'$.Invoices[0].Reference')=?""",
+                         (po,identifier,iid,invoice['Reference']))
+            db().commit()
+            flash('Xero draft reference confirmed: '+po,'success')
+        except XeroError as exc:
+            flash(str(exc),'error')
+        return redirect(url_for('bf_rental_invoice',identifier=identifier))

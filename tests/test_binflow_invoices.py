@@ -28,7 +28,7 @@ class ClientInvoiceTests(TestCase):
 
     def values(self, aid, **updates):
         return dict(dict(draft_key=str(uuid4()),client=aid,category=2,invoice_date='2026-11-11',due_date='2026-11-25',
-                         account_code='200',tax_type='OUTPUT',description='Local transport',quantity='2.5',unit_rate='125.30'),**updates)
+                         po_number='PO-Manual',account_code='200',tax_type='OUTPUT',description='Local transport',quantity='2.5',unit_rate='125.30'),**updates)
 
     @billing.connected_organisation
     def test_categories_billing_draft_and_isolated_issued_documents(self):
@@ -63,7 +63,7 @@ class ClientInvoiceTests(TestCase):
         self.assertEqual(invoice['LineItems'][0]['Quantity'],2.5)
         self.assertNotIn('Local transport',client.get(PORTAL).text)
         num='INV-0099'
-        remote=dict(InvoiceNumber=num,InvoiceID=billing.INVOICE,Status='DRAFT',Contact={'ContactID':billing.CONTACT},Type='ACCREC',
+        remote=dict(Reference='PO-Manual',InvoiceNumber=num,InvoiceID=billing.INVOICE,Status='DRAFT',Contact={'ContactID':billing.CONTACT},Type='ACCREC',
                     DateString='2026-11-11T00:00:00',DueDateString='2026-11-25T00:00:00',Total=344.58,AmountDue=344.58)
         with patch('binflow_xero.request_json',return_value={'Invoices':[remote]}) as api:
             self.post('/binflow/rental-invoices/'+item['id']+'/create',{'confirm_draft':'yes'})
@@ -107,6 +107,7 @@ class ClientInvoiceTests(TestCase):
         self.assertEqual(len(items),1)
         item=items[0]
         self.assertEqual((item['portal_account_id'],item['category_id'],item['booking_id']),(aid,2,bid))
+        self.assertEqual(json.loads(item['payload_json'])['Invoices'][0]['Reference'],'PO-50')
         snap=json.loads(item['snapshot_json'])
         self.assertEqual([x['net'] for x in snap['lines']],[10000,2500])
         self.assertEqual((snap['subtotal'],snap['gst']),(12500,1250))

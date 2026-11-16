@@ -75,8 +75,8 @@ class AutoInvoiceTests(unittest.TestCase):
         self.assertEqual((line['net'],line['tax']),(3292,329))
         self.assertIn('1.6255',line['description'])
         path=BASE+'/review/'+draft['id']
-        form=dict(version=draft['version'],tenant=billing.TENANT,contact=billing.CONTACT)
-        remote=dict(InvoiceID=billing.INVOICE,InvoiceNumber='INV-POD',Reference='BF-'+draft['id'],Type='ACCREC',
+        form=dict(version=draft['version'],tenant=billing.TENANT,contact=billing.CONTACT,po_number='PO-POD-01')
+        remote=dict(InvoiceID=billing.INVOICE,InvoiceNumber='INV-POD',Reference='PO-POD-01',Type='ACCREC',
                     Status='AUTHORISED',Contact=dict(ContactID=billing.CONTACT),Total=58.21,CurrencyCode='AUD')
         with patch('binflow_xero.api',return_value=dict(Invoices=[remote])) as api:
             self.post(path+'/approve',dict(form,version='stale'))
@@ -165,7 +165,8 @@ class AutoInvoiceTests(unittest.TestCase):
             self.assertEqual((path, method), ('Invoices','POST'))
             invoice = payload['Invoices'][0]
             self.assertEqual(invoice['Status'], 'DRAFT')
-            self.assertEqual(invoice['Reference'], 'BF-'+kwargs['key'])
+            self.assertEqual(invoice['Reference'], 'PO-217')
+            self.assertTrue(invoice['Url'].endswith('/'+kwargs['key']))
             return {'Invoices':[dict(invoice, InvoiceID=billing.INVOICE, InvoiceNumber='INV-TRANSPORT', Total=1980)]}
 
         with patch('binflow_xero.api',side_effect=xero_response) as api:
@@ -182,6 +183,27 @@ class AutoInvoiceTests(unittest.TestCase):
         self.assertEqual(len(self.rows("SELECT id FROM bf_auto_drafts WHERE kind='Transport'")),1)
         self.assertEqual(len(self.rows("SELECT id FROM bf_rental_invoices WHERE booking_id=1")),1)
 
+        # An older confirmed draft can be fixed by ID, even after an earlier update timed out.
+        item = self.rows('SELECT * FROM bf_rental_invoices WHERE booking_id=1')[0]
+        payload = json.loads(item['payload_json'])
+        invoice = payload['Invoices'][0]
+        invoice['Reference'] = item['reference']
+        invoice.pop('Url')
+        with sqlite3.connect(self.path) as conn:
+            conn.execute('UPDATE bf_rental_invoices SET payload_json=? WHERE id=?',(json.dumps(payload),item['id']))
+        fix = '/binflow/rental-invoices/'+item['id']+'/purchase-order-reference'
+        self.assertIn(fix,self.client.get(BASE+'/review/'+item['id']).text)
+        old = dict(invoice,InvoiceID=billing.INVOICE)
+        fixed = dict(old,Reference='PO-217')
+        with patch('binflow_xero.api',side_effect=[{'Invoices':[old]},{'Invoices':[fixed]},{'Invoices':[fixed]}]) as api:
+            self.assertNotIn(fix,self.post(fix,dict(po_number='PO-217')).text)
+            self.post(fix,dict(po_number='PO-217'))
+            self.assertEqual({call.args[2] for call in api.call_args_list},{'Invoices/'+billing.INVOICE})
+            self.assertEqual(api.call_args_list[1].args[4],{'Invoices':[dict(InvoiceID=billing.INVOICE,Reference='PO-217')]})
+        with patch('binflow_xero.api',return_value={'Invoices':[dict(fixed,Status='AUTHORISED')]}) as api:
+            self.assertIn('same customer',self.post(fix,dict(po_number='PO-217')).text)
+            api.assert_called_once()
+
     def test_calendar_draft_without_xero_and_cancelled_load(self):
         self.post(CAL+'/new',data())
         action = CAL+'/1/invoice-draft'
@@ -190,6 +212,12 @@ class AutoInvoiceTests(unittest.TestCase):
         self.assertIn('Connect Xero to invoice',self.client.get(CAL+'/1').text)
         self.assertIn('Invoice was not sent.',self.post(action).text)
         self.assertFalse(self.rows("SELECT * FROM bf_auto_drafts WHERE kind='Transport'"))
+        self.assertFalse(self.rows('SELECT * FROM bf_rental_invoices'))
+        self.configure()
+        self.assertIn('Add PO number to invoice',self.client.get(CAL+'/1').text)
+        with patch('binflow_xero.organisation',return_value=dict(OrganisationID=billing.TENANT)),patch('binflow_xero.api') as api:
+            self.assertIn('Add the purchase order number',self.post(action,dict(po_number='IGNORED')).text)
+            api.assert_not_called()
         self.assertFalse(self.rows('SELECT * FROM bf_rental_invoices'))
         version=self.rows('SELECT version FROM bf_interstate_bookings WHERE id=1')[0]['version']
         self.post(CAL+'/1/cancel',dict(version=version,reason='Load withdrawn'))
@@ -203,6 +231,7 @@ class AutoInvoiceTests(unittest.TestCase):
         client = self.visit('billing-client')
         self.send(client, CLIENT+'/new', data())
         self.post(CAL+'/1/lock', dict(version=1))
+        self.post(CAL+'/1/purchase-order',dict(po_number='PORD100075',po_revision=0))
         with sqlite3.connect(self.path) as conn:
             conn.execute("UPDATE bf_interstate_bookings SET bulk_delivered_at='2026-11-13',rate_cents=10000,fuel_bps=0 WHERE id=1")
         self.assertIn('Unsent · BinFlow only',self.client.get(BASE).text)
@@ -224,7 +253,7 @@ class AutoInvoiceTests(unittest.TestCase):
             self.assertIn('Invoice was not sent.',self.post(action).text)
         self.assertFalse(self.rows('SELECT * FROM bf_rental_invoices'))
         self.assertFalse(self.rows('SELECT * FROM bf_auto_claims'))
-        remote_invoice = dict(InvoiceID=billing.INVOICE, InvoiceNumber='INV-777', Reference='BF-'+draft['id'],
+        remote_invoice = dict(InvoiceID=billing.INVOICE, InvoiceNumber='INV-777', Reference='PORD100075',
                               Type='ACCREC', Status='DRAFT', Contact=dict(ContactID=billing.CONTACT), Total=110)
         with patch('binflow_xero.organisation',return_value=dict(OrganisationID=billing.TENANT)),patch(
                 'binflow_xero.api',return_value={'Invoices':[remote_invoice]}) as api:
@@ -237,6 +266,7 @@ class AutoInvoiceTests(unittest.TestCase):
         self.configure()
         self.send(self.visit('billing-client'),CLIENT+'/new',data())
         self.post(CAL+'/1/lock',dict(version=1))
+        self.post(CAL+'/1/purchase-order',dict(po_number='PORD100075',po_revision=0))
         with sqlite3.connect(self.path) as conn:
             conn.execute('UPDATE bf_interstate_bookings SET rate_cents=10000,fuel_bps=0 WHERE id=1')
         action = CAL+'/1/invoice-draft'
@@ -248,7 +278,8 @@ class AutoInvoiceTests(unittest.TestCase):
         invoice = self.rows('SELECT * FROM bf_rental_invoices WHERE booking_id=1')[0]
         self.assertEqual(invoice['status'],'uncertain')
         remote = dict(json.loads(invoice['payload_json'])['Invoices'][0],InvoiceID=billing.INVOICE,Total=110)
-        with patch('binflow_xero.api',return_value={'Invoices':[remote]}) as api:
+        another = dict(remote,InvoiceID=billing.CONTACT,Url=remote['Url']+'-other')
+        with patch('binflow_xero.api',return_value={'Invoices':[another,remote]}) as api:
             self.assertIn('Saved as a draft in Xero',self.post(BASE+'/review/'+invoice['id']+'/check').text)
             self.assertTrue(api.call_args.args[2].startswith('Invoices?'))
             self.post(action)

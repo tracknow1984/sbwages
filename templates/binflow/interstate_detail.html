@@ -13,7 +13,7 @@
 {% block transfer_content %}
 <a href="{{ url_for('bf_client_interstate' if external else 'bf_interstate_calendar',date=b.pickup_date) }}">← Transfer calendar</a>
 <section class="bf-panel bf-pad"><div class="bf-toolbar"><div><small>IT-{{ '%06d'|format(b.id) }}</small>{% if b.account_id %}<small> · Billing client</small>{% endif %}<h2>{{ b.client_name }}</h2></div><span class="{{ 'it-delivered-badge' if status=='Delivered' else 'bf-badge' }}">{{ status }}</span></div>
-{% if not external and current_user.role=='admin' and (b.locked_at or invoice) %}<div class="it-tools">{{ invoice_action(b,invoice) }}</div>{% endif %}
+{% if not external and current_user.role=='admin' and (b.locked_at or invoice) %}<div class="it-tools">{{ invoice_action(b,invoice,po.number if po else '') }}</div>{% endif %}
 {% if not external and b.locked_at and not b.cancelled_at and b.handling=='bulk' and not b.bulk_delivered_at %}
 <form method="post" class="it-tools" action="{{ url_for('bf_interstate_bulk',bid=b.id) }}">
   <input type="hidden" name="csrf" value="{{ csrf_token() }}">

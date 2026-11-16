@@ -102,7 +102,7 @@
   </div>
   {% endif %}
   {% if not external and current_user.role=='admin' and not b.bulk_delivered_at and b.manifest_status not in ['received','handed_over'] %}<div class="it-tools"><a class="button secondary" href="{{ url_for('bf_interstate_edit',bid=id) }}">Modify load</a><a href="{{ url_for('bf_interstate_detail',bid=id,cancel=1,_anchor='cancel-load') }}">Cancel load</a></div>{% endif %}
-  {% if not external and current_user.role=='admin' and (b.locked_at or invoices.get(id)) %}<div class="it-tools">{{ invoice_action(b,invoices.get(id)) }}</div>{% endif %}
+  {% if not external and current_user.role=='admin' and (b.locked_at or invoices.get(id)) %}<div class="it-tools">{{ invoice_action(b,invoices.get(id),b.po_number) }}</div>{% endif %}
   <footer><span>{{ 'Subcontracted' if b.job_type=='external' else 'Internal job' }}</span><a href="{{ url_for('bf_client_interstate_detail' if external else 'bf_interstate_detail',bid=id) }}">Open booking</a></footer>
 </template>
 {% endfor %}

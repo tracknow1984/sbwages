@@ -10,6 +10,7 @@
 {% if not billable %}<p class="bf-rental-warning">There are no actual billable bins yet. A labelled test draft uses sample quantities and does not change bin allocations.</p>{% endif %}
 {% include 'binflow/xero_contact_search.html' %}
 <form class="bf-form" method="post" action="{{ url_for('bf_rental_invoice_preview') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+<label>Purchase order number<input name="po_number" maxlength="100" required></label>
 <div class="bf-grid"><label>Billing contact<select id="xero-contact-list" data-xero-contacts data-record-text name="contact_id" required><option value="">Choose Xero contact</option>{% for contact in options.get('contacts',[]) %}<option data-contact-search="{{ contact.aliases }}" value="{{ contact.id }}">{{ contact.name }}</option>{% endfor %}</select></label>
 <label>Rental income account<select name="account_code" required><option value="">Choose account</option>{% for account in options.get('accounts',[]) %}<option value="{{ account.code }}">{{ account.code }} - {{ account.name }}</option>{% endfor %}</select></label>
 <label>Tax rate<select name="tax_type" required><option value="">Choose tax treatment</option>{% for tax in options.get('taxes',[]) %}<option value="{{ tax.code }}">{{ tax.name }} ({{ tax.rate }}%)</option>{% endfor %}</select></label></div>

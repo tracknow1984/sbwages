@@ -8,11 +8,14 @@
 {% if invoice.mode=='test' %}<p class="bf-rental-warning"><strong>TEST ONLY - sample quantities.</strong> This draft is for checking the connection. Do not approve or send it as a customer charge.</p>{% endif %}
 <h2>Bill to {{ snapshot.contact.name }}</h2><p>Income account: {{ snapshot.account.code }} - {{ snapshot.account.name }}<br>Tax: {{ snapshot.tax.name }} ({{ snapshot.tax.rate }}%)</p>
 <p>Invoice date: {{ invoice_date }} · Due date: {{ due_date }}</p>
-<p>Reference: {{ invoice.reference }}<br>Prepared by {{ invoice.created_by }} · {{ invoice.created_at }}</p>
+<p>Xero reference · <strong>{{ (po_number or 'PO number required') if invoice.status=='preview' else xero_reference }}</strong><br>Prepared by {{ invoice.created_by }} · {{ invoice.created_at }}</p>
+{% include 'binflow/xero_po_update.html' %}
 {% for line in snapshot.lines %}<article class="bf-panel bf-pad">{% if snapshot.category %}<h3>{{ line.description }}</h3><p>{{ line.quantity }} × {{ line.rate|money }}</p>{% else %}<h3>{{ line.size }} bin rental</h3><p>{{ line.bins }} bins × {{ line.weeks }} weeks × {{ line.rate|money }} per week</p>{% endif %}<strong>{{ line.net|money }} excluding GST</strong></article>{% endfor %}
 <dl><dt>Subtotal excluding GST</dt><dd>{{ snapshot.subtotal|money }}</dd><dt>GST</dt><dd>{{ snapshot.gst|money }}</dd><dt><strong>Total AUD</strong></dt><dd><strong>{{ total|money }}</strong></dd></dl>
 {% if invoice.error %}<p role="alert" class="bf-rental-warning">{{ invoice.error }}</p>{% endif %}
-{% if invoice.status=='preview' %}<form class="bf-form" method="post" action="{{ url_for('bf_rental_invoice_create',identifier=invoice.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><label><input type="checkbox" name="confirm_draft" value="yes" required> I have checked the organisation, recipient, period and amount shown above.</label><button class="primary">Create {{ 'test ' if invoice.mode=='test' }}draft in Xero</button><p>Creates a draft only. Approval and sending are handled in Xero.</p></form>
+{% if invoice.status=='preview' %}<form class="bf-form" method="post" action="{{ url_for('bf_rental_invoice_create',identifier=invoice.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+{% if not po_number %}{% if invoice.booking_id %}<p><a href="{{ url_for('bf_interstate_detail',bid=invoice.booking_id,_anchor='purchase-order') }}">Add the booking’s PO number</a> before invoicing.</p>{% else %}<label>Purchase order number<input name="po_number" maxlength="100" required></label>{% endif %}{% endif %}
+<label><input type="checkbox" name="confirm_draft" value="yes" required> I have checked the organisation, recipient, period and amount shown above.</label><button class="primary" {% if invoice.booking_id and not po_number %}disabled{% endif %}>Create {{ 'test ' if invoice.mode=='test' }}draft in Xero</button><p>Creates a draft only. Approval and sending are handled in Xero.</p></form>
 <form method="post" action="{{ url_for('bf_rental_invoice_cancel',identifier=invoice.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="secondary">Cancel unsent preview</button></form>
 {% elif invoice.status=='cancelled' %}<p>This unsent preview was cancelled.</p>
 {% else %}<h3>{{ 'Recorded in Xero' if invoice.status=='created' else 'Export result needs checking' }}</h3>

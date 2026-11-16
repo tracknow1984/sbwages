@@ -337,6 +337,10 @@ def register(app,db,require,render,now,actor):
         if existing:
             conn.rollback()
             return existing
+        if not xero.booking_po(conn,bid):
+            conn.rollback()
+            flash('Add the purchase order number before creating the Xero draft.','error')
+            return redirect(url_for('bf_interstate_detail',bid=bid,_anchor='purchase-order'),code=303)
         reconcile(conn, now(), requested_transfer=bid)
         draft = row(transfer_invoices(conn,[bid])[bid]['id'])
         conn.commit()
@@ -349,13 +353,17 @@ def register(app,db,require,render,now,actor):
         lines=json.loads(d['lines']);net,tax=totals(lines)
         cfg=link=None
         reason = d['issue']
+        bid = int(d['group_key'].split(':')[1]) if d['kind']=='Transport' else None
+        po = xero.booking_po(conn,bid) if bid else ''
+        invoice = conn.execute('SELECT * FROM bf_rental_invoices WHERE id=?',(did,)).fetchone()
+        reference = json.loads(invoice['payload_json'])['Invoices'][0]['Reference'] if invoice else None
         if not reason and d['state']=='open':
             try: cfg,link,_,_ = approval_settings(conn,d)
             except ValueError as exc: reason=str(exc)
         return render('auto_invoice',section='invoices',d=d,lines=lines,net=net,tax=tax,reason=reason,link=link,cfg=cfg,
             ready=d['kind']=='Transport' or d['end']<now()[:10],
             email=conn.execute('SELECT email FROM bf_billing_emails WHERE account_id=?',(d['account_id'],)).fetchone(),
-            invoice=conn.execute('SELECT * FROM bf_rental_invoices WHERE id=?',(did,)).fetchone())
+            invoice=invoice,xero_reference=reference,po_number=po)
 
     def record_remote(conn,did,remote,*,rechecking=False):
         item=conn.execute('SELECT * FROM bf_rental_invoices WHERE id=?',(did,)).fetchone()
@@ -363,7 +371,7 @@ def register(app,db,require,render,now,actor):
         valid_statuses = {'AUTHORISED','PAID'}
         if payload['Status']=='DRAFT':
             valid_statuses = {'DRAFT','AUTHORISED','PAID'} if rechecking else {'DRAFT'}
-        if (remote.get('Type')!='ACCREC' or remote.get('Reference')!=item['reference']
+        if (remote.get('Type')!='ACCREC' or remote.get('Reference')!=payload['Reference']
                 or remote.get('Contact',{}).get('ContactID')!=payload['Contact']['ContactID']
                 or remote.get('Status') not in valid_statuses or remote.get('HasErrors')):
             raise ValueError('Xero did not confirm the expected invoice status and billing contact.')
@@ -420,10 +428,12 @@ def register(app,db,require,render,now,actor):
                 raise ValueError('This rental fortnight already has an invoice.')
             ref='BF-'+did
             issued_date=now()[:10]
-            invoice=dict(Type='ACCREC',Status='DRAFT' if save_draft else 'AUTHORISED',CurrencyCode='AUD',LineAmountTypes='Exclusive',Reference=ref,
+            invoice=dict(Type='ACCREC',Status='DRAFT' if save_draft else 'AUTHORISED',CurrencyCode='AUD',LineAmountTypes='Exclusive',
                 Contact={'ContactID':link['contact_id']},Date=issued_date,DueDate=(date.fromisoformat(issued_date)+timedelta(days=14)).isoformat(),
                 LineItems=[dict(Description=i['description'],Quantity=1,UnitAmount=i['net']/100,
                     AccountCode=account['code'],TaxType=tax['code']) for i in lines])
+            po = xero.booking_po(conn,bid) if bid else request.form.get('po_number')
+            xero.set_invoice_po(app,invoice,po,did)
             snapshot=dict(category=d['kind'],contact=dict(id=link['contact_id'],name=link['contact_name']),account=account,tax=tax,
                 subtotal=net,gst=gst,lines=[dict(i,quantity=1,rate=i['net']) for i in lines])
             conn.execute("""INSERT INTO bf_rental_invoices(id,tenant_id,tenant_name,period_start,period_end,mode,status,
@@ -456,15 +466,12 @@ def register(app,db,require,render,now,actor):
     @app.post('/binflow/invoices/review/<did>/check')
     @require('admin')
     def bf_auto_check(did):
-        from urllib.parse import urlencode
         conn=db();d=row(did)
         if d['state'] not in ('sending','drafted'): abort(409)
         item=conn.execute('SELECT * FROM bf_rental_invoices WHERE id=?',(did,)).fetchone()
         try:
-            query=urlencode({'where':'Reference=="'+item['reference']+'"'})
-            matches=xero.records(xero.api(app,conn,'Invoices?'+query,tenant_id=item['tenant_id']),'Invoices')
-            if len(matches)!=1: raise ValueError('No unique invoice confirmed in Xero. Check the saved reference.')
-            record_remote(conn,did,matches[0],rechecking=True);flash('Xero invoice status confirmed.','success')
+            remote=xero.find_exported_invoice(app,conn,item)
+            record_remote(conn,did,remote,rechecking=True);flash('Xero invoice status confirmed.','success')
         except ValueError as exc: conn.rollback();flash(str(exc),'error')
         return redirect(url_for('bf_auto_review',did=did))
 

@@ -43,7 +43,7 @@ class XeroRentalTests(unittest.TestCase):
             conn.execute('UPDATE bf_sizes SET weekly_rental_cents=181 WHERE id=1')
 
     def preview(self, **overrides):
-        values = dict(period_start='2026-10-06', period_end='2026-10-19', mode='test', contact_id=CONTACT,
+        values = dict(period_start='2026-10-06', period_end='2026-10-19', mode='test', po_number='PO-R001', contact_id=CONTACT,
                       account_code='200', tax_type='OUTPUT', sample_size='1', sample_quantity='3')
         values.update(overrides)
         return self.post('/binflow/rental-invoices/preview', values, follow=False)
@@ -175,6 +175,7 @@ class XeroRentalTests(unittest.TestCase):
         payload = json.loads(item['payload_json'])['Invoices'][0]
         self.assertEqual((snapshot['subtotal'], snapshot['gst']), (1086, 109))
         self.assertEqual((payload['Status'], payload['Type'], payload['CurrencyCode']), ('DRAFT', 'ACCREC', 'AUD'))
+        self.assertEqual(payload['Reference'],'PO-R001')
         self.assertEqual(payload['Contact'], {'ContactID': CONTACT})
         self.assertEqual((payload['Date'], payload['DueDate']), ('2026-10-19', '2026-11-02'))
         self.assertEqual(payload['LineItems'][0]['Quantity'], 6)
@@ -243,7 +244,7 @@ class XeroRentalTests(unittest.TestCase):
         with self.connection() as conn:
             conn.execute('UPDATE bf_sizes SET weekly_rental_cents=999 WHERE id=1')
         path = '/binflow/rental-invoices/'+item['id']+'/create'
-        with patch('binflow_xero.request_json', return_value={'Invoices': [{'InvoiceID': INVOICE, 'InvoiceNumber': 'INV-0042', 'Status': 'DRAFT'}]}) as remote:
+        with patch('binflow_xero.request_json', return_value={'Invoices': [{'InvoiceID': INVOICE, 'InvoiceNumber': 'INV-0042', 'Status': 'DRAFT', 'Reference':'PO-R001'}]}) as remote:
             self.post(path)
             remote.assert_not_called()
             self.post(path, {'confirm_draft': 'yes'})
@@ -260,6 +261,33 @@ class XeroRentalTests(unittest.TestCase):
         self.assertEqual(self.invoice()['status'], 'created')
 
     @connected_organisation
+    def test_legacy_preview_requires_po_and_two_distinct_invoices_can_share_one(self):
+        self.connect()
+        self.preview(po_number=' ')
+        self.assertFalse(self.rows('SELECT id FROM bf_rental_invoices'))
+        self.preview()
+        self.preview()
+        items = self.rows('SELECT * FROM bf_rental_invoices')
+        self.assertEqual(len(items),2)
+        self.assertNotEqual(items[0]['reference'],items[1]['reference'])
+        self.assertEqual([json.loads(i['payload_json'])['Invoices'][0]['Reference'] for i in items],['PO-R001']*2)
+        old = items[0]
+        payload = json.loads(old['payload_json'])
+        payload['Invoices'][0].pop('Url')
+        payload['Invoices'][0]['Reference'] = old['reference']
+        with self.connection() as conn:
+            conn.execute('UPDATE bf_rental_invoices SET payload_json=? WHERE id=?',(json.dumps(payload),old['id']))
+        path = '/binflow/rental-invoices/'+old['id']
+        self.assertIn('name="po_number"',self.client.get(path).text)
+        remote = dict(InvoiceID=INVOICE,Reference='0021/A',Status='DRAFT')
+        with patch('binflow_xero.api',return_value={'Invoices':[remote]}) as api:
+            self.post(path+'/create',{'confirm_draft':'yes'})
+            api.assert_not_called()
+            self.post(path+'/create',{'confirm_draft':'yes','po_number':' 0021/A '})
+            api.assert_called_once()
+            self.assertEqual(api.call_args.args[4]['Invoices'][0]['Reference'],'0021/A')
+
+    @connected_organisation
     def test_timeout_is_reconciled_without_another_creation(self):
         self.connect()
         self.preview()
@@ -270,7 +298,7 @@ class XeroRentalTests(unittest.TestCase):
             self.post(base+'/create', {'confirm_draft': 'yes'})
             remote.assert_called_once()
         self.assertEqual(self.invoice()['status'], 'uncertain')
-        with patch('binflow_xero.request_json', return_value={'Invoices': [{'Reference': item['reference'], 'Type': 'ACCREC',
+        with patch('binflow_xero.request_json', return_value={'Invoices': [{'Reference': 'PO-R001', 'Url':json.loads(item['payload_json'])['Invoices'][0]['Url'], 'Type': 'ACCREC',
                    'InvoiceID': INVOICE, 'InvoiceNumber': 'INV-0042', 'Status': 'DRAFT'}]}) as remote:
             self.post(base+'/check')
             self.assertEqual(remote.call_args.args[1], 'GET')
