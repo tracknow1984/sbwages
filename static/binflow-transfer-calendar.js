@@ -126,7 +126,7 @@
   });
   closeButton.addEventListener('click', () => hide(true));
   document.addEventListener('keydown', event => {
-    if (event.key === 'Escape' && trigger) {
+    if (event.key === 'Escape' && trigger && !document.querySelector('dialog[open]')) {
       const restore = preview.contains(document.activeElement);
       hide(restore);
       event.preventDefault();

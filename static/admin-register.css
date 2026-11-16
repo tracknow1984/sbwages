@@ -9,9 +9,4 @@
 .register-folders a:hover {background:#f2f8f7;}
 .register-folders svg {width:30px; height:30px; grid-row:span 2; color:#18726e;}
 .register-folders small {color:#546571;}
-.register-preview {width:min(850px, 95vw); padding:16px; border:0; border-radius:12px; color:#17313e; max-height:90vh;}
-.register-preview::backdrop {background:#112331bd;}
-.register-preview .panel-head {position:sticky; top:0; background:white; overflow-wrap:anywhere;}
-.preview-body img {display:block; max-width:100%; max-height:70vh; object-fit:contain; margin:auto;}
-.preview-body iframe {width:100%; height:68vh; border:0;}
 .rentals-frame {width:100%; height:calc(100dvh - 235px); min-height:420px; border:1px solid #d6dfe3; border-radius:9px; background:white;}

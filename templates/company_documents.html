@@ -44,10 +44,7 @@
         <a href="{{ file_url }}?download=1" class="button secondary compact">Download</a></div></td></tr>
     {% endfor %}
   </tbody></table></div>
-  <dialog class="register-preview" aria-labelledby="preview-name"><div class="panel-head">
-    <strong id="preview-name"></strong><form method="dialog"><button autofocus class="secondary compact">Close</button></form>
-  </div><div class="preview-body"></div></dialog>
-  <script defer src="{{ url_for('static',filename='admin-document-preview.js') }}"></script>
+  {% include 'document_quick_view.html' %}
   {% else %}<p class="muted">This folder is empty.</p>{% endif %}
 </section>
 {% endif %}

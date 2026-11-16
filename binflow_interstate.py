@@ -304,7 +304,7 @@ def register(app, db, access, require, render, client_access, now, actor):
                 SELECT MAX(k.id) FROM bf_load_dispatches k WHERE k.booking_id=b.id)"""
         select = f"""SELECT b.*, COALESCE(a.name,b.client_name) AS billing_name,
                        t.status AS manifest_status, t.code AS manifest_code, m.expected_bales, changes.id AS date_change_id,
-                       po.booking_id IS NOT NULL AS po_received, po.number AS po_number, po.filename AS po_filename
+                       po.booking_id IS NOT NULL AS po_received, po.number AS po_number, po.filename AS po_filename, po.mime_type AS po_mime_type
                        {dispatch_fields}
                 FROM bf_interstate_bookings b LEFT JOIN bf_client_accounts a ON a.id=b.account_id
                 {dispatch_join}
@@ -562,7 +562,7 @@ def register(app, db, access, require, render, client_access, now, actor):
         return redirect(details_url(bid,False))
 
     def po_metadata(bid):
-        return db().execute("""SELECT number,filename,revision FROM bf_interstate_purchase_orders
+        return db().execute("""SELECT number,filename,mime_type,revision FROM bf_interstate_purchase_orders
                                WHERE booking_id=?""",(bid,)).fetchone()
 
     def can_update_booking(external):
@@ -696,8 +696,9 @@ def register(app, db, access, require, render, client_access, now, actor):
                            WHERE booking_id=? AND filename IS NOT NULL""",(bid,)).fetchone()
         if not po:
             abort(404)
+        inline = request.args.get('preview') == '1' and po['mime_type'] in ('application/pdf','image/jpeg','image/png')
         return send_file(io.BytesIO(po['document']),mimetype=po['mime_type'],
-                         download_name=po['filename'],as_attachment=True)
+                         download_name=po['filename'],as_attachment=not inline)
 
     @app.post('/binflow/client/interstate-transfers/<int:bid>/purchase-order')
     @client_access

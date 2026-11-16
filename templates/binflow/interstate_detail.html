@@ -1,6 +1,7 @@
 {% extends 'binflow/interstate_base.html' %}
 {% from 'binflow/transfer_invoice_action.html' import invoice_action with context %}
 {% from 'binflow/freight_amounts.html' import breakdown %}
+{% from 'binflow/po_quick_view.html' import quick_view %}
 {% from 'binflow/purchase_order_status.html' import badge as po_badge %}
 {% macro dispatch_picker(opts) %}
   <label>Send load to<select name="dispatch_to" {% if opts.choices %}required{% endif %}>
@@ -71,7 +72,10 @@
 <section data-record-text id="purchase-order" class="it-po-section" aria-labelledby="it-po-title">
   <div class="it-po-heading"><h3 id="it-po-title">Purchase order</h3>{{ po_badge(po) }}</div>
   {% if po and po.number %}<p><strong>PO number</strong> · {{ po.number }}</p>{% endif %}
-  {% if po and po.filename %}<p><a href="{{ url_for('bf_client_interstate_po_file' if external else 'bf_interstate_po_file',bid=b.id) }}" download>Download PO · {{ po.filename }}</a></p>{% endif %}
+  {% if po and po.filename %}<div class="it-tools">
+    {{ quick_view(b.id,po.filename,po.mime_type,external) }}
+    <a href="{{ url_for('bf_client_interstate_po_file' if external else 'bf_interstate_po_file',bid=b.id) }}" download>Download PO · {{ po.filename }}</a>
+  </div>{% include 'document_quick_view.html' %}{% endif %}
   {% if can_update_booking and b.locked_at %}
   <details {{ 'open' if not po or po_error }}>
     <summary>{{ 'Update purchase order' if po else 'Add purchase order' }}</summary>

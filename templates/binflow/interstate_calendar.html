@@ -1,5 +1,6 @@
 {% extends 'binflow/interstate_base.html' %}
 {% from 'binflow/transfer_invoice_action.html' import invoice_action with context %}
+{% from 'binflow/po_quick_view.html' import quick_view %}
 {% from 'binflow/purchase_order_status.html' import badge as po_badge %}
 {% macro reference(b) %}IT-{{ '%06d'|format(b.id) }}{% endmacro %}
 {% macro route(b) %}{% if b.rigid_hours_units %}Local RIGID · {{ places[b.origin][1] }}{% else %}{{ places[b.origin][1] }} → {{ places[b.destination][1] }}{% endif %}{% endmacro %}
@@ -91,6 +92,7 @@
   </section>
   {% if b.locked_at or b.po_received %}<section class="it-preview-po">{{ po_badge(b.po_received) }}
     {% if b.po_number %}<span>{{ b.po_number }}</span>{% endif %}
+    {% if b.po_filename %}{{ quick_view(id,b.po_filename,b.po_mime_type,external) }}{% endif %}
     <a href="{{ url_for('bf_client_interstate_detail' if external else 'bf_interstate_detail',bid=id,_anchor='purchase-order') }}">{{ 'Add PO' if not b.po_received and can_update_booking else 'View purchase order' }}</a>
   </section>{% endif %}
   {% if external %}
@@ -104,6 +106,7 @@
   <footer><span>{{ 'Subcontracted' if b.job_type=='external' else 'Internal job' }}</span><a href="{{ url_for('bf_client_interstate_detail' if external else 'bf_interstate_detail',bid=id) }}">Open booking</a></footer>
 </template>
 {% endfor %}
+{% if previews.values()|selectattr('po_filename')|first %}{% include 'document_quick_view.html' %}{% endif %}
 <script src="{{ url_for('static',filename='binflow-transfer-calendar.js') }}" defer></script>
 {% endif %}
 {% endblock %}

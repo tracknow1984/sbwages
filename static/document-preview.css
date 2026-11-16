@@ -1,0 +1,10 @@
+.register-preview {width:min(850px, 95vw); padding:16px; border:0; border-radius:12px; color:#17313e; max-height:90vh;}
+.register-preview::backdrop {background:#112331bd;}
+.register-preview .panel-head {position:sticky; top:0; background:white; overflow-wrap:anywhere;}
+.preview-body img {display:block; max-width:100%; max-height:70vh; object-fit:contain; margin:auto;}
+.preview-body iframe {width:100%; height:68vh; border:0;}
+.register-preview .panel-head {display:flex; align-items:center; gap:.75rem; padding-bottom:.75rem;}
+.register-preview .panel-head strong {flex:1; min-width:0;}
+.register-preview .panel-head form {margin:0;}
+.register-preview .panel-head a {white-space:nowrap;}
+.register-preview .preview-body iframe {display:block;}

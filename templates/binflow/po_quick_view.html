@@ -1,0 +1,5 @@
+{% macro quick_view(bid, filename, mime, external) -%}
+<a class="button secondary" data-preview="{{ mime }}" data-name="{{ filename }}" aria-haspopup="dialog"
+   href="{{ url_for('bf_client_interstate_po_file' if external else 'bf_interstate_po_file',bid=bid,preview=1) }}"
+   target="_blank" rel="noopener">Quick view PO</a>
+{%- endmacro %}

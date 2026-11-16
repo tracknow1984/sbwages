@@ -313,6 +313,8 @@ class PortalPermissionTests(unittest.TestCase):
         self.assertEqual(self.rows('SELECT booking_id FROM bf_interstate_purchase_orders'),[])
         self.assertIn('PO-100',self.send(client,path,fields).text)
         self.assertEqual(client.get(path+'/file').status_code,404)
+        self.assertEqual(client.get(path+'/file?preview=1').status_code,404)
+        self.assertNotIn('Quick view PO',client.get(CLIENT+'/1').text)
         self.assertEqual(client.get(week).text.count('data-po-status="received"'),1)
         out=io.BytesIO()
         pdf=Canvas(out)
@@ -331,6 +333,23 @@ class PortalPermissionTests(unittest.TestCase):
         self.assertEqual(response.data,document)
         self.assertEqual(response.mimetype,'application/pdf')
         self.assertIn('attachment',response.headers['Content-Disposition'])
+        for browser, base in ((self.client,CAL),(client,CLIENT)):
+            preview_url=base+'/1/purchase-order/file?preview=1'
+            for page_url in (base+'/1', base+'?date=2026-11-12'):
+                page=browser.get(page_url)
+                self.assertIn('href="'+preview_url+'"',page.text)
+                self.assertIn('data-preview="application/pdf"',page.text)
+                self.assertIn('aria-labelledby="preview-name"',page.text)
+            preview=browser.get(preview_url)
+            self.assertEqual((preview.status_code,preview.data,preview.mimetype),(200,document,'application/pdf'))
+            self.assertIn('inline;',preview.headers['Content-Disposition'])
+            self.assertEqual(preview.headers['X-Frame-Options'],'SAMEORIGIN')
+            self.assertIn("frame-ancestors 'self'",preview.headers['Content-Security-Policy'])
+            self.assertIn('no-store',preview.headers['Cache-Control'])
+        denied=other.get(path+'/file?preview=1')
+        self.assertEqual(denied.status_code,404)
+        self.assertEqual(denied.headers['X-Frame-Options'],'DENY')
+        self.assertEqual(response.headers['X-Frame-Options'],'DENY')
         self.assertEqual(self.client.get(CAL+'/1/purchase-order/file').data,document)
         self.assertNotIn('PO-101',other.get(week).text)
         self.assertEqual(other.get(path+'/file').status_code,404)
@@ -342,6 +361,26 @@ class PortalPermissionTests(unittest.TestCase):
         self.assertNotIn('Save PO',client.get(CLIENT+'/1').text)
         self.assertEqual(self.send(client,path,dict(fields,po_revision=3)).status_code,403)
         self.assertEqual(client.get(path+'/file').data,document)
+
+    def test_po_quick_view_uses_current_image_without_another_upload(self):
+        from io import BytesIO
+        from PIL import Image
+        self.account('image-client')
+        client=self.visit('image-client')
+        self.send(client,CLIENT+'/new',data())
+        self.post(CAL+'/1/lock',dict(version=1))
+        url=CAL+'/1/purchase-order'
+        for revision, (fmt, name, mime) in enumerate([
+                ('JPEG','first.jpg','image/jpeg'),('PNG','replacement.png','image/png')]):
+            buf=BytesIO()
+            Image.new('RGB',(12,12),'navy').save(buf,format=fmt)
+            file_data=buf.getvalue()
+            self.post(url,dict(po_revision=revision,po_file=(BytesIO(file_data),name)))
+            preview=client.get(CLIENT+'/1/purchase-order/file?preview=1')
+            self.assertEqual((preview.data,preview.mimetype),(file_data,mime))
+            self.assertTrue(preview.headers['Content-Disposition'].startswith('inline;'))
+            self.assertIn('data-preview="'+mime+'"',client.get(CLIENT+'/1').text)
+            self.assertIn(name,self.client.get(CAL+'/1').text)
 
     def test_address_suggestions_are_available_on_staff_and_client_booking_forms(self):
         self.account('address-user',custom_permissions='yes',permission=['bookings.add','bookings.edit'])
