@@ -25,6 +25,7 @@
       for (const card of calendarCards) {
         const id = card.dataset.transferPreview;
         const reply = bookings[id];
+        if (typeof reply?.invoiced === 'boolean') card.toggleAttribute('data-invoiced', reply.invoiced);
         const label = card.querySelector('[data-dispatch-label]');
         label.hidden = !reply?.label;
         label.textContent = reply?.label || '';

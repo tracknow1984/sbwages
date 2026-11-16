@@ -6,7 +6,8 @@
 {% macro route(b) %}{% if b.rigid_hours_units %}Local RIGID · {{ places[b.origin][1] }}{% else %}{{ places[b.origin][1] }} → {{ places[b.destination][1] }}{% endif %}{% endmacro %}
 {% macro vehicle(b) %}{{ 'B DOUBLE' if b.vehicle=='B-DOUBLE' else b.vehicle or 'Vehicle to confirm' }}{% endmacro %}
 {% macro vehicle_tag(code) %}<span class="it-vehicle-tag" data-truck="{{ code or 'unassigned' }}">{{ {'RIGID':'RIGID','SEMI TRAILER':'SEMI','B-DOUBLE':'B DOUBLE'}.get(code,'Vehicle to confirm') }}</span>{% endmacro %}
-{% macro preview_link(b) %}href="{{ url_for('bf_client_interstate_detail' if external else 'bf_interstate_detail',bid=b.id) }}" data-record-text data-transfer-preview="{{ b.id }}" data-client-colour="{{ b.colour }}" aria-controls="it-transfer-preview" aria-expanded="false"{% endmacro %}
+{% macro invoice_badge() %}<span class="it-invoiced-badge">Invoiced</span>{% endmacro %}
+{% macro preview_link(b) %}href="{{ url_for('bf_client_interstate_detail' if external else 'bf_interstate_detail',bid=b.id) }}" data-record-text data-transfer-preview="{{ b.id }}" data-client-colour="{{ b.colour }}"{% if invoices.get(b.id) and invoices[b.id].invoiced %} data-invoiced{% endif %} aria-controls="it-transfer-preview" aria-expanded="false"{% endmacro %}
 {% block transfer_content %}
 {% set cal='bf_client_interstate' if external else 'bf_interstate_calendar' %}
 {% set can_add=not external or 'bookings.add' in g.client_rights %}
@@ -34,6 +35,7 @@
   <div class="it-calendar-key it-po-legend" aria-label="Purchase order legend"><strong>Purchase orders</strong>
     <span>{{ po_badge(false) }} Add a number or file</span>
     <span>{{ po_badge(true) }} Number or file supplied</span>
+    {% if not external %}<span>{{ invoice_badge() }} Confirmed in Xero</span>{% endif %}
     <div class="it-vehicle-key" aria-label="Vehicle colours">{% for code in calendar_vehicles %}{{ vehicle_tag(code) }}{% endfor %}</div>
   </div>
   <div class="bf-calendar-grid-wrap"><table class="bf-date-grid {{ 'bf-date-grid-week' if view=='week' }}" aria-label="Transfer bookings by pickup date">
@@ -49,6 +51,7 @@
             <span class="it-card-meta">{{ route(b) }}</span>
             {{ po_badge(b.po_received) }}
             {% if not external %}
+            {{ invoice_badge() }}
             {% set answer=dispatch_response_label(b.handoff_event,b.handoff_target,b.send_status,b.dispatch_decision) %}
             <span class="it-reply {{ b.dispatch_decision or 'pending' }}" data-dispatch-label {% if not answer %}hidden{% endif %}>{{ answer }}</span>
             {% endif %}
@@ -61,6 +64,7 @@
 {% for b in pending %}{% set info=previews[b.id] %}
 <a class="it-pending it-awaiting-transfer" {{ preview_link(info) }}>
   {{ vehicle_tag(b.vehicle) }}<strong>{{ info.billing_name }}</strong><span>{{ reference(b) }} · {{ route(b) }}</span>
+  {% if not external %}{{ invoice_badge() }}{% endif %}
   {% if b.date_change_id %}<strong>Date change requested</strong>{% if b.po_received %}{{ po_badge(true) }}{% endif %}{% endif %}
   <span>Pickup {{ b.pickup_date|display_date }} · Delivery {{ b.delivery_date|display_date }}</span>
 </a>{% else %}<p>No pending requests.</p>{% endfor %}</section>

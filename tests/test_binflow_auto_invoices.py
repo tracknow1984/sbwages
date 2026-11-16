@@ -152,6 +152,7 @@ class AutoInvoiceTests(unittest.TestCase):
 
         calendar = CAL+'?date=2026-11-13'
         action = CAL+'/1/invoice-draft'
+        self.assertNotIn(' data-invoiced',self.client.get(calendar).text)
         for path in (calendar, CAL+'/1'):
             self.assertIn(action, self.client.get(path).text)
         self.assertNotIn(action, client.get(CLIENT+'?date=2026-11-13').text)
@@ -179,7 +180,12 @@ class AutoInvoiceTests(unittest.TestCase):
             self.assertEqual([call.args[2] for call in api.call_args_list], ['Organisation','Invoices'])
         self.assertIn('Open Xero draft', self.client.get(calendar).text)
         self.post(CAL+'/1/bulk',dict(action='deliver'))
-        self.client.get(BASE)
+        for view in ('month','week'):
+            page = self.client.get(calendar+'&view='+view).text
+            self.assertRegex(page,r'<a class="it-event pickup"[^>]*data-delivered="true"[^>]* data-invoiced')
+        self.assertTrue(self.client.get(calendar+'&responses=1').json['bookings']['1']['invoiced'])
+        self.assertEqual(self.client.get(BASE).text.count('class="bf-invoiced-row"'),2)
+        self.assertNotIn(' data-invoiced', client.get(CLIENT+'?date=2026-11-13').text)
         self.assertEqual(len(self.rows("SELECT id FROM bf_auto_drafts WHERE kind='Transport'")),1)
         self.assertEqual(len(self.rows("SELECT id FROM bf_rental_invoices WHERE booking_id=1")),1)
 
@@ -277,6 +283,9 @@ class AutoInvoiceTests(unittest.TestCase):
             api.assert_called_once()
         invoice = self.rows('SELECT * FROM bf_rental_invoices WHERE booking_id=1')[0]
         self.assertEqual(invoice['status'],'uncertain')
+        updates = CAL+'?date=2026-11-13&responses=1'
+        self.assertFalse(self.client.get(updates).json['bookings']['1']['invoiced'])
+        self.assertNotIn('class="bf-invoiced-row"',self.client.get(BASE).text)
         remote = dict(json.loads(invoice['payload_json'])['Invoices'][0],InvoiceID=billing.INVOICE,Total=110)
         another = dict(remote,InvoiceID=billing.CONTACT,Url=remote['Url']+'-other')
         with patch('binflow_xero.api',return_value={'Invoices':[another,remote]}) as api:
@@ -284,3 +293,8 @@ class AutoInvoiceTests(unittest.TestCase):
             self.assertTrue(api.call_args.args[2].startswith('Invoices?'))
             self.post(action)
             api.assert_called_once()
+        self.assertTrue(self.client.get(updates).json['bookings']['1']['invoiced'])
+        with self.connection() as conn:
+            conn.execute("UPDATE bf_rental_invoices SET xero_status='VOIDED' WHERE booking_id=1")
+        self.assertFalse(self.client.get(updates).json['bookings']['1']['invoiced'])
+        self.assertNotIn('class="bf-invoiced-row"',self.client.get(BASE).text)

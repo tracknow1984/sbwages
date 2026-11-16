@@ -346,7 +346,9 @@ def register(app, db, access, require, render, client_access, now, actor):
             f' ORDER BY {vehicle_order},b.client_name,b.id',(*limits,*args)).fetchall()
         if request.args.get('responses')=='1':
             from app import display_datetime
+            invoices = transfer_invoices(db(),[b['id'] for b in rows])
             return {'bookings': {str(b['id']): dict(
+                invoiced=bool(b['id'] in invoices and invoices[b['id']]['invoiced']),
                 label=dispatch.response_label(b['handoff_event'],b['handoff_target'],b['send_status'],b['dispatch_decision']),
                 decision=b['dispatch_decision'] or 'pending',recipient=b['handoff_recipient'] or '',
                 sent=display_datetime(b['handed_at']) if b['handed_at'] else '',
@@ -371,7 +373,7 @@ def register(app, db, access, require, render, client_access, now, actor):
                 legend.setdefault(preview['colour'],name)
         for row in rows:
             events[row['pickup_date']].append(previews[row['id']])
-        invoices = transfer_invoices(db(), list(previews)) if not external and g.user['role']=='admin' else {}
+        invoices = transfer_invoices(db(), list(previews)) if not external else {}
         return page('interstate_calendar',external,invoices=invoices,view=view,state=state,chosen=chosen,
                     previous=previous,following=following,title=title,weeks=weeks,events=events,pending=pending,cancelled=cancelled,
                     previews=previews,legend=legend,vehicle_filter=vehicle_filter,calendar_vehicles=calendar_vehicles,booking_count=len(rows),today=now()[:10],can_update_booking=can_update_booking(external))

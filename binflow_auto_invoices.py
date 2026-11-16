@@ -19,6 +19,9 @@ from binflow_rental import report
 from binflow_sizes import amount
 
 FORTNIGHT_ANCHOR = date(1970, 1, 5)
+# All invoice and calendar views use the last confirmed result from Xero.
+INVOICED_SQL = """i.mode='actual' AND i.status='created' AND i.invoice_id!=''
+                  AND i.xero_status IN ('DRAFT','SUBMITTED','AUTHORISED','PAID')"""
 
 
 def fortnight(day):
@@ -221,8 +224,9 @@ def refresh(conn, stamp, always=False):
 
 def transfer_invoices(conn, booking_ids):
     """Find the active invoice or local draft for each booking in the current view."""
-    rows = conn.execute("""
-        SELECT b.value AS booking_id, COALESCE(i.id,d.id) AS id,i.status,i.xero_status
+    rows = conn.execute(f"""
+        SELECT b.value AS booking_id, COALESCE(i.id,d.id) AS id,i.status,i.xero_status,
+               ({INVOICED_SQL}) AS invoiced
         FROM json_each(?) b
         LEFT JOIN bf_rental_invoices i ON i.booking_id=b.value AND i.status!='cancelled'
         LEFT JOIN bf_auto_drafts d ON d.group_key='transfer:'||b.value AND d.state='open'

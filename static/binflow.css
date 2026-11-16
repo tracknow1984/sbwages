@@ -332,3 +332,6 @@ summary.bf-condition-label {cursor:pointer;min-height:36px}
 .bf-warehouse-message {padding:1rem 0;border-top:1px solid var(--bf-line)}
 .bf-warehouse-message small {display:block;margin-top:.25rem;color:var(--bf-muted)}
 .bf-warehouse-message p {margin:.5rem 0 0;white-space:pre-wrap;overflow-wrap:anywhere}
+
+.bf {--bf-invoiced-yellow:#fff0a3}
+.bf .bf-table-wrap tr.bf-invoiced-row,.bf .bf-table-wrap tr.bf-invoiced-row>td {background-color:var(--bf-invoiced-yellow)}

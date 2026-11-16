@@ -179,12 +179,12 @@ def register(app, db, require, render, client_access, now, actor):
         cfg = xero.config(conn)
         connected = bool(cfg['tenant_id'] and cfg['token_cipher'])
         auto.refresh(conn,now(),True)
-        drafts = conn.execute("""SELECT d.*,i.invoice_number,
+        drafts = conn.execute(f"""SELECT d.*,i.invoice_number,({auto.INVOICED_SQL}) AS invoiced,
             COALESCE((SELECT SUM(json_extract(x.value,'$.net')+json_extract(x.value,'$.tax'))
               FROM json_each(d.lines) x),0) AS total FROM bf_auto_drafts d LEFT JOIN bf_rental_invoices i ON i.id=d.id
             ORDER BY CASE d.state WHEN 'sending' THEN 0 WHEN 'open' THEN 1 ELSE 2 END,d.end DESC,d.client""").fetchall()
         page = max(1,request.args.get('page',1,type=int))
-        history = conn.execute("""SELECT i.id,i.invoice_number,i.mode,i.status,i.xero_status,i.created_at,
+        history = conn.execute(f"""SELECT i.id,i.invoice_number,i.mode,i.status,i.xero_status,i.created_at,({auto.INVOICED_SQL}) AS invoiced,
             json_extract(i.snapshot_json,'$.contact.name') AS contact,c.name AS category FROM bf_rental_invoices i
             JOIN bf_invoice_categories c ON c.id=i.category_id ORDER BY i.created_at DESC,i.rowid DESC LIMIT 31 OFFSET ?""",
                                ((page-1)*30,)).fetchall()

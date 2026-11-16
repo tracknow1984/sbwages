@@ -92,6 +92,9 @@
 .it-client-po-calendar .it-event[data-po-status=received] {border-left-color:#16733b}
 .it-dispatch-calendar .it-event[data-delivered] {background-color:#dbeafe}
 .it-client-po-calendar .it-event[data-delivered] {border-left-color:#1e4e88}
+.it-dispatch-calendar .it-event[data-invoiced],.it-awaiting-transfer[data-invoiced] {background-color:var(--bf-invoiced-yellow)}
+.it-invoiced-badge,.it-event .it-invoiced-badge {display:inline-block;padding:.12rem .4rem;border-radius:.3rem;border:1px solid #957100;background:#ffdf66;color:#493700;font-size:.75rem;font-weight:700}
+[data-transfer-preview]:not([data-invoiced]) > .it-invoiced-badge {display:none}
 .it-delivered-badge,.it-dispatch-calendar .it-event .it-delivered-badge {display:inline-block;padding:.12rem .45rem;border-radius:.3rem;background:#1e4e88;color:white;font-size:.76rem;font-weight:700}
 .it-po-badge,.it-dispatch-calendar .it-event .it-po-badge {display:inline-block;font-size:.73rem;line-height:1.3;font-weight:700;border:1px solid currentColor;border-radius:.35rem;padding:.12rem .35rem}
 .it-po-badge.is-required {background:#ffe9e9;color:#8c1928}
