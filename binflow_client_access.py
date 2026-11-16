@@ -3,7 +3,10 @@ import hashlib
 import json
 from flask import abort, flash, g, redirect, request, url_for
 
+SBTX_RIGHTS = {'sbtx.view', 'sbtx.add', 'sbtx.edit'}
+
 MODULES = (
+    ('sbtx','Own SBTX transport jobs',('view','add','edit')),
     ('bookings','Own interstate bookings',('view','add','edit')),
     ('national','National local pickups',('view',)),
     ('profiles','National client profiles',('view','add','edit')),
@@ -13,6 +16,8 @@ MODULES = (
     ('requests','Approved-site collection requests',('view',)),
 )
 ENDPOINTS = {
+    'sbtx_client.calendar':'sbtx.view', 'sbtx_client.new_job':'sbtx.add',
+    'sbtx_client.job':'sbtx.view', 'sbtx_client.po_file':'sbtx.view',
     'bf_client_warehouses':'warehouses.view', 'bf_client_warehouse_chat':'warehouses.view',
     'bf_client_interstate_reschedule':'bookings.view',
     'bf_client_rigid_quote':'bookings.view', 'bf_client_interstate':'bookings.view', 'bf_client_interstate_detail':'bookings.view',
@@ -62,7 +67,7 @@ def set_context(conn, account):
         (account['id'],)).fetchone() is not None
     g.client_rights=rights_for(conn,account['id'])
     # The warehouse directory and the account's own conversations accompany any active portal access.
-    if g.client_rights:
+    if any(not right.startswith('sbtx.') for right in g.client_rights):
         g.client_rights.add('warehouses.view')
     g.client_section = ENDPOINTS.get(request.endpoint, '').partition('.')[0]
     return g.client_rights

@@ -45,6 +45,7 @@
 {% if current_user.role == 'admin' %}{% include 'admin_navigation.html' %}
 {% else %}<nav class="tabs" aria-label="Main navigation">
 <a class="{{ 'selected' if tab == 'home' }}" href="{{ url_for('employee_dashboard') }}">HOME</a>
+{% if binflow_manager %}<a class="{{ 'selected' if tab == 'sbtx' }}" href="{{ url_for('sbtx.calendar') }}">SBTX</a>{% endif %}
 {% if binflow_allowed %}<a class="{{ 'selected' if tab == 'binflow' }}" href="{{ url_for('bf_dashboard') if binflow_manager else url_for('bf_bales') if binflow_warehouse else url_for('bf_workday') }}">BINFLOW</a>{% endif %}
 <a class="{{ 'selected' if tab == 'hit-me' }}" href="{{ url_for('employee_hit_me') }}">EMPIRE WIRE</a>
 <a class="{{ 'selected' if tab == 'timesheet' }}" href="{{ url_for('employee_timesheet') }}">MY TIMESHEET</a>

@@ -845,9 +845,11 @@ def register(app, db, access, require, render, client_access, now, actor):
         db().commit()
         return redirect(details_url(bid,False))
 
+    @app.route('/sbtx/customers',endpoint='sbtx_accounts',methods=['GET','POST'])
     @app.route('/binflow/interstate-transfers/access',methods=['GET','POST'])
     @require('admin')
     def bf_interstate_accounts():
+        sbtx_setup = request.endpoint == 'sbtx_accounts'
         error = None
         attempted = None
         if request.method=='POST':
@@ -878,9 +880,12 @@ def register(app, db, access, require, render, client_access, now, actor):
                     portal.bind_named_default(conn)
                     if request.form.get('custom_permissions')=='yes':
                         portal.save_rights(conn,aid,request.form)
+                    elif sbtx_setup:
+                        conn.execute('INSERT INTO bf_client_permissions(account_id,rights) VALUES(?,?)',
+                                     (aid, json.dumps(sorted(portal.SBTX_RIGHTS))))
                 conn.commit()
                 flash(f'Booking login “{username}” saved.','success')
-                return redirect(url_for('bf_interstate_accounts',_anchor=f'login-{aid}'),code=303)
+                return redirect(url_for(request.endpoint,_anchor=f'login-{aid}'),code=303)
             except (ValueError,sqlite3.IntegrityError) as exc:
                 db().rollback()
                 error = str(exc) if isinstance(exc,ValueError) else 'That username is already in use.'
@@ -890,13 +895,18 @@ def register(app, db, access, require, render, client_access, now, actor):
             LEFT JOIN bf_interstate_accounts i ON i.account_id=a.id
             ORDER BY a.created_at DESC,a.id DESC""").fetchall()
         policies={a['id']:portal.rights_for(db(),a['id']) for a in accounts}
-        create_rights=portal.defaults(True)
+        create_rights=portal.SBTX_RIGHTS if sbtx_setup else portal.defaults(True)
         if attempted and not attempted['id'] and request.form.get('custom_permissions')=='yes':
             create_rights=set(request.form.getlist('permission'))
             if request.form.get('pod_scope')=='national':
                 create_rights.add('pods.all')
-        return render('interstate_access',policies=policies,modules=portal.MODULES,create_rights=create_rights,
-                      revision=portal.revision,section='interstate',accounts=accounts,error=error,attempted=attempted),400 if error else 200
+        values = dict(policies=policies, modules=portal.MODULES, create_rights=create_rights, revision=portal.revision,
+                      accounts=accounts, error=error, attempted=attempted)
+        status = 400 if error else 200
+        if sbtx_setup:
+            values['accounts'] = [a for a in accounts if 'sbtx.view' in policies[a['id']]]
+            return render_template('binflow/interstate_access.html', tab='sbtx', sbtx_setup=True, **values), status
+        return render('interstate_access',section='interstate',**values), status
 
     @app.post('/binflow/interstate-transfers/access/<int:aid>/permissions')
     @require('admin')
@@ -915,4 +925,4 @@ def register(app, db, access, require, render, client_access, now, actor):
                      (aid,'Portal permissions saved',','.join(sorted(portal.rights_for(conn,aid))),actor(),now()))
         conn.commit()
         flash('Portal permissions saved.','success')
-        return redirect(url_for('bf_interstate_accounts',_anchor=f'login-{aid}'),code=303)
+        return redirect(url_for('sbtx_accounts' if request.args.get('area') == 'sbtx' else 'bf_interstate_accounts',_anchor=f'login-{aid}'),code=303)

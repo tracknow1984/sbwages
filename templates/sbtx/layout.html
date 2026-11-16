@@ -1,0 +1,11 @@
+{% extends 'sbtx/customer_base.html' if external else 'base.html' %}
+{% block browser_title %}SBTX · Transport calendar{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static',filename='binflow.css') }}">
+<link rel="stylesheet" href="{{ url_for('static',filename='binflow-interstate.css') }}">
+<div class="bf" data-record-text>
+  <header class="bf-heading"><div><span class="bf-kicker">SBTX</span><h1>{% block title %}Transport calendar{% endblock %}</h1></div>
+  {% block actions %}{% endblock %}</header>
+  {% block body %}{% endblock %}
+</div>
+{% endblock %}

@@ -44,6 +44,8 @@ def register_portal(app, db, access, require, render, success, failure, now, act
             account=db().execute('SELECT * FROM bf_client_accounts WHERE id=? AND active=1', (session.get('bf_client_uid'),)).fetchone()
             if not account or account['auth_version']!=session.get('bf_client_version'):
                 session.pop('bf_client_uid',None);session.pop('bf_client_version',None)
+                if request.blueprint == 'sbtx_client':
+                    return redirect(url_for('sbtx_client_login'))
                 if request.endpoint in ('bf_client_warehouses', 'bf_client_warehouse_chat'):
                     return redirect(url_for('bf_client_login', warehouse=kwargs.get('state', 'directory')))
                 return redirect(url_for('bf_client_login', transfers=1) if request.endpoint.startswith('bf_client_interstate') else url_for('bf_client_login'))
@@ -64,13 +66,16 @@ def register_portal(app, db, access, require, render, success, failure, now, act
         db().commit()
         return False
 
+    @app.route('/sbtx/client/login',endpoint='sbtx_client_login',methods=['GET','POST'])
     @app.route('/binflow/client/login',methods=['GET','POST'])
     def bf_client_login():
+        sbtx_login = request.endpoint == 'sbtx_client_login'
+        template = 'sbtx/login.html' if sbtx_login else 'binflow/client_login.html'
         if request.method=='POST':
             username=request.form.get('username','').strip().lower()[:100]
             keys=[hashlib.sha256(f'bf-client:{value}'.encode()).hexdigest() for value in (username,'ip:'+str(request.remote_addr))]
             if any(limited(k) for k in keys):
-                return render_template('binflow/client_login.html',error='Too many attempts. Try again in 15 minutes.'),429
+                return render_template(template,error='Too many attempts. Try again in 15 minutes.'),429
             account=db().execute('SELECT * FROM bf_client_accounts WHERE username=?',(username,)).fetchone()
             matched=check_password_hash(account['password_hash'] if account else app.config['DUMMY_HASH'],request.form.get('password','')[:200])
             if account and account['active'] and matched:
@@ -80,6 +85,11 @@ def register_portal(app, db, access, require, render, success, failure, now, act
                 session.permanent=True
                 db().execute('DELETE FROM login_attempts WHERE key=?',(keys[0],));db().commit()
                 rights=portal.set_context(db(),account)
+                if sbtx_login:
+                    if 'sbtx.view' in rights:
+                        return redirect(url_for('sbtx_client.calendar'))
+                    session.clear()
+                    return render_template(template, error='This login does not have SBTX access.'),403
                 if 'pods.view' in rights and pod_next.startswith('/binflow/pod/'):
                     return redirect(pod_next)
                 destination = request.args.get('warehouse')
@@ -91,17 +101,18 @@ def register_portal(app, db, access, require, render, success, failure, now, act
                 booking_first=request.args.get('transfers')=='1' or db().execute(
                     'SELECT 1 FROM bf_interstate_accounts WHERE account_id=?',(account['id'],)).fetchone()
                 homes=['bf_client_interstate','bf_client_calendar'] if booking_first else ['bf_client_calendar','bf_client_interstate']
-                for endpoint in homes+['bf_client_national','bf_client_pods','bf_client_profiles_portal','bf_client_requests','bf_client_invoices']:
+                for endpoint in homes+['bf_client_national','bf_client_pods','bf_client_profiles_portal','bf_client_requests','bf_client_invoices','sbtx_client.calendar']:
                     if portal.ENDPOINTS[endpoint] in rights:
                         return redirect(url_for(endpoint))
                 return render_template('binflow/client_inactive.html',account=account)
-            return render_template('binflow/client_login.html',error='The username or password is incorrect.'),401
-        return render_template('binflow/client_login.html',error=None)
+            return render_template(template,error='The username or password is incorrect.'),401
+        return render_template(template,error=None)
 
+    @app.post('/sbtx/client/logout', endpoint='sbtx_client_logout')
     @app.post('/binflow/client/logout')
     def bf_client_logout():
         session.clear()
-        return redirect(url_for('bf_client_login'))
+        return redirect(url_for('sbtx_client_login' if request.endpoint == 'sbtx_client_logout' else 'bf_client_login'))
 
     @app.get('/binflow/client/pods')
     @client_access
@@ -134,6 +145,8 @@ def register_portal(app, db, access, require, render, success, failure, now, act
         if not permitted_pod(db(),g.bf_client,job_id,g.client_rights): abort(404)
         return pdf(job_id)
 
+    from sbtx import register as register_sbtx
+    register_sbtx(app, db, client_access, now)
     from binflow_interstate import register as register_interstate
     register_interstate(app,db,access,require,render,client_access,now,actor)
     from binflow_invoices import register as register_invoices

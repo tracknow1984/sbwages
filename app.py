@@ -281,7 +281,8 @@ def create_app(test_config=None):
             request.max_content_length = MAX_STAFF_FILES * app.config['DOCUMENT_MAX_BYTES'] + 128 * 1024
         elif request.endpoint == 'upload_licence_photos':
             request.max_content_length = 12 * 1024 * 1024
-        elif request.endpoint not in ('employee_documents','bf_client_interstate_po','bf_interstate_po'):
+        elif request.endpoint not in ('employee_documents','bf_client_interstate_po','bf_interstate_po',
+                                      'sbtx.new_job','sbtx.job','sbtx_client.new_job','sbtx_client.job'):
             request.max_content_length = 128 * 1024
         g.user = None
         if session.get('uid'):
@@ -475,6 +476,8 @@ def create_app(test_config=None):
                 from binflow_resume import staff_landing
                 requested = binflow_next if binflow_next.startswith('/binflow/') or binflow_next == '/admin/bin-management' else None
                 destination = staff_landing(db(), user, requested)
+                if audience == 'admin' and request.args.get('area') == 'sbtx':
+                    destination = url_for('sbtx.calendar')
                 if user['role'] == 'employee' and needs_signature(db(), user['id']):
                     session['induction_return'] = destination
                     return redirect(url_for('employee_induction'))

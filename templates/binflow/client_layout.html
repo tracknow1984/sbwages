@@ -28,6 +28,7 @@
       <nav class="bf-client-nav no-print" aria-labelledby="bf-client-menu-title">
         <h2 id="bf-client-menu-title">Client portal</h2>
         {% for section, endpoint, label, symbol in [
+          ('sbtx', 'sbtx_client.calendar', 'SBTX', 'calendar'),
           ('calendar', 'bf_client_calendar', 'Collection calendar', 'calendar'),
           ('national', 'bf_client_national', 'National local pickups', 'pin'),
           ('pods', 'bf_client_pods', 'Completed PODs' if 'pods.all' in g.client_rights else 'Daily PODs', 'pod'),

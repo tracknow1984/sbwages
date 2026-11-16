@@ -1,5 +1,5 @@
-{% extends 'binflow/layout.html' %}
-{% block title %}External booking logins{% endblock %}
+{% extends 'sbtx/layout.html' if sbtx_setup else 'binflow/layout.html' %}
+{% block title %}{{ 'Customer access' if sbtx_setup else 'External booking logins' }}{% endblock %}
 {% block subtitle %}Manage customer logins, permissions and freight rates.{% endblock %}
 
 {% macro permission_matrix(rights) %}
@@ -20,7 +20,7 @@
     <input type="password" name="password" autocomplete="new-password" minlength="12" maxlength="200" {{ 'required' if not account }}>
   </label>
   <label class="bf-check"><input type="checkbox" name="active" value="yes" {{ 'checked' if not values or values.active }}>Login enabled</label>
-  {% if not account %}<details><summary>Portal permissions</summary>
+  {% if not account and not sbtx_setup %}<details><summary>Portal permissions</summary>
   <p>Standard access lets this client view and add their own interstate bookings.</p>
   <label class="bf-check"><input type="checkbox" name="custom_permissions" value="yes" {{ 'checked' if request.form.get('custom_permissions')=='yes' }}>Use custom permissions</label>
   {{ permission_matrix(create_rights) }}</details>{% endif %}
@@ -29,11 +29,12 @@
 
 {% block body %}
 <link rel="stylesheet" href="{{ url_for('static',filename='binflow-interstate.css') }}">
-<a href="{{ url_for('bf_interstate_calendar') }}">← Transfer calendar</a>
+<a href="{{ url_for('sbtx.calendar' if sbtx_setup else 'bf_interstate_calendar') }}">← {{ 'SBTX' if sbtx_setup else 'Transfer' }} calendar</a>
 <section class="bf-panel bf-pad" aria-labelledby="booking-portal">
-  <div class="bf-toolbar"><h2 id="booking-portal">Booking portal</h2>
-    <a href="{{ url_for('bf_client_login',transfers=1) }}">Customer sign-in page</a></div>
-  <p><a href="{{ url_for('bf_weekly_fuel') }}">Weekly fuel surcharge</a></p>
+  <div class="bf-toolbar"><h2 id="booking-portal">{{ 'SBTX customer access' if sbtx_setup else 'Booking portal' }}</h2>
+    <a href="{{ url_for('sbtx_client_login') if sbtx_setup else url_for('bf_client_login',transfers=1) }}">Customer sign-in page</a></div>
+  {% if sbtx_setup %}<p>New customer logins can book jobs and upload purchase orders on SBTX.</p>
+  {% else %}<p><a href="{{ url_for('bf_weekly_fuel') }}">Weekly fuel surcharge</a></p>{% endif %}
   <h3 id="saved-logins">Saved logins ({{ accounts|length }})</h3>
   {% if error %}<p class="notice error" role="alert">{{ error }}</p>{% endif %}
   <details class="it-login-create" {{ 'open' if attempted and not attempted.id }}>
@@ -50,12 +51,13 @@
       <form method="post" class="bf-form">{{ fields(a, attempted if attempted and attempted.id==a.id else a) }}</form>
     </details>
     {% elif a.username|lower=='blocktexx' %}<a href="{{ url_for('bf_client_accounts') }}">Manage BlockTexx access</a>{% endif %}
-  <details><summary>Portal permissions</summary><form method="post" class="bf-form" action="{{ url_for('bf_client_save_permissions',aid=a.id) }}">
+  <details><summary>Portal permissions</summary><form method="post" class="bf-form" action="{{ url_for('bf_client_save_permissions',aid=a.id,area='sbtx' if sbtx_setup else none) }}">
     <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ revision(policies[a.id]) }}">
     {{ permission_matrix(policies[a.id]) }}<button class="primary">Save permissions</button></form></details>
-  {% if a.transfer_only %}<a href="{{ url_for('bf_portal_sites',aid=a.id) }}">Edit approved sites</a>{% endif %}
-  <a href="{{ url_for('bf_interstate_rates',aid=a.id) }}">Pricing matrix</a>
+  {% if not sbtx_setup and a.transfer_only %}<a href="{{ url_for('bf_portal_sites',aid=a.id) }}">Edit approved sites</a>{% endif %}
+  {% if not sbtx_setup %}<a href="{{ url_for('bf_interstate_rates',aid=a.id) }}">Pricing matrix</a>{% endif %}
   </article>
   {% else %}<p>No customer logins have been saved yet.</p>{% endfor %}
+  {% if sbtx_setup %}<p><a href="{{ url_for('bf_interstate_accounts') }}">Manage permissions for an existing portal login</a></p>{% endif %}
 </section><script src="{{ url_for('static',filename='binflow-portal-permissions.js') }}" defer></script>
 {% endblock %}
