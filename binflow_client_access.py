@@ -13,6 +13,7 @@ MODULES = (
     ('requests','Approved-site collection requests',('view',)),
 )
 ENDPOINTS = {
+    'bf_client_warehouses':'warehouses.view', 'bf_client_warehouse_chat':'warehouses.view',
     'bf_client_interstate_reschedule':'bookings.view',
     'bf_client_rigid_quote':'bookings.view', 'bf_client_interstate':'bookings.view', 'bf_client_interstate_detail':'bookings.view',
     'bf_client_interstate_po':'bookings.view','bf_client_interstate_po_file':'bookings.view',
@@ -60,6 +61,9 @@ def set_context(conn, account):
         "SELECT 1 FROM bf_client_named_defaults WHERE name='blocktexx1' AND account_id=?",
         (account['id'],)).fetchone() is not None
     g.client_rights=rights_for(conn,account['id'])
+    # The warehouse directory and the account's own conversations accompany any active portal access.
+    if g.client_rights:
+        g.client_rights.add('warehouses.view')
     g.client_section = ENDPOINTS.get(request.endpoint, '').partition('.')[0]
     return g.client_rights
 

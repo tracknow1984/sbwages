@@ -1,0 +1,20 @@
+<section class="bf-panel bf-pad">
+  <h2>Conversation</h2>
+  {% if older %}<p><a href="{{ older }}">Earlier messages</a></p>{% endif %}
+  {% for message in messages %}
+  <article{% if loop.last and not history %} id="latest"{% endif %} class="bf-warehouse-message">
+    <strong>{{ state ~ ' warehouse' if message.staff_id else account.name }}</strong>
+    <small>{{ message.created_at|display_datetime }}</small>
+    <p>{{ message.body }}</p>
+  </article>
+  {% else %}{% if history %}<p>No earlier messages.</p>{% else %}<p>This is the start of your conversation with the {{ state }} warehouse team.</p>{% endif %}{% endfor %}
+  {% if history %}<p><a href="{{ url_for(request.endpoint, **request.view_args) }}">Latest messages</a></p>{% endif %}
+  <form class="bf-form" method="post" action="{{ url_for(request.endpoint, **request.view_args) }}">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+    <input type="hidden" name="submission_key" value="{{ submission_key }}">
+    <label>Message to {{ account.name if staff else state ~ ' warehouse' }}
+      <textarea name="body" rows="4" maxlength="4000" required></textarea>
+    </label>
+    <button class="primary" type="submit">{{ 'Send reply' if staff else 'Send message' }}</button>
+  </form>
+</section>

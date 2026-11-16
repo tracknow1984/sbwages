@@ -10,6 +10,7 @@ from flask import abort, flash, g, redirect, render_template, request, session, 
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import binflow_client_access as portal
+import binflow_warehouse_messages as warehouse_messages
 from binflow_management import pod_scope, permitted_pod, register as register_management
 from binflow_runs import valid_date
 from binflow_pods import migrate_pods, register_pods
@@ -31,6 +32,7 @@ def migrate_portal(conn):
     if 'pod_client_id' not in {r['name'] for r in conn.execute('PRAGMA table_info(bf_jobs)')}:
         conn.execute('ALTER TABLE bf_jobs ADD COLUMN pod_client_id INTEGER REFERENCES bf_clients(id)')
         conn.execute('UPDATE bf_jobs SET pod_client_id=(SELECT client_id FROM bf_locations WHERE id=bf_jobs.site_id)')
+    warehouse_messages.migrate(conn)
     portal.migrate(conn)
     migrate_pods(conn)
 
@@ -42,6 +44,8 @@ def register_portal(app, db, access, require, render, success, failure, now, act
             account=db().execute('SELECT * FROM bf_client_accounts WHERE id=? AND active=1', (session.get('bf_client_uid'),)).fetchone()
             if not account or account['auth_version']!=session.get('bf_client_version'):
                 session.pop('bf_client_uid',None);session.pop('bf_client_version',None)
+                if request.endpoint in ('bf_client_warehouses', 'bf_client_warehouse_chat'):
+                    return redirect(url_for('bf_client_login', warehouse=kwargs.get('state', 'directory')))
                 return redirect(url_for('bf_client_login', transfers=1) if request.endpoint.startswith('bf_client_interstate') else url_for('bf_client_login'))
             rights=portal.set_context(db(),account)
             if portal.ENDPOINTS.get(request.endpoint) not in rights:
@@ -78,6 +82,12 @@ def register_portal(app, db, access, require, render, success, failure, now, act
                 rights=portal.set_context(db(),account)
                 if 'pods.view' in rights and pod_next.startswith('/binflow/pod/'):
                     return redirect(pod_next)
+                destination = request.args.get('warehouse')
+                if destination and 'warehouses.view' in rights:
+                    if destination in warehouse_messages.WAREHOUSES:
+                        return redirect(url_for('bf_client_warehouse_chat', state=destination))
+                    if destination == 'directory':
+                        return redirect(url_for('bf_client_warehouses'))
                 booking_first=request.args.get('transfers')=='1' or db().execute(
                     'SELECT 1 FROM bf_interstate_accounts WHERE account_id=?',(account['id'],)).fetchone()
                 homes=['bf_client_interstate','bf_client_calendar'] if booking_first else ['bf_client_calendar','bf_client_interstate']
@@ -129,6 +139,7 @@ def register_portal(app, db, access, require, render, success, failure, now, act
     from binflow_invoices import register as register_invoices
     register_invoices(app,db,require,render,client_access,now,actor)
     register_management(app, db, client_access, now)
+    warehouse_messages.register(app, db, client_access, access, render, now)
     from binflow_client_directory import register as register_directory
     register_directory(app,db,client_access,now)
 

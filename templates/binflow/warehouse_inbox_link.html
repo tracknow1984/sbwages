@@ -1,0 +1,1 @@
+<a href="{{ url_for('bf_warehouse_messages') }}">Warehouse messages{% if warehouse_queue() %} <strong class="bf-request-badge">{{ warehouse_queue() }}</strong>{% endif %}</a>

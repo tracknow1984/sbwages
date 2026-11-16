@@ -33,6 +33,7 @@
           ('pods', 'bf_client_pods', 'Completed PODs' if 'pods.all' in g.client_rights else 'Daily PODs', 'pod'),
           ('requests', 'bf_client_requests', 'Collection requests', 'requests'),
           ('bookings', 'bf_client_interstate', 'All Transfers', 'truck'),
+          ('warehouses', 'bf_client_warehouses', 'Warehouses', 'warehouse'),
           ('profiles', 'bf_client_profiles_portal', 'Client profiles', 'clients'),
           ('invoices', 'bf_client_invoices', 'Invoices', 'invoice')
         ] if section ~ '.view' in g.client_rights %}

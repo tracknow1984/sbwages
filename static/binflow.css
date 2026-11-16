@@ -326,3 +326,9 @@ summary.bf-condition-label {cursor:pointer;min-height:36px}
   .bf-ui .bf-office-sidebar .bf-nav {margin-top:.4rem}
   .bf-ui .bf-office-sidebar .bf-nav a {min-height:44px}
 }
+
+.bf-depot-list {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(16rem,100%),1fr));gap:1rem;align-items:stretch}
+.bf-depot-list .bf-panel {margin:0}
+.bf-warehouse-message {padding:1rem 0;border-top:1px solid var(--bf-line)}
+.bf-warehouse-message small {display:block;margin-top:.25rem;color:var(--bf-muted)}
+.bf-warehouse-message p {margin:.5rem 0 0;white-space:pre-wrap;overflow-wrap:anywhere}

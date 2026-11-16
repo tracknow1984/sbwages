@@ -1,0 +1,7 @@
+{% extends 'binflow/layout.html' %}
+{% block title %}{{ account.name }} · {{ state }} warehouse{% endblock %}
+{% block subtitle %}{{ depot[0] }}{% endblock %}
+{% block body %}
+<p><a href="{{ url_for('bf_warehouse_messages', state=state) }}">Back to warehouse messages</a></p>
+{% include 'binflow/warehouse_conversation.html' %}
+{% endblock %}
