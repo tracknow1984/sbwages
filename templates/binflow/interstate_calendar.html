@@ -11,6 +11,14 @@
 {% block transfer_content %}
 {% set cal='bf_client_interstate' if external else 'bf_interstate_calendar' %}
 {% set can_add=not external or 'bookings.add' in g.client_rights %}
+<section class="bf-panel bf-pad"><h2>Awaiting confirmation <small>({{ pending|length }})</small></h2>
+{% for b in pending %}{% set info=previews[b.id] %}
+<a class="it-pending it-awaiting-transfer" {{ preview_link(info) }}>
+  {{ vehicle_tag(b.vehicle) }}<strong>{{ info.billing_name }}</strong><span>{{ reference(b) }} · {{ route(b) }}</span>
+  {% if not external %}{{ invoice_badge() }}{% endif %}
+  {% if b.date_change_id %}<strong>Date change requested</strong>{% if b.po_received %}{{ po_badge(true) }}{% endif %}{% endif %}
+  <span>Pickup {{ b.pickup_date|display_date }} · Delivery {{ b.delivery_date|display_date }}</span>
+</a>{% else %}<p>No pending requests.</p>{% endfor %}</section>
 <div class="it-tools">
   {% if can_add %}<a class="button primary" href="{{ url_for('bf_client_interstate_new' if external else 'bf_interstate_new') }}">{{ 'Request a transfer' if external else 'New transfer booking' }}</a>{% endif %}
   <a class="button secondary" href="{{ url_for(cal, date=chosen, export='month') }}" data-bf-icon="download" title="Download all {{ chosen.strftime('%B %Y') }} transfers across all states as an Excel table">Export month</a>
@@ -60,14 +68,6 @@
         {% endfor %}
       </td>{% endfor %}</tr>{% endfor %}</tbody></table></div>
 </section>
-<section class="bf-panel bf-pad"><h2>Awaiting confirmation <small>({{ pending|length }})</small></h2>
-{% for b in pending %}{% set info=previews[b.id] %}
-<a class="it-pending it-awaiting-transfer" {{ preview_link(info) }}>
-  {{ vehicle_tag(b.vehicle) }}<strong>{{ info.billing_name }}</strong><span>{{ reference(b) }} · {{ route(b) }}</span>
-  {% if not external %}{{ invoice_badge() }}{% endif %}
-  {% if b.date_change_id %}<strong>Date change requested</strong>{% if b.po_received %}{{ po_badge(true) }}{% endif %}{% endif %}
-  <span>Pickup {{ b.pickup_date|display_date }} · Delivery {{ b.delivery_date|display_date }}</span>
-</a>{% else %}<p>No pending requests.</p>{% endfor %}</section>
 {% if cancelled %}<details class="bf-panel bf-pad"><summary>Cancelled loads · {{ cancelled|length }}</summary>{% for b in cancelled %}<p><a href="{{ url_for('bf_client_interstate_detail' if external else 'bf_interstate_detail',bid=b.id) }}">{{ reference(b) }} · {{ b.billing_name }}</a> · {{ b.pickup_date|display_date }}</p>{% endfor %}</details>{% endif %}
 {% if previews %}
 <aside {% if not external %}data-live-dispatch {% endif %}id="it-transfer-preview" class="it-transfer-preview" aria-label="Transfer details" hidden>
