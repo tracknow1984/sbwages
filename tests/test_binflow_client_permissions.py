@@ -83,6 +83,62 @@ class PortalPermissionTests(unittest.TestCase):
         self.assertEqual(client.get(detail).status_code,403)
         self.assertIn('no portal permissions',self.send(client,'/binflow/client/login',dict(username='site-editor',password='sample-password')).text)
 
+    def test_decomm_partners_shared_register_and_login_permissions(self):
+        from test_binflow_client_profiles import row
+
+        partner_url = '/binflow/client/decomm-partners'
+        office = '/binflow/supplier-profiles'
+        self.account('BlockTexx1')
+        client = self.visit('blocktexx1')
+        self.account('regular')
+        regular = self.visit('regular')
+        aid = self.account('observer', custom_permissions='yes', permission=['decomm.view'])
+        observer = self.visit('observer')
+        self.post(office + '/industry-suppliers/new', row(customer_site='Private carrier', group_name='TRANSPORT'))
+        self.post(office + '/decommission-partners/new', row(customer_site='Existing partner'))
+        page = client.get(partner_url).text
+        self.assertIn('Existing partner', page)
+        self.assertIn('Add partner', page)
+        self.assertNotIn('Private carrier', page)
+        self.assertNotIn(office, page)
+        for suffix in ('', '/new', '/2/edit'):
+            self.assertEqual(regular.get(partner_url + suffix).status_code, 403)
+        self.assertEqual(client.get(partner_url + '/1/edit').status_code, 404)
+        self.assertEqual(self.send(client, partner_url + '/1/edit', row(version='1')).status_code, 404)
+        form = row(customer_site='New decomm partner')
+        self.assertEqual(self.send(client, partner_url + '/new', dict(form, category='industry-suppliers')).status_code, 200)
+        self.assertIn('New decomm partner', self.client.get(office + '/decommission-partners').text)
+        self.assertEqual(self.send(client, partner_url + '/new', form).status_code, 400)
+        edit = partner_url + '/2/edit'
+        form = row(customer_site='Existing partner', contact_name='State coordinator', version='1')
+        self.assertEqual(self.send(client, edit, form).status_code, 200)
+        self.assertEqual(self.send(client, edit, form).status_code, 409)
+        self.assertIn('State coordinator', self.client.get(office + '/site/2').text)
+        self.assertEqual(self.rows('SELECT changed_by FROM bf_supplier_profile_history WHERE profile_id=2'),
+                         [{'changed_by': 'Client login blocktexx1'}])
+        self.assertNotIn('Add partner', observer.get(partner_url).text)
+        self.assertNotIn('/2/edit', observer.get(partner_url).text)
+        for path in (edit, partner_url + '/new'):
+            self.assertEqual(self.send(observer, path, form).status_code, 403)
+        self.assertEqual(self.rights(aid, ['decomm.view'], ['decomm.add']).status_code, 200)
+        self.assertEqual(observer.get(partner_url + '/new').status_code, 200)
+        self.assertEqual(observer.get(edit).status_code, 403)
+
+    def test_decomm_upgrade_preserves_existing_rights_and_later_revocation(self):
+        from binflow_client_access import DECOMM_RIGHTS, rights_for, upgrade_decomm_access
+
+        named = self.account('blocktexx1', custom_permissions='yes', permission=['bookings.view'])
+        other = self.account('blocktexx2', custom_permissions='yes', permission=['profiles.view'])
+        with sqlite3.connect(self.path) as conn:
+            conn.row_factory = sqlite3.Row
+            conn.execute("DELETE FROM bf_portal_migrations WHERE id='blocktexx1-decomm-partners-v1'")
+            upgrade_decomm_access(conn, 'today')
+            self.assertEqual(rights_for(conn, named), {'bookings.view'} | DECOMM_RIGHTS)
+            self.assertEqual(rights_for(conn, other), {'profiles.view'})
+            conn.execute("UPDATE bf_client_permissions SET rights='[]' WHERE account_id=?", (named,))
+            upgrade_decomm_access(conn, 'tomorrow')
+            self.assertEqual(rights_for(conn, named), set())
+
     def test_named_account_can_read_national_data_only_when_granted(self):
         aid=self.account('BlockTexx1')
         self.account('another-client')
@@ -108,7 +164,8 @@ class PortalPermissionTests(unittest.TestCase):
         self.assertEqual(main.get(docket).status_code,200)
         self.assertEqual(other.get(pdf).status_code,403)
         self.assertEqual(other.get(docket).status_code,404)
-        all_rights=['invoices.view','bookings.view','bookings.add','pods.view','pods.all','profiles.view','profiles.add','national.view']
+        all_rights=['invoices.view','bookings.view','bookings.add','pods.view','pods.all','profiles.view','profiles.add','national.view',
+                    'decomm.view','decomm.add','decomm.edit']
         self.rights(aid,all_rights,['pods.view'])
         self.assertEqual(main.get(pdf).status_code,404)
         self.assertEqual(main.get(docket+'/signature.png').status_code,404)

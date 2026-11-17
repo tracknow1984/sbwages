@@ -6,7 +6,7 @@
 {% set new_url = new_url|default(url_for('bf_new_client_profile')) %}
 {% set add_label = add_label|default('Add client') %}
 {% set edit_endpoint = edit_endpoint|default('bf_client_profile') %}
-<div class="bf-toolbar bf-profile-toolbar"><div class="bf-actions"><a class="button primary" href="{{ new_url }}">{{ add_label }}</a>{% if not supplier %}<a href="{{ url_for('bf_setup') }}">Warehouse & bin setup</a>{% endif %}</div><span>{{ total }} {{ 'archived' if view=='archived' else 'current' }} site profiles{% if unlinked %} · <a href="{{ url_for('bf_client_profiles',status='unlinked',view=view) }}">{{ unlinked }} awaiting site link</a>{% endif %}</span></div>
+<div class="bf-toolbar bf-profile-toolbar"><div class="bf-actions">{% if can_add|default(true) %}<a class="button primary" href="{{ new_url }}">{{ add_label }}</a>{% endif %}{% if not supplier %}<a href="{{ url_for('bf_setup') }}">Warehouse & bin setup</a>{% endif %}</div><span>{{ total }} {{ 'archived' if view=='archived' else 'current' }} site profiles{% if unlinked %} · <a href="{{ url_for('bf_client_profiles',status='unlinked',view=view) }}">{{ unlinked }} awaiting site link</a>{% endif %}</span></div>
 {% if not supplier %}<div class="bf-profile-register-tabs" aria-label="Client register view"><a href="{{ url_for('bf_client_profiles') }}" class="{{ 'active' if view=='current' }}" {{ 'aria-current=page' if view=='current' }}>Current sites <span>{{ current_count }}</span></a>{% if archived_count %}<a href="{{ url_for('bf_client_profiles',view='archived') }}" class="{{ 'active' if view=='archived' }}" {{ 'aria-current=page' if view=='archived' }}>Archived records <span>{{ archived_count }}</span></a>{% endif %}</div>
 {% if view=='archived' %}<p class="bf-note">These older records were excluded from the latest allocation plan. They are retained for historical jobs and audit records.</p>{% endif %}
 {% endif %}
@@ -34,7 +34,7 @@
 {% if not supplier %}<td data-label="Bins">{% if p.location_id %}{% set counts=bin_counts.get(p.id, {'at_site':0,'allocated':0}) %}<a class="button secondary" data-bf-icon="bin" href="{{ url_for(edit_endpoint,profile_id=p.id,_anchor='client-bins') }}" aria-label="View bins for {{ p.customer_site }}">{{ counts.at_site }} at site</a><small>{{ counts.allocated }} allocated for delivery</small>{% else %}<span>Link site first</span>{% endif %}</td>
 {% endif %}<td data-label="Profile"><div class="bf-actions">
 {% if supplier and bf_is_transport_supplier(p) %}<a class="button secondary" href="{{ url_for('bf_supplier_rates',profile_id=p.id) }}" aria-label="Rate card for {{ p.customer_site }}">Rate card</a>{% endif %}
-<a class="button secondary" href="{{ url_for(edit_endpoint,profile_id=p.id) }}" aria-label="Edit profile for {{ p.customer_site }}">Edit</a></div></td>
+{% if can_edit|default(true) %}<a class="button secondary" href="{{ url_for(edit_endpoint,profile_id=p.id) }}" aria-label="Edit profile for {{ p.customer_site }}">Edit</a>{% endif %}</div></td>
 </tr>{% else %}<tr><td colspan="{{ 7 if supplier else 8 }}" class="bf-empty">No profiles match these filters. <a href="{{ clear_url }}">Clear filters</a></td></tr>{% endfor %}
 </tbody></table></div>
 <nav class="bf-profile-pagination" aria-label="{{ register_title }} pages"><span>Page {{ page }} of {{ pages }}</span><div class="bf-actions">{% if previous_url %}<a class="button secondary" href="{{ previous_url }}">Previous</a>{% endif %}{% if next_url %}<a class="button secondary" href="{{ next_url }}">Next</a>{% endif %}</div></nav>

@@ -1,0 +1,10 @@
+{% extends 'binflow/client_layout.html' if external else 'binflow/layout.html' %}
+{% block content %}
+{% if external %}
+<div class="bf-profile-page">
+<h1>{{ self.title() }}</h1>
+{% for message in get_flashed_messages() %}<p class="bf-note" role="status">{{ message }}</p>{% endfor %}
+{{ self.body() }}
+</div>
+{% else %}{{ super() }}{% endif %}
+{% endblock %}

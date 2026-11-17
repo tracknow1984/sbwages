@@ -36,6 +36,7 @@
           ('bookings', 'bf_client_interstate', 'All Transfers', 'truck'),
           ('warehouses', 'bf_client_warehouses', 'Warehouses', 'warehouse'),
           ('profiles', 'bf_client_profiles_portal', 'Client profiles', 'clients'),
+          ('decomm', 'bf_client_decomm_partners', 'Decomm Partners', 'clients'),
           ('invoices', 'bf_client_invoices', 'Invoices', 'invoice')
         ] if section ~ '.view' in g.client_rights %}
           <a href="{{ url_for(endpoint) }}"{% if g.client_section == section %} aria-current="page"{% endif %}>

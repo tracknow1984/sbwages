@@ -5,11 +5,14 @@ from flask import abort, flash, g, redirect, request, url_for
 
 SBTX_RIGHTS = {'sbtx.view', 'sbtx.add', 'sbtx.edit'}
 
+DECOMM_RIGHTS = {'decomm.view', 'decomm.add', 'decomm.edit'}
+
 MODULES = (
     ('sbtx','Own SBTX transport jobs',('view','add','edit')),
     ('bookings','Own interstate bookings',('view','add','edit')),
     ('national','National local pickups',('view',)),
     ('profiles','National client profiles',('view','add','edit')),
+    ('decomm','Decomm Partners',('view','add','edit')),
     ('invoices','Own client invoices',('view',)),
     ('pods','Completed PODs',('view',)),
     ('calendar','Approved-site collection calendar',('view',)),
@@ -18,6 +21,8 @@ MODULES = (
 ENDPOINTS = {
     'sbtx_client.calendar':'sbtx.view', 'sbtx_client.new_job':'sbtx.add',
     'sbtx_client.job':'sbtx.view', 'sbtx_client.po_file':'sbtx.view',
+    'bf_client_decomm_partners':'decomm.view', 'bf_client_decomm_new':'decomm.add',
+    'bf_client_decomm_edit':'decomm.edit',
     'bf_client_warehouses':'warehouses.view', 'bf_client_warehouse_chat':'warehouses.view',
     'bf_client_interstate_reschedule':'bookings.view',
     'bf_client_rigid_quote':'bookings.view', 'bf_client_interstate':'bookings.view', 'bf_client_interstate_detail':'bookings.view',
@@ -44,11 +49,25 @@ def bind_named_default(conn):
     conn.execute("""INSERT OR IGNORE INTO bf_client_named_defaults(name,account_id)
         SELECT 'blocktexx1',id FROM bf_client_accounts WHERE username='blocktexx1'""")
 
+def upgrade_decomm_access(conn, stamp):
+    """Extend an existing BlockTexx1 policy once, preserving subsequent admin edits."""
+    marker = conn.execute("""INSERT OR IGNORE INTO bf_portal_migrations(id,created_at)
+        VALUES('blocktexx1-decomm-partners-v1',?)""", (stamp,))
+    if marker.rowcount:
+        row = conn.execute("""SELECT p.* FROM bf_client_permissions p JOIN bf_client_named_defaults n
+            ON n.account_id=p.account_id WHERE n.name='blocktexx1'""").fetchone()
+        if row:
+            rights = set(json.loads(row['rights'])) | DECOMM_RIGHTS
+            conn.execute('UPDATE bf_client_permissions SET rights=? WHERE account_id=?',
+                         (json.dumps(sorted(rights)), row['account_id']))
+
+
 def defaults(booking_login, national_reader=False):
     rights = {'bookings.view','bookings.add','invoices.view'}
     if not booking_login:
         rights.update(('calendar.view','requests.view','pods.view'))
     if national_reader:
+        rights.update(DECOMM_RIGHTS)
         rights.update(('pods.view','pods.all','profiles.view','profiles.add','national.view'))
     return rights
 

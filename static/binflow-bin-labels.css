@@ -20,13 +20,13 @@
 .sheet-toolbar button:disabled { opacity: .5; }
 .label-paper { position: relative; width: min(210mm,100%); aspect-ratio: 210/297; margin: 0 auto 24px; background: white; box-shadow: 0 3px 12px #10283826; }
 .label-grid { position: absolute; inset: 3.19865% 2.20476%; display: grid; grid-template: repeat(2,minmax(0,1fr)) / repeat(2,minmax(0,1fr)); column-gap: 1.2653%; }
-.bin-sticker { box-sizing: border-box; container-type: inline-size; padding: 5% 6%; display: flex; flex-direction: column; align-items: stretch; justify-content: space-between; color: #080808; outline: 1px dashed #b8c6ca; }
+.bin-sticker { box-sizing: border-box; container-type: inline-size; padding: 5% 6%; display: flex; flex-direction: column; align-items: stretch; justify-content: space-between; color: #080808; }
 .bin-sticker-logo { display: block; width: 76%; height: auto; margin-inline: auto; }
 .bin-sticker-scan { display: grid; justify-items: center; line-height: 1.15; }
 .bin-sticker-qr { display: block; width: 74%; height: auto; aspect-ratio: 1; image-rendering: pixelated; }
 .bin-sticker h2 { margin: 0; font: bold 8cqw/1.1 Arial, Helvetica, sans-serif; }
 .bin-sticker-scan strong { font-size: 5cqw; margin-top: 1cqw; }
-.bin-sticker-details { border-top: 0.45mm solid #171717; padding-top: 2cqw; font-weight: 700; line-height: 1.15; }
+.bin-sticker-details { padding-top: 2cqw; font-weight: 700; line-height: 1.15; }
 .bin-sticker-details strong { display: block; font-size: 10cqw; }
 .bin-sticker-details span { font-size: 5cqw; }
 
@@ -37,5 +37,5 @@
   .label-paper { width: 210mm; height: 297mm; margin: 0; box-shadow: none; break-inside: avoid; }
   /* PPS78169 uses the L7169 die cut. The 2.54 mm gutter is horizontal only. */
   .label-grid { inset: 9.5mm auto auto 4.63mm; grid-template: repeat(2,139mm) / repeat(2,99.1mm); gap: 0 2.54mm; }
-  .bin-sticker { width: 99.1mm; height: 139mm; padding: 5mm 6mm; outline: none; break-inside: avoid; }
+  .bin-sticker { width: 99.1mm; height: 139mm; padding: 5mm 6mm; break-inside: avoid; }
 }
