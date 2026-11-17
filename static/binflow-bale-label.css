@@ -72,3 +72,20 @@
     font-size: 18pt;
   }
 }
+
+.thermal-label-preview {
+  width: min(100%, 100mm);
+  margin: 20px auto;
+  background: white;
+  box-shadow: 0 1px 6px #0002;
+}
+.thermal-label-preview img { display: block; width: 100%; height: auto; }
+[data-bale-label][data-format="thermal"] :is(.bale-label-preview, .a4-hint),
+[data-bale-label][data-format="a4"] :is(.thermal-label-preview, .thermal-hint) { display: none; }
+
+@media print {
+  @page baleThermal { size: 100mm 150mm; margin: 0; }
+  body:has([data-bale-label][data-format="thermal"]) { page: baleThermal; }
+  .thermal-label-preview { width: 100mm; margin: 0; box-shadow: none; }
+  .thermal-label-preview img { width: 100mm; height: 150mm; }
+}

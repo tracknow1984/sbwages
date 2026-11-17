@@ -501,6 +501,20 @@ def register(app,db,access,require,render,success,failure,now,actor):
     def bf_bale_label(bid):
         b=bale(bid)
         if b['status']=='void':abort(410)
+        output = request.args.get('output')
+        if output in ('thermal', 'thermal-preview'):
+            from pathlib import Path
+            from binflow_bale_label import thermal_label
+            preview = output == 'thermal-preview'
+            data = thermal_label(b, url_for('bf_bale_qr', token=b['token'], _external=True),
+                                 str(Path(app.static_folder) / 'blocktexx-logo-tagline.png'),
+                                 app.jinja_env.filters['display_date'](b['created_at']),
+                                 app.jinja_env.filters['bfkg'](b['net_g']),
+                                 preview=preview, training=bool(g.get('bf_demo_token')))
+            if preview:
+                return app.response_class(data, mimetype='image/svg+xml')
+            return send_file(io.BytesIO(data), mimetype='application/pdf',
+                             download_name=f"{b['code']}-100x150mm.pdf")
         return view('bale_label',bale=b)
 
     @app.get('/binflow/bales/<int:bid>/qr.png')

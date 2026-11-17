@@ -245,6 +245,38 @@ class BaleTests(unittest.TestCase):
             self.assertEqual(guest.get(path).status_code,302)
         self.assertEqual(self.client.post('/binflow/bales/new',data={}).status_code,400)
 
+    def test_thermal_label_is_one_roll_sized_page_and_tracks_corrections(self):
+        from io import BytesIO
+        from xml.etree import ElementTree
+        from pypdf import PdfReader
+
+        self.prepare()
+        self.create()
+        path = '/binflow/bales/1/label'
+        label = self.client.get(path).text
+        self.assertIn('Print thermal label', label)
+        self.assertIn('Print A4', label)
+        pdf = self.client.get(path + '?output=thermal')
+        self.assertEqual(pdf.mimetype, 'application/pdf')
+        self.assertIn('inline', pdf.headers['Content-Disposition'])
+        pages = PdfReader(BytesIO(pdf.data)).pages
+        self.assertEqual(len(pages), 1)
+        self.assertAlmostEqual(float(pages[0].mediabox.width) * 25.4 / 72, 100, places=3)
+        self.assertAlmostEqual(float(pages[0].mediabox.height) * 25.4 / 72, 150, places=3)
+        self.assertIn('260 kg', pages[0].extract_text())
+        self.post('/binflow/bales/1/correct', dict(version=1, material_id=1, weight='216',
+                  action='correct', reason='Scale correction'))
+        preview = self.client.get(path + '?output=thermal-preview')
+        self.assertEqual(preview.mimetype, 'image/svg+xml')
+        self.assertIn('216 kg', list(ElementTree.fromstring(preview.data).itertext()))
+        corrected = PdfReader(BytesIO(self.client.get(path + '?output=thermal').data)).pages[0]
+        for field in ('216 kg', 'BA0000001', 'Label v2'):
+            self.assertIn(field, corrected.extract_text())
+        self.post('/binflow/bales/1/correct', dict(version=2, action='void', reason='Duplicate bale'))
+        for output in ('thermal', 'thermal-preview'):
+            self.assertEqual(self.client.get(path + '?output=' + output).status_code, 410)
+            self.assertEqual(self.app.test_client().get(path + '?output=' + output).status_code, 302)
+
     def test_industry_carrier_vehicle_type_and_optional_truck_details(self):
         self.prepare()
         self.create()

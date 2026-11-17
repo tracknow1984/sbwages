@@ -1,11 +1,19 @@
 {% extends 'binflow/bale_base.html' %}
 {% block title %}Print bale label{% endblock %}
+{% block browser_title %}Print label · {{ bale.code }}{% endblock %}
 {% block bale_body %}
 <link rel="stylesheet" href="{{ url_for('static',filename='binflow-bale-label.css') }}">
+<script src="{{ url_for('static',filename='binflow-bale-label.js') }}" defer></script>
+<div data-bale-label data-format="thermal">
 <div class="no-print bf-toolbar">
-  <button type="button" class="primary" data-print>Print label</button>
+  <a class="button primary" href="{{ url_for('bf_bale_label',bid=bale.id,output='thermal') }}" target="_blank" rel="noopener" data-bale-thermal>Print thermal label</a>
+  <button type="button" class="secondary" data-bale-a4>Print A4</button>
   <a href="{{ url_for('bf_bale',bid=bale.id) }}">Back to bale</a>
-  <p>A4 portrait · One bale per page · Print at 100% with headers and footers off.</p>
+  <p class="thermal-hint">Luck Jingle · 100 mm across the roll × 150 mm feed. Open the PDF and print at Actual size (100%).</p>
+  <p class="a4-hint">A4 portrait · One bale per page · Print at 100% with headers and footers off.</p>
+</div>
+<div class="thermal-label-preview">
+  <img src="{{ url_for('bf_bale_label',bid=bale.id,output='thermal-preview') }}" alt="Thermal label for {{ bale.code }}, {{ bale.material_name }}, {{ bale.net_g|bfkg }} kg, created {{ bale.created_at|display_date }}">
 </div>
 <div class="bale-label-preview">
 <article class="bf-bale-label">
@@ -22,5 +30,6 @@
   </div>
   <small>BinFlow · Label v{{ bale.version }}</small>
 </article>
+</div>
 </div>
 {% endblock %}
