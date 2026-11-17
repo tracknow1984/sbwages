@@ -1,6 +1,6 @@
 # Bales and interstate storage handovers
 
-BINFLOW → Bales tracks classified bales separately from bin stock. Each new bale receives a unique BA number and authenticated QR record; the print action produces a 100 × 150 mm label. Creation retries with the same form key do not create duplicate records. Corrections/voids require a reason and are limited to unallocated stored bales. Reprint the label after a correction.
+BINFLOW → Bales tracks classified bales separately from bin stock. Each new bale receives a unique BA number and authenticated QR record; the print action produces one A4 portrait label per bale. Creation retries with the same form key do not create duplicate records. Corrections/voids require a reason and are limited to unallocated stored bales. Reprint the label after a correction.
 
 ## First-time setup
 

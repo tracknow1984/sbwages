@@ -5,8 +5,9 @@
 <div class="no-print bf-toolbar">
   <button type="button" class="primary" data-print>Print label</button>
   <a href="{{ url_for('bf_bale',bid=bale.id) }}">Back to bale</a>
-  <p>100 × 150 mm label · Print at 100%, with browser headers and footers off.</p>
+  <p>A4 portrait · One bale per page · Print at 100% with headers and footers off.</p>
 </div>
+<div class="bale-label-preview">
 <article class="bf-bale-label">
   <img class="bale-brand" src="{{ url_for('static',filename='blocktexx-logo-tagline.png') }}" alt="BlockTexx">
   {% if driver_demo %}<strong class="bale-training">Sample bale · Training</strong>{% endif %}
@@ -21,4 +22,5 @@
   </div>
   <small>BinFlow · Label v{{ bale.version }}</small>
 </article>
+</div>
 {% endblock %}
