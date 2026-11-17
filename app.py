@@ -568,12 +568,34 @@ def create_app(test_config=None):
     @app.get('/admin/staff')
     @require('admin')
     def admin_staff():
+        archived = request.args.get('archived') == '1'
+        status = 'terminated' if archived else 'active'
+        counts = dict(db().execute("SELECT status,COUNT(*) FROM users WHERE role='employee' GROUP BY status"))
         people = db().execute("""SELECT u.*,s.id AS induction_id,s.signed_at AS induction_signed_at,
             (SELECT p.side FROM licence_photos p WHERE p.user_id=u.id
              ORDER BY (p.side='front') DESC LIMIT 1) AS licence_preview_side
             FROM users u LEFT JOIN handbook_signatures s ON s.user_id=u.id AND s.version=?
-            WHERE u.role='employee' ORDER BY u.status,u.first_name,u.last_name""",(EDITION,)).fetchall()
-        return render_template('staff.html', people=people, active=sum(p['status'] == 'active' for p in people), tab='staff')
+            WHERE u.role='employee' AND u.status=? ORDER BY u.first_name,u.last_name,u.id""", (EDITION, status)).fetchall()
+        return render_template('staff.html', people=people, counts=counts, archived=archived, tab='staff')
+
+    @app.post('/admin/staff/<int:user_id>/archive')
+    @require('admin')
+    def archive_staff(user_id):
+        action = request.form.get('action')
+        if action not in ('archive', 'restore'):
+            abort(400, 'Choose Archive or Restore.')
+        target = 'terminated' if action == 'archive' else 'active'
+        with db() as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            person = staff(user_id)
+            if person['status'] != target:
+                if request.form.get('version', type=int) != person['auth_version']:
+                    abort(409, 'This staff record changed. Refresh the staff list and try again.')
+                conn.execute('UPDATE users SET status=?,auth_version=auth_version+1 WHERE id=?', (target, user_id))
+                conn.execute('DELETE FROM invitations WHERE user_id=?', (user_id,))
+        outcome = 'archived' if action == 'archive' else 'restored to active staff'
+        flash(f"{person['first_name']} {person['last_name']} {outcome}.", 'success')
+        return redirect(url_for('admin_staff', archived=1 if action == 'restore' else None), code=303)
 
     from binflow_staff_retest import register as register_staff_retest
     register_staff_retest(app, db, require, today)
@@ -597,6 +619,8 @@ def create_app(test_config=None):
                 db().execute('BEGIN IMMEDIATE')
                 if person:
                     person = staff(user_id)
+                    if 'access_version' in request.form and request.form.get('access_version', type=int) != person['auth_version']:
+                        abort(409, 'Staff access changed. Reopen the profile before saving.')
                     profile_changed = any(key in values and values[key] != person[key] for key in ('business_role', 'extra_business_roles', 'working_state'))
                     active_day = db().execute('''SELECT d.*,t.state AS truck_state FROM bf_workdays d
                         LEFT JOIN bf_trucks t ON t.id=d.truck_id WHERE d.user_id=? AND d.finished_at IS NULL''', (user_id,)).fetchone() if profile_changed else None
@@ -627,7 +651,8 @@ def create_app(test_config=None):
                     db().execute('DELETE FROM invitations WHERE user_id=?', (user_id,))
                 db().commit()
                 flash('Role and working state saved.' if assignment_only else 'Staff details saved.', 'success')
-                return redirect(url_for('edit_staff',user_id=user_id) if assignment_only else url_for('admin_staff'))
+                return redirect(url_for('edit_staff',user_id=user_id) if assignment_only else
+                                url_for('admin_staff', archived=1 if values['status']=='terminated' else None))
             except (ValueError, sqlite3.IntegrityError) as error:
                 db().rollback()
                 flash(str(error) if isinstance(error, ValueError) else 'That username or email is already in use.', 'error')
@@ -659,7 +684,12 @@ def create_app(test_config=None):
         msg['From'] = app.config['SMTP_FROM']
         msg['To'] = person['email']
         msg.set_content(f"Hi {person['first_name']},\n\nYour SB EMPIRE employee account is ready.\nUsername: {person['username']}\nEmail: {person['email']}\n\nSet your password using this single-use link (expires in 48 hours):\n{link}\n\nEmployee login: {app.config['APP_URL']}/employee/login\n\nYou can update your contact details, record daily hours and activities, and submit your weekly timesheet to admin.\n\nSB EMPIRE")
-        db().execute('INSERT INTO invitations VALUES(?,?,?)', (digest, user_id, int(time.time()) + 48 * 3600))
+        issued = db().execute('''INSERT INTO invitations(token_hash,user_id,expires_at)
+            SELECT ?,id,? FROM users WHERE id=? AND status='active' AND auth_version=?''',
+            (digest, int(time.time()) + 48 * 3600, user_id, person['auth_version']))
+        if not issued.rowcount:
+            db().rollback()
+            abort(409, 'Staff access changed. Reopen the staff list before sending an invitation.')
         db().commit()
         try:
             cls = smtplib.SMTP_SSL if app.config['SMTP_SSL'] else smtplib.SMTP

@@ -2,9 +2,13 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='staff-induction.css') }}">
 <div class="staff-directory">
 <header class="page-heading"><h1>Staff details</h1><a class="button primary" href="{{ url_for('add_staff') }}">+ Add staff member</a></header>
-<div class="metrics"><div><span>Total staff</span><strong>{{ people|length }}</strong></div><div><span>Active employees</span><strong>{{ active }}</strong></div><div><span>Terminated</span><strong>{{ people|length - active }}</strong></div></div>
+<nav class="prestart-filters" aria-label="Staff lists">
+  <a class="button {{ 'ghost' if archived else 'primary' }}" href="{{ url_for('admin_staff') }}"{% if not archived %} aria-current="page"{% endif %}>Active staff ({{ counts.get('active', 0) }})</a>
+  <a class="button {{ 'primary' if archived else 'ghost' }}" href="{{ url_for('admin_staff', archived=1) }}"{% if archived %} aria-current="page"{% endif %}>Archived staff ({{ counts.get('terminated', 0) }})</a>
+  <span>{{ counts.values()|sum }} total staff</span>
+</nav>
 <section class="panel staff-list">
-<div class="panel-head"><h2>Your team</h2>{% if people %}<label class="search"><span class="sr-only">Search staff</span><input id="staff-search" type="search" placeholder="Search name, email or username"></label>{% endif %}</div>
+<div class="panel-head"><h2>{{ 'Archived staff' if archived else 'Your team' }}</h2>{% if people %}<label class="search"><span class="sr-only">Search staff</span><input id="staff-search" type="search" placeholder="Search name, email or username"></label>{% endif %}</div>
 {% if people %}<div id="staff-table">
 {% for person in people %}<article class="staff-member" data-staff-row>
   <div class="staff-person">
@@ -17,18 +21,24 @@
     {% if not person.licence_preview_side %}<small><a href="{{ url_for('edit_staff', user_id=person.id, _anchor='licence-photos') }}">Add licence photo</a></small>{% endif %}</div>
   </div>
   <div><span class="field-caption">Role / state</span>{{ assigned_roles(person)|map('upper')|join(' · ') or 'Not allocated' }} · {{ person.working_state or 'State not allocated' }}</div>
-  <div><span class="field-caption">Status</span><span class="badge {{ person.status }}">{{ person.status|capitalize }}</span></div>
+  <div><span class="field-caption">Status</span><span class="badge {{ person.status }}">{{ 'Archived' if archived else 'Active' }}</span></div>
   <div><span class="field-caption">Induction</span>{% if person.induction_id %}<a href="{{ url_for('induction_record',record_id=person.induction_id) }}">Signed handbook</a><small>{{ person.induction_signed_at|display_datetime }}</small>{% else %}Pending{% endif %}</div>
-  <div><a class="button secondary compact" href="{{ url_for('edit_staff',user_id=person.id) }}" aria-label="Edit {{ person.first_name }} {{ person.last_name }}">Edit</a> <a href="{{ url_for('staff_credentials',user_id=person.id) }}">QR &amp; credentials</a> <a href="{{ url_for('edit_staff',user_id=person.id,_anchor='staff-documents') }}">Licences &amp; documents</a></div>
+  <div><a class="button secondary compact" href="{{ url_for('edit_staff',user_id=person.id) }}" aria-label="Edit {{ person.first_name }} {{ person.last_name }}">Edit</a> <a href="{{ url_for('staff_credentials',user_id=person.id) }}">QR &amp; credentials</a> <a href="{{ url_for('edit_staff',user_id=person.id,_anchor='staff-documents') }}">Licences &amp; documents</a>
+    <form method="post" action="{{ url_for('archive_staff', user_id=person.id) }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <input type="hidden" name="version" value="{{ person.auth_version }}">
+      <button class="secondary compact" name="action" value="{{ 'restore' if archived else 'archive' }}" aria-label="{{ 'Restore' if archived else 'Archive' }} {{ person.first_name }} {{ person.last_name }}">{{ 'Restore staff' if archived else 'Archive staff' }}</button>
+    </form></div>
   <details class="staff-more"><summary>Contact, pay and access</summary>
   <div class="staff-extra">
     <div><span class="field-caption">Contact</span>{{ person.email }}<small>{{ person.mobile }}</small></div>
     <div><span class="field-caption">Emergency contact</span>{{ person.emergency_name }}{% if person.emergency_phone %}<small>{{ person.emergency_phone }}</small>{% endif %}<small>{{ person.emergency_email }}</small></div>
     <div><span class="field-caption">Hourly rate / work week</span>{{ person.rate_cents|money }}<small>{{ work_weeks[person.work_week].label }}</small></div>
-    <div><span class="field-caption">Access</span>{{ 'Password set' if person.password_hash else ('Invited' if person.invited_at else 'Not invited') }}
+    <div><span class="field-caption">Access</span>{{ 'Sign-in disabled' if archived else ('Password set' if person.password_hash else ('Previously invited' if person.invited_at else 'Not invited')) }}
     {% if person.status=='active' %}<form method="post" action="{{ url_for('invite',user_id=person.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="secondary compact" type="submit">{{ 'Resend invite' if person.invited_at else 'Email invite' }}</button></form>{% endif %}</div>
   </div></details>
 </article>{% endfor %}
 </div><p id="no-matches" class="empty hidden">No staff match your search.</p>
-{% else %}<div class="empty"><h2>Your team starts here</h2><a class="button primary" href="{{ url_for('add_staff') }}">Add staff member</a></div>{% endif %}
+{% elif archived %}<div class="empty"><h2>No archived staff</h2></div>
+{% else %}<div class="empty"><h2>No active staff</h2><a class="button primary" href="{{ url_for('add_staff') }}">Add staff member</a></div>{% endif %}
 </section></div>{% endblock %}

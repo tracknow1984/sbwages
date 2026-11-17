@@ -484,6 +484,59 @@ class AppTests(unittest.TestCase):
         self.assertEqual(self.client.get('/admin/timesheets/1').status_code, 403)
         self.assertNotIn(b'Yard maintenance', self.client.get('/employee/timesheet?week=' + end.isoformat()).data)
 
+    def test_archive_and_restore_staff_with_outstanding_pay_and_existing_access(self):
+        person, values, sheet, _ = self.prepare_payment_sheet()
+        uid = person['id']
+        archive = f'/admin/staff/{uid}/archive'
+        edit = f'/admin/staff/{uid}/edit'
+        version = person['auth_version']
+        active_form = {'action':'archive', 'version':version}
+        badge = self.query('SELECT token FROM employee_badges WHERE user_id=?', (uid,))[0][0]
+        with patch('app.smtplib.SMTP') as smtp:
+            self.post(f'/admin/staff/{uid}/invite')
+            message = smtp.return_value.__enter__.return_value.send_message.call_args.args[0]
+            invitation = re.search(r'/activate/[A-Za-z0-9_-]+', message.get_content()).group()
+
+        admin, employee = self.client, self.app.test_client()
+        self.client = employee
+        self.login(values['username'], values['password'])
+        self.assertEqual(self.post(archive, active_form).status_code, 403)
+        self.client = admin
+        self.assertEqual(admin.post(archive, data=active_form).status_code, 400)
+        self.assertEqual(self.post('/admin/staff/1/archive', active_form).status_code, 404)
+        self.assertEqual(self.post(archive, active_form).status_code, 200)
+        self.assertEqual(self.post(archive, active_form).status_code, 200)
+        self.assertNotIn(values['email'], admin.get('/admin/staff').text)
+        history = admin.get('/admin/staff?archived=1').text
+        self.assertIn(values['email'], history)
+        self.assertIn('Restore staff', history)
+        self.assertNotIn('Email invite', history)
+        self.assertEqual(employee.get('/employee/details').status_code, 302)
+        self.assertEqual(employee.get('/verify/employee/' + badge).status_code, 404)
+        self.assertEqual(employee.get(invitation).status_code, 400)
+        self.assertEqual(self.post(edit, dict(values, password='', access_version=version)).status_code, 409)
+        self.assertEqual(admin.get(edit).status_code, 200)
+        self.assertIn('Payment processed.', self.post(f'/admin/timesheets/{sheet["id"]}/payment',
+                      {'cash_amount':'0', 'transfer_amount':'284.00', 'expected_total':'28400'}).text)
+
+        self.assertEqual(self.post(archive, {'action':'restore', 'version':version}).status_code, 409)
+        self.assertEqual(self.post(archive, {'action':'restore', 'version':version+1}).status_code, 200)
+        self.assertEqual(self.post(archive, active_form).status_code, 409)
+        self.assertIn(values['email'], admin.get('/admin/staff').text)
+        self.assertNotIn(values['email'], admin.get('/admin/staff?archived=1').text)
+        self.assertEqual(employee.get(invitation).status_code, 400)
+        self.assertEqual(employee.get('/verify/employee/' + badge).status_code, 404)
+        self.assertEqual(employee.get('/employee/details').status_code, 302)
+        self.client = employee
+        self.login(values['username'], values['password'])
+        self.assertIn('$284.00', employee.get('/employee/payslips').text)
+
+    def test_staff_already_marked_terminated_appear_in_archive(self):
+        person, values = self.add()
+        self.post(f'/admin/staff/{person["id"]}/edit', dict(values, status='terminated', password=''))
+        self.assertNotIn(values['email'], self.client.get('/admin/staff').text)
+        self.assertIn(values['email'], self.client.get('/admin/staff?archived=1').text)
+
     def test_termination_revokes_live_session(self):
         person, values = self.add()
         employee_client = self.app.test_client()
