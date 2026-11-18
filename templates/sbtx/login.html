@@ -25,9 +25,6 @@
           <source media="(max-width: 640px)" srcset="{{ url_for('static',filename='sbtx-depot-mobile.webp') }}">
           <img class="sbtx-photo" src="{{ url_for('static',filename='sbtx-depot.webp') }}" width="1536" height="1024" alt="SB Empire B-double beside the loading bays as forklift operators and the depot team handle freight." fetchpriority="high">
         </picture>
-        {% for trailer in ('front','rear') %}
-        <img class="sbtx-curtain sbtx-curtain-{{ trailer }}" src="{{ url_for('static',filename='sb-empire-black.webp') }}" width="480" height="293" alt="">
-        {% endfor %}
       </div>
     </div>
     <section class="sbtx-access" aria-labelledby="login-title">

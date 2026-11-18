@@ -45,10 +45,6 @@
   isolation: isolate;
 }
 .sbtx-photo { display: block; width: 100%; height: auto; }
-/* Both curtain prints share the photograph's coordinates as the viewport crops above and below it. */
-.sbtx-curtain { position: absolute; height: auto; transform-origin: top left; opacity: .9; mix-blend-mode: multiply; }
-.sbtx-curtain-front { left: 34.9%; top: 40.65%; width: 11.4%; transform: skewY(2.2deg) scaleY(1.1); }
-.sbtx-curtain-rear { left: 60.5%; top: 43.8%; width: 9.4%; transform: skewY(1.8deg); }
 .sbtx-access { align-self: center; display: grid; min-width: 0; }
 .sbtx-access .login { width: min(100%, 398px); padding: 24px 0; }
 .sbtx-product {
