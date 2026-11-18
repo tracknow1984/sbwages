@@ -14,7 +14,7 @@
 {% endmacro %}
 {% macro state_select(name,label) %}<label>{{ label }}<select name="{{ name }}" required><option value="">Select state</option>{% for state in regions %}<option {{ 'selected' if places.get(values.get(name),('',''))[1]==state }}>{{ state }}</option>{% endfor %}</select></label>{% endmacro %}
 {% block transfer_content %}
-<a href="{{ url_for('bf_client_interstate' if external else 'bf_interstate_calendar') }}">← Transfer calendar</a>
+<a href="{{ transfer_url('calendar',external) }}">← Transfer calendar</a>
 <section class="bf-panel bf-pad"><h2>{{ 'Modify load' if row and not external else 'Review booking details' if row else 'Request a transfer' }}</h2>
 {% if error %}<p class="notice error" role="alert">{{ error }}</p>{% endif %}
 {% if payers %}<form method="get" class="bf-filters"><label>Billing client<select name="bill_to" data-autosubmit><option value="">Use booking name</option>{% for a in payers %}<option value="{{ a.id }}" {{ 'selected' if payer_id==a.id }}>{{ a.name }}</option>{% endfor %}</select></label>{% if request.args.get('pickup') %}<input type="hidden" name="pickup" value="{{ request.args.pickup }}">{% endif %}<button class="secondary">Use billing client</button></form>{% endif %}

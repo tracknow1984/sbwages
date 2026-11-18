@@ -282,7 +282,7 @@ def create_app(test_config=None):
         elif request.endpoint == 'upload_licence_photos':
             request.max_content_length = 12 * 1024 * 1024
         elif request.endpoint not in ('employee_documents','bf_client_interstate_po','bf_interstate_po',
-                                      'sbtx.new_job','sbtx.job','sbtx_client.new_job','sbtx_client.job'):
+                                      'sbtx.po','sbtx_client.po'):
             request.max_content_length = 128 * 1024
         g.user = None
         if session.get('uid'):
@@ -334,12 +334,13 @@ def create_app(test_config=None):
             # Only map image tiles leave this page; Wialon and all credentials remain server-side.
             response.headers['Content-Security-Policy'] = response.headers['Content-Security-Policy'].replace(
                 "img-src 'self' data:", "img-src 'self' data: https://tile.openstreetmap.org")
-        if request.endpoint in ('bf_client_interstate_new','bf_client_interstate_edit','bf_interstate_new','bf_interstate_edit'):
+        if request.endpoint in ('bf_client_interstate_new','bf_client_interstate_edit','bf_interstate_new','bf_interstate_edit',
+                                'sbtx.new_job','sbtx.edit','sbtx_client.new_job','sbtx_client.edit'):
             response.headers['Content-Security-Policy'] += "; connect-src 'self' https://photon.komoot.io"
         if request.endpoint in ('document_file', 'company_document_file'):
             response.headers['Content-Security-Policy'] = "sandbox; default-src 'none'; frame-ancestors 'self'"
             response.headers['X-Frame-Options'] = 'SAMEORIGIN'
-        elif (request.endpoint in ('bf_interstate_po_file','bf_client_interstate_po_file')
+        elif (request.endpoint in ('bf_interstate_po_file','bf_client_interstate_po_file','sbtx.po_file','sbtx_client.po_file')
               and response.headers.get('Content-Disposition','').startswith('inline;')):
             # Only the authenticated file response can be embedded by a same-origin booking page.
             response.headers['Content-Security-Policy'] = "default-src 'none'; object-src 'self'; img-src 'self'; frame-ancestors 'self'; base-uri 'none'; form-action 'none'"

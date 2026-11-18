@@ -158,6 +158,8 @@ def register_binflow(app, db, require):
         migrate_bales(db())
         from binflow_interstate import migrate as migrate_interstate
         migrate_interstate(db())
+        from sbtx import migrate as migrate_sbtx
+        sbtx_bookings, sbtx_orders = migrate_sbtx(db(), now())
         from binflow_invoices import migrate as migrate_invoices
         migrate_invoices(db())
         from binflow_live_cycle import migrate as migrate_live_cycle
@@ -165,6 +167,8 @@ def register_binflow(app, db, require):
         from binflow_stop_exceptions import migrate as migrate_stop_exceptions
         migrate_stop_exceptions(db())
         db().commit()
+        if sbtx_bookings or sbtx_orders:
+            app.logger.info('SBTX calendar import committed: %d pickups, %d purchase orders.', sbtx_bookings, sbtx_orders)
         tare_update = apply_standard_tares(db(), now())
         if tare_update:
             app.logger.info('BinFlow standard empty weights applied: %s', json.dumps(tare_update))

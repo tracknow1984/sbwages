@@ -57,10 +57,10 @@ FORMATS = {
 def booking_values(booking, places):
     b = dict(booking)
     b['reference'] = f"IT-{b['id']:06d}"
-    b['origin_name'], b['origin_state'] = places[b['origin']]
-    b['destination_name'], b['destination_state'] = places[b['destination']]
+    b['origin_name'], b['origin_state'] = places.get(b['origin'], ('', ''))
+    b['destination_name'], b['destination_state'] = places.get(b['destination'], ('', ''))
     for key in ('pickup_date', 'delivery_date'):
-        b[key] = date.fromisoformat(b[key])
+        b[key] = date.fromisoformat(b[key]) if b[key] else None
     b['vehicle'] = (b['vehicle'] or 'Vehicle to confirm').replace('B-DOUBLE', 'B DOUBLE')
     b['job_type'] = 'Subcontracted' if b['job_type'] == 'external' else 'Internal'
     b['handling'] = 'Scanned bales' if b['handling'] == 'scanned' else 'Bulk movement'
@@ -70,6 +70,8 @@ def booking_values(booking, places):
     elif b['locked_at']:
         b['po_status'] = 'PO required'
     b['email_status'] = b['email_status'].capitalize() if b['locked_at'] else None
+    if b['email_status'] == 'Imported':
+        b.update(email_status=None, locked_by=None, locked_at=None, created_at=None)
     if b['rigid_hours_units'] is not None:
         b['hours'] = b['rigid_hours_units'] / 100
         b['billable_hours'] = max(MIN_RIGID_HOURS, b['hours'])
@@ -91,7 +93,7 @@ def booking_values(booking, places):
     return b
 
 
-def monthly_workbook(bookings, chosen, places, external):
+def monthly_workbook(bookings, chosen, places, external, brand='BinFlow'):
     book = Workbook()
     sheet = book.active
     sheet.title = 'All Transfers'
@@ -101,7 +103,7 @@ def monthly_workbook(bookings, chosen, places, external):
     columns = [column for _, group in groups for column in group]
     sheet.merge_cells('A1:H1')
     title = sheet['A1']
-    title.value = f'BinFlow  /  All Transfers  /  {chosen:%B %Y}'
+    title.value = f'{brand}  /  All Transfers  /  {chosen:%B %Y}'
     title.font = Font(name='Calibri', size=18, bold=True, color='173650')
     sheet.row_dimensions[1].height = 36
     sheet.merge_cells('A2:H2')

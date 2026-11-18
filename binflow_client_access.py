@@ -20,6 +20,8 @@ MODULES = (
 )
 ENDPOINTS = {
     'sbtx_client.calendar':'sbtx.view', 'sbtx_client.new_job':'sbtx.add',
+    'sbtx_client.detail':'sbtx.view', 'sbtx_client.edit':'sbtx.edit',
+    'sbtx_client.legacy_po':'sbtx.view', 'sbtx_client.reschedule':'sbtx.view', 'sbtx_client.po':'sbtx.view',
     'sbtx_client.job':'sbtx.view', 'sbtx_client.po_file':'sbtx.view',
     'bf_client_decomm_partners':'decomm.view', 'bf_client_decomm_new':'decomm.add',
     'bf_client_decomm_edit':'decomm.edit',

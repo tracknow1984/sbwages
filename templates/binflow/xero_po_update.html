@@ -1,6 +1,6 @@
 {% if invoice and invoice.status=='created' and invoice.xero_status=='DRAFT' %}
   {% if invoice.booking_id and not po_number %}
-    <a href="{{ url_for('bf_interstate_detail',bid=invoice.booking_id,_anchor='purchase-order') }}">Add the booking’s PO number</a>
+    <a href="{{ office_transfer_link(invoice.booking_id,_anchor='purchase-order') }}">Add the booking’s PO number</a>
   {% elif (invoice.booking_id and po_number!=xero_reference) or (not invoice.booking_id and invoice.reference==xero_reference) %}
     <form method="post" action="{{ url_for('bf_xero_update_po',identifier=invoice.id) }}" class="bf-form">
       <input type="hidden" name="csrf" value="{{ csrf_token() }}">

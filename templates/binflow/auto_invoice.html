@@ -1,6 +1,6 @@
 {% extends 'binflow/layout.html' %}{% block title %}{{ d.kind }} invoice{% endblock %}
 {% block subtitle %}{{ d.client }} · {{ d.start|display_date }} – {{ d.end|display_date }}{% endblock %}
-{% block body %}{% if d.kind=='Transport' %}<a href="{{ url_for('bf_interstate_detail',bid=d.group_key.split(':')[1]) }}">← Transfer booking</a> · {% endif %}<a href="{{ url_for('bf_invoices') }}">← All Invoices</a>
+{% block body %}{% if d.kind=='Transport' %}<a href="{{ office_transfer_link(d.group_key.split(':')[1]) }}">← Transfer booking</a> · {% endif %}<a href="{{ url_for('bf_invoices') }}">← All Invoices</a>
 <section class="bf-panel bf-pad"><h2>{{ 'Approved invoice' if d.state=='approved' else 'Xero draft' if d.state=='drafted' else 'Review invoice' }}</h2>
 {% if d.kind=='Transport' and d.state=='open' %}<p><strong>Unsent · BinFlow only</strong> · <a href="{{ url_for('bf_xero_settings') }}">Xero connection</a></p>{% endif %}
 {% if link %}<p>Bill to <strong>{{ link.contact_name }}</strong> · {{ cfg.tenant_name }}</p>{% endif %}
@@ -9,7 +9,7 @@
 {% for i in lines %}<tr><td data-label="Charge">{{ i.description }}{% if i.job_id %} · <a href="{{ url_for('bf_pod_pdf',job_id=i.job_id) }}">Signed POD</a>{% endif %}</td><td data-label="Net">{{ i.net|money }}</td><td data-label="GST">{{ i.tax|money }}</td></tr>{% endfor %}
 </tbody></table></div><p>Subtotal {{ net|money }} · GST {{ tax|money }}</p><h3>Total AUD {{ (net+tax)|money }}</h3>
 {% if d.state=='open' %}{% if reason %}<p class="bf-note">{{ reason }} <a href="{{ url_for('bf_auto_billing_setup',booking=d.group_key.split(':')[1],_anchor='transfer-terms') if d.kind=='Transport' and d.issue else url_for('bf_auto_billing_setup') }}">Billing setup</a></p>{% endif %}
-{% if d.kind=='Transport' %}{% if po_number %}<p>Xero reference · <strong>{{ po_number }}</strong></p>{% else %}<p><a href="{{ url_for('bf_interstate_detail',bid=d.group_key.split(':')[1],_anchor='purchase-order') }}">Add the booking’s PO number</a> before creating the invoice.</p>{% endif %}{% endif %}
+{% if d.kind=='Transport' %}{% if po_number %}<p>Xero reference · <strong>{{ po_number }}</strong></p>{% else %}<p><a href="{{ office_transfer_link(d.group_key.split(':')[1],_anchor='purchase-order') }}">Add the booking’s PO number</a> before creating the invoice.</p>{% endif %}{% endif %}
 {% if not ready %}<p>The fortnight closes on {{ d.end|display_date }}.</p>{% elif not reason and (d.kind!='Transport' or po_number) %}
 <form method="post" action="{{ url_for('bf_auto_xero_draft' if d.kind=='Transport' else 'bf_auto_approve',did=d.id) }}" class="it-tools">
   <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ d.version }}">

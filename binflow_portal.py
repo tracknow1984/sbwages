@@ -166,8 +166,6 @@ def register_portal(app, db, access, require, render, success, failure, now, act
         if not permitted_pod(db(),g.bf_client,job_id,g.client_rights): abort(404)
         return pdf(job_id)
 
-    from sbtx import register as register_sbtx
-    register_sbtx(app, db, client_access, now)
     from binflow_interstate import register as register_interstate
     register_interstate(app,db,access,require,render,client_access,now,actor)
     from binflow_invoices import register as register_invoices
