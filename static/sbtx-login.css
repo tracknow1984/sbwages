@@ -1,0 +1,82 @@
+.sbtx-login {
+  --ink: #10243b;
+  --line: #d6dee4;
+  max-width: 1840px;
+  min-height: 100vh;
+  min-height: 100svh;
+  margin: 0 auto;
+  padding: 0 clamp(18px, 3vw, 56px);
+  display: flex;
+  flex-direction: column;
+  color: var(--ink);
+  background: #f7f8f8;
+}
+.sbtx-masthead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  min-height: 82px;
+  border-bottom: 1px solid var(--line);
+}
+.sbtx-logo { display: block; width: 86px; height: auto; }
+.sbtx-entry {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1.65fr) minmax(320px, 1fr);
+  gap: clamp(30px, 4.6vw, 96px);
+  align-content: center;
+  padding-block: clamp(22px, 3.6vh, 44px);
+}
+.sbtx-depot {
+  display: block;
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 1.5;
+  border-radius: 12px;
+  background: #263843;
+}
+.sbtx-scene {
+  position: absolute;
+  width: 100%;
+  aspect-ratio: 3 / 2;
+  top: 50%;
+  transform: translateY(-50%);
+  isolation: isolate;
+}
+.sbtx-photo { display: block; width: 100%; height: auto; }
+/* Both curtain prints share the photograph's coordinates as the viewport crops above and below it. */
+.sbtx-curtain { position: absolute; height: auto; transform-origin: top left; opacity: .9; mix-blend-mode: multiply; }
+.sbtx-curtain-front { left: 34.9%; top: 40.65%; width: 11.4%; transform: skewY(2.2deg) scaleY(1.1); }
+.sbtx-curtain-rear { left: 60.5%; top: 43.8%; width: 9.4%; transform: skewY(1.8deg); }
+.sbtx-access { align-self: center; display: grid; min-width: 0; }
+.sbtx-access .login { width: min(100%, 398px); padding: 24px 0; }
+.sbtx-product {
+  margin: 0 0 16px;
+  color: #285b93;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .13em;
+}
+.sbtx-access h1 { margin: 0 0 12px; font-size: clamp(38px, 3.5vw, 56px); }
+.sbtx-access .intro { color: #4f5c68; max-width: 36ch; }
+.sbtx-access input { border-color: #a8b5c1; }
+.sbtx-access input:focus { outline-color: #2567aa; }
+.sbtx-access button { background: #173652; }
+.sbtx-access button:hover { background: #204b70; }
+.sbtx-login footer { border-color: var(--line); color: #56636e; padding-block: 14px 18px; }
+
+@media (max-width: 930px) {
+  .sbtx-entry { grid-template-columns: minmax(0, 1.25fr) minmax(270px, 1fr); gap: 28px; }
+  .sbtx-depot { align-self: center; aspect-ratio: 1.5; }
+}
+@media (max-width: 730px) {
+  .sbtx-masthead { min-height: 70px; }
+  .sbtx-entry { display: flex; flex-direction: column; justify-content: center; gap: 0; padding-block: 17px 25px; }
+  .sbtx-depot { width: 100%; aspect-ratio: 2.25; border-radius: 8px; }
+  .sbtx-access { width: 100%; }
+  .sbtx-access .login { width: min(100%, 440px); padding: 27px 0 10px; }
+  .sbtx-product { margin-bottom: 9px; }
+  .sbtx-access h1 { font-size: clamp(34px, 8vw, 43px); }
+}
