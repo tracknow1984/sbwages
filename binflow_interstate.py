@@ -21,6 +21,7 @@ from document_uploads import read_document
 import binflow_client_access as portal
 import binflow_freight_rates as freight
 import binflow_transfer_dispatch as dispatch
+import sbtx
 
 PLACES = {
     'MEL': ('Melbourne', 'VIC'), 'SYD': ('Sydney', 'NSW'), 'BNE': ('Brisbane', 'QLD'),
@@ -74,6 +75,9 @@ def migrate(conn):
         CREATE INDEX IF NOT EXISTS bf_interstate_booking_manifest ON bf_interstate_manifests(booking_id,transfer_id);
     """)
     columns = {r[1] for r in conn.execute('PRAGMA table_info(bf_interstate_bookings)')}
+    if 'portal' not in columns:
+        conn.execute("ALTER TABLE bf_interstate_bookings ADD COLUMN portal TEXT NOT NULL DEFAULT 'binflow' CHECK(portal IN ('binflow','sbtx'))")
+    conn.execute('CREATE INDEX IF NOT EXISTS bf_transfers_by_portal ON bf_interstate_bookings(portal,account_id,pickup_date)')
     for field in ('pickup_company', 'delivery_company'):
         if field not in columns:
             conn.execute(f"ALTER TABLE bf_interstate_bookings ADD COLUMN {field} TEXT NOT NULL DEFAULT ''")
@@ -108,11 +112,15 @@ def booking_status(row, manifest_status=None, date_change=False):
 def share_dates_link(row):
     reference = f"IT-{row['id']:06d}"
     status = 'Confirmed' if row['locked_at'] else 'Awaiting confirmation from SB Empire'
+    if not row['delivery_date']:
+        status = 'Scheduled pickup · Delivery to confirm'
     lines = [f"Transfer {reference}", status, '']
     for stop, place in (('pickup', 'origin'), ('delivery', 'destination')):
-        day = dated(row[stop + '_date'])
-        company = row[stop + '_company'] or PLACES[row[place]][0]
-        lines.append(f"{stop.title()}: {day:%A %d %B %Y} · {company}, {PLACES[row[place]][1]}")
+        day = row[stop + '_date']
+        label = dated(day).strftime('%A %d %B %Y') if day else 'Date to confirm'
+        city, state = PLACES.get(row[place], ('', ''))
+        location = ', '.join(filter(None, (row[stop + '_company'] or city, state)))
+        lines.append(' · '.join(filter(None, (f'{stop.title()}: {label}', location))))
     return 'mailto:?' + urlencode({'subject': f'{reference} · Booking dates · {status}',
                                    'body': '\r\n'.join(lines)}, quote_via=quote)
 
@@ -122,11 +130,11 @@ def can_move_dates(row, manifest_status):
                 or manifest_status in ('transit', 'received', 'handed_over'))
 
 
-def dispatch_colours(conn):
+def dispatch_colours(conn, portal_name='binflow'):
     """Allocate colours in first-booking order so filters and new bookings do not reshuffle them."""
     clients = conn.execute("""SELECT COALESCE(a.name,b.client_name) AS billing_name
         FROM bf_interstate_bookings b LEFT JOIN bf_client_accounts a ON a.id=b.account_id
-        GROUP BY COALESCE(a.name,b.client_name) ORDER BY MIN(b.id)""")
+        WHERE b.portal=? GROUP BY COALESCE(a.name,b.client_name) ORDER BY MIN(b.id)""", (portal_name,))
     colours = {}
     for client in clients:
         key = ' '.join(client['billing_name'].casefold().split())
@@ -259,28 +267,45 @@ def confirmation(conn, config, row, now):
 
 
 def register(app, db, access, require, render, client_access, now, actor):
+    sbtx_office, sbtx_client = sbtx.blueprints(db, client_access)
+    app.add_template_global(sbtx.transfer_url, 'transfer_url')
+
+    def office_transfer_link(bid, **values):
+        return sbtx.office_detail_url(db(), bid, **values)
+
+    app.add_template_global(office_transfer_link, 'office_transfer_link')
+
+    def portal_name():
+        return 'sbtx' if sbtx.is_sbtx() else 'binflow'
+
+    def booking_right(action):
+        return ('sbtx.' if sbtx.is_sbtx() else 'bookings.') + action
+
     dispatch.register_responses(app,db,require,now)
     app.add_template_global(share_dates_link, 'bf_share_dates_link')
     freight.register(app,db,require,render,client_access,now,actor)
     portal.register_site_scope(app,db,require,render,now,actor)
 
     def page(template, external, **data):
-        data.update(places=PLACES,lanes=LANES,regions=STATES,vehicles=freight.VEHICLES,external=external)
+        data.update(sbtx_portal=sbtx.is_sbtx(), right=booking_right,
+                    places={**PLACES, '': ('To confirm', '')} if sbtx.is_sbtx() else PLACES,lanes=LANES,regions=STATES,vehicles=freight.VEHICLES,external=external)
         if external:
             return render_template('binflow/'+template+'.html',account=g.bf_client,**data)
         if template in ('interstate_calendar','interstate_detail') and g.user['role']=='admin':
             connection = db().execute('SELECT tenant_id FROM bf_xero_config WHERE id=1 AND token_cipher IS NOT NULL').fetchone()
             data['billing_tenant'] = connection['tenant_id'] if connection else None
+        if sbtx.is_sbtx():
+            return render_template('binflow/'+template+'.html', tab='sbtx', **data)
         return render(template,section='interstate',**data)
 
     def booking(bid, external=False):
-        row = db().execute('SELECT * FROM bf_interstate_bookings WHERE id=?',(bid,)).fetchone()
+        row = db().execute('SELECT * FROM bf_interstate_bookings WHERE id=? AND portal=?',(bid,portal_name())).fetchone()
         if not row or external and row['account_id']!=g.bf_client['id']:
             abort(404)
         return row
 
     def details_url(bid, external):
-        return url_for('bf_client_interstate_detail' if external else 'bf_interstate_detail',bid=bid)
+        return sbtx.transfer_url('detail',external,bid=bid)
 
     def show_calendar(external):
         if external and request.args.get('responses')=='1':
@@ -297,8 +322,11 @@ def register(app, db, access, require, render, client_access, now, actor):
             chosen = dated(request.args.get('date') or now()[:10])
         except ValueError:
             abort(400)
-        scope = ' AND b.account_id=?' if external else ''
-        args = (g.bf_client['id'],) if external else ()
+        scope = ' AND b.portal=?'
+        args = (portal_name(),)
+        if external:
+            scope += ' AND b.account_id=?'
+            args += (g.bf_client['id'],)
         dispatch_fields = dispatch_join = ''
         if not external:
             dispatch_fields = """,d.event AS handoff_event,d.target AS handoff_target,d.recipient AS handoff_recipient,
@@ -324,8 +352,9 @@ def register(app, db, access, require, render, client_access, now, actor):
                 (b.pickup_date BETWEEN ? AND ? OR b.delivery_date BETWEEN ? AND ?)""" + scope +
                 ' ORDER BY b.pickup_date,b.delivery_date,b.id', (first,last,first,last,*args))
             records = (dict(b, status=booking_status(b, b['manifest_status'], b['date_change_id'])) for b in bookings)
-            response = send_file(monthly_workbook(records, chosen, PLACES, external),
-                                 download_name=f"BinFlow-All-Transfers-{chosen:%Y-%m}.xlsx",
+            brand = 'SBTX' if sbtx.is_sbtx() else 'BinFlow'
+            response = send_file(monthly_workbook(records, chosen, PLACES, external, brand),
+                                 download_name=f"{brand}-All-Transfers-{chosen:%Y-%m}.xlsx",
                                  mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                                  as_attachment=True)
             response.cache_control.no_store = True
@@ -361,12 +390,12 @@ def register(app, db, access, require, render, client_access, now, actor):
         events = defaultdict(list)
         previews = {}
         legend = {}
-        colours = dispatch_colours(db()) if not external and (rows or pending) else {}
+        colours = dispatch_colours(db(), portal_name()) if not external and (rows or pending) else {}
         for booking in (*rows,*pending):
             name = booking['billing_name']
             key = ' '.join(name.casefold().split())
             preview = dict(booking, colour=colours.get(key,0),
-                           movable=can_move_dates(booking, booking['manifest_status']),
+                           movable=bool(booking['delivery_date']) and can_move_dates(booking, booking['manifest_status']),
                            status=booking_status(booking, booking['manifest_status'], booking['date_change_id']))
             previews[booking['id']] = preview
             if not external and booking['locked_at']:
@@ -378,11 +407,13 @@ def register(app, db, access, require, render, client_access, now, actor):
                     previous=previous,following=following,title=title,weeks=weeks,events=events,pending=pending,cancelled=cancelled,
                     previews=previews,legend=legend,vehicle_filter=vehicle_filter,calendar_vehicles=calendar_vehicles,booking_count=len(rows),today=now()[:10],can_update_booking=can_update_booking(external))
 
+    @sbtx_office.get('/', endpoint='calendar')
     @app.get('/binflow/interstate-transfers')
     @access
     def bf_interstate_calendar():
         return show_calendar(False)
 
+    @sbtx_client.get('/', endpoint='calendar')
     @app.get('/binflow/client/interstate-transfers')
     @client_access
     def bf_client_interstate():
@@ -410,8 +441,16 @@ def register(app, db, access, require, render, client_access, now, actor):
         values = dict(row) if row else dict(job_type='internal',handling='bulk' if external else 'scanned',client_name=g.bf_client['name'] if external else '')
         aid = g.bf_client['id'] if external else (row['account_id'] if row else None)
         payers = []
-        if not external and not aid and g.user['role']=='admin':
-            payers = db().execute('SELECT id,name FROM bf_client_accounts WHERE active=1 ORDER BY name,id').fetchall()
+        can_assign = not aid and g.user and g.user['role']=='admin'
+        if sbtx.is_sbtx():
+            can_assign = not row or not row['locked_at'] or not row['origin']
+        if not external and can_assign:
+            account_scope = ""
+            if sbtx.is_sbtx():
+                account_scope = ''' AND EXISTS (SELECT 1 FROM bf_client_permissions p, json_each(p.rights) r
+                    WHERE p.account_id=bf_client_accounts.id AND r.value='sbtx.view')'''
+            payers = db().execute('SELECT id,name FROM bf_client_accounts WHERE active=1' +
+                                  account_scope + ' ORDER BY name,id').fetchall()
             selected = request.args.get('bill_to',type=int)
             if selected is not None:
                 if not any(a['id']==selected for a in payers): abort(400,'Choose an active billing client.')
@@ -424,9 +463,11 @@ def register(app, db, access, require, render, client_access, now, actor):
         if row and row['rigid_hours_units'] is not None:
             values['hours'] = f"{row['rigid_hours_units']/100:g}"
 
+        previous_terms = row if row and row['account_id'] == aid else None
+
         def rate_card(conn):
             card=freight.rates_for(conn,aid) if aid else {}
-            if row and row['rigid_hours_units'] is None and row['vehicle'] and row['rate_cents'] is not None:
+            if previous_terms and row['rigid_hours_units'] is None and row['vehicle'] and row['rate_cents'] is not None:
                 card[f"{PLACES[row['origin']][1]}:{PLACES[row['destination']][1]}:{row['vehicle']}"]=freight.quote(row['rate_cents'],row['fuel_bps'])
             return card
 
@@ -434,12 +475,12 @@ def register(app, db, access, require, render, client_access, now, actor):
             legacy_route = None
             if row and row['vehicle']=='RIGID' and row['rigid_hours_units'] is None:
                 legacy_route = (PLACES[row['origin']][1],PLACES[row['destination']][1])
-            hourly, bps = freight.rigid_terms(db(), aid, row)
+            hourly, bps = freight.rigid_terms(db(), aid, previous_terms)
             return page('interstate_form',external,values=values,key=key,row=row,error=error,rates=rate_card(db()),
                         hourly=hourly,bps=bps,minimum=freight.MIN_RIGID_HOURS,
                         booking_vehicles=('RIGID', *freight.MATRIX_VEHICLES),
                         legacy_route=legacy_route,billing_name=billing_name,payers=payers,payer_id=aid,
-                        priced=aid is not None,bulk_only=external)
+                        priced=aid is not None,bulk_only=external or sbtx.is_sbtx())
         if not row and request.method=='GET' and request.args.get('pickup'):
             try:
                 values['pickup_date'] = dated(request.args['pickup']).isoformat()
@@ -447,7 +488,9 @@ def register(app, db, access, require, render, client_access, now, actor):
                 abort(400)
         key = secrets.token_urlsafe(24)
         if request.method=='POST':
-            values = request.form
+            values = request.form.copy()
+            if sbtx.is_sbtx() and not external:
+                values['handling'] = 'bulk'
             key = values.get('request_key','')
             try:
                 data = parse_booking(values,client=external,previous=row,billing_name=billing_name)
@@ -456,7 +499,7 @@ def register(app, db, access, require, render, client_access, now, actor):
                 route = ':'.join((PLACES[data['origin']][1], PLACES[data['destination']][1], data['vehicle']))
                 data['rigid_hourly_cents'] = None
                 if data['rigid_hours_units'] is not None:
-                    hourly, bps = freight.rigid_terms(conn, aid, row)
+                    hourly, bps = freight.rigid_terms(conn, aid, previous_terms)
                     data['rigid_hourly_cents'] = hourly
                     _, price = freight.rigid_quote(hourly, data['rigid_hours_units'], bps)
                 else:
@@ -467,7 +510,7 @@ def register(app, db, access, require, render, client_access, now, actor):
                 if price and price['bps']:
                     shown += '+'+str(price['bps'])
                 if aid and 'shown_rate' in values and values['shown_rate']!=shown:
-                    already_saved=not row and conn.execute('SELECT 1 FROM bf_interstate_bookings WHERE request_key=? AND account_id=?',(key,aid)).fetchone()
+                    already_saved=not row and conn.execute('SELECT 1 FROM bf_interstate_bookings WHERE request_key=? AND account_id=? AND portal=?',(key,aid,portal_name())).fetchone()
                     if not already_saved:
                         raise ValueError('The freight rate has changed. Review the updated price before submitting.')
                 if row:
@@ -475,11 +518,15 @@ def register(app, db, access, require, render, client_access, now, actor):
                     manifest = current_manifest(row['id'])
                     if current['cancelled_at'] or has_delivered(current,manifest) or values.get('version',type=int)!=current['version']:
                         raise ValueError('The load changed or is closed. Reopen it before editing.')
-                    if external and (current['locked_at'] or pending_change(row['id'])):
+                    if external and (current['locked_at'] and current['origin'] or pending_change(row['id'])):
                         abort(409)
+                    if sbtx.is_sbtx() and not current['origin']:
+                        data.update(locked_at=None, locked_by=None, email_status='pending', email_attempt_at=None)
                     if not external:
                         reason = office_change_reason()
-                        if aid and not current['account_id']:
+                        if aid and (not current['account_id'] or sbtx.is_sbtx() and aid != current['account_id']):
+                            if sbtx.is_sbtx() and current['account_id'] and po_metadata(current['id']):
+                                raise ValueError('This booking already has a customer purchase order. Keep its billing client.')
                             data['account_id'] = aid
                         changed = {key for key,val in data.items() if current[key]!=val}
                         if not changed: raise ValueError('Change a load detail before saving.')
@@ -502,12 +549,13 @@ def register(app, db, access, require, render, client_access, now, actor):
                     if not re.fullmatch(r'[A-Za-z0-9_-]{20,100}',key):
                         raise ValueError('Reopen the new transfer form before submitting.')
                     who = g.bf_client['name'] if external else actor()
-                    old = conn.execute('SELECT id,account_id,created_by FROM bf_interstate_bookings WHERE request_key=?',(key,)).fetchone()
+                    old = conn.execute('SELECT id,account_id,created_by,portal FROM bf_interstate_bookings WHERE request_key=?',(key,)).fetchone()
                     if old:
-                        if old['account_id']!=aid or old['created_by']!=who:
+                        if old['portal']!=portal_name() or old['account_id']!=aid or old['created_by']!=who:
                             abort(409)
                         bid = old['id']
                     else:
+                        data['portal'] = portal_name()
                         columns = ','.join(data)
                         marks = ','.join('?' for _ in data)
                         bid = conn.execute(f'INSERT INTO bf_interstate_bookings(request_key,account_id,created_by,created_at,{columns}) VALUES(?,?,?,?,{marks})',
@@ -521,23 +569,28 @@ def register(app, db, access, require, render, client_access, now, actor):
                 return show(str(error)),400
         return show()
 
+    @sbtx_office.route('/jobs/new', endpoint='new_job', methods=['GET','POST'])
     @app.route('/binflow/interstate-transfers/new',methods=['GET','POST'])
     @access
     def bf_interstate_new():
         return form_page(False)
 
+    @sbtx_client.route('/jobs/new', endpoint='new_job', methods=['GET','POST'])
     @app.route('/binflow/client/interstate-transfers/new',methods=['GET','POST'])
     @client_access
     def bf_client_interstate_new():
         return form_page(True)
 
+    @sbtx_client.route('/transfers/<int:bid>/edit', endpoint='edit', methods=['GET','POST'])
     @app.route('/binflow/client/interstate-transfers/<int:bid>/edit',methods=['GET','POST'])
     @client_access
     def bf_client_interstate_edit(bid):
         row=booking(bid,True)
-        if row['cancelled_at'] or row['locked_at'] or pending_change(bid): abort(409)
+        if row['cancelled_at'] or (row['locked_at'] and row['origin']) or pending_change(bid):
+            abort(409)
         return form_page(True,row)
 
+    @sbtx_office.route('/transfers/<int:bid>/edit', endpoint='edit', methods=['GET','POST'])
     @app.route('/binflow/interstate-transfers/<int:bid>/edit',methods=['GET','POST'])
     @require('admin')
     def bf_interstate_edit(bid):
@@ -546,6 +599,7 @@ def register(app, db, access, require, render, client_access, now, actor):
             abort(409,'This load is closed.')
         return form_page(False,row)
 
+    @sbtx_office.post('/transfers/<int:bid>/cancel', endpoint='cancel')
     @app.post('/binflow/interstate-transfers/<int:bid>/cancel')
     @require('admin')
     def bf_interstate_cancel(bid):
@@ -571,7 +625,7 @@ def register(app, db, access, require, render, client_access, now, actor):
                                WHERE booking_id=?""",(bid,)).fetchone()
 
     def can_update_booking(external):
-        return bool(g.client_rights & {'bookings.add','bookings.edit'}) if external else g.user['role']=='admin'
+        return bool(g.client_rights & {booking_right('add'),booking_right('edit')}) if external else g.user['role']=='admin'
 
     def pending_change(bid):
         return db().execute('SELECT * FROM bf_interstate_date_changes WHERE booking_id=? AND decision IS NULL AND superseded_at IS NULL',
@@ -592,25 +646,28 @@ def register(app, db, access, require, render, client_access, now, actor):
         invoice = transfer_invoices(db(), [bid]).get(bid) if office else None
         billed = invoice and invoice['status'] in ('sending','created','uncertain')
         handoff = dispatch.last(db(),bid) if office else None
-        route_options = dispatch.options(db(),row,PLACES[row['origin']][1],PLACES[row['destination']][1]) if office and not row['cancelled_at'] and not has_delivered(row,manifest) else None
+        route_options = dispatch.options(db(),row,PLACES[row['origin']][1],PLACES[row['destination']][1]) if office and row['origin'] and not row['cancelled_at'] and not has_delivered(row,manifest) else None
         if route_options and handoff and handoff['event']=='On hold' and handoff['target'] in route_options['choices']:
             route_options['preferred'] = handoff['target']
         return page('interstate_detail',external,handoff=handoff,route_options=route_options,history=history,invoice=invoice,billed=billed,change_error=change_error,
                     editable=not row['cancelled_at'] and not has_delivered(row,manifest),b=row,manifest=manifest,status=status,po=po_metadata(bid),
                     po_error=po_error,can_update_booking=can_update_booking(external), change=change,
-                    movable=can_move_dates(row, manifest_status), date_error=date_error,
+                    movable=bool(row['delivery_date']) and can_move_dates(row, manifest_status), date_error=date_error,
                     price=freight.quote(row['rate_cents'],row['fuel_bps']), minimum=freight.MIN_RIGID_HOURS)
 
+    @sbtx_office.get('/transfers/<int:bid>', endpoint='detail')
     @app.get('/binflow/interstate-transfers/<int:bid>')
     @access
     def bf_interstate_detail(bid):
         return detail(bid,False)
 
+    @sbtx_client.get('/transfers/<int:bid>', endpoint='detail')
     @app.get('/binflow/client/interstate-transfers/<int:bid>')
     @client_access
     def bf_client_interstate_detail(bid):
         return detail(bid,True)
 
+    @sbtx_client.post('/transfers/<int:bid>/reschedule', endpoint='reschedule')
     @app.post('/binflow/client/interstate-transfers/<int:bid>/reschedule')
     @client_access
     def bf_client_interstate_reschedule(bid):
@@ -622,6 +679,8 @@ def register(app, db, access, require, render, client_access, now, actor):
         manifest = current_manifest(bid)
         if row['cancelled_at']:
             abort(409, 'This load was cancelled.')
+        if not row['delivery_date']:
+            abort(409,'Complete the transfer details before requesting a date change.')
         if not can_move_dates(row, manifest['status'] if manifest else None):
             abort(409, 'This transfer has already been dispatched.')
         if request.form.get('version', type=int) != row['version']:
@@ -705,21 +764,25 @@ def register(app, db, access, require, render, client_access, now, actor):
         return send_file(io.BytesIO(po['document']),mimetype=po['mime_type'],
                          download_name=po['filename'],as_attachment=not inline)
 
+    @sbtx_client.post('/transfers/<int:bid>/purchase-order', endpoint='po')
     @app.post('/binflow/client/interstate-transfers/<int:bid>/purchase-order')
     @client_access
     def bf_client_interstate_po(bid):
         return save_po(bid,True)
 
+    @sbtx_office.post('/transfers/<int:bid>/purchase-order', endpoint='po')
     @app.post('/binflow/interstate-transfers/<int:bid>/purchase-order')
     @require('admin')
     def bf_interstate_po(bid):
         return save_po(bid,False)
 
+    @sbtx_client.get('/transfers/<int:bid>/purchase-order/file', endpoint='po_file')
     @app.get('/binflow/client/interstate-transfers/<int:bid>/purchase-order/file')
     @client_access
     def bf_client_interstate_po_file(bid):
         return download_po(bid,True)
 
+    @sbtx_office.get('/transfers/<int:bid>/purchase-order/file', endpoint='po_file')
     @app.get('/binflow/interstate-transfers/<int:bid>/purchase-order/file')
     @access
     def bf_interstate_po_file(bid):
@@ -751,12 +814,15 @@ def register(app, db, access, require, render, client_access, now, actor):
         except ValueError as error:
             abort(400,str(error))
 
+    @sbtx_office.post('/transfers/<int:bid>/dispatch-recipient', endpoint='dispatch_recipient')
     @app.post('/binflow/interstate-transfers/<int:bid>/dispatch-recipient')
     @require('admin')
     def bf_interstate_dispatch_recipient(bid):
         conn=db()
         conn.execute('BEGIN IMMEDIATE')
         row=booking(bid)
+        if not row['origin']:
+            abort(409, 'Complete the imported transfer details before dispatch or confirmation.')
         handoff=dispatch.last(conn,bid)
         if request.form.get('version',type=int)!=row['version']:
             abort(409,'The booking changed. Reopen it before dispatching.')
@@ -786,11 +852,14 @@ def register(app, db, access, require, render, client_access, now, actor):
         dispatch.deliver_mail(conn,bid,app.config,now())
         return redirect(details_url(bid,False))
 
+    @sbtx_office.post('/transfers/<int:bid>/lock', endpoint='lock')
     @app.post('/binflow/interstate-transfers/<int:bid>/lock')
     @require('admin')
     def bf_interstate_lock(bid):
         db().execute('BEGIN IMMEDIATE')
         row = booking(bid)
+        if not row['origin']:
+            abort(409, 'Complete the imported transfer details before dispatch or confirmation.')
         if row['cancelled_at']: abort(409,'This load was cancelled.')
         if not row['locked_at']:
             if request.form.get('version',type=int)!=row['version']:
@@ -828,20 +897,26 @@ def register(app, db, access, require, render, client_access, now, actor):
             db().rollback()
         return redirect(details_url(bid,False))
 
+    @sbtx_office.post('/transfers/<int:bid>/email', endpoint='email')
     @app.post('/binflow/interstate-transfers/<int:bid>/email')
     @require('admin')
     def bf_interstate_email(bid):
         row = booking(bid)
+        if not row['origin']:
+            abort(409, 'Complete the imported transfer details before dispatch or confirmation.')
         if not row['locked_at']:
             abort(409)
         confirmation(db(),app.config,row,now)
         return redirect(details_url(bid,False))
 
+    @sbtx_office.post('/transfers/<int:bid>/bulk', endpoint='bulk')
     @app.post('/binflow/interstate-transfers/<int:bid>/bulk')
     @access
     def bf_interstate_bulk(bid):
         db().execute('BEGIN IMMEDIATE')
         row = booking(bid)
+        if not row['origin']:
+            abort(409, 'Complete the imported transfer details before dispatch or confirmation.')
         if not row['locked_at'] or row['cancelled_at'] or row['handling']!='bulk':
             abort(409)
         action = request.form.get('action')
@@ -935,3 +1010,6 @@ def register(app, db, access, require, render, client_access, now, actor):
         conn.commit()
         flash('Portal permissions saved.','success')
         return redirect(url_for('sbtx_accounts' if request.args.get('area') == 'sbtx' else 'bf_interstate_accounts',_anchor=f'login-{aid}'),code=303)
+
+    app.register_blueprint(sbtx_office)
+    app.register_blueprint(sbtx_client)

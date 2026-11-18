@@ -1,209 +1,87 @@
-"""General transport bookings for the SB Empire office and individual customers."""
-from collections import defaultdict
-from io import BytesIO
-import secrets
+"""SBTX entry points for the shared transfer booking workflow."""
+from flask import Blueprint, abort, g, redirect, request, url_for
 
-from flask import Blueprint, abort, flash, g, redirect, render_template, request, send_file, url_for
-
-from binflow_collections import calendar_period, dated
 from binflow_permissions import is_office
-from document_uploads import read_document
 
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS sbtx_jobs (
-    id INTEGER PRIMARY KEY,
-    request_key TEXT NOT NULL UNIQUE,
-    account_id INTEGER REFERENCES bf_client_accounts(id),
-    description TEXT NOT NULL,
-    pickup_date TEXT NOT NULL,
-    customer_name TEXT NOT NULL,
-    contact_number TEXT NOT NULL,
-    po_number TEXT NOT NULL DEFAULT '',
-    filename TEXT,
-    mime_type TEXT,
-    document BLOB,
-    version INTEGER NOT NULL DEFAULT 1
-);
-CREATE INDEX IF NOT EXISTS sbtx_pickups ON sbtx_jobs(pickup_date);
-CREATE INDEX IF NOT EXISTS sbtx_customer_pickups ON sbtx_jobs(account_id, pickup_date);
-"""
-JOB_FIELDS = 'id,account_id,description,pickup_date,customer_name,contact_number,po_number,filename,version'
+def is_sbtx():
+    return request.blueprint in ('sbtx', 'sbtx_client')
 
 
-def read_job_fields(max_bytes):
-    fields = {}
-    for key, label, limit in [('description', 'job description', 2000), ('customer_name', 'customer name', 150),
-                              ('contact_number', 'customer contact number', 50), ('po_number', 'PO number', 100)]:
-        value = request.form.get(key, '').strip()
-        if not value and key != 'po_number':
-            raise ValueError(f'Enter the {label}.')
-        if len(value) > limit:
-            raise ValueError(f'Keep the {label} to {limit} characters or fewer.')
-        if key == 'contact_number' and not any(c.isdigit() for c in value):
-            raise ValueError('Enter a contact number with its digits.')
-        fields[key] = value
-    try:
-        fields['pickup_date'] = dated(request.form.get('pickup_date', '')).isoformat()
-    except ValueError:
-        raise ValueError('Choose a valid pickup date.') from None
-    upload = request.files.get('po_file')
-    file_values = (None, None, None)
-    if upload:
-        file_values = read_document(upload, max_bytes, verify_contents=True)
-    fields['filename'], fields['mime_type'], fields['document'] = file_values
-    return fields
+def transfer_url(action, external, **values):
+    if is_sbtx():
+        prefix = 'sbtx_client.' if external else 'sbtx.'
+        return url_for(prefix + ('new_job' if action == 'new' else action), **values)
+    if action == 'calendar':
+        endpoint = 'bf_client_interstate' if external else 'bf_interstate_calendar'
+    else:
+        endpoint = ('bf_client_interstate_' if external else 'bf_interstate_') + action
+    return url_for(endpoint, **values)
 
 
-def register(app, db, client_access, now):
-    with app.app_context():
-        db().executescript(SCHEMA)
-    bp = Blueprint('sbtx', __name__)
+def office_detail_url(conn, bid, **values):
+    # Shared accounting screens link back to the calendar where the customer booked.
+    row = conn.execute('SELECT portal FROM bf_interstate_bookings WHERE id=?', (bid,)).fetchone()
+    endpoint = 'sbtx.detail' if row and row['portal'] == 'sbtx' else 'bf_interstate_detail'
+    return url_for(endpoint, bid=bid, **values)
 
-    @client_access
-    def check_customer():
-        return None
 
-    @bp.before_request
-    def check_access():
-        g.sbtx_external = request.blueprint == 'sbtx_client'
-        if g.sbtx_external:
-            return check_customer()
+def migrate(conn, stamp):
+    """Carry forward previously scheduled pickups and original PO bytes, without sending mail."""
+    if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='sbtx_jobs'").fetchone():
+        return 0, 0
+    bookings = conn.execute("""INSERT INTO bf_interstate_bookings
+        (portal,request_key,account_id,created_by,created_at,job_type,handling,origin,destination,
+         pickup_date,delivery_date,client_name,pickup_address,pickup_contact,pickup_phone,
+         delivery_address,delivery_contact,delivery_phone,email,goods,locked_at,locked_by,email_status,version)
+        SELECT 'sbtx','sbtx-legacy:'||j.id,j.account_id,'SBTX calendar import',?,'internal','bulk','','',
+               j.pickup_date,'',j.customer_name,'','',j.contact_number,'','','','',j.description,
+               ?,'SBTX calendar import','imported',j.version
+        FROM sbtx_jobs j WHERE NOT EXISTS (
+            SELECT 1 FROM bf_interstate_bookings b WHERE b.request_key='sbtx-legacy:'||j.id)""", (stamp, stamp))
+    orders = conn.execute("""INSERT INTO bf_interstate_purchase_orders
+        (booking_id,number,filename,mime_type,document,revision,updated_at,updated_by)
+        SELECT b.id,j.po_number,j.filename,j.mime_type,j.document,1,?,'SBTX calendar import'
+        FROM sbtx_jobs j JOIN bf_interstate_bookings b ON b.request_key='sbtx-legacy:'||j.id AND b.portal='sbtx'
+        WHERE (j.po_number!='' OR j.document IS NOT NULL) AND NOT EXISTS (
+            SELECT 1 FROM bf_interstate_purchase_orders p WHERE p.booking_id=b.id)""", (stamp,))
+    return bookings.rowcount, orders.rowcount
+
+
+def blueprints(db, client_access):
+    office = Blueprint('sbtx', __name__, url_prefix='/sbtx')
+    client = Blueprint('sbtx_client', __name__, url_prefix='/sbtx/client')
+
+    @office.before_request
+    def office_access():
         if not g.user:
             return redirect(url_for('login', audience='admin', area='sbtx'))
         if not is_office(g.user):
             abort(403)
 
-    def can(action):
-        return not g.sbtx_external or 'sbtx.' + action in g.client_rights
-
-    def scope():
-        if g.sbtx_external:
-            return ' AND account_id=?', (g.bf_client['id'],)
-        return '', ()
-
-    def get_job(jid, fields=JOB_FIELDS):
-        clause, params = scope()
-        row = db().execute(f'SELECT {fields} FROM sbtx_jobs WHERE id=?' + clause, (jid, *params)).fetchone()
-        if row is None:
+    def legacy_url(jid, action, external):
+        row = db().execute("""SELECT id,account_id FROM bf_interstate_bookings
+            WHERE portal='sbtx' AND request_key=?""", ('sbtx-legacy:' + str(jid),)).fetchone()
+        if not row or external and row['account_id'] != g.bf_client['id']:
             abort(404)
-        return row
+        return redirect(transfer_url(action, external, bid=row['id']))
 
-    def page(template, **values):
-        return render_template('sbtx/' + template, tab='sbtx', external=g.sbtx_external, **values)
-
-    @bp.get('/')
-    def calendar():
-        view = request.args.get('view', 'month')
-        today = now()[:10]
-        if view not in ('week', 'month'):
-            abort(400)
-        try:
-            chosen = dated(request.args.get('date') or today)
-        except ValueError:
-            abort(400, 'Choose a valid calendar date.')
-        start, end, previous, following, title, weeks = calendar_period(chosen, view)
-        clause, params = scope()
-        rows = db().execute(f'SELECT {JOB_FIELDS} FROM sbtx_jobs WHERE pickup_date BETWEEN ? AND ?' +
-                            clause + ' ORDER BY pickup_date, customer_name COLLATE NOCASE, id',
-                            (start.isoformat(), end.isoformat(), *params))
-        events = defaultdict(list)
-        for row in rows:
-            events[row['pickup_date']].append(row)
-        return page('calendar.html', view=view, chosen=chosen, previous=previous, following=following,
-                    title=title, weeks=weeks, events=events, today=today, can_add=can('add'))
-
-    def customer_logins(current_id):
-        # SBTX is opt-in. A disabled login remains identifiable on its existing jobs.
-        return db().execute("""
-            SELECT a.id,a.name,a.username FROM bf_client_accounts a
-            WHERE a.id=? OR (a.active=1 AND EXISTS (
-                SELECT 1 FROM bf_client_permissions p, json_each(p.rights) r
-                WHERE p.account_id=a.id AND r.value='sbtx.view'))
-            ORDER BY a.name COLLATE NOCASE,a.username
-        """, (current_id,)).fetchall()
-
-    def job_form(job=None):
-        editing = job is not None
-        can_save = can('edit' if editing else 'add')
-        if request.method == 'POST' and not can_save:
-            abort(403)
-        current_id = job['account_id'] if editing else None
-        accounts = [] if g.sbtx_external else customer_logins(current_id)
-        if editing:
-            values = dict(job)
-        else:
-            try:
-                pickup = dated(request.args.get('pickup') or now()[:10]).isoformat()
-            except ValueError:
-                abort(400, 'Choose a valid pickup date.')
-            values = dict(pickup_date=pickup, customer_name=g.bf_client['name'] if g.sbtx_external else '',
-                          request_key=secrets.token_hex(16))
-
-        error = None
-        if request.method == 'POST':
-            values.update(request.form)
-            try:
-                fields = read_job_fields(app.config['DOCUMENT_MAX_BYTES'])
-                conn = db()
-                conn.execute('BEGIN IMMEDIATE')
-                if g.sbtx_external:
-                    fields['account_id'] = g.bf_client['id']
-                else:
-                    selected = request.form.get('account_id', '')
-                    if selected and selected not in {str(a['id']) for a in customer_logins(current_id)}:
-                        raise ValueError('Choose a customer login with SBTX access.')
-                    fields['account_id'] = int(selected) if selected else None
-                if editing:
-                    get_job(job['id'])
-                    fields.update(id=job['id'], version=request.form.get('version', type=int))
-                    changed = conn.execute("""
-                        UPDATE sbtx_jobs SET description=:description, pickup_date=:pickup_date,
-                        customer_name=:customer_name, contact_number=:contact_number, account_id=:account_id,
-                        po_number=:po_number, filename=COALESCE(:filename,filename),
-                        mime_type=COALESCE(:mime_type,mime_type), document=COALESCE(:document,document),
-                        version=version+1 WHERE id=:id AND version=:version
-                    """, fields)
-                    if not changed.rowcount:
-                        conn.rollback()
-                        abort(409, 'This job has changed. Reopen it from the calendar before saving.')
-                else:
-                    key = request.form.get('request_key', '')
-                    if len(key) != 32 or any(c not in '0123456789abcdef' for c in key):
-                        raise ValueError('Reopen New job and try again.')
-                    who = 'customer-' + str(g.bf_client['id']) if g.sbtx_external else 'staff-' + str(g.user['id'])
-                    fields['key'] = who + '-' + key
-                    conn.execute("""
-                        INSERT INTO sbtx_jobs(request_key,account_id,description,pickup_date,customer_name,
-                                              contact_number,po_number,filename,mime_type,document)
-                        VALUES(:key,:account_id,:description,:pickup_date,:customer_name,
-                               :contact_number,:po_number,:filename,:mime_type,:document)
-                        ON CONFLICT(request_key) DO NOTHING
-                    """, fields)
-                conn.commit()
-                flash('Job saved.', 'success')
-                return redirect(url_for('.calendar', date=fields['pickup_date']), code=303)
-            except ValueError as exc:
-                db().rollback()
-                error = str(exc)
-        return page('job.html', job=job, values=values, can_save=can_save, accounts=accounts,
-                    error=error), 400 if error else 200
-
-    @bp.route('/jobs/new', methods=['GET', 'POST'])
-    def new_job():
-        return job_form()
-
-    @bp.route('/jobs/<int:jid>', methods=['GET', 'POST'])
+    @office.get('/jobs/<int:jid>')
     def job(jid):
-        return job_form(get_job(jid))
+        return legacy_url(jid, 'detail', False)
 
-    @bp.get('/jobs/<int:jid>/purchase-order')
-    def po_file(jid):
-        row = get_job(jid, 'filename,mime_type,document')
-        if row['document'] is None:
-            abort(404)
-        return send_file(BytesIO(row['document']), mimetype=row['mime_type'],
-                         download_name=row['filename'], as_attachment=True)
+    @client.get('/jobs/<int:jid>', endpoint='job')
+    @client_access
+    def client_job(jid):
+        return legacy_url(jid, 'detail', True)
 
-    app.register_blueprint(bp, url_prefix='/sbtx')
-    app.register_blueprint(bp, name='sbtx_client', url_prefix='/sbtx/client')
+    @office.get('/jobs/<int:jid>/purchase-order')
+    def legacy_po(jid):
+        return legacy_url(jid, 'po_file', False)
+
+    @client.get('/jobs/<int:jid>/purchase-order', endpoint='legacy_po')
+    @client_access
+    def client_legacy_po(jid):
+        return legacy_url(jid, 'po_file', True)
+
+    return office, client

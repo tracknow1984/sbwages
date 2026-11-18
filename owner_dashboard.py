@@ -29,8 +29,8 @@ def dispatch_outlook(conn, today, selected_date):
             WHERE {published} AND scheduled_date=? ORDER BY run_order, id LIMIT 2""", (selected,)).fetchall()
     bookings = conn.execute("""SELECT id, origin, destination FROM bf_interstate_bookings
             WHERE locked_at IS NOT NULL AND pickup_date=? ORDER BY id LIMIT 2""", (selected,))
-    pickups = [dict(id=r['id'], origin=PLACES.get(r['origin'], (r['origin'],))[0],
-                    destination=PLACES.get(r['destination'], (r['destination'],))[0]) for r in bookings]
+    pickups = [dict(id=r['id'], origin=PLACES.get(r['origin'], ('To confirm',))[0],
+                    destination=PLACES.get(r['destination'], ('To confirm',))[0]) for r in bookings]
     return dict(days=list(days.values()), selected=days[selected], today=days[today.isoformat()],
                 jobs=jobs, pickups=pickups)
 
@@ -95,7 +95,8 @@ def owner_overview(conn, today, selected_date):
         (SELECT COUNT(*) FROM users WHERE role='employee' AND status='active') AS staff,
         (SELECT COUNT(*) FROM documents WHERE archived_at IS NULL) AS documents,
         (SELECT COUNT(*) FROM leave_requests WHERE status='pending' AND archived_at IS NULL) AS leave,
-        (SELECT COUNT(*) FROM bf_interstate_bookings WHERE locked_at IS NULL) AS confirmations,
+        (SELECT COUNT(*) FROM bf_interstate_bookings WHERE portal='binflow' AND locked_at IS NULL AND cancelled_at IS NULL) AS confirmations,
+        (SELECT COUNT(*) FROM bf_interstate_bookings WHERE portal='sbtx' AND locked_at IS NULL AND cancelled_at IS NULL) AS sbtx_confirmations,
         (SELECT COUNT(*) FROM bf_collection_requests r LEFT JOIN bf_jobs j ON j.id=r.job_id
             WHERE (r.status='new' AND r.review_state!='referred')
                OR (r.status='scheduled' AND COALESCE(j.approval_status,'')!='approved')) AS collections,

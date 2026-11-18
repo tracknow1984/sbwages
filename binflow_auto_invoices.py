@@ -344,7 +344,8 @@ def register(app,db,require,render,now,actor):
         if not xero.booking_po(conn,bid):
             conn.rollback()
             flash('Add the purchase order number before creating the Xero draft.','error')
-            return redirect(url_for('bf_interstate_detail',bid=bid,_anchor='purchase-order'),code=303)
+            from sbtx import office_detail_url
+            return redirect(office_detail_url(conn, bid, _anchor='purchase-order'),code=303)
         reconcile(conn, now(), requested_transfer=bid)
         draft = row(transfer_invoices(conn,[bid])[bid]['id'])
         conn.commit()

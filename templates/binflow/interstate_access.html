@@ -56,7 +56,7 @@
     <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ revision(policies[a.id]) }}">
     {{ permission_matrix(policies[a.id]) }}<button class="primary">Save permissions</button></form></details>
   {% if not sbtx_setup and a.transfer_only %}<a href="{{ url_for('bf_portal_sites',aid=a.id) }}">Edit approved sites</a>{% endif %}
-  {% if not sbtx_setup %}<a href="{{ url_for('bf_interstate_rates',aid=a.id) }}">Pricing matrix</a>{% endif %}
+  <a href="{{ url_for('bf_interstate_rates',aid=a.id) }}">Pricing matrix</a>
   </article>
   {% else %}<p>No customer logins have been saved yet.</p>{% endfor %}
   {% if sbtx_setup %}<p><a href="{{ url_for('bf_interstate_accounts') }}">Manage permissions for an existing portal login</a></p>{% endif %}

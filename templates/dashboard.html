@@ -5,11 +5,12 @@
 {% set queue = [
   ('Vehicle prestart holds', holds.total, 'prestart', url_for('admin_prestart_detail',prestart_id=holds.first_id) if holds.total else url_for('admin_prestart',failed=1)),
   ('State schedules to review', approvals.pending, 'calendar', '#schedule-approvals'),
-  ('Transfers to confirm', counts.confirmations, 'truck', url_for('bf_interstate_calendar')),
+  ('BinFlow transfers to confirm' if counts.sbtx_confirmations else 'Transfers to confirm', counts.confirmations, 'truck', url_for('bf_interstate_calendar')),
   ('Collection requests to action', counts.collections, 'requests', url_for('bf_collection_requests',status='attention')),
   ('Timesheets to process', unpaid.total, 'clock', url_for('view_sheet',sheet_id=unpaid.first_id) if unpaid.total else url_for('admin_timesheets')),
   ('Leave requests to approve', counts.leave, 'calendar', url_for('admin_leave'))
 ] %}
+{% if counts.sbtx_confirmations %}{% set queue = queue + [('SBTX transfers to confirm', counts.sbtx_confirmations, 'truck', url_for('sbtx.calendar'))] %}{% endif %}
 {% set selected = dispatch.selected %}
 <div class="owner-overview">
   <header class="owner-hero">
@@ -70,12 +71,12 @@
       </nav>
       <div class="dispatch-detail">
         <div class="dispatch-heading"><h3>{{ selected.date.strftime('%A, %d %b') }}</h3>
-          <div><a href="{{ url_for('bf_collection_calendar',date=selected.date.isoformat(),view='week') }}">Collection calendar</a><a href="{{ url_for('bf_interstate_calendar',date=selected.date.isoformat(),view='month') }}">All transfers</a></div>
+          <div><a href="{{ url_for('bf_collection_calendar',date=selected.date.isoformat(),view='week') }}">Collection calendar</a><a href="{{ url_for('bf_interstate_calendar',date=selected.date.isoformat(),view='month') }}">BinFlow transfers</a><a href="{{ url_for('sbtx.calendar',date=selected.date.isoformat()) }}">SBTX transfers</a></div>
         </div>
         {% if dispatch.jobs or dispatch.pickups %}
           <ul class="dispatch-records">
           {% for job in dispatch.jobs %}<li><a href="{{ url_for('bf_job',job_id=job.id) }}"><span class="dispatch-ref">{{ job.code }}</span><span data-record-text>{{ job.site_name }}</span><small>{{ job.state }}</small></a></li>{% endfor %}
-          {% for pickup in dispatch.pickups %}<li><a href="{{ url_for('bf_interstate_detail',bid=pickup.id) }}"><span class="dispatch-ref pickup-ref">IT-{{ '%06d'|format(pickup.id) }}</span><span>{{ pickup.origin }} → {{ pickup.destination }}</span><small>Pickup</small></a></li>{% endfor %}
+          {% for pickup in dispatch.pickups %}<li><a href="{{ office_transfer_link(pickup.id) }}"><span class="dispatch-ref pickup-ref">IT-{{ '%06d'|format(pickup.id) }}</span><span>{{ pickup.origin }} → {{ pickup.destination }}</span><small>Pickup</small></a></li>{% endfor %}
           </ul>
           {% if selected.jobs > 2 or selected.pickups > 2 %}<p class="dispatch-note">Showing {{ dispatch.jobs|length + dispatch.pickups|length }} of {{ selected.jobs + selected.pickups }} records. Open the calendars for the full day.</p>{% endif %}
         {% else %}<p class="dispatch-note">No published jobs or confirmed transfer pickups for this day.</p>{% endif %}
