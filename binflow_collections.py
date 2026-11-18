@@ -48,6 +48,9 @@ def migrate_collections(conn):
 
 def parse_frequency(source):
     value = source.get('frequency','').strip().lower()
+    if not source.get('service_days') and source.get('visits_4w') is None:
+        from binflow_profile_schedule import decode
+        return decode(value).calendar()
     days = sorted({d for d in source.get('service_days',[]) if type(d) is int and 0<=d<7})
     if not days:
         days = [i for i,name in enumerate(DAYS) if re.search(r'\b'+name[:3]+r'(?:'+name[3:]+r')?\b',value,re.I)]

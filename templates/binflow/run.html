@@ -25,7 +25,7 @@
 <section class="bf-panel bf-pad bf-action-card"><span class="bf-kicker">STOP {{ stop_number }} / {{ jobs|length }}</span>
 <h1>{{ {'navigate':current.client_name,'deliver':'Deliver empty bins','collect':'Collect full bins','handover':'Confirm pickup'}[stage] }}</h1>
 <p>{% if stage!='navigate' %}<strong>{{ current.client_name }}</strong> · {% endif %}{{ current.site_name }}</p>
-{% if stage=='navigate' %}<div class="bf-destination">{{ icon('pin') }} {{ current.site_address }}</div>{% endif %}
+{% with stop=current %}{% include 'binflow/stop_instructions.html' %}{% endwith %}{% if stage=='navigate' %}<div class="bf-destination">{{ icon('pin') }} {{ current.site_address }}</div>{% endif %}
 {% if stage=='navigate' %}<div class="bf-stop-quantities"><span><strong>{{ current_rows|selectattr('direction','equalto','deliver')|list|length }}</strong> to deliver</span><span><strong>{{ current_rows|selectattr('direction','equalto','collect')|list|length }}</strong> to collect</span></div>{% set navigation_address=current.site_address %}{% set navigation_label='Navigate to first job' if stop_number==1 else 'Navigate to next job' %}{% set arrival_action='client-arrival' %}{% set arrival_field='job_id' %}{% set arrival_id=current.id %}{% set arrival_label='I’ve arrived' %}{% include 'binflow/navigation_controls.html' %}
 {% endif %}</section>
 {% if stage in ('deliver','collect') and current_rows|selectattr('direction','equalto','collect')|rejectattr('picked_up_at')|list %}

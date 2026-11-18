@@ -10,6 +10,7 @@
   <label>Search<input type="search" name="q" value="{{ query }}" placeholder="Site, address or contact"></label>
   <label>State<select name="state"><option value="">All states</option>{% for s in states %}<option {{ 'selected' if filters.state==s }}>{{ s }}</option>{% endfor %}</select></label>
   <label>Sites<select name="view">{% for v in ['current','archived','all'] %}<option value="{{ v }}" {{ 'selected' if view==v }}>{{ v|capitalize }}</option>{% endfor %}</select></label>
+  <label>Schedules<select name="status"><option value="">All schedules</option><option value="schedule_review" {{ 'selected' if filters.status=='schedule_review' }}>Schedule or day to confirm</option></select></label>
   <label>Rows<select name="per_page">{% for n in [10,20,50] %}<option {{ 'selected' if not show_all and per_page==n }}>{{ n }}</option>{% endfor %}<option value="all" {{ 'selected' if show_all }}>All</option></select></label>
   <button class="primary">Search</button>
 </form>
@@ -24,7 +25,8 @@
     <td data-label="Address"><div>{{ p.address or '—' }}</div><span>{{ [p.suburb,p.state,p.postcode]|select|join(' ') }}</span></td>
     <td data-label="Contact"><div>{{ p.contact_name or '—' }}</div><span>{{ p.contact_number }}</span><span>{{ p.contact_email }}</span>
       <small>Contact verified · {{ 'Yes' if p.contact_verified=='yes' else 'No' }}</small></td>
-    <td data-label="Schedule"><div>{{ p.schedule or '—' }}</div></td>
+    <td data-label="Schedule"><div>{{ p.schedule or 'To confirm' }}</div>{% if profile_schedule(p).review and p.schedule %}<small>{{ 'Schedule to confirm' if profile_schedule(p).frequency in ('review','unset') else 'Day to confirm' }}</small>{% endif %}
+    {% if 'profiles.schedule' in g.client_rights %}<a href="{{ url_for('bf_client_site_schedule',pid=p.id) }}" aria-label="Edit schedule for {{ p.customer_site }}">Edit schedule</a>{% endif %}</td>
     <td data-label="Bin requirements"><div>{% for b in bins.get(p.location_id,[]) %}<span>{{ b.quantity }} × {{ b.name }}</span>{% else %}None recorded{% endfor %}</div></td>
     <td data-label="ASIC required"><div>{{ {'yes':'Yes','no':'No','unknown':'Not confirmed'}.get(p.asic_required,'Not confirmed') }}</div></td>
   </tr>{% else %}<tr><td colspan="6" class="bf-directory-empty">No sites match your search.</td></tr>{% endfor %}</tbody></table>

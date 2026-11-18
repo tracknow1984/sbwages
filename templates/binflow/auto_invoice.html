@@ -4,6 +4,7 @@
 <section class="bf-panel bf-pad"><h2>{{ 'Approved invoice' if d.state=='approved' else 'Xero draft' if d.state=='drafted' else 'Review invoice' }}</h2>
 {% if d.kind=='Transport' and d.state=='open' %}<p><strong>Unsent · BinFlow only</strong> · <a href="{{ url_for('bf_xero_settings') }}">Xero connection</a></p>{% endif %}
 {% if link %}<p>Bill to <strong>{{ link.contact_name }}</strong> · {{ cfg.tenant_name }}</p>{% endif %}
+{% if d.kind=='POD Collections' %}<p><a class="button secondary" href="{{ url_for('bf_invoice_document',identifier=d.id) }}">Download invoice and signed PODs as one PDF</a></p>{% endif %}
 <div class="bf-table-wrap"><table class="bf-plan-table"><thead><tr><th>Charge</th><th>Net</th><th>GST</th></tr></thead><tbody>
 {% for i in lines %}<tr><td data-label="Charge">{{ i.description }}{% if i.job_id %} · <a href="{{ url_for('bf_pod_pdf',job_id=i.job_id) }}">Signed POD</a>{% endif %}</td><td data-label="Net">{{ i.net|money }}</td><td data-label="GST">{{ i.tax|money }}</td></tr>{% endfor %}
 </tbody></table></div><p>Subtotal {{ net|money }} · GST {{ tax|money }}</p><h3>Total AUD {{ (net+tax)|money }}</h3>

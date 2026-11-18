@@ -1,0 +1,9 @@
+{% extends 'binflow/client_layout.html' %}{% block content %}
+<a href="{{ url_for('bf_client_site_portal',pid=profile.id) }}">← Client profile</a>
+<h1>Edit schedule · {{ profile.customer_site }}</h1>
+<section class="bf-panel bf-pad"><form method="post" class="bf-form">
+{% if error %}<p role="alert">{{ error }}</p>{% endif %}
+<input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ profile.version }}">
+{% include 'binflow/site_schedule_fields.html' %}
+<button class="primary">Save collection schedule</button>
+</form></section>{% endblock %}

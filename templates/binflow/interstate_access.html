@@ -7,6 +7,7 @@
 <thead><tr><th scope="col">Area</th>{% for action in ['View','Add','Edit'] %}<th scope="col">{{ action }}</th>{% endfor %}</tr></thead><tbody>
 {% for key,label,actions in modules %}<tr><th scope="row">{{ label }}</th>{% for action in ['view','add','edit'] %}<td>
 {% if action in actions %}<input type="checkbox" name="permission" aria-label="{{ action|capitalize }} {{ label }}" value="{{ key }}.{{ action }}" {{ 'checked' if key~'.'~action in rights }}>{% else %}<span aria-label="Unavailable">—</span>{% endif %}</td>{% endfor %}</tr>{% endfor %}</tbody></table>
+<label class="bf-check"><input type="checkbox" name="permission" value="profiles.schedule" {{ 'checked' if 'profiles.schedule' in rights }}>Edit client collection schedules</label>
 <label>POD visibility<select name="pod_scope"><option value="scoped">Approved sites</option><option value="national" {{ 'selected' if 'pods.all' in rights }}>All completed PODs nationally</option></select></label>
 <small class="bf-muted">Add or Edit includes View. Booking changes apply to the client’s own unconfirmed requests.</small>
 {% endmacro %}

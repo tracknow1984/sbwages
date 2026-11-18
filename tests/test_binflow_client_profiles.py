@@ -77,7 +77,7 @@ class ClientProfileTests(unittest.TestCase):
         conn=self.connection();import_profiles(conn,encoded([row()]),'now')
         p=dict(for_location(conn,3));url=f'/binflow/client-profiles/{p["id"]}'
         page=self.client.get(url);self.assertEqual(page.status_code,200)
-        for k,label,_ in FIELDS:self.assertIn(f'name="{k}"'.encode(),page.data)
+        for k,label,_ in FIELDS:self.assertIn(f'name="{"schedule_frequency" if k=="schedule" else k}"'.encode(),page.data)
         result=self.post(url,{**row(), 'version':p['version'],'contact_verified':'yes','asic_required':'yes','contact_name':'New contact'})
         self.assertIn(b'Client profile saved.',result.data)
         saved=dict(for_location(conn,3));self.assertEqual(saved['contact_verified'],'yes')
@@ -117,6 +117,32 @@ class ClientProfileTests(unittest.TestCase):
         pid=for_location(conn,3)['id']
         self.assertEqual(self.client.get(f'/binflow/client-profiles/{pid}').status_code,403)
 
+    def test_special_instructions_follow_the_site_to_an_assigned_driver(self):
+        conn=self.connection()
+        profile=dict(for_location(conn,3))
+        url='/binflow/client-profiles/'+str(profile['id'])
+        notes='Use Gate 2 & call receiving.\nWait at the loading dock.'
+        self.assertIn('name="driver_instructions"',self.client.get(url).text)
+        self.assertEqual(self.post(url,dict(profile,driver_instructions=notes)).status_code,200)
+        profile=dict(for_location(conn,3))
+        self.assertEqual(profile['driver_instructions'],notes)
+        fields={key:value for key,value in profile.items() if key!='driver_instructions'}
+        self.post(url,fields)
+        self.assertEqual(for_location(conn,3)['driver_instructions'],notes)
+        self.job(deliver=(1,))
+        self.job(deliver=(2,),site=4)
+        uid=conn.execute("""INSERT INTO users(role,first_name,last_name,email,username,password_hash,extra_business_roles,working_state)
+            VALUES('employee','Test','Driver','driver@example.com','driver',?,'driver','QLD')""",
+            (generate_password_hash('test-admin-password'),)).lastrowid
+        conn.execute('UPDATE bf_jobs SET driver_id=?,schedule_live=1',(uid,))
+        conn.commit()
+        self.post('/logout')
+        self.login('employee','driver')
+        first=self.client.get('/binflow/pickups/1')
+        self.assertEqual(first.status_code,200)
+        self.assertIn('Use Gate 2 &amp; call receiving.',first.text)
+        self.assertNotIn('Use Gate 2',self.client.get('/binflow/pickups/2').text)
+
     def test_validation_keeps_multiple_contacts_and_leading_zero(self):
         value=validate(row())
         self.assertEqual(value['postcode'],'0400')
@@ -127,7 +153,7 @@ class ClientProfileTests(unittest.TestCase):
     def test_add_client_creates_account_site_and_complete_profile_atomically(self):
         page=self.client.get('/binflow/client-profiles/new')
         self.assertEqual(page.status_code,200)
-        for k,_,_ in FIELDS:self.assertIn(f'name="{k}"'.encode(),page.data)
+        for k,_,_ in FIELDS:self.assertIn(f'name="{"schedule_frequency" if k=="schedule" else k}"'.encode(),page.data)
         values={**row(customer_site='New South Site'), 'client_id':'new', 'client_name':'New Business'}
         response=self.post('/binflow/client-profiles/new',values)
         self.assertIn(b'Client site profile added.',response.data)

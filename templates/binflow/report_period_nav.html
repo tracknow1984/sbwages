@@ -1,0 +1,6 @@
+{% if period.first %}
+<nav class="bf-chips" aria-label="Reporting periods">
+  <a href="{{ url_for(request.endpoint, **dict(period_filters, date=period.previous)) }}">← Previous {{ period.key }}</a>
+  <a href="{{ url_for(request.endpoint, **dict(period_filters, date=period.following)) }}">Next {{ period.key }} →</a>
+</nav>
+{% endif %}

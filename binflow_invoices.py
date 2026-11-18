@@ -12,6 +12,8 @@ from werkzeug.utils import secure_filename
 from flask import abort, flash, g, redirect, render_template, request, send_file, url_for
 
 import binflow_auto_invoices as auto
+import binflow_invoice_reports as invoice_reports
+import binflow_period_reports as reports
 import binflow_xero as xero
 from binflow_freight_rates import quote
 from binflow_sizes import amount
@@ -172,6 +174,7 @@ def pdf_bytes(app, conn, tenant, iid):
 
 def register(app, db, require, render, client_access, now, actor):
     auto.register(app,db,require,render,now,actor)
+    invoice_reports.register(app,db,require)
     @app.get('/binflow/invoices')
     @require('admin')
     def bf_invoices():
@@ -179,17 +182,23 @@ def register(app, db, require, render, client_access, now, actor):
         cfg = xero.config(conn)
         connected = bool(cfg['tenant_id'] and cfg['token_cipher'])
         auto.refresh(conn,now(),True)
+        grouping=request.args.get('period','all')
+        chosen=request.args.get('date') or now()[:10]
+        period=reports.period_view('' if grouping=='all' else chosen,'day' if grouping=='all' else grouping)
+        period['key']=grouping
+        clause='' if grouping=='all' else ' WHERE '+invoice_reports.INVOICE_DATE+' BETWEEN ? AND ?'
+        params=() if grouping=='all' else (period['first'],period['last'])
         drafts = conn.execute(f"""SELECT d.*,i.invoice_number,({auto.INVOICED_SQL}) AS invoiced,
             COALESCE((SELECT SUM(json_extract(x.value,'$.net')+json_extract(x.value,'$.tax'))
-              FROM json_each(d.lines) x),0) AS total FROM bf_auto_drafts d LEFT JOIN bf_rental_invoices i ON i.id=d.id
-            ORDER BY CASE d.state WHEN 'sending' THEN 0 WHEN 'open' THEN 1 ELSE 2 END,d.end DESC,d.client""").fetchall()
+              FROM json_each(d.lines) x),0) AS total FROM bf_auto_drafts d LEFT JOIN bf_rental_invoices i ON i.id=d.id {clause}
+            ORDER BY CASE d.state WHEN 'sending' THEN 0 WHEN 'open' THEN 1 ELSE 2 END,d.end DESC,d.client""",params).fetchall()
         page = max(1,request.args.get('page',1,type=int))
         history = conn.execute(f"""SELECT i.id,i.invoice_number,i.mode,i.status,i.xero_status,i.created_at,({auto.INVOICED_SQL}) AS invoiced,
             json_extract(i.snapshot_json,'$.contact.name') AS contact,c.name AS category FROM bf_rental_invoices i
-            JOIN bf_invoice_categories c ON c.id=i.category_id ORDER BY i.created_at DESC,i.rowid DESC LIMIT 31 OFFSET ?""",
-                               ((page-1)*30,)).fetchall()
+            JOIN bf_invoice_categories c ON c.id=i.category_id LEFT JOIN bf_auto_drafts d ON d.id=i.id {clause} ORDER BY i.created_at DESC,i.rowid DESC LIMIT 31 OFFSET ?""",
+                               (*params,(page-1)*30,)).fetchall()
         return render('invoices_admin',section='invoices',categories=categories(conn),accounts=contacts(conn,cfg['tenant_id']),
-                      history=history[:30],has_next=len(history)>30,page=page,drafts=drafts,today=now()[:10])
+                      history=history[:30],has_next=len(history)>30,page=page,drafts=drafts,today=now()[:10],period=period,chosen=chosen)
 
     @app.post('/binflow/invoices/categories')
     @require('admin')

@@ -14,6 +14,7 @@ from collections import Counter, defaultdict
 from datetime import date, timedelta
 
 from binflow_client_profiles import register_rows
+from binflow_profile_schedule import stored
 from binflow_collections import DAYS, INTERVALS, occurs, parse_frequency, planning_resources, record_profile
 
 RESET_ID = 'current-client-calendar-2026-10-26-v1'
@@ -59,8 +60,9 @@ def clients(conn):
         p = dict(r)
         p.update(profile_id=p['id'], id=p['location_id'], name=p['customer_site'], client_name=p['group_name'],
                  quantities=requirements[p['location_id']], equipment=equipment.get(p['id'], {}))
-        p['cadence'], p['days'], _ = parse_frequency({'frequency': p['schedule']})
-        p['monthly_rule'] = 'last_weekday' if re.search(r'\blast\b.*\bmonth', p['schedule'], re.I) and p['days'] else ''
+        spec = stored(p)
+        p['cadence'], p['days'], _ = spec.calendar()
+        p['monthly_rule'] = 'last_weekday' if spec.frequency=='last_monthly' else ''
         p['flexible'] = not p['days']
         old = saved.get(p['id'], {})
         p['cycle_phase'] = old.get('cycle_phase', 0) if old.get('source_frequency') == p['schedule'] else 0

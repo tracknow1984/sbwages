@@ -1,7 +1,8 @@
 {% from 'binflow/icons.html' import icon %}
-<div class="bf-table-wrap"><table class="bf-plan-table"><thead><tr><th>Client / site</th><th>Docket</th><th>POD status</th><th>Net weight</th>{% if current_user.role=='admin' and not driver_demo %}<th>Pickup value · ex GST</th>{% endif %}<th>Actions</th></tr></thead><tbody>
+<div class="bf-table-wrap"><table class="bf-plan-table"><thead><tr>{% if current_user.role=='admin' and not driver_demo and view!='deleted' %}<th><input type="checkbox" data-check-table aria-label="Select all PODs in this table"></th>{% endif %}<th>Client / site</th><th>Docket</th><th>POD status</th><th>Net weight</th>{% if current_user.role=='admin' and not driver_demo %}<th>Pickup value · ex GST</th>{% endif %}<th>Actions</th></tr></thead><tbody>
 {% for j in state_jobs %}{% set ready=pod_weights_ready(j) %}<tr>
-  <td data-label="Client / site"><strong>{{ j.client_name }}</strong><br>{{ j.site_name }}</td>
+  {% if current_user.role=='admin' and not driver_demo and view!='deleted' %}<td><input form="report-downloads" type="checkbox" name="selected" value="{{ j.id }}" aria-label="Select {{ j.code }}"></td>{% endif %}
+  <td data-label="Client / site"><strong>{{ j.client_name }}</strong><br>{{ j.site_name }}{% if period.key!='day' %}<br>{{ j.scheduled_date|display_date }}{% endif %}</td>
   <td data-label="Docket"><a href="{{ url_for('bf_job',job_id=j.id) }}" data-docket-trigger aria-describedby="docket-{{ j.id }}">{{ j.code }}</a>
     <div id="docket-{{ j.id }}" class="docket-preview" role="tooltip" popover="manual"><strong>{{ j.code }} · {{ j.site_name }}</strong>
       <span>{{ j.site_address }} · {{ j.state }}</span><span>{{ j.scheduled_date|display_date }} · {{ j.warehouse_name }}</span>
