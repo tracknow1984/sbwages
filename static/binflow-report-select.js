@@ -7,3 +7,18 @@ document.querySelectorAll('[data-check-table]').forEach(toggle=>{
     toggle.indeterminate=!toggle.checked && boxes.some(item=>item.checked);
   }));
 });
+
+const selectionCount = document.querySelector('[data-selection-count]');
+if (selectionCount) {
+  const form = selectionCount.closest('form');
+  function updateCount() {
+    const count = Array.from(form.elements).filter(input => input.name === 'selected' && input.checked).length;
+    selectionCount.textContent = count + ' selected';
+    form.querySelectorAll('button[name="format"]').forEach(button => { button.disabled = count === 0; });
+  }
+  document.addEventListener('change', event => {
+    if (event.target.matches('input[name="selected"], [data-check-table]')) updateCount();
+  });
+  window.addEventListener('pageshow', updateCount);
+  updateCount();
+}

@@ -88,6 +88,76 @@ class ClientInvoiceTests(TestCase):
         self.assertIn('All invoices',self.client.get('/binflow/rental-invoices/'+item['id']).text)
 
     @billing.connected_organisation
+    def test_client_invoice_periods_and_selected_exports(self):
+        import io
+        import zipfile
+        from urllib.parse import parse_qs,urlsplit
+        self.connect()
+        aid=self.account('report-buyer')
+        other=self.account('separate-buyer')
+        self.link(aid)
+        self.link(other)
+        client=self.visit('report-buyer')
+        remote={}
+        keys={}
+        for number,day,owner,state in [
+            ('INV-A','2026-11-09',aid,'AUTHORISED'),('INV-B','2026-11-15',aid,'PAID'),
+            ('INV-C','2026-11-22',aid,'AUTHORISED'),('INV-D','2026-11-30',aid,'AUTHORISED'),
+            ('INV-E','2026-12-01',aid,'AUTHORISED'),('INV-OTHER','2026-11-09',other,'AUTHORISED'),
+            ('INV-DRAFT','2026-11-10',aid,'DRAFT')]:
+            vals=self.values(owner)
+            self.assertEqual(self.post(BASE+'/new',vals,follow=False).status_code,302)
+            iid=str(uuid4())
+            keys[number]=vals['draft_key']
+            with self.connection() as conn:
+                conn.execute("UPDATE bf_rental_invoices SET status='created',invoice_id=? WHERE id=?",(iid,vals['draft_key']))
+            remote[iid]=dict(InvoiceID=iid,InvoiceNumber=number,Contact={'ContactID':billing.CONTACT},Type='ACCREC',
+                Status=state,DateString=day,DueDateString='2026-12-15',Total=120.75,AmountDue=0 if state=='PAID' else 120.75)
+        def live_rows(app,conn,path,tenant_id):
+            wanted=parse_qs(urlsplit(path).query)['IDs'][0].split(',')
+            return {'Invoices':[remote[i] for i in wanted]}
+        def pdf(app,conn,tenant,iid):
+            return b'%PDF-'+remote[iid]['InvoiceNumber'].encode()
+        week=PORTAL+'?period=week&date=2026-11-13'
+        selected={'selected':[keys['INV-A'],keys['INV-B'],keys['INV-A']]}
+        with patch('binflow_xero.api',side_effect=live_rows) as api,patch('binflow_invoices.pdf_bytes',side_effect=pdf) as docs:
+            newest=client.get(week).text
+            self.assertIn('09 Nov 2026 – 15 Nov 2026',newest)
+            self.assertLess(newest.index('INV-B'),newest.index('INV-A'))
+            self.assertIn('name="selected"',newest)
+            self.assertNotIn('INV-C',newest)
+            oldest=client.get(week+'&sort=oldest').text
+            self.assertLess(oldest.index('INV-A'),oldest.index('INV-B'))
+            fortnight=client.get(PORTAL+'?period=fortnight&date=2026-11-12').text
+            self.assertIn('INV-C',fortnight)
+            self.assertNotIn('INV-D',fortnight)
+            month=client.get(PORTAL+'?period=month&date=2026-11-30').text
+            self.assertIn('INV-D',month)
+            for excluded in ('INV-E','INV-OTHER','INV-DRAFT'):
+                self.assertNotIn(excluded,month)
+            spreadsheet=self.send(client,week,dict(selected,format='xls'))
+            self.assertEqual(spreadsheet.mimetype,'application/vnd.ms-excel')
+            self.assertTrue(spreadsheet.data.startswith(bytes.fromhex('d0cf11e0a1b11ae1')))
+            self.assertIn(b'INV-A',spreadsheet.data)
+            self.assertIn(b'INV-B',spreadsheet.data)
+            self.assertNotIn(b'INV-C',spreadsheet.data)
+            archive=self.send(client,week,dict(selected,format='zip'))
+            self.assertEqual(archive.mimetype,'application/zip')
+            with zipfile.ZipFile(io.BytesIO(archive.data)) as files:
+                self.assertEqual([files.read(f) for f in files.namelist()],[b'%PDF-INV-B',b'%PDF-INV-A'])
+            self.assertEqual(docs.call_count,2)
+            self.assertEqual(self.send(client,week,dict(selected=[keys['INV-A'],keys['INV-C']],format='zip')).status_code,409)
+            self.assertEqual(self.send(client,week,dict(selected=keys['INV-DRAFT'],format='xls')).status_code,409)
+            api.reset_mock()
+            self.assertEqual(self.send(client,week,dict(selected=keys['INV-OTHER'],format='zip')).status_code,404)
+            api.assert_not_called()
+            self.assertEqual(self.send(client,week,dict(format='zip')).status_code,400)
+            self.assertEqual(client.post(week,data=dict(selected,format='zip')).status_code,400)
+            self.assertEqual(docs.call_count,2)
+            docs.side_effect=[b'%PDF-first',billing.xero.XeroError('Unavailable')]
+            self.assertEqual(self.send(client,week,dict(selected,format='zip')).status_code,503)
+
+    @billing.connected_organisation
     def test_approved_booking_uses_frozen_rate_po_and_one_invoice_per_transfer(self):
         self.connect()
         aid=self.account('booker')

@@ -1,8 +1,9 @@
 """Client invoice categories and billed-to access through the existing Xero connection."""
 import io
 import json
+import re
 import sqlite3
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from urllib.parse import urlencode
 from urllib.request import Request, build_opener
@@ -144,11 +145,78 @@ def draft_values(conn, form, booking):
         Contact={'ContactID':contact['id']},Date=start.isoformat(),DueDate=due.isoformat(),LineItems=items)
 
 
-def client_records(conn, tenant, aid, contact):
-    return conn.execute("""SELECT id,category_id,invoice_id FROM bf_rental_invoices
+def client_records(conn, tenant, aid, contact, selected=None):
+    sql = """SELECT id,category_id,invoice_id FROM bf_rental_invoices
         WHERE tenant_id=? AND (portal_account_id IS NULL OR portal_account_id=?)
-          AND json_extract(snapshot_json,'$.contact.id')=? AND status='created' AND mode='actual' AND invoice_id!=''
-        ORDER BY created_at DESC,rowid DESC""",(tenant,aid,contact)).fetchall()
+          AND json_extract(snapshot_json,'$.contact.id')=? AND status='created' AND mode='actual' AND invoice_id!=''"""
+    args = [tenant,aid,contact]
+    if selected is not None:
+        sql += ' AND id IN (SELECT value FROM json_each(?))'
+        args.append(json.dumps(sorted(selected)))
+    return conn.execute(sql+' ORDER BY created_at DESC,rowid DESC',args).fetchall()
+
+
+def invoice_period(params,today):
+    grouping=params.get('period','all')
+    if grouping not in ('all',*reports.PERIODS):
+        abort(400,'Choose weekly, fortnightly, monthly or all dates.')
+    chosen=params.get('date') or today
+    period=reports.period_view('' if grouping=='all' else chosen,'day' if grouping=='all' else grouping)
+    period['key']=grouping
+    return period,chosen
+
+
+def xero_invoice_date(row,field):
+    value=row.get(field+'String') or row.get(field)
+    if not value:
+        return ''
+    epoch=re.fullmatch(r'/Date\((-?\d+)(?:[+-]\d{4})?\)/',value)
+    if epoch:
+        return datetime.fromtimestamp(int(epoch[1])/1000,timezone.utc).date().isoformat()
+    return date.fromisoformat(value[:10]).isoformat()
+
+
+def client_invoice_rows(app,conn,link,period,sort,selected=None):
+    records=client_records(conn,link['tenant_id'],link['account_id'],link['contact_id'],selected)
+    if selected is not None and {r['id'] for r in records}!=selected:
+        abort(404)
+    by_id={r['invoice_id']:r for r in records}
+    ids=list(by_id)
+    invoices={}
+    for offset in range(0,len(ids),40):
+        batch=ids[offset:offset+40]
+        params=urlencode(dict(IDs=','.join(batch),ContactIDs=link['contact_id'],Statuses='AUTHORISED,PAID',page=1))
+        result=xero.api(app,conn,'Invoices?'+params,tenant_id=link['tenant_id'])
+        for row in xero.records(result,'Invoices'):
+            iid=row.get('InvoiceID')
+            if iid not in batch or not issued(row,link['contact_id']):
+                continue
+            record=by_id[iid]
+            day=xero_invoice_date(row,'Date')
+            if period['first'] and not period['first']<=day<=period['last']:
+                continue
+            invoices[record['id']]=dict(key=record['id'],iid=iid,category=record['category_id'],
+                number=row.get('InvoiceNumber') or 'Invoice',date=day,due=xero_invoice_date(row,'DueDate'),
+                status='Paid' if row['Status']=='PAID' else 'Awaiting payment',
+                total=float(row['Total']),outstanding=float(row['AmountDue']),currency=row.get('CurrencyCode') or 'AUD')
+    if selected is not None and set(invoices)!=selected:
+        abort(409,'A selected invoice is no longer available for this period. Refresh the list and select again.')
+    return sorted(invoices.values(),key=lambda row:(row['date'],row['number'],row['key']),reverse=sort=='newest')
+
+
+def client_invoice_download(app,conn,link,rows,groups,period,file_format):
+    filename='BinFlow-client-invoices-'+(period['first'] or 'selected')
+    if file_format=='xls':
+        return reports.xls('Invoices',['Invoice','Category','Issued','Due','Status','Currency','Total incl. GST','Balance owing'],
+            ((r['number'],groups[r['category']]['name'],date.fromisoformat(r['date']) if r['date'] else None,
+              date.fromisoformat(r['due']) if r['due'] else None,r['status'],r['currency'],r['total'],r['outstanding'])
+             for r in rows),filename)
+    def entries():
+        for index,r in enumerate(rows,1):
+            # The selection number keeps duplicate or sanitised invoice numbers unique in the archive.
+            name=secure_filename(r['number']) or 'Invoice'
+            yield f'{index:03d}-{name}.pdf',pdf_bytes(app,conn,link['tenant_id'],r['iid'])
+    return reports.zip_download(entries(),filename)
 
 
 def issued(row, contact):
@@ -182,10 +250,8 @@ def register(app, db, require, render, client_access, now, actor):
         cfg = xero.config(conn)
         connected = bool(cfg['tenant_id'] and cfg['token_cipher'])
         auto.refresh(conn,now(),True)
-        grouping=request.args.get('period','all')
-        chosen=request.args.get('date') or now()[:10]
-        period=reports.period_view('' if grouping=='all' else chosen,'day' if grouping=='all' else grouping)
-        period['key']=grouping
+        period,chosen=invoice_period(request.args,now()[:10])
+        grouping=period['key']
         clause='' if grouping=='all' else ' WHERE '+invoice_reports.INVOICE_DATE+' BETWEEN ? AND ?'
         params=() if grouping=='all' else (period['first'],period['last'])
         drafts = conn.execute(f"""SELECT d.*,i.invoice_number,({auto.INVOICED_SQL}) AS invoiced,
@@ -300,36 +366,41 @@ def register(app, db, require, render, client_access, now, actor):
         return conn.execute('SELECT * FROM bf_invoice_contacts WHERE tenant_id=? AND account_id=?',
                             (cfg['tenant_id'],g.bf_client['id'])).fetchone()
 
-    @app.get('/binflow/client/invoices')
+    @app.route('/binflow/client/invoices',methods=['GET','POST'])
     @client_access
     def bf_client_invoices():
-        conn = db()
-        link = client_link(conn)
-        groups = {c['id']:dict(name=c['name'],rows=[]) for c in categories(conn)}
-        error = None
+        conn=db()
+        link=client_link(conn)
+        groups={c['id']:dict(name=c['name'],rows=[]) for c in categories(conn)}
+        period,chosen=invoice_period(request.args,now()[:10])
+        sort=request.args.get('sort','newest')
+        if sort not in ('newest','oldest'):
+            abort(400,'Choose an invoice date sort order.')
+        selected=None
+        if request.method=='POST':
+            if not link:
+                abort(404)
+            file_format=request.form.get('format')
+            if file_format not in ('xls','zip'):
+                abort(400,'Choose Excel or ZIP.')
+            selected=reports.selected_ids()
+        error=None
         if not link:
-            error = ('Your billing contact is awaiting setup. Contact SB Empire for invoice access.'
-                     if xero.config(conn)['tenant_id'] else 'Invoice access is awaiting setup with SB Empire.')
-        if link:
-            local = client_records(conn,link['tenant_id'],link['account_id'],link['contact_id'])
-            by_id = {r['invoice_id']:r for r in local}
-            ids = list(by_id)
+            error=('Your billing contact is awaiting setup. Contact SB Empire for invoice access.'
+                   if xero.config(conn)['tenant_id'] else 'Invoice access is awaiting setup with SB Empire.')
+        else:
             try:
-                for offset in range(0,len(ids),40):
-                    params = urlencode(dict(IDs=','.join(ids[offset:offset+40]),ContactIDs=link['contact_id'],Statuses='AUTHORISED,PAID',page=1))
-                    result = xero.api(app,conn,'Invoices?'+params,tenant_id=link['tenant_id'])
-                    for row in xero.records(result,'Invoices'):
-                        record = by_id.get(row.get('InvoiceID'))
-                        if record and issued(row,link['contact_id']):
-                            groups[record['category_id']]['rows'].append(dict(key=record['id'],
-                                 number=row.get('InvoiceNumber') or 'Invoice',date=(row.get('DateString') or '')[:10],
-                                 due=(row.get('DueDateString') or '')[:10],status='Paid' if row['Status']=='PAID' else 'Awaiting payment',
-                                 total=row['Total'],outstanding=row['AmountDue'],currency=row.get('CurrencyCode','AUD')))
-            except (xero.XeroError,KeyError):
-                error = 'Invoice details are temporarily unavailable. Refresh this page to try again.'
-        for group in groups.values():
-            group['rows'].sort(key=lambda row:(row['date'],row['number']),reverse=True)
-        return render_template('binflow/client_invoices.html',account=g.bf_client,groups=groups.values(),error=error)
+                rows=client_invoice_rows(app,conn,link,period,sort,selected)
+                if selected is not None:
+                    return client_invoice_download(app,conn,link,rows,groups,period,file_format)
+                for row in rows:
+                    groups[row['category']]['rows'].append(row)
+            except (xero.XeroError,KeyError,TypeError,ValueError):
+                if selected is not None:
+                    abort(503,'The selected invoices could not be downloaded. Please try again.')
+                error='Invoice details are temporarily unavailable. Refresh this page to try again.'
+        return render_template('binflow/client_invoices.html',account=g.bf_client,groups=groups.values(),
+            error=error,period=period,chosen=chosen,sort=sort,count=sum(len(c['rows']) for c in groups.values()))
 
     @app.get('/binflow/client/invoices/<identifier>/pdf')
     @client_access
@@ -338,13 +409,10 @@ def register(app, db, require, render, client_access, now, actor):
         link = client_link(conn)
         if not link:
             abort(404)
-        record = conn.execute("""SELECT invoice_id FROM bf_rental_invoices WHERE id=? AND tenant_id=?
-            AND (portal_account_id IS NULL OR portal_account_id=?) AND json_extract(snapshot_json,'$.contact.id')=?
-            AND status='created' AND mode='actual' AND invoice_id!=''""",
-            (identifier,link['tenant_id'],link['account_id'],link['contact_id'])).fetchone()
-        if not record:
+        records=client_records(conn,link['tenant_id'],link['account_id'],link['contact_id'],{identifier})
+        if not records:
             abort(404)
-        iid = xero.uuid_text(record['invoice_id'])
+        iid=xero.uuid_text(records[0]['invoice_id'])
         try:
             rows = xero.records(xero.api(app,conn,'Invoices/'+iid,tenant_id=link['tenant_id']),'Invoices')
             if len(rows)!=1 or rows[0].get('InvoiceID')!=iid or not issued(rows[0],link['contact_id']):
