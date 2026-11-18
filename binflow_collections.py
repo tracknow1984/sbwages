@@ -209,6 +209,8 @@ def dated(value):
 
 def calendar_data(conn,start,end,state=''):
     from binflow_live_cycle import client_job_filter
+    from binflow_rollout import state_starts
+    starts = state_starts(conn)
     profiles=profile_rows(conn,state);by_id={p['id']:p for p in profiles}
     jobs=conn.execute('''SELECT j.*,
         EXISTS(SELECT 1 FROM bf_job_bins i WHERE i.job_id=j.id AND i.direction='collect') AS collects,
@@ -221,10 +223,14 @@ def calendar_data(conn,start,end,state=''):
     for offset in range((end-start).days+1):
         day=start+timedelta(days=offset);key=day.isoformat()
         for p in profiles:
+            if p['state'] in starts and key >= starts[p['state']]:
+                continue
             if occurs(p,day) and (p['id'],key) not in booked:
                 events[key].append(dict(profile=p,job=None,phase='Needs allocation',colour='proposed'))
                 counts['proposed']+=1
     for j in jobs:
+        if j['state'] in starts and j['scheduled_date'] >= starts[j['state']] and not j['schedule_live'] and not j['schedule_week_id']:
+            continue
         p=by_id.get(j['site_id'])
         if not p: continue
         if j['approval_status']=='pending': colour,phase='pending','Awaiting approval';counts['pending']+=1

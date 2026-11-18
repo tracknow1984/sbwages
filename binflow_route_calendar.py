@@ -240,12 +240,15 @@ def clock(minutes):
 def week_plan(conn, monday, state='', geo=None, people=None):
     geo = geography() if geo is None else geo
     people = clients(conn) if people is None else people
+    from binflow_rollout import state_starts
+    starts = state_starts(conn)
     settings = resources(conn, geo)
     selected = [state] if state else list(PRIMARY)+['WA', 'ACT', 'TAS', 'NT']
     output = []
     for code in selected:
         ps = [p for p in people if p['state'] == code]
-        if not ps and code not in PRIMARY:
+        manual = code in starts and monday.isoformat() >= starts[code]
+        if not ps and code not in PRIMARY and not manual:
             continue
         r = settings.get(code, dict(depot='Local partner depot to confirm', depot_key=None,
                                    capacity=14, small_space=.5, weekly_hours=0,
@@ -254,18 +257,19 @@ def week_plan(conn, monday, state='', geo=None, people=None):
                      exceptions=[], baling=False, minutes=0, jobs=[]) for i in range(7)]
         flexible, issues = [], list(r['issues'])
         fixed_demand = Counter()
-        for p in ps:
+        proposed_clients = [] if manual else ps
+        for p in proposed_clients:
             for d in due(p, monday):
                 if d is not None:
                     fixed_demand[d] += p['large']+p['small']*.5
         # Protect a whole weekday; prefer a midweek baling day when fixed visits permit it.
-        baling = min((2, 3, 1, 4, 0), key=lambda d: fixed_demand[d]) if code in PRIMARY else None
+        baling = min((2, 3, 1, 4, 0), key=lambda d: fixed_demand[d]) if code in PRIMARY and not manual else None
         if baling is not None:
             days[baling]['baling'] = True
             days[baling]['minutes'] = 480
             if fixed_demand[baling]:
                 issues.append('Fixed client days conflict with the protected baling day; additional crew needed.')
-        for p in ps:
+        for p in proposed_clients:
             for d in due(p, monday):
                 reason = ''
                 if not p['id'] or not p['address']:
@@ -331,8 +335,10 @@ def week_plan(conn, monday, state='', geo=None, people=None):
                            exceptions=sum(len(d['exceptions']) for d in days)))
     # Actual booked work remains visible and does not silently disappear in a reset.
     from binflow_live_cycle import client_job_filter
-    for row in conn.execute("SELECT j.id,j.code,j.state,j.scheduled_date,j.status FROM bf_jobs j WHERE scheduled_date BETWEEN ? AND ? AND status!='cancelled'"+client_job_filter(),
+    for row in conn.execute("SELECT j.id,j.code,j.state,j.scheduled_date,j.status,j.schedule_live,j.schedule_week_id FROM bf_jobs j WHERE scheduled_date BETWEEN ? AND ? AND status!='cancelled'"+client_job_filter(),
                             (monday.isoformat(), (monday+timedelta(days=6)).isoformat())):
+        if row['state'] in starts and monday.isoformat() >= starts[row['state']] and not row['schedule_live'] and not row['schedule_week_id']:
+            continue
         for group in output:
             if group['state'] == row['state']:
                 day = next(d for d in group['days'] if d['date']==row['scheduled_date'])
@@ -429,13 +435,18 @@ def view_data(conn, start, end, state):
             weeks.append(dict(start=monday, states=week_plan(conn, monday, state, geo, people)))
         monday += timedelta(weeks=1)
     # Saved state weeks are authoritative. Never regenerate over an admin's edits.
-    from binflow_schedule import saved_week
+    from binflow_schedule import saved_week, get_plan
+    from binflow_rollout import state_starts
+    manual_starts = state_starts(conn)
     for week in weeks:
         for region in ((state,) if state else ('QLD','NSW','VIC','SA','WA','TAS','ACT','NT')):
             saved = saved_week(conn, region, week['start'].isoformat())
             if not saved:
                 continue
-            plan = json.loads(saved['plan_json'])
+            if region in manual_starts and week['start'].isoformat() >= manual_starts[region]:
+                _, plan = get_plan(conn, region, week['start'].isoformat())
+            else:
+                plan = json.loads(saved['plan_json'])
             days = [dict(date=d['date'], name=date.fromisoformat(d['date']).strftime('%A'),
                 profiles=[], trips=[], jobs=[], exceptions=[], baling=any(i['kind']=='baling' for i in d['items']),
                 minutes=d['estimate_minutes'] if d['estimate_valid'] else 0, over_limit=False,

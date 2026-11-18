@@ -6,6 +6,7 @@ import re
 import sqlite3
 import uuid
 from datetime import date, timedelta
+from collections import defaultdict
 
 from flask import abort, g, jsonify, request, redirect, url_for
 from binflow_permissions import is_office, state_scope, workspaces
@@ -66,8 +67,9 @@ def saved_week(conn, state, start):
 
 
 def job_item(row, key=None):
+    delivery_only = 'delivery_only' in row.keys() and row['delivery_only']
     return dict(id=key or 'job-'+str(row['id']), kind='job', job_id=row['id'], site_id=row['site_id'],
-                title=row['code']+' · '+row['site_name'], address=row['site_address'],
+                title=('Empty-bin delivery · ' if delivery_only else '')+row['code']+' · '+row['site_name'], address=row['site_address'],
                 detail='Allocation awaiting approval' if row['approval_status']=='pending' else 'Job / allocation',
                 time=row['scheduled_time'], notes='', status=row['status'])
 
@@ -79,17 +81,35 @@ def visit_item(p, key):
                 requested=p['schedule'], status='Planned visit · bin allocation required')
 
 
+
+def unassigned_jobs(conn, state, start, end, manual):
+    from binflow_live_cycle import client_job_filter
+    query = """SELECT j.*, NOT EXISTS (
+        SELECT 1 FROM bf_job_bins i WHERE i.job_id=j.id AND i.direction='collect') AS delivery_only
+        FROM bf_jobs j WHERE j.state=? AND j.scheduled_date BETWEEN ? AND ? AND j.status!='cancelled'
+        AND j.schedule_week_id IS NULL"""
+    if manual:
+        query += " AND j.schedule_live=1 AND j.approval_status!='rejected'"
+    return conn.execute(query + client_job_filter() + ' ORDER BY run_order,id', (state,start,end)).fetchall()
+
+
 def initial_plan(conn, state, start):
     from binflow_route_calendar import week_plan, clients
     people = clients(conn)
     groups = week_plan(conn, date.fromisoformat(start), state, people=people)
     group = next((x for x in groups if x['state']==state), None)
+    from binflow_rollout import state_starts
+    starts = state_starts(conn)
+    manual = state in starts and start >= starts[state]
+    jobs_by_date = defaultdict(list)
+    last = (date.fromisoformat(start)+timedelta(days=6)).isoformat()
+    for job in unassigned_jobs(conn,state,start,last,manual):
+        jobs_by_date[job['scheduled_date']].append(job)
     days = []
     for offset in range(7):
         key = (date.fromisoformat(start)+timedelta(days=offset)).isoformat()
         source = next((d for d in group['days'] if d['date']==key), None) if group else None
-        jobs = conn.execute("""SELECT * FROM bf_jobs WHERE state=? AND scheduled_date=?
-            AND status!='cancelled' AND schedule_week_id IS NULL ORDER BY run_order,id""", (state,key)).fetchall()
+        jobs = jobs_by_date[key]
         items = [job_item(j) for j in jobs]
         job_sites = {j['site_id'] for j in jobs}
         if source:
@@ -116,7 +136,19 @@ def initial_plan(conn, state, start):
 
 def get_plan(conn, state, start):
     row = saved_week(conn,state,start)
-    return row, json.loads(row['plan_json']) if row else initial_plan(conn,state,start)
+    if not row:
+        return None, initial_plan(conn,state,start)
+    plan = json.loads(row['plan_json'])
+    from binflow_rollout import state_starts
+    starts = state_starts(conn)
+    if state in starts and start >= starts[state]:
+        # Allocations submitted after this plan was saved still need to appear.
+        placed = job_positions(plan)
+        by_date = {d['date']: d for d in plan['days']}
+        for job in unassigned_jobs(conn, state, start, plan['days'][-1]['date'], True):
+            if job['id'] not in placed:
+                by_date[job['scheduled_date']]['items'].append(job_item(job))
+    return row, plan
 
 
 def job_positions(plan):
@@ -164,7 +196,7 @@ def clean_plan(conn, raw, original, state, start, week_id):
                 jid=item.get('job_id')
                 if type(jid)!=int or jid in job_ids: raise ValueError('Add each job / allocation only once.')
                 job_ids.add(jid)
-                job=conn.execute('SELECT * FROM bf_jobs WHERE id=? AND state=?',(jid,state)).fetchone()
+                job=conn.execute("SELECT j.*,NOT EXISTS (SELECT 1 FROM bf_job_bins i WHERE i.job_id=j.id AND i.direction='collect') AS delivery_only FROM bf_jobs j WHERE id=? AND state=?",(jid,state)).fetchone()
                 historical = bool(job and job['status']=='cancelled' and key in old_items and old_items[key].get('job_id')==jid
                                   and job['scheduled_date']==expected)
                 if not job or (job['status']=='cancelled' and not historical) or (job['approval_status']=='rejected' and not historical):
@@ -329,7 +361,7 @@ def clear_preview(conn, state, period, chosen):
 
 
 def register(app,db,access,require,render,now,actor):
-    from binflow_calendar_edit import register_calendar_edit
+    from binflow_calendar_edit import register_calendar_edit, fingerprint
     register_calendar_edit(app, db, require, now, actor)
 
     def selection():
@@ -368,14 +400,14 @@ def register(app,db,access,require,render,now,actor):
         row,plan=get_plan(db(),state,start)
         from binflow_route_calendar import clients
         people=[visit_item(p,'') for p in clients(db()) if p['id'] and p['state']==state]
-        candidates=[job_item(j) for j in db().execute("""SELECT * FROM bf_jobs WHERE state=? AND status='scheduled'
+        candidates=[job_item(j) for j in db().execute("""SELECT j.*,NOT EXISTS (SELECT 1 FROM bf_job_bins i WHERE i.job_id=j.id AND i.direction='collect') AS delivery_only FROM bf_jobs j WHERE state=? AND status='scheduled'
             AND approval_status!='rejected' AND (schedule_week_id IS NULL OR schedule_week_id=?) ORDER BY scheduled_date,id""",(state,row['id'] if row else 0))]
         history=db().execute('''SELECT h.revision,h.action,h.created_at,u.first_name||' '||u.last_name actor
             FROM bf_schedule_history h JOIN users u ON u.id=h.actor_id WHERE week_id=? ORDER BY h.revision DESC''',
             (row['id'],)).fetchall() if row else []
         templates=db().execute('''SELECT id,name,version,source_week,created_at FROM bf_schedule_templates
             WHERE state=? ORDER BY name,version DESC''',(state,)).fetchall()
-        return jsonify(state=state,start=start,plan=plan,revision=row['revision'] if row else 0,
+        return jsonify(state=state,start=start,plan=plan,plan_token=fingerprint(row,plan),revision=row['revision'] if row else 0,
             driver_id=row['driver_id'] if row else None,status=row['status'] if row else 'draft',
             sites=people,jobs=candidates,drivers=[dict(d) for d in drivers(db(),state)],
             history=[dict(h) for h in history],templates=[dict(t) for t in templates])
@@ -509,7 +541,10 @@ def register(app,db,access,require,render,now,actor):
             db().execute('BEGIN IMMEDIATE')
             row,old=get_plan(db(),state,start)
             revision=row['revision'] if row else 0
-            if str(revision)!=request.form.get('revision'):
+            from binflow_rollout import state_starts
+            starts = state_starts(db())
+            manual = state in starts and start >= starts[state]
+            if (manual and request.form.get('plan_token') != fingerprint(row,old)) or str(revision)!=request.form.get('revision'):
                 db().rollback();return jsonify(error='This week changed in another session. Reload the latest schedule before saving.'),409
             try: raw=json.loads(request.form.get('plan',''))
             except (TypeError,ValueError): raise ValueError('The schedule could not be read. Reload and try again.') from None

@@ -9,6 +9,7 @@
 {% block title %}State collection calendar{% endblock %}
 {% block subtitle %}Collections, depot runs and baling days at a glance.{% endblock %}
 {% block body %}
+{% if not portal_calendar and current_user and current_user.role=='admin' %}<p><a class="button primary" href="{{ url_for('bf_collection_rollout',state=selected,date=chosen.isoformat()) }}">Manual rollout &amp; client coverage</a></p>{% endif %}
 {% if not portal_calendar and (current_user.role=='admin' or binflow_manager) %}<p><a class="button secondary" href="{{ url_for('bf_cancelled_jobs',state=selected) }}">Cancelled jobs · Operations review</a></p>{% endif %}
 {% if expanded_calendar %}
 <link rel="stylesheet" href="{{ url_for('static',filename='binflow-calendar-edit.css') }}">
