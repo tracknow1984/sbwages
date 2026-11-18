@@ -1,0 +1,23 @@
+<section class="bf-panel bf-pad">
+  <h2>{{ 'Warehouse inbox' if staff else 'Sent communications' }}</h2>
+  <form method="get" class="bf-filters">
+    {% if inbox_states|length > 1 %}<label>Warehouse<select name="state">
+      <option value="">All warehouses</option>
+      {% for code in inbox_states %}<option {{ 'selected' if selected==code }}>{{ code }}</option>{% endfor %}
+    </select></label>{% endif %}
+    <label>Status<select name="status"><option value="">All statuses</option>
+      {% for value in warehouse_statuses %}<option {{ 'selected' if selected_status==value }}>{{ value }}</option>{% endfor %}
+    </select></label>
+    <button class="secondary" type="submit">Filter</button>
+  </form>
+  {% for thread in threads %}
+  <article class="bf-warehouse-message">
+    <strong><a href="{{ url_for('bf_warehouse_reply',state=thread.state,aid=thread.account_id,message=thread.id) if staff else url_for('bf_client_warehouse_chat',state=thread.state,message=thread.id) }}">#{{ thread.id }} · {{ thread.name ~ ' · ' if staff }}{{ thread.state }} warehouse</a></strong>
+    <small>{{ thread.status }} · {{ thread.created_at|display_datetime }}</small>
+    <p>{{ thread.body|truncate(180) }}</p>
+    {% if thread.attachment %}<small>Attachment · {{ thread.attachment }}</small>{% endif %}
+    {% if thread.reply %}<p>Replied · {{ thread.reply|truncate(150) }}</p>{% elif not thread.legacy and thread.status in ('SENT','OPENED') %}<small>Awaiting reply</small>{% endif %}
+  </article>
+  {% else %}<p>No communications match this selection.</p>{% endfor %}
+  {% if older %}<p><a href="{{ url_for(request.endpoint,state=selected,status=selected_status,before=older) }}">Older communications</a></p>{% endif %}
+</section>

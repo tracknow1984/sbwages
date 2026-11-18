@@ -66,7 +66,7 @@ class ProfileScheduleTests(unittest.TestCase):
         detail='/binflow/client/profiles/'+str(pid)
         url=detail+'/schedule'
         self.assertIn('Edit schedule', client.get(detail).text)
-        self.assertEqual(client.get(detail+'/edit').status_code,403)
+        self.assertEqual(client.get(detail+'/edit').status_code,200)
         self.assertEqual(viewer.get(url).status_code,403)
         self.assertEqual(self.send(viewer,url,{'schedule_frequency':'daily','version':profile['version']}).status_code,403)
         response=self.send(client,url,dict(schedule_frequency='three',schedule_days=['0','2','4'],version=profile['version'],address='forged'))
@@ -83,6 +83,30 @@ class ProfileScheduleTests(unittest.TestCase):
             c.row_factory=sqlite3.Row
             p=next(p for p in clients(c) if p['profile_id']==pid)
             self.assertEqual(recurring_days(p,date(2026,11,2)),list(range(7)))
+
+    def test_named_account_edits_existing_site_and_instructions(self):
+        from binflow_client_access import upgrade_profile_edit_access
+        aid=self.account('blocktexx1',custom_permissions='yes',permission=['profiles.schedule'])
+        self.account('observer',custom_permissions='yes',permission=['profiles.view'])
+        portal=self.visit('blocktexx1')
+        other=self.visit('observer')
+        p=self.rows('SELECT * FROM bf_client_site_profiles WHERE location_id=3')[0]
+        url='/binflow/client/profiles/'+str(p['id'])+'/edit'
+        with sqlite3.connect(self.path) as conn:
+            conn.row_factory=sqlite3.Row
+            upgrade_profile_edit_access(conn,'now')
+        self.assertIn('Edit profile',portal.get('/binflow/client/profiles').text)
+        changed=self.send(portal,url,dict(p,address='52 Warehouse Road',driver_instructions='Use Gate 3'))
+        self.assertEqual(changed.status_code,200)
+        self.assertIn('Use Gate 3',changed.text)
+        saved=self.rows('SELECT * FROM bf_client_site_profiles WHERE id=?',(p['id'],))[0]
+        self.assertEqual((saved['address'],saved['updated_by']),('52 Warehouse Road','Client login blocktexx1'))
+        self.assertEqual(self.send(other,url,p).status_code,403)
+        with sqlite3.connect(self.path) as conn:
+            conn.row_factory=sqlite3.Row
+            conn.execute("UPDATE bf_client_permissions SET rights='[]' WHERE account_id=?",(aid,))
+            upgrade_profile_edit_access(conn,'later')
+        self.assertEqual(portal.get(url).status_code,403)
 
     def test_named_right_upgrade_is_once_and_revocable(self):
         aid=self.account('blocktexx1',custom_permissions='yes',permission=['bookings.view'])
