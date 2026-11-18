@@ -87,6 +87,31 @@ class AutoInvoiceTests(unittest.TestCase):
             self.assertEqual(api.call_args.args[4]['Invoices'][0]['Status'],'AUTHORISED')
         self.client.get(BASE)
         self.assertEqual(len(self.rows("SELECT * FROM bf_auto_drafts WHERE kind='POD Collections' AND account_id=?",(aid,))),1)
+        from pypdf import PdfReader
+        from reportlab.pdfgen.canvas import Canvas
+        source = io.BytesIO()
+        canvas = Canvas(source)
+        canvas.drawString(72, 720, 'Official invoice INV-POD')
+        canvas.save()
+        with patch('binflow_xero.api',return_value=dict(Invoices=[remote])), patch('binflow_invoices.pdf_bytes',return_value=source.getvalue()):
+            document = self.client.get(BASE+'/'+draft['id']+'/document.pdf')
+            self.assertEqual(document.mimetype,'application/pdf')
+            pages = [page.extract_text() for page in PdfReader(io.BytesIO(document.data)).pages]
+            self.assertIn('Official invoice INV-POD',pages[0])
+            backing = ' '.join(pages[1:])
+            self.assertIn('BF-000002',backing)
+            self.assertIn('BF-000004',backing)
+            self.assertNotIn('BF-000006',backing)
+            selected=dict(selected=[draft['id'],draft['id']],date='2026-10-19',period='week')
+            archive=self.post(BASE+'/batch',dict(selected,format='zip'))
+            with zipfile.ZipFile(io.BytesIO(archive.data)) as batch:
+                self.assertEqual(len(batch.namelist()),1)
+                self.assertEqual(len(PdfReader(io.BytesIO(batch.read(batch.namelist()[0]))).pages),len(pages))
+            workbook=self.post(BASE+'/batch',dict(selected,format='xls'))
+            self.assertTrue(workbook.data.startswith(bytes.fromhex('d0cf11e0a1b11ae1')))
+            self.assertIn(b'BF-000002',workbook.data)
+            self.assertNotIn(b'BF-000006',workbook.data)
+            self.assertEqual(self.post(BASE+'/batch',dict(selected,date='2026-09-04',format='xls')).status_code,409)
         with patch('binflow_xero.api',return_value=dict(Invoices=[remote])),patch('binflow_invoices.pdf_bytes',return_value=b'%PDF-invoice'):
             response=self.client.get(path+'/batch.zip')
             self.assertEqual(response.mimetype,'application/zip',response.text if response.mimetype!='application/zip' else '')

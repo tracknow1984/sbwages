@@ -153,6 +153,30 @@ class DailyPODTests(unittest.TestCase):
         self.assertNotIn('/binflow/bins/1/qr.png',self.client.get(url).text)
         self.assertEqual(self.client.get('/binflow/bins/1/qr.png').status_code,404)
 
+    def test_period_downloads_match_selected_dates_and_portal_access(self):
+        import zipfile
+        self.initial_delivery()
+        client=self.client_portal()
+        dates='?date=2026-10-25&period=week'
+        self.assertIn('19 Oct 2026 – 25 Oct 2026',self.client.get('/binflow/pods'+dates).text)
+        export='/binflow/pods/export'
+        table=self.post(export+dates,dict(selection='period'))
+        self.assertEqual(table.mimetype,'application/vnd.ms-excel')
+        self.assertTrue(table.data.startswith(bytes.fromhex('d0cf11e0a1b11ae1')))
+        self.assertIn(b'BF-000001',table.data)
+        self.assertNotIn(b'BF-000001',self.post(export+'?date=2026-11-01&period=month',dict(selection='period')).data)
+        self.assertEqual(self.post(export+dates,dict(selected='1',format='zip')).mimetype,'application/zip')
+        with client.session_transaction() as session:
+            session['csrf']='client-csrf'
+        url='/binflow/client/pods'+dates
+        form=dict(csrf='client-csrf',selected='1',format='zip')
+        zipped=client.post(url,data=form)
+        with zipfile.ZipFile(io.BytesIO(zipped.data)) as batch:
+            self.assertEqual(batch.namelist(),['BF-000001.pdf'])
+        self.assertEqual(client.post(url,data=dict(form,selected='999999')).status_code,404)
+        self.file('delete')
+        self.assertEqual(client.post(url,data=form).status_code,404)
+
     def test_filing_preserves_stock_history_and_client_visibility(self):
         self.initial_delivery(); client=self.client_portal()
         before={table:self.rows('SELECT * FROM '+table) for table in ('bf_bins','bf_job_bins','bf_events')}

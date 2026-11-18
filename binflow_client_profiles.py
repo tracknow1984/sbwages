@@ -5,6 +5,7 @@ import json
 import re
 import sqlite3
 import unicodedata
+import binflow_profile_schedule as schedules
 
 from flask import abort, flash, g, redirect, request, url_for
 
@@ -42,6 +43,9 @@ CREATE TABLE IF NOT EXISTS bf_client_profile_imports (
 
 def migrate(conn):
     conn.executescript(SCHEMA)
+    schedules.migrate(conn)
+    if 'driver_instructions' not in {r[1] for r in conn.execute('PRAGMA table_info(bf_client_site_profiles)')}:
+        conn.execute("ALTER TABLE bf_client_site_profiles ADD COLUMN driver_instructions TEXT NOT NULL DEFAULT ''")
 
 
 def validate(values, site_label="Customer Site"):
@@ -65,6 +69,11 @@ def validate(values, site_label="Customer Site"):
         raise ValueError('Choose Yes, No or Not confirmed for ASIC Required.')
     if result['contact_verified'] not in ('yes', 'no'):
         raise ValueError('Choose Yes or No for Contact Verified?.')
+    if 'driver_instructions' in values:
+        notes = str(values.get('driver_instructions') or '').strip()
+        if len(notes)>2000 or '\x00' in notes:
+            raise ValueError('Special driver instructions must be 2,000 characters or fewer.')
+        result['driver_instructions'] = notes
     # A site may have several names, emails or numbers. Preserve their pairing and separators.
     return result
 
@@ -85,11 +94,18 @@ def save_profile(conn, values, timestamp, actor, profile=None, location_id=None,
                      ',location_id=?,version=version+1,updated_at=?,updated_by=?,source_key=?,source_label=? WHERE id=?',
                      (*[values[k] for k in KEYS], location_id, timestamp, actor,
                       source_key or profile['source_key'], source_label or profile['source_label'], profile['id']))
+        if 'driver_instructions' in values:
+            conn.execute('UPDATE bf_client_site_profiles SET driver_instructions=? WHERE id=?',(values['driver_instructions'],profile['id']))
+        schedules.store(conn,profile['id'],values['schedule'])
         return profile['id']
-    return conn.execute('INSERT INTO bf_client_site_profiles (' + ','.join(KEYS) +
+    pid = conn.execute('INSERT INTO bf_client_site_profiles (' + ','.join(KEYS) +
                         ',location_id,updated_at,updated_by,source_key,source_label) VALUES ('+
                         ','.join('?' for _ in range(len(KEYS)+5))+')',
                         (*[values[k] for k in KEYS], location_id, timestamp, actor, source_key, source_label)).lastrowid
+    if values.get('driver_instructions'):
+        conn.execute('UPDATE bf_client_site_profiles SET driver_instructions=? WHERE id=?',(values['driver_instructions'],pid))
+    schedules.store(conn,pid,values['schedule'])
+    return pid
 
 
 def key(value):
@@ -256,6 +272,8 @@ def filter_register(rows, args, endpoint, endpoint_args=None, supplier=False, al
         rows = [r for r in rows if not r['location_id']]
     elif status == 'missing':
         rows = [r for r in rows if not all(r[k] for k in ('address','suburb','state','postcode'))]
+    elif status == 'schedule_review' and not supplier:
+        rows = [r for r in rows if schedules.stored(r).review]
     elif status == 'review':
         rows = [r for r in rows if (not supplier and not r['location_id']) or not r['state'] or
                 not r['address'] or r['contact_verified'] == 'no']
@@ -327,11 +345,15 @@ def update_site(conn, profile, values, lid, stamp, who):
         conn.execute('UPDATE bf_locations SET name=?,state=?,address=? WHERE id=?',
                      (values['customer_site'], values['state'], values['address'], lid))
     save_profile(conn, values, stamp, who, profile, lid)
+    if values['schedule']!=profile['schedule']:
+        schedules.sync_calendar(conn,lid,values['schedule'],stamp,who)
     from binflow_allocation_import import activate_pending
     activate_pending(conn, profile['id'], stamp, who)
 
 
 def register_profiles(app, db, require, render, now, actor):
+    app.jinja_env.globals.update(schedule_form_state=schedules.form_state, schedule_options=schedules.OPTIONS,
+                                 schedule_weekdays=schedules.DAYS, profile_schedule=schedules.stored)
     @app.get('/binflow/client-profiles')
     @require('admin')
     def bf_client_profiles():
@@ -362,6 +384,9 @@ def register_profiles(app, db, require, render, now, actor):
         if request.method == 'POST':
             values.update({k:request.form.get(k, '').strip() for k in (*KEYS, 'client_id', 'client_name')})
             try:
+                if 'driver_instructions' in request.form:
+                    values['driver_instructions'] = request.form['driver_instructions']
+                values['schedule'] = schedules.from_form(request.form,'')
                 details = validate(values)
                 if not details['state'] or not details['address']:
                     raise ValueError('Enter the site address and choose its state so it is ready for collections.')
@@ -393,6 +418,9 @@ def register_profiles(app, db, require, render, now, actor):
             try:
                 if str(profile['version']) != request.form.get('version'):
                     raise ValueError('This profile changed while you were editing. Reload it before saving.')
+                if 'driver_instructions' in request.form:
+                    values['driver_instructions'] = request.form['driver_instructions']
+                values['schedule'] = schedules.from_form(request.form,profile['schedule'])
                 values = {**values, **validate(values)}
                 lid = profile['location_id']
                 if not lid and request.form.get('location_id'):

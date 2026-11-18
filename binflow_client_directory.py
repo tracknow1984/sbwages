@@ -1,5 +1,7 @@
 """Client-facing national site directory. Permission checks are shared with the portal."""
 import sqlite3
+import json
+import binflow_profile_schedule as schedules
 from uuid import uuid4
 from collections import defaultdict
 from flask import abort, g, redirect, render_template, request, url_for
@@ -63,6 +65,9 @@ def register(app, db, client_access, now):
         if request.method=='POST':
             try:
                 values.update({key:request.form.get(key,'').strip() for key in (*KEYS,'client_name','client_id')})
+                if 'driver_instructions' in request.form:
+                    values['driver_instructions'] = request.form['driver_instructions']
+                values['schedule'] = schedules.from_form(request.form,row['schedule'] if row else '')
                 details=validate(values)
                 who='Client login '+g.bf_client['username']
                 if row:
@@ -95,3 +100,34 @@ def register(app, db, client_access, now):
     @client_access
     def bf_client_site_edit(pid):
         return edit(pid)
+
+    @app.route('/binflow/client/profiles/<int:pid>/schedule',methods=['GET','POST'])
+    @client_access
+    def bf_client_site_schedule(pid):
+        conn = db()
+        if request.method=='POST':
+            conn.execute('BEGIN IMMEDIATE')
+        row = profile(pid)
+        error = None
+        if request.method=='POST':
+            try:
+                if request.form.get('version')!=str(row['version']):
+                    abort(409,'This profile changed. Reopen the schedule before saving.')
+                if 'schedule_frequency' not in request.form:
+                    raise ValueError('Choose a collection frequency.')
+                raw = schedules.from_form(request.form,row['schedule'])
+                if raw != row['schedule']:
+                    who = 'Client login '+g.bf_client['username']
+                    stamp = now()
+                    conn.execute('INSERT INTO bf_client_profile_history(profile_id,snapshot,changed_at,changed_by) VALUES(?,?,?,?)',
+                                 (pid,json.dumps(dict(row)),stamp,who))
+                    conn.execute("""UPDATE bf_client_site_profiles SET schedule=?,version=version+1,
+                        updated_at=?,updated_by=? WHERE id=?""",(raw,stamp,who,pid))
+                    schedules.store(conn,pid,raw)
+                    schedules.sync_calendar(conn,row['location_id'],raw,stamp,who)
+                conn.commit()
+                return redirect(url_for('bf_client_site_portal',pid=pid),code=303)
+            except ValueError as exc:
+                conn.rollback()
+                error=str(exc)
+        return show('client_site_schedule',profile=row,error=error),400 if error else 200

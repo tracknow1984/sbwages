@@ -49,7 +49,7 @@ def valid_date(value):
 
 
 def run_jobs(conn, truck_id, run_date):
-    return conn.execute("SELECT * FROM bf_jobs WHERE truck_id=? AND scheduled_date=? AND schedule_live=1 AND approval_status='approved' AND status!='cancelled' ORDER BY run_order,id",
+    return conn.execute("SELECT j.*,p.driver_instructions AS site_driver_instructions FROM bf_jobs j LEFT JOIN bf_client_site_profiles p ON p.location_id=j.site_id WHERE j.truck_id=? AND j.scheduled_date=? AND j.schedule_live=1 AND j.approval_status='approved' AND j.status!='cancelled' ORDER BY j.run_order,j.id",
                         (truck_id, run_date)).fetchall()
 
 

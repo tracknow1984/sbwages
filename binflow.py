@@ -136,9 +136,10 @@ def register_binflow(app, db, require):
         migrate_client_profiles(db())
         from binflow_management import migrate as migrate_management, bootstrap
         migrate_management(db())
-        from binflow_client_access import upgrade_decomm_access
+        from binflow_client_access import upgrade_decomm_access, upgrade_schedule_access
         upgrade_decomm_access(db(), now())
         binflow_site_requests.migrate(db(), now())
+        upgrade_schedule_access(db(), now())
         from binflow_supplier_profiles import migrate as migrate_supplier_profiles
         migrate_supplier_profiles(db())
         migrate_allocation_import(db())
@@ -195,9 +196,17 @@ def register_binflow(app, db, require):
             app.logger.warning('BinFlow pallecon replacement %s: %s', 'applied' if changed else 'already applied', json.dumps(replacement))
             calendar_summary, changed = rebuild_calendar(db(), now())
             app.logger.warning('BinFlow current client calendar %s: %s', 'rebuilt' if changed else 'already rebuilt', json.dumps(calendar_summary))
+        import binflow_profile_schedule as profile_schedule
+        from binflow_client_profiles import register_rows
+        profile_schedule.backfill(db())
         db().commit()
         if not app.testing:
             bootstrap(db(), now())
+            from binflow_client_access import rights_for
+            account = db().execute("SELECT id,active FROM bf_client_accounts WHERE username='blocktexx1'").fetchone()
+            report = profile_schedule.summary(register_rows(db()))
+            report['blocktexx1_can_edit'] = bool(account and account['active'] and 'profiles.schedule' in rights_for(db(),account['id']))
+            app.logger.warning('BinFlow structured client schedules %s',json.dumps(report,sort_keys=True))
     app.jinja_env.filters['bfkg'] = kg
 
     def allowed():
@@ -262,7 +271,7 @@ def register_binflow(app, db, require):
                      (bin_id, job_id, label, origin, target, actor(), notes, now(), from_truck, to_truck, custody_label(db(),origin,from_truck), custody_label(db(),target,to_truck)))
 
     def job(job_id):
-        row = db().execute('SELECT j.*,u.first_name||\' \'||u.last_name AS driver_name FROM bf_jobs j LEFT JOIN users u ON u.id=j.driver_id WHERE j.id=?', (job_id,)).fetchone()
+        row = db().execute('SELECT j.*,p.driver_instructions AS site_driver_instructions,u.first_name||\' \'||u.last_name AS driver_name FROM bf_jobs j LEFT JOIN users u ON u.id=j.driver_id LEFT JOIN bf_client_site_profiles p ON p.location_id=j.site_id WHERE j.id=?', (job_id,)).fetchone()
         if not row:
             abort(404)
         if not can_view_job(db(), g.user, row):

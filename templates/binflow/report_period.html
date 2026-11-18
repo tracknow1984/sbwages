@@ -1,0 +1,1 @@
+<label>Group by<select name="period">{% for key,label in period_options %}<option value="{{ key }}" {{ 'selected' if period.key==key }}>{{ label }}</option>{% endfor %}</select></label>

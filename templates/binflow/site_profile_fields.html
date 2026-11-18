@@ -15,7 +15,9 @@
 <label>Contact Number<textarea name="contact_number" maxlength="500" rows="2">{{ values.contact_number }}</textarea></label>
 <label>Contact Verified?<select name="contact_verified"><option value="no" {{ 'selected' if values.contact_verified=='no' }}>No</option><option value="yes" {{ 'selected' if values.contact_verified=='yes' }}>Yes</option></select></label>
 </div><p class="bf-muted">Keep multiple contacts in the same order across names, emails and numbers. Mark verified after checking these details with the site.</p></fieldset>
-<fieldset><legend>Service & access</legend><div class="bf-grid">
-<label>{{ 'Requested collection schedule' if needs_approval else 'Schedule' }}<textarea name="schedule" maxlength="500" rows="2" placeholder="e.g. Weekly — Monday, Wednesday, Friday">{{ values.schedule }}</textarea></label>
+{% if not supplier|default(false) %}{% include 'binflow/site_schedule_fields.html' %}
+<label>Special driver instructions<textarea name="driver_instructions" rows="3" maxlength="2000" placeholder="Gate access, loading dock, receiving hours or who to call">{{ values.driver_instructions|default('') }}</textarea></label>{% endif %}
+<fieldset><legend>{{ 'Service & access' if supplier|default(false) else 'Site access' }}</legend><div class="bf-grid">
+{% if supplier|default(false) %}<label>{{ 'Requested collection schedule' if needs_approval else 'Schedule' }}<textarea name="schedule" maxlength="500" rows="2" placeholder="e.g. Weekly — Monday, Wednesday, Friday">{{ values.schedule }}</textarea></label>{% endif %}
 <label>ASIC Required<select name="asic_required">{% for value,label in [('unknown','Not confirmed'),('yes','Yes'),('no','No')] %}<option value="{{ value }}" {{ 'selected' if values.asic_required==value }}>{{ label }}</option>{% endfor %}</select></label>
 </div><p class="bf-muted">{% if needs_approval %}Include any preferred collection days or frequency for management to review.{% elif supplier|default(false) %}Record the agreed service or delivery schedule for this supplier site.{% else %}The schedule records the site's service agreement. Set dated collections in the collection calendar.{% endif %}</p></fieldset>

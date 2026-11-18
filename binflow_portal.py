@@ -9,6 +9,7 @@ from functools import wraps
 from flask import abort, flash, g, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
+import binflow_period_reports as reports
 import binflow_client_access as portal
 import binflow_warehouse_messages as warehouse_messages
 from binflow_management import pod_scope, permitted_pod, register as register_management
@@ -114,11 +115,14 @@ def register_portal(app, db, access, require, render, success, failure, now, act
         session.clear()
         return redirect(url_for('sbtx_client_login' if request.endpoint == 'sbtx_client_logout' else 'bf_client_login'))
 
-    @app.get('/binflow/client/pods')
+    @app.route('/binflow/client/pods',methods=['GET','POST'])
     @client_access
     def bf_client_pods():
         national='pods.all' in g.client_rights
         run_date=request.args.get('date','' if national else now()[:10])
+        kind=request.args.get('period','day')
+        if not run_date and kind!='day': run_date=now()[:10]
+        period=reports.period_view(run_date,kind)
         if run_date:
             try: valid_date(run_date)
             except ValueError as error: abort(400,str(error))
@@ -126,18 +130,31 @@ def register_portal(app, db, access, require, render, success, failure, now, act
         dates=db().execute('SELECT DISTINCT j.scheduled_date FROM bf_jobs j WHERE '+scope+
             ' ORDER BY j.scheduled_date DESC LIMIT 60',params).fetchall()
         if run_date:
-            scope+=' AND j.scheduled_date=?'
-            params+= (run_date,)
+            scope+=' AND j.scheduled_date BETWEEN ? AND ?'
+            params+= (period['first'],period['last'])
         page=max(1,request.args.get('page',1,type=int))
         count=db().execute('SELECT COUNT(*) FROM bf_jobs j WHERE '+scope,params).fetchone()[0]
         pages=max(1,(count+49)//50)
         page=min(page,pages)
-        jobs=db().execute("""SELECT j.id,j.code,j.pod_token,j.scheduled_date,j.client_name,j.site_name,
+        query="""SELECT j.id,j.code,j.pod_token,j.scheduled_date,j.client_name,j.site_name,j.state,j.warehouse_name,
+            j.status,j.collected_at,j.pod_signed_at,j.pod_signed_name,j.pod_deleted_at,
+            (SELECT COUNT(*) FROM bf_job_bins i WHERE i.job_id=j.id AND i.direction='collect') AS collection_bins,
             (SELECT SUM(net_g) FROM bf_job_bins i WHERE i.job_id=j.id AND i.direction='collect') AS net
-            FROM bf_jobs j WHERE """+scope+' ORDER BY j.scheduled_date DESC,j.client_name,j.site_name,j.id LIMIT 50 OFFSET ?',
-            (*params,(page-1)*50)).fetchall()
+            FROM bf_jobs j WHERE """+scope
+        order=' ORDER BY j.scheduled_date DESC,j.client_name,j.site_name,j.id'
+        if request.method=='POST':
+            if request.form.get('selection')!='period':
+                ids=reports.selected_ids()
+                # JSON binding keeps large selections within SQLite's variable limit.
+                import json
+                query+=" AND CAST(j.id AS TEXT) IN (SELECT value FROM json_each(?))"
+                params+= (json.dumps(sorted(ids)),)
+            jobs=db().execute(query+order,params).fetchall()
+            if request.form.get('selection')!='period' and len(jobs)!=len(ids): abort(404)
+            return reports.pod_download(jobs,request.form.get('format','xls'),pdf,'Client-PODs-'+(period['first'] or 'all-dates'))
+        jobs=db().execute(query+order+' LIMIT 50 OFFSET ?',(*params,(page-1)*50)).fetchall()
         return render_template('binflow/client_pods.html',account=g.bf_client,jobs=jobs,dates=dates,
-            run_date=run_date,national=national,page=page,pages=pages)
+            run_date=run_date,national=national,page=page,pages=pages,period=period,count=count)
 
     @app.get('/binflow/client/pods/<int:job_id>.pdf')
     @client_access

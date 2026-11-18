@@ -11,6 +11,7 @@ from email.message import EmailMessage
 
 from flask import abort, flash, g, request, send_file, session
 
+import binflow_period_reports as reports
 from binflow_pickup_pricing import pickup_cents, rate_text
 from binflow_permissions import can_view_job, is_office, is_warehouse
 from binflow_runs import valid_date
@@ -159,6 +160,7 @@ def register_pods(app, db, access, require, render, success, failure, now, pdf):
         return run_date, view
 
     def daily_jobs(run_date, view):
+        period=reports.period_view(run_date,request.args.get('period','day'))
         clause = {'signed':'j.pod_deleted_at IS NULL AND j.pod_signed_at IS NOT NULL', 'active': 'j.pod_deleted_at IS NULL AND j.pod_archived_at IS NULL',
                   'unfinished': 'j.pod_deleted_at IS NULL AND j.pod_archived_at IS NULL AND j.pod_signed_at IS NULL',
                   'archived': 'j.pod_deleted_at IS NULL AND j.pod_archived_at IS NOT NULL',
@@ -167,7 +169,9 @@ def register_pods(app, db, access, require, render, success, failure, now, pdf):
         if g.user['role']=='admin' and not getattr(g,'bf_demo_token',None):
             rate_sql = '''COALESCE((SELECT r.units FROM bf_job_pickup_rates p JOIN bf_pickup_rates r ON r.id=p.rate_id
                 WHERE p.job_id=j.id), (SELECT 16000 FROM bf_live_cycle x WHERE x.client_id=j.pod_client_id))'''
-        rows = db().execute(f'''SELECT j.*, {rate_sql} AS rate_units,
+        rows = db().execute(f'''SELECT j.id,j.code,j.scheduled_date,j.state,j.site_name,j.site_address,j.client_name,j.warehouse_id,j.warehouse_name,
+            j.driver_id,j.truck_id,j.status,j.schedule_live,j.approval_status,j.pod_client_id,j.collected_at,
+            j.pod_version,j.pod_deleted_at,j.pod_archived_at,j.pod_signed_at,j.pod_signed_name,{rate_sql} AS rate_units,
             (SELECT i.id FROM bf_job_bins i JOIN bf_bins b ON b.id=i.bin_id WHERE i.job_id=j.id AND i.direction='collect'
                 AND i.active=1 AND i.weighed_at IS NULL AND (i.returned_at IS NOT NULL OR (j.scan_mode=0 AND j.received_at IS NOT NULL))
                 AND b.status='received' AND b.location_id=j.warehouse_id AND b.truck_id IS NULL
@@ -175,8 +179,8 @@ def register_pods(app, db, access, require, render, success, failure, now, pdf):
             (SELECT COUNT(*) FROM bf_job_bins i WHERE i.job_id=j.id AND i.direction='collect') AS collection_bins,
             (SELECT SUM(net_g) FROM bf_job_bins i WHERE i.job_id=j.id AND i.direction='collect') AS net,
             (SELECT COUNT(*) FROM bf_job_bins i WHERE i.job_id=j.id AND i.direction='collect' AND i.weighed_at IS NULL) AS unweighed
-            FROM bf_jobs j WHERE j.scheduled_date=? AND j.approval_status='approved' AND j.status!='cancelled' AND ''' + clause +
-            ' ORDER BY j.client_name,j.site_name,j.id', (run_date,)).fetchall()
+            FROM bf_jobs j WHERE j.scheduled_date BETWEEN ? AND ? AND j.approval_status='approved' AND j.status!='cancelled' AND ''' + clause +
+            ' ORDER BY j.scheduled_date,j.client_name,j.site_name,j.id', (period['first'],period['last'])).fetchall()
         if view=='signed' and g.user['role']=='admin' and not g.get('bf_demo_token'):
             test=db().execute('SELECT client_id FROM bf_live_cycle').fetchone()
             test_only=request.args.get('live_test')=='1'
@@ -198,8 +202,21 @@ def register_pods(app, db, access, require, render, success, failure, now, pdf):
         progress = None
         if view == 'active' and not getattr(g, 'bf_demo_token', None) and (is_office(g.user) or is_warehouse(g.user)):
             progress = warehouse_progress(db(), g.user, now(), run_date)
-        return render('daily_pods', progress=progress, section='pods', run_date=run_date, view=view, jobs=jobs,
-                      closed=sum(bool(j['pod_signed_at']) for j in jobs))
+        return render('daily_pods', period=reports.period_view(run_date,request.args.get('period','day')),progress=progress, section='pods', run_date=run_date, view=view, jobs=jobs,
+                      total_net=sum(j['net'] or 0 for j in jobs),closed=sum(bool(j['pod_signed_at']) for j in jobs))
+
+    @app.post('/binflow/pods/export')
+    @require('admin')
+    def bf_pod_batch_export():
+        if g.get('bf_demo_token'): abort(403)
+        run_date,view=selection()
+        if view=='deleted': abort(410)
+        jobs=daily_jobs(run_date,view)
+        if request.form.get('selection')!='period':
+            ids=reports.selected_ids()
+            jobs=[j for j in jobs if str(j['id']) in ids]
+            if len(jobs)!=len(ids): abort(409,'A selected POD changed. Refresh this period.')
+        return reports.pod_download(jobs,request.form.get('format','xls'),pdf,'PODs-'+run_date+'-'+request.args.get('period','day'))
 
     @app.get('/binflow/pods/export.csv')
     @require('admin')

@@ -1,0 +1,6 @@
+<form method="post" action="{{ export_url }}" id="report-downloads" class="bf-actions">
+<input type="hidden" name="csrf" value="{{ csrf_token() }}">
+<button class="secondary" name="format" value="xls">Download selected XLS</button>
+<button class="secondary" name="format" value="zip">Download selected ZIP</button>
+{% if period_export %}<button class="secondary" name="selection" value="period">Export period to XLS</button>{% endif %}
+</form>

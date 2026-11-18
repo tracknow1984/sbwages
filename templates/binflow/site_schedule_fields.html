@@ -1,0 +1,17 @@
+{% set existing = profile.schedule if profile else '' %}
+{% set pattern = schedule_form_state(request.form,existing) %}
+<fieldset class="bf-schedule-fields" data-site-schedule><legend>{{ 'Requested collection schedule' if needs_approval else 'Collection schedule' }}</legend>
+<div class="bf-grid">
+<label>Frequency<select name="schedule_frequency" data-frequency>
+{% if profile and profile_schedule(profile).frequency=='review' %}<option value="review" {{ 'selected' if pattern.frequency=='review' }}>Keep existing schedule · needs review</option>{% endif %}
+{% for value,label in schedule_options.items() %}<option value="{{ value }}" {{ 'selected' if pattern.frequency==value }}>{{ label }}</option>{% endfor %}
+</select></label>
+<label data-single-day>Day of the week<select name="schedule_day"><option value="">Day to confirm</option>
+{% for name in schedule_weekdays %}<option value="{{ loop.index0 }}" {{ 'selected' if pattern.days==(loop.index0,) }}>{{ name }}</option>{% endfor %}</select></label>
+<div data-multiple-days><details><summary>Days of the week · <span data-days-caption>Choose days</span></summary>
+{% for name in schedule_weekdays %}<label class="bf-check"><input type="checkbox" name="schedule_days" value="{{ loop.index0 }}" {{ 'checked' if loop.index0 in pattern.days }}>{{ name }}</label>{% endfor %}
+</details></div>
+</div><p data-schedule-hint class="bf-muted" aria-live="polite"></p>
+{% if existing %}<small>Current agreement · {{ existing }}</small>{% endif %}
+</fieldset>
+<script defer src="{{ url_for('static',filename='binflow-profile-schedule.js') }}"></script>

@@ -7,7 +7,7 @@ document.querySelectorAll('.it-permissions').forEach(table => {
     if (custom) custom.checked = true;
     if (input.name !== 'permission') return;
     const [area, action] = input.value.split('.');
-    const boxes = Array.from(table.querySelectorAll('input'));
+    const boxes = Array.from(form.querySelectorAll('input[name=permission]'));
     if (input.checked && action !== 'view') boxes.find(box => box.value === area + '.view').checked = true;
     if (!input.checked && action === 'view') {
       boxes.filter(box => box.value.startsWith(area + '.')).forEach(box => { box.checked = false; });
