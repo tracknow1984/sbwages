@@ -9,6 +9,8 @@ def progress(conn, first, last, state=''):
     from binflow_live_cycle import client_job_filter
     from binflow_schedule import get_plan
     from binflow_route_calendar import START
+    from binflow_rollout import state_starts
+    starts = state_starts(conn)
     result = {}
     jobs = [dict(r) for r in conn.execute("""
         SELECT j.*,r.departed_at,
@@ -23,6 +25,9 @@ def progress(conn, first, last, state=''):
         (first.isoformat(),last.isoformat(),state) if state else (first.isoformat(),last.isoformat()))]
     actual = defaultdict(list)
     for job in jobs:
+        if (job['state'] in starts and job['scheduled_date'] >= starts[job['state']] and
+                not job['schedule_live'] and not job['schedule_week_id'] and job['status']=='scheduled'):
+            continue
         actual[job['state'],job['scheduled_date']].append(job)
     start = first-timedelta(days=first.weekday())
     while start <= last:

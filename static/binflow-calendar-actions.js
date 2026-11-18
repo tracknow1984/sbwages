@@ -20,7 +20,7 @@
     const result=await response.json().catch(()=>({error:'Your session expired. Reload the calendar.'}));
     if(!response.ok)throw Error(result.error||'Unable to update the calendar.');return result;
   }
-  const base=()=>({state:options.state,week:options.start,revision:options.revision,plan:JSON.stringify(options.plan)});
+  const base=()=>({state:options.state,week:options.start,revision:options.revision,plan_token:options.plan_token,plan:JSON.stringify(options.plan)});
   const save=(extra={})=>api('save',{...base(),action:'save',...extra});
   function finish(result){sessionStorage.setItem('bf-calendar-saved',result.message);if(context.fromDay)sessionStorage.setItem('bf-calendar-expanded',JSON.stringify({state:context.state,day:context.date}));location.reload();}
   async function loadOptions(){

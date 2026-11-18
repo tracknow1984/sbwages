@@ -139,7 +139,7 @@ def migrate_requirements(conn):
         conn.execute("ALTER TABLE bf_jobs ADD COLUMN bin_plan TEXT NOT NULL DEFAULT '[]'")
 
 
-def site_plan(conn, site_id, warehouse_id, collections=None, run_date=None):
+def site_plan(conn, site_id, warehouse_id, collections=None, run_date=None, *, initial_delivery=False):
     """Projected site stock accounts for other open jobs, including partially scanned jobs.
 
     Profile targets are quantities to keep on site. A normal visit swaps up to that
@@ -148,6 +148,9 @@ def site_plan(conn, site_id, warehouse_id, collections=None, run_date=None):
     profile = conn.execute('SELECT * FROM bf_site_profiles WHERE location_id=? AND active=1', (site_id,)).fetchone()
     if not profile:
         return None, []
+    if initial_delivery:
+        collections = {}
+        run_date = None  # Include all outstanding deliveries before reserving additional empties.
     rows = conn.execute('''SELECT r.*,s.name,s.litres FROM bf_site_requirements r
         JOIN bf_sizes s ON s.id=r.size_id WHERE r.location_id=? ORDER BY s.litres,s.id''', (site_id,)).fetchall()
     onsite = Counter({r['size_id']:r['n'] for r in conn.execute('SELECT size_id,COUNT(*) AS n FROM bf_bins WHERE archived=0 AND location_id=? GROUP BY size_id', (site_id,))})
@@ -171,7 +174,7 @@ def site_plan(conn, site_id, warehouse_id, collections=None, run_date=None):
         sid, target = r['size_id'], r['quantity']
         collect = collections.get(sid,0) if collections is not None else min(target,collectable[sid],collection_slots)
         collection_slots -= collect
-        projected = onsite[sid] + incoming[sid] - outgoing[sid]
+        projected = onsite[sid] + incoming[sid] - (0 if initial_delivery else outgoing[sid])
         needed = max(0,target-projected+collect)
         selected = min(needed,available[sid],delivery_slots)
         delivery_slots -= selected

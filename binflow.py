@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 from flask import abort, flash, g, jsonify, redirect, render_template, request, send_file, session, url_for
 from prestart_media import photo_jpeg, signature_png
 from binflow_driver import migrate_driver, register_driver
+import binflow_rollout
 import binflow_pickup_pricing
 import binflow_site_requests
 from binflow_handover import pod_weights_ready
@@ -144,6 +145,7 @@ def register_binflow(app, db, require):
         migrate_allocation_import(db())
         migrate_route_calendar(db())
         migrate_schedule(db())
+        binflow_rollout.migrate(db())
         from binflow_journey import migrate_journey
         migrate_journey(db())
         from binflow_reports import migrate_timings
@@ -642,6 +644,10 @@ def register_binflow(app, db, require):
     @app.route('/binflow/pickups/new', methods=['GET','POST'])
     @access
     def bf_new_job():
+        purpose = request.values.get('purpose','')
+        empty_delivery = purpose == 'empty_delivery'
+        if empty_delivery and request.values.get('collection_request'):
+            abort(400, 'Choose either an empty-bin delivery or a collection request.')
         if request.method == 'POST':
             approve_schedule=request.form.get('approve_schedule')=='yes'
             if approve_schedule and g.user['role']!='admin': abort(403)
@@ -666,6 +672,10 @@ def register_binflow(app, db, require):
                 driver = request.form.get('driver_id', '')
                 if driver and not eligible_driver(db(), driver, site['state']):
                     raise ValueError('Choose an active driver or contractor allocated to this state, or a manager.')
+                if purpose == 'scheduled_pickup' and not request.form.getlist('collect'):
+                    raise ValueError('Select at least one bin to collect for this scheduled pickup.')
+                if empty_delivery and request.form.getlist('collect'):
+                    raise ValueError('An empty-bin rollout can contain deliveries only.')
                 selected = []
                 for direction in ('collect','deliver'):
                     ids = request.form.getlist(direction)
@@ -695,7 +705,12 @@ def register_binflow(app, db, require):
                 for direction,b in selected:
                     counts = selected_collections if direction=='collect' else selected_deliveries
                     counts[b['size_id']] = counts.get(b['size_id'],0)+1
-                profile, loading = site_plan(db(),site['id'],warehouse['id'],selected_collections,scheduled.isoformat())
+                profile, loading = site_plan(db(),site['id'],warehouse['id'],selected_collections,scheduled.isoformat(),
+                                            initial_delivery=empty_delivery)
+                if empty_delivery:
+                    gaps = {r['size_id']: r['recommended'] for r in loading}
+                    if any(count > gaps.get(sid,0) for sid,count in selected_deliveries.items()):
+                        raise ValueError('The selected empties exceed the remaining site target. Review the bins already on site or reserved.')
                 for row in loading:
                     row['selected'] = selected_deliveries.get(row['size_id'],0)
                     row['shortfall'] = max(0,row['recommended']-row['selected'])
@@ -713,7 +728,7 @@ def register_binflow(app, db, require):
                     return success('Collection schedule approved. Choose a truck to add it to a driver run.','bf_job',job_id=jid)
                 return success('Job saved as an allocation awaiting approval. Bins are reserved until an administrator approves or rejects it.', 'bf_job', job_id=jid)
             except (ValueError, sqlite3.IntegrityError) as error:
-                return failure(error if isinstance(error,ValueError) else ValueError('One of these bins was just reserved by another user. Please refresh and select available bins.'), 'bf_new_job', site=request.form.get('site_id',''), warehouse=request.form.get('warehouse_id',''),collection_request=request.form.get('collection_request',''))
+                return failure(error if isinstance(error,ValueError) else ValueError('One of these bins was just reserved by another user. Please refresh and select available bins.'), 'bf_new_job', site=request.form.get('site_id',''), warehouse=request.form.get('warehouse_id',''),purpose=purpose,date=request.form.get('scheduled_date',''),collection_request=request.form.get('collection_request',''))
         try:
             plan_date = date.fromisoformat(request.args.get('date') or now()[:10]).isoformat()
         except ValueError:
@@ -732,10 +747,10 @@ def register_binflow(app, db, require):
         warehouse = next((w for w in warehouses if w['id'] == warehouse_id), None)
         if site and not warehouse:
             warehouse = next((w for w in warehouses if w['state'] == site['state']), None)
-        collect = bins("b.location_id=? AND b.status IN ('at_client','full') AND NOT EXISTS(SELECT 1 FROM bf_job_bins i WHERE i.bin_id=b.id AND i.active=1)", (site['id'],)) if site else []
+        collect = bins("b.location_id=? AND b.status IN ('at_client','full') AND NOT EXISTS(SELECT 1 FROM bf_job_bins i WHERE i.bin_id=b.id AND i.active=1)", (site['id'],)) if site and not empty_delivery else []
         deliver = bins("b.location_id=? AND b.status='empty' AND NOT EXISTS(SELECT 1 FROM bf_job_bins i WHERE i.bin_id=b.id AND i.active=1)", (warehouse['id'],)) if warehouse and site and warehouse['state'] == site['state'] else []
         drivers = available_drivers(db(), site['state'] if site else '')
-        profile, loading = site_plan(db(),site['id'],warehouse['id'],run_date=plan_date) if site and warehouse and site['state']==warehouse['state'] else (None,[])
+        profile, loading = site_plan(db(),site['id'],warehouse['id'],run_date=plan_date,initial_delivery=empty_delivery) if site and warehouse and site['state']==warehouse['state'] else (None,[])
         defaults = {'collect':set(), 'deliver':set()}
         for direction, available in (('collect',collect),('deliver',deliver)):
             for plan in loading:
@@ -744,7 +759,7 @@ def register_binflow(app, db, require):
                 defaults[direction].update(b['id'] for b in matching[:quantity])
         if collection_request and any(b['id']==collection_request['bin_id'] for b in collect):
             defaults['collect'].add(collection_request['bin_id'])
-        return render('new_job', section='pickups',collection_request=collection_request, sites=sites, warehouses=warehouses, site=site, warehouse=warehouse, collect=collect, deliver=deliver, drivers=drivers, request_key=secrets.token_urlsafe(24), profile=profile, loading=loading, defaults=defaults, plan_date=plan_date,
+        return render('new_job', section='pickups',purpose=purpose,empty_delivery=empty_delivery,collection_request=collection_request, sites=sites, warehouses=warehouses, site=site, warehouse=warehouse, collect=collect, deliver=deliver, drivers=drivers, request_key=secrets.token_urlsafe(24), profile=profile, loading=loading, defaults=defaults, plan_date=plan_date,
                       source_profiles=source_profiles(db(), site['id']) if site else [])
 
     @app.get('/binflow/pickups/<int:job_id>')
@@ -1233,3 +1248,4 @@ def register_binflow(app, db, require):
     register_profiles(app,db,require,render,now,actor)
 
     register_schedule(app,db,access,require,render,now,actor)
+    binflow_rollout.register(app,db,require,render,success,failure,now)

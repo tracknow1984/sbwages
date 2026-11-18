@@ -1,0 +1,41 @@
+{% extends 'binflow/layout.html' %}
+{% block title %}Manual rollout &amp; client coverage{% endblock %}
+{% block subtitle %}Deliver empty bins first. Once the bins are on site, choose the first pickup and check each week against the client’s schedule.{% endblock %}
+{% block body %}
+<section class="bf-panel bf-pad">
+  <form method="get" class="bf-filters">
+    <label>State<select name="state"><option value="">All states</option>{% for s in states %}<option value="{{ s }}" {{ 'selected' if s==selected }}>{{ s }}</option>{% endfor %}</select></label>
+    <label>Week containing<input type="date" name="date" value="{{ first }}" required></label>
+    <label>Show<select name="focus">{% for key,label in [('','All sites'),('bins','Bin delivery or setup'),('first','First pickup date needed'),('book','Due pickups to book'),('review','Details to review')] %}<option value="{{ key }}" {{ 'selected' if focus==key }}>{{ label }}</option>{% endfor %}</select></label>
+    <button class="secondary">View week</button>
+    <a href="{{ url_for('bf_collection_calendar',state=selected,date=first,view='week') }}">Open collection calendar</a>
+  </form>
+  <h2>{{ first|display_date }} – {{ last|display_date }}</h2>
+  <div class="bf-chips"><span>{{ total }} current sites</span><span>{{ needing }} sites need delivery or setup</span><span>{{ missing }} due pickups to book</span><span>{{ first_dates }} first pickup dates to set</span></div>
+  {% if selected and selected not in starts %}
+  <form class="bf-form" method="post">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="action" value="start">
+    <p>Starting manual planning removes automatic route suggestions from unsaved {{ selected }} weeks from {{ first|display_date }} onwards. Existing jobs and saved weeks keep their dates and assignments.</p>
+    <div><button class="primary">Start manual planning for {{ selected }}</button></div>
+  </form>
+  {% elif selected %}<p>Manual planning for {{ selected }} starts the week of {{ starts[selected]|display_date }}.</p>
+  {% else %}<p>Select a state to start its manual calendar.</p>{% endif %}
+  {% if saved %}<details><summary>Review {{ saved|length }} existing saved weeks</summary><ul>{% for w in saved %}<li><a href="{{ url_for('bf_collection_calendar',state=w.state,date=w.week_start,view='week') }}">{{ w.state }} · {{ w.week_start|display_date }} · {{ w.status|capitalize }}</a></li>{% endfor %}</ul></details>{% endif %}
+</section>
+<section class="bf-panel"><div class="bf-panel-head"><h2>Site rollout register</h2></div>
+<div class="bf-table-wrap"><table class="bf-collection-profiles"><thead><tr><th>Client site</th><th>Empty-bin rollout</th><th>Collection cycle</th><th>Work this week</th></tr></thead><tbody>
+{% for r in rows %}{% set p=r.profile %}
+<tr><td><strong><a href="{{ url_for('bf_client_profile',profile_id=p.id) }}">{{ p.customer_site }}</a></strong><small>{{ p.group_name }} · {{ p.state or 'State needed' }} · {{ p.suburb }}</small></td>
+<td><strong>{{ r.stage }}</strong>{% for s in r.sizes %}<small>{{ s.name }} · {{ s.at }} of {{ s.target }} on site{% if s.incoming %} · {{ s.incoming }} reserved for delivery{% endif %}</small>{% endfor %}
+{% for job in r.deliveries %}<small><a href="{{ url_for('bf_job',job_id=job.id) }}">{{ job.code }}</a> · {{ job.label }}</small>{% endfor %}
+{% if p.location_id and not r.sizes %}<a href="{{ url_for('bf_requirements',location_id=p.location_id) }}">Set bin quantities</a>
+{% elif r.stage in ['Needs empty bins','More empties needed'] %}<a class="button secondary" href="{{ url_for('bf_new_job',purpose='empty_delivery',site=p.location_id,date=default_day) }}">Plan empty-bin delivery</a>{% endif %}
+</td><td>{{ p.schedule or 'Schedule needed' }}{% if r.first_pickup %}<small>First pickup cycle · {{ r.first_pickup|display_date }}</small>{% endif %}
+{% if r.can_set %}<details><summary>{{ 'Review first pickup' if r.first_pickup else 'Set first pickup' }}</summary>
+<form method="post" class="bf-form"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="action" value="anchor"><input type="hidden" name="profile_id" value="{{ p.id }}"><input type="hidden" name="previous" value="{{ r.first_pickup }}"><input type="hidden" name="schedule" value="{{ p.schedule }}">
+<label>First agreed pickup<input type="date" name="first_pickup" value="{{ r.first_pickup }}" min="{{ starts[p.state] }}" required></label><button class="secondary">Save pickup cycle</button></form></details>{% endif %}
+</td><td><strong>{{ r.service }}</strong>{% for d in r.due %}<small>{{ d.date|display_date }} · {% for j in d.jobs %}<a href="{{ url_for('bf_job',job_id=j.id) }}">{{ j.code }}</a> ({{ 'draft week' if not j.schedule_live else 'awaiting approval' if j.approval_status=='pending' else 'approved' }}) {% else %}<a href="{{ url_for('bf_new_job',purpose='scheduled_pickup',site=p.location_id,date=d.date) }}">Allocate pickup</a>{% endfor %}</small>{% endfor %}
+{% if r.service=='On request' and r.ready %}<a href="{{ url_for('bf_new_job',purpose='scheduled_pickup',site=p.location_id,date=default_day) }}">Book requested pickup</a>{% endif %}</td></tr>
+{% else %}<tr><td colspan="4">No sites match this selection.</td></tr>{% endfor %}
+</tbody></table></div></section>
+{% endblock %}
