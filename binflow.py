@@ -137,10 +137,11 @@ def register_binflow(app, db, require):
         migrate_client_profiles(db())
         from binflow_management import migrate as migrate_management, bootstrap
         migrate_management(db())
-        from binflow_client_access import upgrade_decomm_access, upgrade_schedule_access
+        from binflow_client_access import upgrade_decomm_access, upgrade_schedule_access, upgrade_profile_edit_access
         upgrade_decomm_access(db(), now())
         binflow_site_requests.migrate(db(), now())
         upgrade_schedule_access(db(), now())
+        upgrade_profile_edit_access(db(), now())
         from binflow_supplier_profiles import migrate as migrate_supplier_profiles
         migrate_supplier_profiles(db())
         migrate_allocation_import(db())
@@ -208,6 +209,7 @@ def register_binflow(app, db, require):
             account = db().execute("SELECT id,active FROM bf_client_accounts WHERE username='blocktexx1'").fetchone()
             report = profile_schedule.summary(register_rows(db()))
             report['blocktexx1_can_edit'] = bool(account and account['active'] and 'profiles.schedule' in rights_for(db(),account['id']))
+            report['blocktexx1_edits_profiles'] = bool(account and account['active'] and 'profiles.edit' in rights_for(db(),account['id']))
             app.logger.warning('BinFlow structured client schedules %s',json.dumps(report,sort_keys=True))
     app.jinja_env.filters['bfkg'] = kg
 

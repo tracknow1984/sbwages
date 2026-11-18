@@ -23,6 +23,7 @@ ENDPOINTS = {
     'sbtx_client.job':'sbtx.view', 'sbtx_client.po_file':'sbtx.view',
     'bf_client_decomm_partners':'decomm.view', 'bf_client_decomm_new':'decomm.add',
     'bf_client_decomm_edit':'decomm.edit',
+    'bf_client_communications':'communications.view', 'bf_client_message_attachment':'warehouses.view',
     'bf_client_warehouses':'warehouses.view', 'bf_client_warehouse_chat':'warehouses.view',
     'bf_client_interstate_reschedule':'bookings.view',
     'bf_client_rigid_quote':'bookings.view', 'bf_client_interstate':'bookings.view', 'bf_client_interstate_detail':'bookings.view',
@@ -63,13 +64,21 @@ def upgrade_decomm_access(conn, stamp):
 
 
 def upgrade_schedule_access(conn,stamp):
+    upgrade_named_profile_rights(conn,stamp,'blocktexx1-schedule-edit-v1',{'profiles.view','profiles.schedule'})
+
+
+def upgrade_profile_edit_access(conn,stamp):
+    upgrade_named_profile_rights(conn,stamp,'blocktexx1-full-profile-edit-v1',{'profiles.view','profiles.edit'})
+
+
+def upgrade_named_profile_rights(conn,stamp,marker,grant):
     row = conn.execute("""SELECT n.account_id,p.rights FROM bf_client_named_defaults n
         LEFT JOIN bf_client_permissions p ON p.account_id=n.account_id WHERE n.name='blocktexx1'""").fetchone()
     if not row:
         return
-    changed = conn.execute("INSERT OR IGNORE INTO bf_portal_migrations(id,created_at) VALUES('blocktexx1-schedule-edit-v1',?)",(stamp,))
+    changed = conn.execute("INSERT OR IGNORE INTO bf_portal_migrations(id,created_at) VALUES(?,?)",(marker,stamp))
     if changed.rowcount and row['rights'] is not None:
-        rights = set(json.loads(row['rights'])) | {'profiles.view','profiles.schedule'}
+        rights = set(json.loads(row['rights'])) | grant
         conn.execute('UPDATE bf_client_permissions SET rights=? WHERE account_id=?',(json.dumps(sorted(rights)),row['account_id']))
 
 
@@ -79,7 +88,7 @@ def defaults(booking_login, national_reader=False):
         rights.update(('calendar.view','requests.view','pods.view'))
     if national_reader:
         rights.update(DECOMM_RIGHTS)
-        rights.update(('pods.view','pods.all','profiles.view','profiles.add','profiles.schedule','national.view'))
+        rights.update(('pods.view','pods.all','profiles.view','profiles.add','profiles.edit','profiles.schedule','national.view'))
     return rights
 
 def rights_for(conn, aid):
@@ -98,8 +107,10 @@ def set_context(conn, account):
     g.client_rights=rights_for(conn,account['id'])
     # The warehouse directory and the account's own conversations accompany any active portal access.
     if any(not right.startswith('sbtx.') for right in g.client_rights):
-        g.client_rights.add('warehouses.view')
+        g.client_rights.update(('warehouses.view','communications.view'))
     g.client_section = ENDPOINTS.get(request.endpoint, '').partition('.')[0]
+    if request.endpoint == 'bf_client_warehouse_chat' and 'message' in request.args:
+        g.client_section = 'communications'
     return g.client_rights
 
 def revision(rights):

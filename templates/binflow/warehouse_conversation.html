@@ -1,20 +1,45 @@
 <section class="bf-panel bf-pad">
-  <h2>Conversation</h2>
+  {% if item %}
+    <h2>Communication #{{ item.id }} · {{ item.status }}</h2>
+    {% if staff %}
+    <form class="bf-filters" method="post" action="{{ url_for('bf_warehouse_disposition',state=state,aid=account.id,mid=item.id) }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <input type="hidden" name="version" value="{{ item.version }}">
+      <label>Warehouse action<select name="status" required>
+        <option value="">Choose an action</option>
+        {% for value in actions %}<option {{ 'selected' if item.status==value }}>{{ value }}</option>{% endfor %}
+      </select></label>
+      <button class="primary" type="submit">Update status</button>
+    </form>
+    {% endif %}
+    {% if item.legacy %}<p class="bf-muted">This enquiry predates status tracking. Earlier replies are in the full warehouse conversation.</p>{% endif %}
+    {% if events %}<details><summary>Status history</summary><ul>
+      {% for event in events %}<li>{{ event.status }} · {{ event.created_at|display_datetime }}</li>{% endfor %}
+    </ul></details>{% endif %}
+    <p><a href="{{ url_for(request.endpoint, **request.view_args) }}">Full warehouse conversation</a></p>
+  {% else %}<h2>Conversation</h2>{% endif %}
   {% if older %}<p><a href="{{ older }}">Earlier messages</a></p>{% endif %}
   {% for message in messages %}
   <article{% if loop.last and not history %} id="latest"{% endif %} class="bf-warehouse-message">
     <strong>{{ state ~ ' warehouse' if message.staff_id else account.name }}</strong>
     <small>{{ message.created_at|display_datetime }}</small>
-    <p>{{ message.body }}</p>
+    {% if message.status and not item %}<small><a href="{{ url_for(request.endpoint, **dict(request.view_args,message=message.id)) }}">Open enquiry #{{ message.id }} · {{ message.status }}</a></small>{% endif %}
+    <p style="white-space:pre-wrap">{{ message.body }}</p>
+    {% if message.attachment %}<a href="{{ url_for('bf_warehouse_message_attachment',state=state,aid=account.id,mid=message.id) if staff else url_for('bf_client_message_attachment',state=state,mid=message.id) }}">Download {{ message.attachment }}</a>{% endif %}
   </article>
-  {% else %}{% if history %}<p>No earlier messages.</p>{% else %}<p>This is the start of your conversation with the {{ state }} warehouse team.</p>{% endif %}{% endfor %}
-  {% if history %}<p><a href="{{ url_for(request.endpoint, **request.view_args) }}">Latest messages</a></p>{% endif %}
-  <form class="bf-form" method="post" action="{{ url_for(request.endpoint, **request.view_args) }}">
+  {% else %}<p>{{ 'No earlier messages.' if history else 'No messages yet.' }}</p>{% endfor %}
+  {% if history %}<p><a href="{{ url_for(request.endpoint, **dict(request.view_args,message=item.id if item else none)) }}">Latest messages</a></p>{% endif %}
+  {% if not staff and item and item.status=='CLOSED' %}<a class="button primary" href="{{ url_for('bf_client_communications',state=state) }}">Start a new communication</a>
+  {% elif not staff or item or reply_choices %}
+  <form class="bf-form" method="post" enctype="multipart/form-data" action="{{ url_for(request.endpoint, **dict(request.view_args,message=item.id if item else none)) }}">
     <input type="hidden" name="csrf" value="{{ csrf_token() }}">
     <input type="hidden" name="submission_key" value="{{ submission_key }}">
+    {% if staff and not item %}<label>In reply to<select name="reply_to" required>{% for choice in reply_choices %}<option value="{{ choice.id }}">#{{ choice.id }} · {{ choice.body|truncate(65) }}</option>{% endfor %}</select></label>{% endif %}
     <label>Message to {{ account.name if staff else state ~ ' warehouse' }}
       <textarea name="body" rows="4" maxlength="4000" required></textarea>
     </label>
-    <button class="primary" type="submit">{{ 'Send reply' if staff else 'Send message' }}</button>
+    {% include 'binflow/warehouse_attachment_field.html' %}
+    <button class="primary" type="submit">{{ 'Send reply' if staff or item else 'Send message' }}</button>
   </form>
+  {% elif messages %}<p>Open an enquiry above to reply or update its status.</p>{% endif %}
 </section>

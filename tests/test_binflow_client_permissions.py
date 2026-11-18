@@ -164,7 +164,7 @@ class PortalPermissionTests(unittest.TestCase):
         self.assertEqual(main.get(docket).status_code,200)
         self.assertEqual(other.get(pdf).status_code,403)
         self.assertEqual(other.get(docket).status_code,404)
-        all_rights=['profiles.schedule','invoices.view','bookings.view','bookings.add','pods.view','pods.all','profiles.view','profiles.add','national.view',
+        all_rights=['profiles.edit','profiles.schedule','invoices.view','bookings.view','bookings.add','pods.view','pods.all','profiles.view','profiles.add','national.view',
                     'decomm.view','decomm.add','decomm.edit']
         self.rights(aid,all_rights,['pods.view'])
         self.assertEqual(main.get(pdf).status_code,404)

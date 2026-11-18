@@ -1,22 +1,4 @@
 {% extends 'binflow/layout.html' %}
 {% block title %}Warehouse messages{% endblock %}
-{% block subtitle %}Read and reply to client enquiries for your warehouse.{% endblock %}
-{% block body %}
-{% if inbox_states|length > 1 %}
-<nav class="bf-state-tabs" aria-label="Warehouse inboxes">
-  <a href="{{ url_for('bf_warehouse_messages') }}"{% if not selected %} aria-current="page"{% endif %}>All warehouses</a>
-  {% for state in inbox_states %}<a href="{{ url_for('bf_warehouse_messages', state=state) }}"{% if state == selected %} aria-current="page"{% endif %}>{{ state }}</a>{% endfor %}
-</nav>
-{% endif %}
-<section class="bf-panel bf-pad">
-  <h2>{{ selected or (inbox_states[0] if inbox_states|length == 1 else 'All') }} conversations</h2>
-  {% for thread in threads %}
-  <article class="bf-warehouse-message">
-    <strong><a href="{{ url_for('bf_warehouse_reply', state=thread.state, aid=thread.account_id) }}">{{ thread.name }} · {{ thread.state }}</a></strong>
-    <small>{{ 'Replied' if thread.staff_id else 'Awaiting reply' }} · {{ thread.created_at|display_datetime }}</small>
-    <p>{{ thread.body|truncate(150) }}</p>
-  </article>
-  {% else %}<p>No warehouse messages yet.</p>{% endfor %}
-  {% if older %}<p><a href="{{ url_for('bf_warehouse_messages', state=selected, before=older) }}">Older conversations</a></p>{% endif %}
-</section>
-{% endblock %}
+{% block subtitle %}Read and action client communications for your warehouse.{% endblock %}
+{% block body %}{% set staff=true %}{% include 'binflow/warehouse_enquiry_list.html' %}{% endblock %}

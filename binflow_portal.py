@@ -47,6 +47,8 @@ def register_portal(app, db, access, require, render, success, failure, now, act
                 session.pop('bf_client_uid',None);session.pop('bf_client_version',None)
                 if request.blueprint == 'sbtx_client':
                     return redirect(url_for('sbtx_client_login'))
+                if request.endpoint == 'bf_client_communications':
+                    return redirect(url_for('bf_client_login', warehouse='communications'))
                 if request.endpoint in ('bf_client_warehouses', 'bf_client_warehouse_chat'):
                     return redirect(url_for('bf_client_login', warehouse=kwargs.get('state', 'directory')))
                 return redirect(url_for('bf_client_login', transfers=1) if request.endpoint.startswith('bf_client_interstate') else url_for('bf_client_login'))
@@ -97,6 +99,8 @@ def register_portal(app, db, access, require, render, success, failure, now, act
                 if destination and 'warehouses.view' in rights:
                     if destination in warehouse_messages.WAREHOUSES:
                         return redirect(url_for('bf_client_warehouse_chat', state=destination))
+                    if destination == 'communications':
+                        return redirect(url_for('bf_client_communications'))
                     if destination == 'directory':
                         return redirect(url_for('bf_client_warehouses'))
                 booking_first=request.args.get('transfers')=='1' or db().execute(

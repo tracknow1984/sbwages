@@ -1,6 +1,6 @@
 {% extends 'binflow/client_layout.html' %}
 {% block content %}
-<p><a href="{{ url_for('bf_client_warehouses') }}">Back to warehouses</a></p>
+<p><a href="{{ url_for('bf_client_communications') }}">Back to communications</a> · <a href="{{ url_for('bf_client_warehouses') }}">Warehouses</a></p>
 <h1>{{ state }} warehouse · {{ depot[0] }}</h1>
 <p>{{ depot[1] }}</p>
 {% include 'binflow/warehouse_conversation.html' %}
