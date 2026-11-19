@@ -53,7 +53,15 @@ def run_workday(conn,uid,truck_id,run_date):
 def available_trucks(conn, day, state):
     """A truck's base can differ from the state of its work for this day."""
     return conn.execute("""SELECT t.* FROM bf_trucks t
-        WHERE NOT EXISTS (SELECT 1 FROM bf_live_cycle x WHERE (x.driver_id=:driver AND x.truck_id!=t.id)
+        WHERE (t.archived_at IS NULL OR EXISTS (
+            SELECT 1 FROM bf_jobs assigned WHERE assigned.truck_id=t.id AND assigned.scheduled_date=:date
+            AND assigned.state=:state AND assigned.schedule_live=1 AND assigned.approval_status='approved'
+            AND assigned.status IN ('scheduled','collected') AND (assigned.driver_id IS NULL OR assigned.driver_id=:driver)
+        ) OR EXISTS (
+            SELECT 1 FROM bf_workdays current WHERE current.truck_id=t.id
+            AND current.user_id=:driver AND current.work_date=:date AND current.finished_at IS NULL
+        ))
+        AND NOT EXISTS (SELECT 1 FROM bf_live_cycle x WHERE (x.driver_id=:driver AND x.truck_id!=t.id)
             OR (x.driver_id!=:driver AND x.truck_id=t.id))
         AND NOT EXISTS (SELECT 1 FROM bf_workdays d WHERE d.truck_id=t.id AND d.user_id!=:driver
             AND (d.finished_at IS NULL OR d.work_date=:date))

@@ -9,6 +9,7 @@ import test_binflow as legacy
 class FleetAssetTests(unittest.TestCase):
     setUp=legacy.BinFlowTests.setUp
     tearDown=legacy.BinFlowTests.tearDown
+    rows=legacy.BinFlowTests.rows
     post=legacy.BinFlowTests.post
     login=legacy.BinFlowTests.login
 
@@ -158,3 +159,74 @@ class FleetAssetTests(unittest.TestCase):
             self.assertEqual(conn.execute("""SELECT rego,version,vin,service_notice_days,coc_notice_days,
                                              next_service_date,coc_due_date FROM vehicle_profiles""").fetchone(),
                              ('TEST123',5,'',30,30,None,None))
+
+    def test_register_archive_restore_and_direct_edit(self):
+        import sqlite3
+        from binflow_workday import available_trucks
+        root = '/admin/prestart/assets'
+        form = self.client.get(root + '/new')
+        self.assertEqual(form.status_code, 200)
+        self.assertIn('Save vehicle', form.text)
+        created = self.post(root, dict(name='Workshop truck',state='QLD',rego='UNIT01',
+                                       next_service_date='2000-01-01'))
+        path = created.request.path
+        tid = int(path.rsplit('/',1)[-1])
+        self.assertIn(path+'/edit', self.client.get(root).text)
+        self.assertIn('UNIT01', self.client.get(path+'/edit').text)
+        self.post(path+'/history',dict(kind='Service',event_date='2025-12-10',summary='Fleet service history',
+                                     key=secrets.token_urlsafe(24)))
+        def selectable(conn):
+            driver = conn.execute("SELECT id FROM users WHERE role='admin'").fetchone()[0]
+            return {t['id'] for t in available_trucks(conn,dict(user_id=driver,work_date='2027-01-01'),'QLD')}
+        with sqlite3.connect(self.path) as conn:
+            conn.row_factory = sqlite3.Row
+            self.assertIn(tid, selectable(conn))
+        self.assertEqual(self.client.get(path+'/status').status_code,405)
+        self.assertEqual(self.client.post(path+'/status',data={'action':'archive'}).status_code,400)
+        anon = self.app.test_client()
+        self.assertNotEqual(anon.get(path+'/edit').status_code,200)
+        data = dict(action='archive',version='1')
+        archived = self.post(path+'/status',data)
+        self.assertIn('Workshop truck archived.',archived.text)
+        self.assertIn('Restore Workshop truck',archived.text)
+        self.assertIn('Workshop truck',self.client.get(root+'?view=archived').text)
+        self.assertNotIn('Workshop truck',self.client.get(root).text)
+        self.assertIn('Fleet service history',self.client.get(path).text)
+        self.assertNotIn('Fleet service and COC notices',self.client.get('/admin/dashboard').text)
+        self.post(path+'/status',data)
+        with sqlite3.connect(self.path) as conn:
+            conn.row_factory = sqlite3.Row
+            self.assertNotIn(tid,selectable(conn))
+            self.assertEqual(conn.execute('SELECT version FROM vehicle_profiles WHERE truck_id=?',(tid,)).fetchone()[0],2)
+        restored = self.post(path+'/status',dict(action='restore',version='2'))
+        self.assertIn('Workshop truck restored.',restored.text)
+        self.assertIn('Archive Workshop truck',restored.text)
+        self.assertNotIn('Workshop truck',self.client.get(root+'?view=archived').text)
+        stale = self.post(path+'/status',data)
+        self.assertIn('This vehicle has changed', stale.text)
+        self.assertIn('Workshop truck',self.client.get(root).text)
+        self.assertIn('Fleet service and COC notices',self.client.get('/admin/dashboard').text)
+
+    def test_archiving_a_truck_without_profile_keeps_existing_assignment(self):
+        import sqlite3
+        from binflow_workday import available_trucks
+        with sqlite3.connect(self.path) as conn:
+            conn.row_factory = sqlite3.Row
+            uid=conn.execute("SELECT id FROM users WHERE role='admin'").fetchone()[0]
+            tid=conn.execute("INSERT INTO bf_trucks(name,state,created_at) VALUES('Old truck','QLD','2025-01-01')").lastrowid
+        path = f'/admin/prestart/assets/{tid}'
+        self.assertIn('Old truck',self.post(path+'/status',dict(action='archive',version='0')).text)
+        legacy.BinFlowTests.job(self,deliver=(1,),legacy=False)
+        with sqlite3.connect(self.path) as conn:
+            conn.row_factory = sqlite3.Row
+            job_id = conn.execute('SELECT id FROM bf_jobs').fetchone()[0]
+        assignment = self.post(f'/binflow/pickups/{job_id}/truck',dict(truck_id=tid))
+        self.assertIn('This vehicle is archived.',assignment.text)
+        with sqlite3.connect(self.path) as conn:
+            conn.row_factory = sqlite3.Row
+            conn.execute("""UPDATE bf_jobs SET truck_id=?,driver_id=?,state='QLD',scheduled_date='2027-01-01',
+                            schedule_live=1,approval_status='approved' WHERE id=?""",(tid,uid,job_id))
+            day = dict(user_id=uid,work_date='2027-01-01')
+            self.assertIn(tid,[r['id'] for r in available_trucks(conn,day,'QLD')])
+            day['work_date']='2027-01-02'
+            self.assertNotIn(tid,[r['id'] for r in available_trucks(conn,day,'QLD')])

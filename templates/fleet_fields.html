@@ -58,4 +58,7 @@
   {{ field('next_inspection', 'Next scheduled inspection', 'date') }}
   {{ field('last_service', 'Last service on file', 'date') }}
 </div>
-<button class="primary" type="submit">Save vehicle</button>
+<div class="fleet-form-actions">
+  <button class="fleet-btn fleet-btn-primary" type="submit">Save vehicle</button>
+  <a class="fleet-btn fleet-btn-border" href="{{ url_for('fleet_asset',tid=asset.id) if asset else url_for('fleet_assets') }}">Cancel</a>
+</div>

@@ -1,38 +1,79 @@
 {% extends 'base.html' %}
+{% from 'binflow/icons.html' import icon %}
+{% block browser_title %}Fleet assets · SB Empire{% endblock %}
+{% macro dates(asset, fields) %}
+  <dl class="fleet-dates">
+    {% for key, label in fields if asset[key] %}
+      <div><dt>{{ label }}</dt><dd><time datetime="{{ asset[key] }}">{{ asset[key]|display_date }}</time></dd></div>
+    {% else %}<div><dt class="fleet-empty-date">No dates recorded</dt><dd></dd></div>{% endfor %}
+  </dl>
+{% endmacro %}
 {% block content %}
-<div class="page-heading"><div><span class="eyebrow">Prestarts</span><h1>Assets</h1></div><a href="{{ url_for('admin_prestart') }}">Completed prestarts</a></div>
-<details class="panel" {% if submitted %}open{% endif %}>
-  <summary>Add vehicle</summary>
-  <form method="post" enctype="multipart/form-data" action="{{ url_for('fleet_save') }}">
-    {% include 'fleet_fields.html' %}
-  </form>
-</details>
-<section class="panel" id="fleet-notices" aria-labelledby="fleet-notices-title">
-  <h2 id="fleet-notices-title">Service and COC notices</h2>
-  {% if notices %}<div class="table-wrap"><table><thead><tr>
-    <th>Vehicle</th><th>Registration</th><th>Due for</th><th>Due date</th><th>Notice</th>
-  </tr></thead><tbody>{% for n in notices %}<tr>
-    <td><a href="{{ url_for('fleet_asset',tid=n.id) }}">{{ n.name }}</a></td><td>{{ n.rego or '—' }}</td>
-    <td>{{ n.kind }}</td><td>{{ n.due|display_date }}</td>
-    <td><strong>{% if n.days_left < 0 %}{{ -n.days_left }} day{{ 's' if n.days_left != -1 }} overdue{% elif n.days_left == 0 %}Due today{% else %}Due in {{ n.days_left }} day{{ 's' if n.days_left != 1 }}{% endif %}</strong></td>
-  </tr>{% endfor %}</tbody></table></div>
-  {% else %}<p>No service or COC reminders are due.</p>{% endif %}
-</section>
-<section class="panel"><div class="panel-head"><h2>Vehicle register</h2></div>
-  <div class="table-wrap"><table><thead><tr>
-    <th>Vehicle</th><th>State</th><th>Registration</th><th>Registration expiry</th>
-    <th>Inspection certificate due</th><th>Next service</th><th>COC due</th><th>Next scheduled inspection</th><th>Last service</th>
-  </tr></thead><tbody>
-  {% for a in assets %}<tr>
-    <td><a href="{{ url_for('fleet_asset',tid=a.id) }}"><strong>{{ a.name }}</strong></a>
-      {% if a.make or a.model %}<div>{{ [a.make,a.model]|select|join(' ') }}</div>{% endif %}
-      <div><a href="{{ url_for('fleet_asset',tid=a.id,_anchor='service-history') }}">Service history</a></div>
-    </td>
-    <td>{{ a.state }}</td><td>{{ a.rego or '—' }}{% if a.rego_status %}<div>{{ a.rego_status }}</div>{% endif %}</td>
-    {% for k in ('rego_expiry','inspection_certificate_due','next_service_date','coc_due_date','next_inspection','last_service') %}
-      <td>{{ a[k]|display_date if a[k] else '—' }}</td>
-    {% endfor %}
-  </tr>{% else %}<tr><td colspan="9">No vehicles recorded.</td></tr>{% endfor %}
-  </tbody></table></div>
-</section>
+<div class="fleet-register">
+  <header class="fleet-banner">
+    <div class="fleet-banner-content">
+      <div class="fleet-crumb"><a href="{{ url_for('admin_prestart') }}">Prestarts</a><span aria-hidden="true">/</span> Assets</div>
+      <h1>Fleet assets</h1>
+      <div class="fleet-toolbar">
+        <a class="fleet-btn fleet-btn-primary" href="{{ url_for('fleet_form') }}">{{ icon('add') }}Add vehicle</a>
+        <a class="fleet-btn fleet-btn-glass" href="{{ url_for('admin_prestart') }}">{{ icon('prestart') }}Completed prestarts</a>
+      </div>
+    </div>
+  </header>
+
+  <section class="fleet-panel" aria-labelledby="vehicle-register-title">
+    <div class="fleet-panel-head">
+      <h2 id="vehicle-register-title">Vehicle register</h2>
+      <nav class="fleet-switch" aria-label="Vehicle status">
+        <a href="{{ url_for('fleet_assets') }}" {% if not archived %}aria-current="page"{% endif %}>Active <span>{{ active_count }}</span></a>
+        <a href="{{ url_for('fleet_assets',view='archived') }}" {% if archived %}aria-current="page"{% endif %}>Archived <span>{{ archived_count }}</span></a>
+      </nav>
+    </div>
+    {% if assets %}
+    <table class="fleet-table">
+      <thead><tr><th scope="col">Vehicle</th><th scope="col">Registration &amp; certificates</th><th scope="col">Servicing</th><th scope="col">Actions</th></tr></thead>
+      <tbody>{% for a in assets %}<tr>
+        <th scope="row" class="fleet-vehicle">
+          <a class="fleet-vehicle-name" href="{{ url_for('fleet_asset',tid=a.id) }}">{{ a.name }}</a>
+          {% if a.make or a.model %}<span class="fleet-model">{{ [a.make,a.model]|select|join(' ') }}</span>{% endif %}
+          <div class="fleet-identity">{% if a.rego %}<span class="fleet-plate">{{ a.rego }}</span>{% endif %}<span>{{ a.state }}</span></div>
+        </th>
+        <td><span class="fleet-mobile-label">Registration &amp; certificates</span>
+          {% if a.rego_status %}<span class="fleet-rego-status">{{ a.rego_status }}</span>{% endif %}
+          {{ dates(a,[('rego_expiry','Rego expiry'),('inspection_certificate_due','Inspection cert.'),('coc_due_date','COC due')]) }}
+        </td>
+        <td><span class="fleet-mobile-label">Servicing</span>
+          {{ dates(a,[('next_service_date','Next service'),('next_inspection','Next inspection'),('last_service','Last service')]) }}
+        </td>
+        <td class="fleet-actions-cell"><div class="fleet-row-actions">
+          <a class="fleet-btn fleet-btn-edit" href="{{ url_for('fleet_form',tid=a.id) }}" aria-label="Edit {{ a.name }}">{{ icon('edit') }}Edit</a>
+          <form method="post" action="{{ url_for('fleet_status',tid=a.id) }}">
+            <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ a.version }}">
+            <button class="fleet-btn fleet-btn-border" name="action" value="{{ 'restore' if archived else 'archive' }}" aria-label="{{ 'Restore' if archived else 'Archive' }} {{ a.name }}">
+              {{ icon('undo' if archived else 'archive') }}{{ 'Restore' if archived else 'Archive' }}
+            </button>
+          </form>
+          <a class="fleet-btn fleet-btn-history" href="{{ url_for('fleet_asset',tid=a.id,_anchor='service-history') }}">{{ icon('clock') }}Service history</a>
+        </div></td>
+      </tr>{% endfor %}</tbody>
+    </table>
+    {% else %}<div class="fleet-empty">{{ icon('archive' if archived else 'truck') }}
+      <p>{{ 'No archived vehicles.' if archived else 'No active vehicles.' }}</p>
+      {% if not archived %}<a href="{{ url_for('fleet_form') }}">Add vehicle</a>{% endif %}
+    </div>{% endif %}
+  </section>
+
+  {% if not archived %}<section class="fleet-panel" id="fleet-notices" aria-labelledby="fleet-notices-title">
+    <div class="fleet-panel-head"><h2 id="fleet-notices-title">{{ icon('calendar') }}Service and COC notices</h2><span class="fleet-count">{{ notices|length }}</span></div>
+    {% if notices %}<ul class="fleet-notices">
+    {% for n in notices %}<li>
+      <div><a href="{{ url_for('fleet_asset',tid=n.id) }}">{{ n.name }}</a>{% if n.rego %}<span class="fleet-model">{{ n.rego }}</span>{% endif %}</div>
+      <span>{{ n.kind }} · <time datetime="{{ n.due }}">{{ n.due|display_date }}</time></span>
+      <strong class="fleet-deadline{% if n.days_left <= 0 %} is-due{% endif %}">
+        {% if n.days_left < 0 %}{{ -n.days_left }} day{{ 's' if n.days_left != -1 }} overdue{% elif n.days_left == 0 %}Due today{% else %}Due in {{ n.days_left }} day{{ 's' if n.days_left != 1 }}{% endif %}
+      </strong>
+    </li>{% endfor %}</ul>
+    {% else %}<p class="fleet-clear">{{ icon('check') }}No service or COC reminders are due.</p>{% endif %}
+  </section>{% endif %}
+</div>
 {% endblock %}

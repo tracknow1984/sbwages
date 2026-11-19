@@ -19,6 +19,7 @@ def migrate_driver(conn):
         id INTEGER PRIMARY KEY, name TEXT NOT NULL COLLATE NOCASE UNIQUE,
         state TEXT NOT NULL, created_at TEXT NOT NULL)''')
     additions = {
+        'bf_trucks': [('archived_at', 'TEXT')],
         'bf_bins': [('truck_id', 'INTEGER REFERENCES bf_trucks(id)'),
                     ('truck_load', "TEXT CHECK(truck_load IN ('empty','full'))")],
         'bf_jobs': [('truck_id', 'INTEGER REFERENCES bf_trucks(id)'),
@@ -111,6 +112,8 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
         try:
             db().execute('BEGIN IMMEDIATE')
             j, t = job(job_id), truck(integer('truck_id'))
+            if t['archived_at'] and j['truck_id'] != t['id']:
+                raise ValueError('Choose an active truck. This vehicle is archived.')
             ensure_approved(j)
             if not j['schedule_live']:
                 raise ValueError('Add this allocation to a week and approve its schedule before assigning a truck.')
