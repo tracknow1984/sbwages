@@ -10,6 +10,7 @@
   ('Timesheets to process', unpaid.total, 'clock', url_for('view_sheet',sheet_id=unpaid.first_id) if unpaid.total else url_for('admin_timesheets')),
   ('Leave requests to approve', counts.leave, 'calendar', url_for('admin_leave'))
 ] %}
+{% if fleet_notice_count %}{% set queue = [('Fleet service and COC notices', fleet_notice_count, 'truck', url_for('fleet_assets',_anchor='fleet-notices'))] + queue %}{% endif %}
 {% if counts.sbtx_confirmations %}{% set queue = queue + [('SBTX transfers to confirm', counts.sbtx_confirmations, 'truck', url_for('sbtx.calendar'))] %}{% endif %}
 {% set selected = dispatch.selected %}
 <div class="owner-overview">

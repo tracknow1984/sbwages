@@ -277,7 +277,7 @@ def create_app(test_config=None):
             request.max_content_length = 6 * 1024 * 1024
         elif request.endpoint in ('employee_prestart', 'bf_run_prestart'):
             request.max_content_length = 32 * 1024 * 1024
-        elif request.endpoint in ('upload_staff_documents', 'upload_company_documents'):
+        elif request.endpoint in ('upload_staff_documents', 'upload_company_documents', 'fleet_save', 'fleet_history'):
             request.max_content_length = MAX_STAFF_FILES * app.config['DOCUMENT_MAX_BYTES'] + 128 * 1024
         elif request.endpoint == 'upload_licence_photos':
             request.max_content_length = 12 * 1024 * 1024
@@ -340,12 +340,12 @@ def create_app(test_config=None):
         if request.endpoint in ('document_file', 'company_document_file'):
             response.headers['Content-Security-Policy'] = "sandbox; default-src 'none'; frame-ancestors 'self'"
             response.headers['X-Frame-Options'] = 'SAMEORIGIN'
-        elif (request.endpoint in ('bf_interstate_po_file','bf_client_interstate_po_file','sbtx.po_file','sbtx_client.po_file')
+        elif (request.endpoint in ('bf_interstate_po_file','bf_client_interstate_po_file','sbtx.po_file','sbtx_client.po_file','fleet_file')
               and response.headers.get('Content-Disposition','').startswith('inline;')):
             # Only the authenticated file response can be embedded by a same-origin booking page.
             response.headers['Content-Security-Policy'] = "default-src 'none'; object-src 'self'; img-src 'self'; frame-ancestors 'self'; base-uri 'none'; form-action 'none'"
             response.headers['X-Frame-Options'] = 'SAMEORIGIN'
-        elif request.endpoint in ('view_document', 'admin_document_folder'):
+        elif request.endpoint in ('view_document', 'admin_document_folder', 'fleet_asset'):
             response.headers['Content-Security-Policy'] += "; frame-src 'self'"
         elif request.endpoint == 'admin_rentals':
             response.headers['Content-Security-Policy'] += "; frame-src https://sb-empire-portal.onrender.com"
@@ -1544,6 +1544,7 @@ def create_app(test_config=None):
         with conn:
             conn.execute('BEGIN')
             overview = owner_overview(conn, business_date, request.args.get('dispatch'))
+            overview['fleet_notice_count'] = len(fleet_assets.due_notices(conn, business_date.isoformat()))
             documents = document_rows(limit=10)
             requests = leave_rows(pending=True, limit=10)
         return render_template('dashboard.html', **overview, today=business_date, documents=documents,

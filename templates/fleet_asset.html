@@ -1,11 +1,75 @@
 {% extends 'base.html' %}{% block content %}
 <div class="page-heading"><div><span class="eyebrow">Prestarts / Assets · {{ asset.state }}</span><h1>{{ asset.name }}</h1><p>{{ [asset.make,asset.model,asset.rego]|select|join(' · ') }}</p></div><a href="{{ url_for('fleet_assets') }}">Vehicle register</a></div>
-<section class="panel"><p>Registration expiry <strong>{{ asset.rego_expiry|display_date if asset.rego_expiry else '—' }}</strong> · Next inspection <strong>{{ asset.next_inspection|display_date if asset.next_inspection else '—' }}</strong> · Last service <strong>{{ asset.last_service|display_date if asset.last_service else '—' }}</strong></p>
-<details><summary>Edit vehicle details</summary><form method="post" action="{{ url_for('fleet_save',tid=asset.id) }}">{% include 'fleet_fields.html' %}</form></details></section>
-<section class="panel"><h2>Service history &amp; documents</h2><details><summary>Add record or upload documents</summary>
-<form method="post" enctype="multipart/form-data" action="{{ url_for('fleet_history',tid=asset.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="key" value="{{ key }}">
-<div class="form-grid"><label>Record type<select name="kind">{% for kind in ('Service','Inspection','Registration','Other document') %}<option>{{ kind }}</option>{% endfor %}</select></label>
-<label>Record date<input type="date" name="event_date" value="{{ day }}" required></label><label>Description<textarea name="summary" required maxlength="2000"></textarea></label>
-<label>Supporting documents<input type="file" name="files" multiple accept=".pdf,.png,.jpg,.jpeg"><small>PDF, JPG or PNG · up to 10 files per entry</small></label></div><button class="primary">Save record</button></form></details>
-{% for h in entries %}<article><h3>{{ h.kind }} · {{ h.event_date|display_date }}</h3><p>{{ h.summary }}</p>{% for f in files if f.history_id==h.id %}<p><a href="{{ url_for('fleet_file',tid=asset.id,fid=f.id) }}">{{ f.filename }}</a></p>{% endfor %}</article>{% else %}<p class="empty">No service history or documents yet.</p>{% endfor %}</section>
+<section class="panel">
+  <h2>Registration details</h2>
+  <dl class="readout">
+    {% for key, label in [('rego','Registration number'), ('vin','Vehicle identification number (VIN)'),
+                          ('description','Vehicle description'), ('gvm_kg','Gross vehicle mass (GVM)'),
+                          ('tare_kg','Tare'), ('nhv_charging_code','National Heavy Vehicle Charging Code'),
+                          ('purpose_of_use','Purpose of use'), ('rego_status','Registration status'),
+                          ('rego_expiry','Registration expiry'), ('inspection_certificate_number','Certificate of inspection number'),
+                          ('inspection_certificate_due','Certificate of inspection due date')] %}
+      <div><dt>{{ label }}</dt><dd>
+        {% if not asset[key] %}—{% elif key in ('gvm_kg','tare_kg') %}{{ '{:,}'.format(asset[key]) }} kg
+        {% elif key in ('rego_expiry','inspection_certificate_due') %}{{ asset[key]|display_date }}
+        {% else %}{{ asset[key] }}{% endif %}
+      </dd></div>
+    {% endfor %}
+  </dl>
+  <h3>Service and COC schedule</h3>
+  <dl class="readout">
+    {% for key, label in [('next_service_date','Next service date'), ('coc_due_date','COC due date'),
+                          ('next_inspection','Next scheduled inspection'), ('last_service','Last service')] %}
+      <div><dt>{{ label }}</dt><dd>{{ asset[key]|display_date if asset[key] else '—' }}
+        {% if key in ('next_service_date','coc_due_date') and asset[key] %}<small> · {{ asset.service_notice_days if key == 'next_service_date' else asset.coc_notice_days }} days’ notice</small>{% endif %}
+      </dd></div>
+    {% endfor %}
+  </dl>
+  <details {% if submitted %}open{% endif %}><summary>Edit vehicle details</summary>
+    <form method="post" enctype="multipart/form-data" action="{{ url_for('fleet_save',tid=asset.id) }}">
+      {% include 'fleet_fields.html' %}
+    </form>
+  </details>
+</section>
+{% macro history_table(records, empty) %}
+  {% if records %}<div class="table-wrap"><table>
+    <thead><tr><th>Date</th><th>Record type</th><th>Description</th><th>Uploaded documents</th></tr></thead>
+    <tbody>{% for entry in records %}<tr>
+      <td>{{ entry.event_date|display_date }}</td><td>{{ entry.kind }}</td><td>{{ entry.summary }}</td>
+      <td>{% for file in attachments.get(entry.id, []) %}{% set file_url = url_for('fleet_file', tid=asset.id, fid=file.id) %}
+        <div><span>{{ file.filename }}</span>
+          <a class="button secondary compact" href="{{ file_url }}" data-preview="{{ file.mime }}" data-name="{{ file.filename }}" aria-label="Quick view of {{ file.filename }}">Quick view</a>
+          <a href="{{ file_url }}?download=1" aria-label="Download {{ file.filename }}">Download</a>
+        </div>
+      {% else %}—{% endfor %}</td>
+    </tr>{% endfor %}</tbody></table></div>
+  {% else %}<p class="empty">{{ empty }}</p>{% endif %}
+{% endmacro %}
+{% for service in (true, false) %}
+<section class="panel" id="{{ 'service-history' if service else 'asset-documents' }}">
+  <h2>{{ 'Service history' if service else 'Inspections, registration and other documents' }}</h2>
+  <details {% if history_form and (history_form.kind == 'Service') == service %}open{% endif %}><summary>{{ 'Add service record' if service else 'Add record or upload documents' }}</summary>
+    {% set saved = history_form if history_form and (history_form.kind == 'Service') == service else {} %}
+    <form method="post" enctype="multipart/form-data" action="{{ url_for('fleet_history',tid=asset.id) }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="key" value="{{ key if service else 'doc-' ~ key }}">
+      <input type="hidden" name="version" value="{{ asset.version }}">
+      <div class="form-grid">
+        {% if service %}<input type="hidden" name="kind" value="Service">
+        {% else %}<label>Record type<select name="kind">{% for kind in ('Inspection','Registration','COC','Other document') %}
+          <option {% if saved.kind == kind %}selected{% endif %}>{{ kind }}</option>{% endfor %}</select></label>{% endif %}
+        <label>{{ 'Service date' if service else 'Record date' }}<input type="date" name="event_date" value="{{ saved.get('event_date', day) }}" required></label>
+        <label>{{ 'Work carried out' if service else 'Description' }}<textarea name="summary" required maxlength="2000">{{ saved.get('summary','') }}</textarea></label>
+        <label>{{ 'Service documents' if service else 'Supporting documents' }}<input type="file" name="files" multiple accept=".pdf,.png,.jpg,.jpeg">
+          <small>PDF, JPG or PNG · Up to 10 files, {{ config.DOCUMENT_MAX_BYTES // 1048576 }} MB each</small></label>
+        {% if service %}<label>Set next service date (optional)<input type="date" name="following_service" value="{{ saved.get('following_service','') }}"></label>
+          <label>Notice for next service (days)<input type="number" name="following_notice" min="0" max="365" value="{{ saved.get('following_notice',asset.service_notice_days) }}"></label>{% endif %}
+      </div>
+      <button class="primary">{{ 'Save service record' if service else 'Save record' }}</button>
+    </form>
+  </details>
+  {% if service %}{{ history_table(entries|selectattr('kind','equalto','Service')|list, 'No services recorded.') }}
+  {% else %}{{ history_table(entries|rejectattr('kind','equalto','Service')|list, 'No inspections or documents recorded.') }}{% endif %}
+</section>
+{% endfor %}
+{% include 'document_quick_view.html' %}
 <section class="panel"><h2>Completed BinFlow prestarts</h2>{% for p in inspections %}<p data-inspection-row><button type="button" class="secondary compact prestart-preview-trigger" data-preview-url="{{ url_for('admin_prestart_detail',prestart_id=p.id,preview=1) }}" aria-haspopup="dialog" aria-controls="prestart-preview" aria-expanded="false" aria-label="Quick view of prestart {{ p.id }}">Quick view</button> <a href="{{ url_for('admin_prestart_detail',prestart_id=p.id) }}">{{ p.submitted_at|display_datetime }} · {{ p.employee_name }}</a> · {{ 'Passed' if p.passed else 'Failures / concerns' }}</p>{% else %}<p>No BinFlow prestarts recorded.</p>{% endfor %}</section>{% include 'prestart_preview_popup.html' %}{% endblock %}
