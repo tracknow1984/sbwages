@@ -578,7 +578,18 @@ def register(app, db, require, render, now, actor):
         history = db().execute("""SELECT id,json_extract(payload_json,'$.Invoices[0].Reference') AS reference,
             period_start,period_end,mode,status,invoice_number FROM bf_rental_invoices WHERE category_id=1
             ORDER BY created_at DESC,rowid DESC LIMIT 30""").fetchall()
-        return render('rental_invoices', section='rental', connected=bool(cfg['tenant_id'] and cfg['token_cipher']),
+        from binflow_invoice_profiles import defaults, linked_contact
+        saved = defaults(db(),cfg['tenant_id'])
+        rental_contact = linked_contact(db(),cfg['tenant_id'],saved['rental_account']) if saved else None
+        prior = db().execute("""SELECT snapshot_json FROM bf_rental_invoices WHERE tenant_id=? AND category_id=1
+            AND mode='actual' AND status IN ('preview','created') AND portal_account_id IS NULL
+            ORDER BY created_at DESC,rowid DESC LIMIT 1""", (cfg['tenant_id'],)).fetchone()
+        previous = json.loads(prior['snapshot_json']) if prior else {}
+        if not saved and previous:
+            saved = dict(account_code=previous.get('account',{}).get('code'),tax_code=previous.get('tax',{}).get('code'))
+        if not rental_contact and (not saved or not dict(saved).get('rental_account')):
+            rental_contact = dict(contact_id=previous.get('contact',{}).get('id'))
+        return render('rental_invoices', defaults=saved,rental_contact=rental_contact,tenant=cfg['tenant_id'],section='rental', connected=bool(cfg['tenant_id'] and cfg['token_cipher']),
                       tenant_name=cfg['tenant_name'], options=opts, error=error, history=history,
                       period_start=(stamp - timedelta(days=13)).isoformat(), period_end=stamp.isoformat(),
                       sizes=db().execute('SELECT * FROM bf_sizes WHERE weekly_rental_cents>0 ORDER BY litres,id').fetchall(),
@@ -588,7 +599,8 @@ def register(app, db, require, render, now, actor):
     @require('admin')
     def bf_rental_invoice_preview():
         try:
-            tenant = verify_draft_connection(app, db())
+            tenant = verify_draft_connection(app, db(), request.form.get('tenant'))
+            directory_for_page(app,db(),config(db()))
             db().execute('BEGIN IMMEDIATE')
             cfg = config(db())
             if not cfg['token_cipher'] or cfg['tenant_id'] != tenant:

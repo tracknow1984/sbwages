@@ -2,20 +2,31 @@
 {% block title %}Prepare invoice{% endblock %}
 {% block subtitle %}{% endblock %}
 {% block body %}
-<div class="bf-actions"><a class="button secondary" href="{{ url_for('bf_invoices') }}">All invoices</a><a class="button secondary" href="{{ url_for('bf_invoices',_anchor='contacts') }}">Client billing contacts &amp; Xero choices</a></div>
+<div class="bf-actions"><a class="button secondary" href="{{ url_for('bf_invoices') }}">All invoices</a><a class="button secondary" href="{{ url_for('bf_auto_billing_setup',_anchor='contacts') }}">Client billing contacts &amp; Xero choices</a></div>
 {% if not booking %}<p>To invoice a booked transfer at its agreed rate, open the booking in <a href="{{ url_for('bf_interstate_calendar') }}">All Transfers</a> and select “Prepare transport invoice”.</p>{% endif %}
 <section class="bf-panel bf-pad">{% if error %}<p class="notice error" role="alert">{{ error }}</p>{% endif %}
 {% if not connected %}<p><a href="{{ url_for('bf_xero_settings') }}">Connect Xero</a> to prepare a draft.</p>{% else %}
-<form class="bf-form" method="post"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="draft_key" value="{{ key }}">
+<form class="bf-form" method="post" data-invoice-profile data-default-account="{{ defaults.account_code if defaults else '' }}" data-default-tax="{{ defaults.tax_code if defaults else '' }}">
+<input type="hidden" name="tenant" value="{{ tenant }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="draft_key" value="{{ key }}">
 {% if booking %}<input type="hidden" name="booking" value="{{ booking.id }}"><h2>Transport · IT-{{ '%06d'|format(booking.id) }}</h2>
-{% for a in accounts if a.id==booking.account_id %}<p>Bill to <strong>{{ a.name }}</strong> · {{ a.contact_name or 'Link a Xero contact first' }}</p>{% endfor %}
-{% else %}<div class="bf-grid"><label>Category<select required name="category">{% for c in categories if c.id!=1 %}<option value="{{ c.id }}"{% if request.form.get('category',type=int)==c.id %} selected{% endif %}>{{ c.name }}</option>{% endfor %}</select></label>
-<label>Bill to<select required name="client"><option value="">Choose linked client</option>{% for a in accounts if a.contact_id %}<option value="{{ a.id }}"{% if request.form.get('client',type=int)==a.id %} selected{% endif %}>{{ a.name }} ({{ a.username }}) · {{ a.contact_name }}</option>{% endfor %}</select></label></div>{% endif %}
+{% for a in accounts if a.id==booking.account_id %}<p>Bill to <strong>{{ a.name }}</strong> · {{ a.contact_name or 'Choose a Xero billing contact below' }}</p>{% endfor %}
+{% else %}<div class="bf-grid"><label>Category<select required name="category">{% for c in categories if c.id!=1 %}<option value="{{ c.id }}"{% if request.form.get('category','')|int==c.id %} selected{% endif %}>{{ c.name }}</option>{% endfor %}</select></label>
+<label>Bill to<select required name="client"><option value="">Choose billing client</option>{% for a in accounts %}<option value="{{ a.id }}" data-linked="{{ 1 if a.contact_id else 0 }}" data-account="{{ previous[a.id].account_code if a.id in previous else '' }}" data-tax="{{ previous[a.id].tax_code if a.id in previous else '' }}"{% if request.form.get('client','')|int==a.id %} selected{% endif %}>{{ a.name }} ({{ a.username }}){{ ' · ' ~ a.contact_name if a.contact_name }}</option>{% endfor %}</select></label></div>{% endif %}
+{% set assigned=accounts|selectattr('id','equalto',booking.account_id)|first if booking else none %}
+{% if not booking or not assigned or not assigned.contact_id %}
+<div data-contact-fields>
+<label>Find Xero contact<input type="search" data-xero-search aria-controls="manual-xero-contact"></label><small data-xero-count aria-live="polite">{{ options.get('contacts',[])|length }} available contacts</small>
+<label>Xero billing contact<select name="new_contact" id="manual-xero-contact" data-xero-contacts><option value="">Choose a contact for a new billing profile</option>
+{% for c in options.get('contacts',[]) %}<option data-contact-search="{{ c.aliases }}" value="{{ c.id }}" {{ 'selected' if request.form.get('new_contact')==c.id }}>{{ c.name }}</option>{% endfor %}</select></label>
+<small>Saving the draft links this contact to the billing client for future invoices.</small></div>
+<script src="{{ url_for('static',filename='binflow-xero-contacts.js') }}" defer></script>
+{% endif %}
+<script src="{{ url_for('static',filename='binflow-invoice-profile.js') }}" defer></script>
 {% if booking %}{% if booking.po %}<p>Xero reference · <strong>{{ booking.po }}</strong></p>{% else %}<p><a href="{{ office_transfer_link(booking.id,_anchor='purchase-order') }}">Add the booking’s PO number</a> before invoicing.</p>{% endif %}
 {% else %}<label>Purchase order number<input name="po_number" maxlength="100" required value="{{ request.form.get('po_number','') }}"></label>{% endif %}
 <div class="bf-grid"><label>Invoice date<input type="date" name="invoice_date" value="{{ request.form.get('invoice_date',stamp) }}" required></label><label>Due date<input type="date" name="due_date" value="{{ request.form.get('due_date',due) }}" required></label></div>
-<div class="bf-grid"><label>Income account<select name="account_code" required><option value="">Choose account</option>{% for a in options.get('accounts',[]) %}<option value="{{ a.code }}"{% if request.form.get('account_code')==a.code %} selected{% endif %}>{{ a.code }} · {{ a.name }}</option>{% endfor %}</select></label>
-<label>Tax rate<select name="tax_type" required><option value="">Choose tax</option>{% for t in options.get('taxes',[]) %}<option value="{{ t.code }}"{% if request.form.get('tax_type')==t.code %} selected{% endif %}>{{ t.name }} ({{ t.rate }}%)</option>{% endfor %}</select></label></div>
+<div class="bf-grid"><label>Income account<select name="account_code" required><option value="">Choose account</option>{% for a in options.get('accounts',[]) %}<option value="{{ a.code }}"{% if request.form.get('account_code',initial.account_code if initial else '')==a.code %} selected{% endif %}>{{ a.code }} · {{ a.name }}</option>{% endfor %}</select></label>
+<label>Tax rate<select name="tax_type" required><option value="">Choose tax</option>{% for t in options.get('taxes',[]) %}<option value="{{ t.code }}"{% if request.form.get('tax_type',initial.tax_code if initial else '')==t.code %} selected{% endif %}>{{ t.name }} ({{ t.rate }}%)</option>{% endfor %}</select></label></div>
 <h2>Invoice lines</h2>
 {% if booked_lines %}{% for description,qty,rate in booked_lines %}<p>{{ description }} · <strong>{{ rate|money }} ex GST</strong></p>{% endfor %}
 {% else %}{% if booking %}<p>This booking has no saved price. Enter the agreed charges below.</p>{% endif %}

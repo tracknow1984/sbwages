@@ -16,6 +16,7 @@ import binflow_auto_invoices as auto
 import binflow_invoice_reports as invoice_reports
 import binflow_period_reports as reports
 import binflow_xero as xero
+import binflow_invoice_profiles as profiles
 from binflow_freight_rates import quote
 from binflow_sizes import amount
 
@@ -70,7 +71,8 @@ def transport_lines(b):
     if not price or not price['total']:
         return []
     ref = f"IT-{b['id']:06d}"
-    description = f"{ref} · {b['vehicle']} · {PLACES[b['origin']][0]} to {PLACES[b['destination']][0]} · {b['pickup_date']}"
+    stops = [PLACES[code][0] for code in (b['origin'],b['destination']) if code in PLACES]
+    description = ' · '.join(filter(None,(ref,b['vehicle'],' to '.join(stops),b['pickup_date'])))
     if b['po']:
         description += ' · PO ' + b['po']
     lines = [(description, '1', price['base'])]
@@ -102,10 +104,15 @@ def draft_values(conn, form, booking):
     if not cfg['token_cipher'] or not cfg['tenant_id']:
         raise ValueError('Connect Xero before preparing a draft.')
     aid = booking['account_id'] if booking else form.get('client',type=int)
-    link = conn.execute("""SELECT c.* FROM bf_invoice_contacts c JOIN bf_client_accounts a ON a.id=c.account_id
-        WHERE a.active=1 AND c.tenant_id=? AND c.account_id=?""",(cfg['tenant_id'],aid)).fetchone()
+    if not conn.execute('SELECT 1 FROM bf_client_accounts WHERE id=? AND active=1',(aid,)).fetchone():
+        raise ValueError('Choose an active billing client.')
+    link = profiles.linked_contact(conn,cfg['tenant_id'],aid)
+    chosen_contact = form.get('new_contact')
     if not link:
-        raise ValueError('Link this client login to its Xero billing contact under Invoices first.')
+        profiles.save_contact(conn,cfg['tenant_id'],aid,json.loads(cfg['choices_json']),chosen_contact)
+        link = profiles.linked_contact(conn,cfg['tenant_id'],aid)
+    elif chosen_contact and chosen_contact != link['contact_id']:
+        raise ValueError('The saved billing contact changed. Reopen the draft before continuing.')
     cat = conn.execute('SELECT * FROM bf_invoice_categories WHERE id=? AND id!=1',
                        (2 if booking else form.get('category',type=int),)).fetchone()
     if not cat:
@@ -297,18 +304,15 @@ def register(app, db, require, render, client_access, now, actor):
         if not cid:
             abort(400,'Choose a billing contact or select Remove existing link.')
         if cid!='unlink':
-            options = json.loads(cfg['choices_json']).get('contacts',[])
-            contact = next((c for c in options if c['id']==cid),None)
-            if not contact:
-                abort(400,'Choose a contact from the current Xero search results.')
-            conn.execute("""INSERT INTO bf_invoice_contacts VALUES(?,?,?,?) ON CONFLICT(tenant_id,account_id)
-                DO UPDATE SET contact_id=excluded.contact_id,contact_name=excluded.contact_name""",
-                         (cfg['tenant_id'],aid,contact['id'],contact['name']))
+            try:
+                profiles.save_contact(conn,cfg['tenant_id'],aid,json.loads(cfg['choices_json']),cid)
+            except ValueError as exc:
+                abort(400,str(exc))
         else:
             conn.execute('DELETE FROM bf_invoice_contacts WHERE tenant_id=? AND account_id=?',(cfg['tenant_id'],aid))
         conn.commit()
         flash('Billing contact saved.','success')
-        return redirect(url_for('bf_auto_billing_setup',_anchor='contacts'))
+        return redirect(url_for('bf_auto_billing_setup',billing_client=aid,_anchor='contacts'))
 
     @app.route('/binflow/invoices/new',methods=['GET','POST'])
     @require('admin')
@@ -323,7 +327,8 @@ def register(app, db, require, render, client_access, now, actor):
                 key = xero.uuid_text(values.get('draft_key'))
                 if conn.execute('SELECT 1 FROM bf_rental_invoices WHERE id=?',(key,)).fetchone():
                     return redirect(url_for('bf_rental_invoice',identifier=key))
-                tenant = xero.verify_draft_connection(app,conn)
+                tenant = xero.verify_draft_connection(app,conn,values.get('tenant'))
+                xero.directory_for_page(app,conn,xero.config(conn))
                 conn.execute('BEGIN IMMEDIATE')
                 if conn.execute('SELECT 1 FROM bf_rental_invoices WHERE id=?',(key,)).fetchone():
                     conn.rollback()
@@ -355,9 +360,14 @@ def register(app, db, require, render, client_access, now, actor):
                 error = str(exc)
         cfg = xero.config(conn)
         stamp = date.fromisoformat(now()[:10])
-        return render('invoice_compose',section='invoices',categories=categories(conn),accounts=contacts(conn,cfg['tenant_id']),
-            options=json.loads(cfg['choices_json']),connected=bool(cfg['tenant_id'] and cfg['token_cipher']),
-            booking=booking,booked_lines=transport_lines(booking) if booking else [],error=error,
+        opts, directory_error = xero.directory_for_page(app,conn,cfg)
+        defaults = profiles.defaults(conn,cfg['tenant_id'])
+        previous = profiles.previous_manual_choices(conn,cfg['tenant_id'])
+        initial_aid = booking['account_id'] if booking else values.get('client',type=int)
+        initial = previous.get(initial_aid) or defaults
+        return render('invoice_compose',defaults=defaults,initial=initial,previous=previous,tenant=cfg['tenant_id'],section='invoices',categories=categories(conn),accounts=contacts(conn,cfg['tenant_id']),
+            options=opts,connected=bool(cfg['tenant_id'] and cfg['token_cipher']),
+            booking=booking,booked_lines=transport_lines(booking) if booking else [],error=error or directory_error,
             key=values.get('draft_key') or str(uuid4()),stamp=stamp,due=stamp+timedelta(days=14),
             entries=list(zip(*(request.form.getlist(n) for n in ('description','quantity','unit_rate')))) or [('','1','')])
 

@@ -1,0 +1,9 @@
+{% macro price_fields(booking,route) %}
+  {% set hourly=route and route[2]=='RIGID' %}
+  <label>{{ 'Agreed hourly rate ex GST (AUD)' if hourly else 'Agreed freight price before fuel, ex GST (AUD)' }}
+    <input type="number" name="base" value="{{ request.form.get('base','') }}" min=".01" max="1000000" step=".01" required>
+  </label>
+  {% if hourly %}<input type="hidden" name="price_basis" value="hourly"><small>{{ booking.rigid_hours_units|hours }} requested hours · Four-hour billing minimum.</small>{% endif %}
+  <label>Agreed fuel surcharge (%)<input type="number" name="fuel" min="0" max="100" step=".01" value="{{ request.form.get('fuel',booking.fuel_bps/100) }}" required></label>
+  {% if route %}<label><input type="checkbox" name="remember_rate" value="yes" {{ 'checked' if request.form.get('remember_rate')=='yes' }}> Save these as recurring billing terms for this client’s {{ route[2] }} loads from {{ route[0] }} to {{ route[1] }} with the same job type.</label>{% endif %}
+{% endmacro %}
