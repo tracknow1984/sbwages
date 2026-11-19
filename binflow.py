@@ -863,7 +863,7 @@ def register_binflow(app, db, require):
                           job=j, items=rows, rollout_pending=rollout_pending, rollout_sizes=rollout_sizes, net=sum(i['net_g'] or 0 for i in rows))
         return render('job', section='pickups', can_switch_rollout=g.user['role']=='admin' and convertible(db(),j), job=j, items=rows, rollout_pending=rollout_pending, rollout_sizes=rollout_sizes, net=sum(i['net_g'] or 0 for i in rows), remaining=sum(i['direction']=='collect' and i['weighed_at'] is None for i in rows),
                       approval_history=db().execute('SELECT * FROM bf_allocation_history WHERE job_id=? ORDER BY id',(job_id,)).fetchall(),
-                      trucks=db().execute('SELECT * FROM bf_trucks WHERE state=? OR id=? ORDER BY name', (j['state'],j['truck_id'])).fetchall(), loading=json.loads(j['bin_plan']),
+                      trucks=db().execute('SELECT * FROM bf_trucks WHERE (archived_at IS NULL AND state=?) OR id=? ORDER BY name', (j['state'],j['truck_id'])).fetchall(), loading=json.loads(j['bin_plan']),
                       scan_ready=not rollout_pending and all(i['delivered_at'] if i['direction']=='deliver' else i['picked_up_at'] for i in rows),
                       scans_started=any(i['loaded_at'] or i['delivered_at'] or i['picked_up_at'] for i in rows))
 

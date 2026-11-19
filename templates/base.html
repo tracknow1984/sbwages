@@ -11,6 +11,9 @@
   {% if current_user and current_user.role == 'admin' %}
     <link rel="stylesheet" href="{{ url_for('static', filename='empire-nav.css') }}">
     {% if tab in ('documents','rentals') %}<link rel="stylesheet" href="{{ url_for('static', filename='admin-register.css') }}">{% endif %}
+    {% if request.endpoint in ('fleet_assets','fleet_asset','fleet_form','fleet_save','fleet_history') %}
+      <link rel="stylesheet" href="{{ url_for('static', filename='fleet-register.css') }}">
+    {% endif %}
     {% if request.endpoint == 'admin_dashboard' %}<link rel="stylesheet" href="{{ url_for('static', filename='owner-dashboard.css') }}">{% endif %}
     <script src="{{ url_for('static', filename='empire-nav.js') }}" defer></script>
   {% endif %}

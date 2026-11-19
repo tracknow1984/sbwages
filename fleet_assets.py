@@ -80,7 +80,7 @@ def due_notices(conn, day):
     )
     SELECT t.id, t.name, p.rego, d.kind, d.due, CAST(julianday(d.due)-julianday(?) AS INTEGER) AS days_left
     FROM deadlines d JOIN bf_trucks t ON t.id=d.truck_id JOIN vehicle_profiles p ON p.truck_id=t.id
-    WHERE d.due IS NOT NULL AND julianday(d.due)-julianday(?) <= d.days
+    WHERE t.archived_at IS NULL AND d.due IS NOT NULL AND julianday(d.due)-julianday(?) <= d.days
     ORDER BY d.due, t.name, d.kind""", (day, day)).fetchall()
 
 
@@ -131,7 +131,7 @@ def migrate(conn):
                     WHERE vehicle_state IS NULL""")
 
 
-VEHICLES="""SELECT t.id,t.name,t.state,p.make,p.model,p.rego,p.rego_expiry,p.next_inspection,
+VEHICLES="""SELECT t.id,t.name,t.state,t.archived_at,p.make,p.model,p.rego,p.rego_expiry,p.next_inspection,
     p.vin,p.description,p.gvm_kg,p.tare_kg,p.nhv_charging_code,p.purpose_of_use,p.rego_status,
     p.inspection_certificate_number,p.inspection_certificate_due,p.next_service_date,p.coc_due_date,
     COALESCE(p.service_notice_days,30) AS service_notice_days,COALESCE(p.coc_notice_days,30) AS coc_notice_days,
@@ -149,12 +149,41 @@ def register(app,db,require,now):
     @app.get('/admin/prestart/assets')
     @require('admin')
     def fleet_assets():
-        return register_page()
+        archived = request.args.get('view') == 'archived'
+        conn = db()
+        records = conn.execute(VEHICLES+' ORDER BY t.state,t.name').fetchall()
+        active_count = sum(row['archived_at'] is None for row in records)
+        return render_template('fleet_assets.html', tab='prestart', archived=archived,
+                               active_count=active_count, archived_count=len(records)-active_count,
+                               assets=[r for r in records if bool(r['archived_at']) == archived],
+                               notices=[] if archived else due_notices(conn, now()[:10]))
 
-    def register_page(submitted=None):
-        return render_template('fleet_assets.html', tab='prestart', states=STATES, submitted=submitted,
-                               assets=db().execute(VEHICLES+' ORDER BY t.state,t.name').fetchall(),
-                               notices=due_notices(db(), now()[:10]))
+    @app.get('/admin/prestart/assets/new')
+    @app.get('/admin/prestart/assets/<int:tid>/edit')
+    @require('admin')
+    def fleet_form(tid=None):
+        return render_template('fleet_form.html', tab='prestart', states=STATES, asset=fetch(tid) if tid else None)
+
+    @app.post('/admin/prestart/assets/<int:tid>/status')
+    @require('admin')
+    def fleet_status(tid):
+        action = request.form.get('action')
+        if action not in ('archive', 'restore'):
+            abort(400)
+        archive = action == 'archive'
+        conn = db()
+        with conn:
+            conn.execute('BEGIN IMMEDIATE')
+            asset = fetch(tid)
+            if bool(asset['archived_at']) != archive:
+                if asset['version'] != request.form.get('version', type=int):
+                    flash('This vehicle has changed. Review the current record before continuing.', 'error')
+                    return redirect(url_for('fleet_asset', tid=tid), 303)
+                conn.execute('UPDATE bf_trucks SET archived_at=? WHERE id=?', (now() if archive else None, tid))
+                conn.execute("""INSERT INTO vehicle_profiles(truck_id,make,model,rego,version) VALUES(?,'','','',1)
+                                ON CONFLICT(truck_id) DO UPDATE SET version=version+1""", (tid,))
+        flash(f"{asset['name']} {'archived' if archive else 'restored'}.", 'success')
+        return redirect(url_for('fleet_assets', view='archived') if archive else url_for('fleet_assets'), 303)
 
     @app.post('/admin/prestart/assets')
     @app.post('/admin/prestart/assets/<int:tid>/edit')
@@ -215,9 +244,8 @@ def register(app,db,require,now):
             # Reload a stale edit before permitting a retry. Other validation errors retain the form.
             if editing_tid and fetch(editing_tid)['version'] != request.form.get('version', type=int):
                 return redirect(url_for('fleet_asset', tid=editing_tid), 303)
-            if editing_tid:
-                return asset_page(editing_tid, submitted=request.form), 422
-            return register_page(submitted=request.form), 422
+            return render_template('fleet_form.html', tab='prestart', states=STATES, submitted=request.form,
+                                   asset=fetch(editing_tid) if editing_tid else None), 422
         return redirect(url_for('fleet_asset',tid=tid) if tid else url_for('fleet_assets'),303)
 
     @app.get('/admin/prestart/assets/<int:tid>')
