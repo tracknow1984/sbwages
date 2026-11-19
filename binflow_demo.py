@@ -66,6 +66,8 @@ def install_demo_database(app, real_db, now):
         migrate_live_cycle(conn)
         from binflow_stop_exceptions import migrate as migrate_stop_exceptions
         migrate_stop_exceptions(conn)
+        from binflow_rollout_stock import migrate as migrate_rollout_stock
+        migrate_rollout_stock(conn)
         from binflow_reports import migrate_timings
         migrate_timings(conn)
         from binflow_bin_condition import migrate as migrate_bin_condition
@@ -181,6 +183,9 @@ def prepare_sample_billing(conn, stamp):
             from binflow_invoices import migrate as migrate_billing
             migrate_billing(conn)
         migrate_invoices(conn)
+    from binflow_invoice_profiles import migrate as migrate_profiles
+    migrate_profiles(conn)
+    conn.execute("INSERT OR IGNORE INTO bf_xero_config(id) VALUES(1)")
     if conn.execute('SELECT 1 FROM bf_pickup_rates LIMIT 1').fetchone():
         return
     conn.execute("INSERT INTO bf_pickup_rates(id,units,saved_at,saved_by) VALUES(1,16000,?,'Sample run')",(stamp,))

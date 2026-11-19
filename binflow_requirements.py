@@ -163,8 +163,12 @@ def site_plan(conn, site_id, warehouse_id, collections=None, run_date=None, *, i
             incoming[r['size_id']] += 1
         elif r['direction']=='collect' and r['location_id'] == site_id:
             outgoing[r['size_id']] += 1
+    for r in conn.execute("""SELECT s.size_id,COUNT(*) AS n FROM bf_rollout_slots s JOIN bf_jobs j ON j.id=s.job_id
+        WHERE j.site_id=? AND j.status='scheduled' AND j.approval_status!='rejected' AND s.item_id IS NULL
+        AND (? IS NULL OR j.scheduled_date<=?) GROUP BY s.size_id""", (site_id,run_date,run_date)):
+        incoming[r['size_id']] += r['n']
     available = Counter({r['size_id']:r['n'] for r in conn.execute('''SELECT b.size_id,COUNT(*) AS n FROM bf_bins b
-        WHERE b.archived=0 AND b.location_id=? AND b.status='empty' AND NOT EXISTS(SELECT 1 FROM bf_job_bins i WHERE i.bin_id=b.id AND i.active=1)
+        WHERE b.archived=0 AND b.service_status='in_service' AND b.location_id=? AND b.status='empty' AND NOT EXISTS(SELECT 1 FROM bf_job_bins i WHERE i.bin_id=b.id AND i.active=1)
         GROUP BY b.size_id''', (warehouse_id,))})
     collectable = Counter({r['size_id']:r['n'] for r in conn.execute('''SELECT b.size_id,COUNT(*) AS n FROM bf_bins b
         WHERE b.archived=0 AND b.location_id=? AND b.status IN ('full','at_client') AND NOT EXISTS(SELECT 1 FROM bf_job_bins i WHERE i.bin_id=b.id AND i.active=1)
@@ -193,6 +197,10 @@ def load_plan(conn, truck_id, run_date):
         JOIN bf_sizes s ON s.id=b.size_id
         WHERE j.truck_id=? AND j.scheduled_date=? AND j.approval_status='approved' AND j.status!='cancelled' AND i.direction='deliver'
         ORDER BY s.litres,b.size_id,i.bin_code''', (truck_id,run_date)).fetchall()
+    from binflow_rollout_stock import pool, pending_rows
+    loads = pool(conn,truck_id,run_date)
+    pending = pending_rows(conn,truck_id,run_date,loads)
+    rows = list(rows) + [dict(r, truck_id=truck_id if r['loaded_at'] else None, truck_load='empty') for r in pending]
     totals, warehouses, per_job = {}, {}, defaultdict(dict)
     for r in rows:
         sid, wid, jid = r['size_id'],r['warehouse_id'],r['job_id']
@@ -206,7 +214,7 @@ def load_plan(conn, truck_id, run_date):
             entry['loaded'] += int(loaded)
             entry['delivered'] += int(delivered)
             entry['waiting'] += int(waiting)
-            if waiting:
+            if waiting and 'slot_id' not in r.keys():
                 entry['codes'].append(r['bin_code'])
     stops = [dict(job=j,rows=list(per_job[j['id']].values()),shortfalls=[r for r in json.loads(j['bin_plan']) if r.get('shortfall',0)>0]) for j in jobs]
     return dict(stops=stops,totals=list(totals.values()),warehouses=list(warehouses.values()),

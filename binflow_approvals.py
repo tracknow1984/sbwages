@@ -54,7 +54,8 @@ def register_approvals(app,db,access,require,allowed,render,job,items,bins,event
             return False
         if j['approval_status']!='pending' or j['status']!='scheduled':
             raise ValueError('This allocation has already been reviewed. Create a new allocation for changes.')
-        if not rows or any(i['loaded_at'] or i['delivered_at'] or i['picked_up_at'] or i['weighed_at'] for i in rows):
+        from binflow_rollout_stock import planned
+        if (not rows and not planned(db(),job_id)) or any(i['loaded_at'] or i['delivered_at'] or i['picked_up_at'] or i['weighed_at'] for i in rows):
             raise ValueError('This allocation has unexpected movements. Review its docket before continuing.')
         if decision=='approve':
             from binflow_permissions import eligible_driver

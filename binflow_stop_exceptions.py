@@ -65,6 +65,10 @@ def report_stop(conn, data, job_id, reason, user, who, stamp, *, selected=None):
     conn.execute("""INSERT INTO bf_stop_exceptions(job_id,original_id,reason,reported_at,reported_by)
                     VALUES(?,?,?,?,?)""",(exc_id,job_id,reason,stamp,who))
     for item in missed:
+        if 'slot_id' in item.keys():
+            if partial:
+                conn.execute('UPDATE bf_rollout_slots SET job_id=? WHERE id=? AND item_id IS NULL',(exc_id,item['slot_id']))
+            continue
         onboard = item['direction']=='deliver' and item['loaded_at']
         conn.execute('UPDATE bf_job_bins SET job_id=?,active=? WHERE id=?',(exc_id,int(bool(onboard)),item['id']))
         if onboard:
@@ -228,6 +232,16 @@ def rebook(conn, source, new_date, uid, who, stamp):
         WHERE i.job_id=? ORDER BY i.id""",(source['id'],)).fetchall()
     jid=copy_stop(conn,source,new_date,uid,stamp)
     quantity={'collect':{},'deliver':{}}
+    from binflow_rollout_stock import schedule_slots
+    flexible = {r['size_id']:r['n'] for r in conn.execute("""SELECT size_id,COUNT(*) AS n FROM bf_rollout_slots
+        WHERE job_id=? AND item_id IS NULL GROUP BY size_id""", (source['id'],))}
+    if flexible:
+        _, remaining = site_plan(conn,source['site_id'],source['warehouse_id'],initial_delivery=True)
+        gaps = {r['size_id']:r['recommended'] for r in remaining}
+        if any(count>gaps.get(sid,0) for sid,count in flexible.items()):
+            raise ValueError('Other deliveries already cover this site. Review the remaining rollout quantities.')
+        schedule_slots(conn,jid,flexible)
+        quantity['deliver'].update(flexible)
     for item in planned:
         reserve_now=True
         if item['direction']=='collect':
