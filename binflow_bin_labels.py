@@ -57,7 +57,7 @@ def bulk_label_pdf(stock, qr_url, logo_path):
 
     for bin_row in stock:
         # All four stickers reference one lossless QR image at the existing print size.
-        qr = ImageReader(bin_qr(qr_url(bin_row['token'])))
+        qr = ImageReader(bin_qr(qr_url(bin_row['token'])).convert('L'))
         code = bin_row['code']
         fitted = code_font * min(1, CONTENT_WIDTH/stringWidth(code, FONT, code_font))
         for row in range(2):
