@@ -75,7 +75,7 @@ class DriverPortalTests(unittest.TestCase):
 
     def test_office_pages_and_mutations_are_blocked_with_valid_csrf(self):
         self.driver()
-        for path in ('/binflow/bins', '/binflow/bins/1', '/binflow/scan', '/binflow/labels',
+        for path in ('/binflow/bins', '/binflow/bins/1', '/binflow/scan', '/binflow/labels', '/binflow/labels/bulk.pdf',
                      '/binflow/export.csv', '/binflow/pickups', '/binflow/pickups/new',
                      '/binflow/warehouse', '/binflow/allocations', '/binflow/collection-calendar',
                      '/binflow/collection-requests', '/binflow/allocation-approvals',

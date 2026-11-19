@@ -613,17 +613,37 @@ def register_binflow(app, db, require):
     @app.get('/binflow/bins/<int:bin_id>/qr.png')
     @access
     def bf_qr_image(bin_id):
-        import qrcode
-        from qrcode.image.pil import PilImage
+        from binflow_bin_labels import bin_qr
         if is_warehouse(g.user) and not pending_bins(db(), g.user, bin_id):
             abort(404)
         b = db().execute('SELECT token FROM bf_bins WHERE id=?', (bin_id,)).fetchone()
         if not b:
             abort(404)
-        qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_Q, box_size=8, border=4)
-        qr.add_data(qr_url(b['token'])); qr.make(fit=True)
-        output = io.BytesIO(); qr.make_image(image_factory=PilImage).save(output, format='PNG'); output.seek(0)
+        output = io.BytesIO()
+        bin_qr(qr_url(b['token'])).save(output, format='PNG')
+        output.seek(0)
         return send_file(output, mimetype='image/png')
+
+    @app.get('/binflow/labels/bulk.pdf')
+    @access
+    def bf_bulk_labels():
+        from pathlib import Path
+        from binflow_bin_labels import bulk_label_pdf
+        selection = request.args.get('scope','all')
+        if selection not in ('all','current'):
+            abort(400, 'Choose the entire register or current bins.')
+        scope = state_scope(g.user)
+        stock = db().execute("""SELECT b.code,b.token,s.litres FROM bf_bins b
+            JOIN bf_sizes s ON s.id=b.size_id WHERE (? IS NULL OR b.state=?)
+            AND (?='all' OR b.archived=0) ORDER BY b.id""",(scope,scope,selection)).fetchall()
+        if not stock:
+            flash('There are no bins to print in this register.', 'info')
+            return redirect(url_for('bf_labels'),code=303)
+        pdf = bulk_label_pdf(stock, qr_url, Path(app.static_folder) / 'blocktexx-logo-tagline.png')
+        response = send_file(pdf, mimetype='application/pdf', as_attachment=True,
+                             download_name=f'BinFlow-QR-Labels-{selection}-{len(stock)}-bins.pdf')
+        response.headers['Cache-Control'] = 'private, no-store'
+        return response
 
     @app.get('/binflow/labels')
     @access
@@ -646,9 +666,12 @@ def register_binflow(app, db, require):
             chosen = [found[key] for key in selected_ids]
         if sheet:
             return render('label_sheet', section='bins', stock=chosen, selected=selected_ids, archived=archived)
+        scope = state_scope(g.user)
+        counts = db().execute("""SELECT COUNT(*) AS total, COUNT(CASE WHEN archived=0 THEN 1 END) AS current
+            FROM bf_bins WHERE (? IS NULL OR state=?)""",(scope,scope)).fetchone()
         options = {row['id']: row for row in bins('b.archived=?', (int(archived),), include_archived=archived)}
         options.update((row['id'], row) for row in chosen)
-        return render('labels', section='bins', stock=sorted(options.values(), key=lambda row: row['id']),
+        return render('labels', section='bins', counts=counts, stock=sorted(options.values(), key=lambda row: row['id']),
                       selected=selected_ids, archived=archived)
 
     @app.get('/binflow/pickups')
