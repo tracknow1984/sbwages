@@ -2,6 +2,7 @@
 from urllib.parse import urlparse
 from binflow_runs import guard_movement, check_owner, mark_returned, run_data, valid_date
 import sqlite3
+import binflow_rollout_stock as rollout
 from binflow_qr import pickup_requests
 from binflow_approvals import ensure_approved
 from binflow_acceptance import schedule_cards, ensure_run_unstarted, schedule_changed
@@ -61,7 +62,7 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
             FROM bf_job_bins i JOIN bf_bins b ON b.id=i.bin_id
             LEFT JOIN bf_locations l ON l.id=b.location_id LEFT JOIN bf_trucks t ON t.id=b.truck_id
             WHERE i.job_id=? ORDER BY i.direction,i.bin_code''', (job_id,)).fetchall() if j else []
-        ready = bool(j and all(i['delivered_at'] if i['direction']=='deliver' else i['picked_up_at'] for i in manifest))
+        ready = bool(j and not rollout.outstanding(db(),job_id) and all(i['delivered_at'] if i['direction']=='deliver' else i['picked_up_at'] for i in manifest))
         return dict(truck=t, stock=stock, job=j, manifest=manifest, handover_ready=ready,
                     empties=sum(b['truck_load']=='empty' for b in stock), full=sum(b['truck_load']=='full' for b in stock))
 
@@ -172,6 +173,8 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
             t, j = truck(truck_id), job(jid or integer('job_id'))
             ensure_approved(j)
             check_owner(db(),truck_id,j['scheduled_date'],g.user)
+            if guided_date and guided_date != j['scheduled_date']:
+                raise ValueError('This stop is not on the selected run date.')
             if j['truck_id'] != truck_id or not j['scan_mode']:
                 raise ValueError('This job is not assigned to this truck. Choose the correct job or truck.')
             if j['status'] == 'cancelled':
@@ -188,77 +191,81 @@ def register_driver(app, db, access, require, bins, job, items, render, event,
                 raise ValueError('Bin not found. Scan its QR label or enter the BF number.')
             b = stock[0]
             i = db().execute('SELECT * FROM bf_job_bins WHERE job_id=? AND bin_id=?', (j['id'],b['id'])).fetchone()
-            if not i:
-                raise ValueError(f'{b["code"]} is not allocated to this client stop. Check the selected job.')
-            if (i['direction']=='deliver') != (action in ('load', 'deliver', 'unload')):
-                raise ValueError('This bin is allocated for a different movement. Check the scan action.')
-            # A repeated request is an acknowledgement, never a second movement (even after later steps).
-            duplicate = bool(action != 'unload' and i[columns[action]])
-            if action == 'unload' and not i['loaded_at'] and not i['delivered_at'] and b['location_id']==j['warehouse_id'] and b['status']=='empty':
-                duplicate = True
-            if duplicate:
-                message = f'{b["code"]} — already scanned for this step. Stock unchanged.'
+            if action in ('load','deliver','unload') and rollout.planned(db(),j['id']):
+                duplicate, detail = rollout.scan(db(),j,b,action,g.user,driver_today(db(),g.user,now()),now(),event)
+                message = f'{b["code"]} — {detail}'
             else:
-                guard_movement(db(),j,action,g.user,driver_today(db(),g.user,now()))
-                if b['reserved_job'] != j['id'] or b['state'] != j['state']:
-                    raise ValueError('The bin allocation changed. Refresh the job before scanning.')
-                if action in ('load','deliver','collect','unload') and j['status'] != 'scheduled':
-                    raise ValueError('The client handover is already complete. This movement is closed.')
-                origin, target, from_truck, to_truck = None, None, None, None
-                if action == 'load':
-                    if b['status'] != 'empty' or b['location_id'] != j['warehouse_id'] or b['truck_id']:
-                        raise ValueError('This empty bin is not at the selected warehouse.')
-                    status, load, target_truck = 'transit', 'empty', truck_id
-                    origin, to_truck = j['warehouse_id'], truck_id
-                    label = 'Empty bin scanned onto truck'
-                elif action == 'deliver':
-                    if not i['loaded_at'] or b['truck_id'] != truck_id or b['truck_load'] != 'empty':
-                        raise ValueError('Scan this empty bin onto this truck at the warehouse first.')
-                    status, load, target_truck = 'at_client', None, None
-                    target, from_truck = j['site_id'], truck_id
-                    label = 'Empty bin scanned to client'
-                elif action == 'collect':
-                    material = confirm_pickup_material(db(),i['id'],request.form.get('material_id',type=int))
-                    if b['location_id'] != j['site_id'] or b['status'] not in ('at_client','full') or b['truck_id']:
-                        raise ValueError('This bin is not at the selected client site.')
-                    status, load, target_truck = 'transit', 'full', truck_id
-                    origin, to_truck = j['site_id'], truck_id
-                    label = 'Full bin scanned onto truck at client'
-                elif action == 'return':
-                    if not j['collected_at'] or j['status'] not in ('collected','received'):
-                        raise ValueError('Finish the client handover before scanning the warehouse return.')
-                    if not i['picked_up_at'] or b['truck_id'] != truck_id or b['truck_load'] != 'full':
-                        raise ValueError('This full bin is not on this truck. Scan its client pickup first.')
-                    status, load, target_truck = 'received', None, None
-                    target, from_truck = j['warehouse_id'], truck_id
-                    label = 'Full bin scanned into warehouse; weight pending'
+                if not i:
+                    raise ValueError(f'{b["code"]} is not allocated to this client stop. Check the selected job.')
+                if (i['direction']=='deliver') != (action in ('load', 'deliver', 'unload')):
+                    raise ValueError('This bin is allocated for a different movement. Check the scan action.')
+                # A repeated request is an acknowledgement, never a second movement (even after later steps).
+                duplicate = bool(action != 'unload' and i[columns[action]])
+                if action == 'unload' and not i['loaded_at'] and not i['delivered_at'] and b['location_id']==j['warehouse_id'] and b['status']=='empty':
+                    duplicate = True
+                if duplicate:
+                    message = f'{b["code"]} — already scanned for this step. Stock unchanged.'
                 else:
-                    if i['delivered_at'] or b['truck_id'] != truck_id or b['truck_load'] != 'empty':
-                        raise ValueError('Only unused empty bins on this truck can be unloaded.')
-                    status, load, target_truck = 'empty', None, None
-                    target, from_truck = j['warehouse_id'], truck_id
-                    label = 'Unused empty bin unloaded at warehouse'
-                from binflow_reports import begin_current, finish_scan
-                timing_stamp = now()
-                begin_current(db(),g.user,truck_id,j['scheduled_date'],timing_stamp,basis='partial')
-                db().execute('UPDATE bf_bins SET location_id=?,truck_id=?,truck_load=?,status=? WHERE id=?',
-                             (target,target_truck,load,status,b['id']))
-                column = columns.get(action, 'loaded_at')
-                db().execute(f'UPDATE bf_job_bins SET {column}=? WHERE id=?', (None if action=='unload' else now(),i['id']))
-                event(b['id'], label, j['id'], origin, target, notes='Material confirmed at client pickup · '+material if action=='collect' else '',
-                      from_truck=from_truck, to_truck=to_truck)
-                if action == 'return' and not db().execute("SELECT 1 FROM bf_job_bins WHERE job_id=? AND direction='collect' AND returned_at IS NULL", (j['id'],)).fetchone():
-                    db().execute("UPDATE bf_jobs SET status='received',received_at=? WHERE id=?", (now(),j['id']))
-                if action == 'collect':
-                    db().execute('UPDATE bf_jobs SET pod_version=pod_version+1 WHERE id=?', (j['id'],))
-                    pickup_requests(db(),j['id'],b['id'],(g.user['first_name']+' '+g.user['last_name']).strip(),now())
-                if action in ('deliver','collect'):
-                    from binflow_journey import complete_scanned_client
-                    complete_scanned_client(db(),j,g.user,now())
-                if action == 'return':
-                    mark_returned(db(),truck_id,j['scheduled_date'],now())
-                finish_scan(db(),g.user,j,action,timing_stamp)
-                message = f'{b["code"]} — {label.lower()}.'
+                    guard_movement(db(),j,action,g.user,driver_today(db(),g.user,now()))
+                    if b['reserved_job'] != j['id'] or b['state'] != j['state']:
+                        raise ValueError('The bin allocation changed. Refresh the job before scanning.')
+                    if action in ('load','deliver','collect','unload') and j['status'] != 'scheduled':
+                        raise ValueError('The client handover is already complete. This movement is closed.')
+                    origin, target, from_truck, to_truck = None, None, None, None
+                    if action == 'load':
+                        if b['status'] != 'empty' or b['location_id'] != j['warehouse_id'] or b['truck_id']:
+                            raise ValueError('This empty bin is not at the selected warehouse.')
+                        status, load, target_truck = 'transit', 'empty', truck_id
+                        origin, to_truck = j['warehouse_id'], truck_id
+                        label = 'Empty bin scanned onto truck'
+                    elif action == 'deliver':
+                        if not i['loaded_at'] or b['truck_id'] != truck_id or b['truck_load'] != 'empty':
+                            raise ValueError('Scan this empty bin onto this truck at the warehouse first.')
+                        status, load, target_truck = 'at_client', None, None
+                        target, from_truck = j['site_id'], truck_id
+                        label = 'Empty bin scanned to client'
+                    elif action == 'collect':
+                        material = confirm_pickup_material(db(),i['id'],request.form.get('material_id',type=int))
+                        if b['location_id'] != j['site_id'] or b['status'] not in ('at_client','full') or b['truck_id']:
+                            raise ValueError('This bin is not at the selected client site.')
+                        status, load, target_truck = 'transit', 'full', truck_id
+                        origin, to_truck = j['site_id'], truck_id
+                        label = 'Full bin scanned onto truck at client'
+                    elif action == 'return':
+                        if not j['collected_at'] or j['status'] not in ('collected','received'):
+                            raise ValueError('Finish the client handover before scanning the warehouse return.')
+                        if not i['picked_up_at'] or b['truck_id'] != truck_id or b['truck_load'] != 'full':
+                            raise ValueError('This full bin is not on this truck. Scan its client pickup first.')
+                        status, load, target_truck = 'received', None, None
+                        target, from_truck = j['warehouse_id'], truck_id
+                        label = 'Full bin scanned into warehouse; weight pending'
+                    else:
+                        if i['delivered_at'] or b['truck_id'] != truck_id or b['truck_load'] != 'empty':
+                            raise ValueError('Only unused empty bins on this truck can be unloaded.')
+                        status, load, target_truck = 'empty', None, None
+                        target, from_truck = j['warehouse_id'], truck_id
+                        label = 'Unused empty bin unloaded at warehouse'
+                    from binflow_reports import begin_current, finish_scan
+                    timing_stamp = now()
+                    begin_current(db(),g.user,truck_id,j['scheduled_date'],timing_stamp,basis='partial')
+                    db().execute('UPDATE bf_bins SET location_id=?,truck_id=?,truck_load=?,status=? WHERE id=?',
+                                 (target,target_truck,load,status,b['id']))
+                    column = columns.get(action, 'loaded_at')
+                    db().execute(f'UPDATE bf_job_bins SET {column}=? WHERE id=?', (None if action=='unload' else now(),i['id']))
+                    event(b['id'], label, j['id'], origin, target, notes='Material confirmed at client pickup · '+material if action=='collect' else '',
+                          from_truck=from_truck, to_truck=to_truck)
+                    if action == 'return' and not db().execute("SELECT 1 FROM bf_job_bins WHERE job_id=? AND direction='collect' AND returned_at IS NULL", (j['id'],)).fetchone():
+                        db().execute("UPDATE bf_jobs SET status='received',received_at=? WHERE id=?", (now(),j['id']))
+                    if action == 'collect':
+                        db().execute('UPDATE bf_jobs SET pod_version=pod_version+1 WHERE id=?', (j['id'],))
+                        pickup_requests(db(),j['id'],b['id'],(g.user['first_name']+' '+g.user['last_name']).strip(),now())
+                    if action in ('deliver','collect'):
+                        from binflow_journey import complete_scanned_client
+                        complete_scanned_client(db(),j,g.user,now())
+                    if action == 'return':
+                        mark_returned(db(),truck_id,j['scheduled_date'],now())
+                    finish_scan(db(),g.user,j,action,timing_stamp)
+                    message = f'{b["code"]} — {label.lower()}.'
             db().commit()
             if qr_token:
                 return success(message,'bf_qr_driver',token=qr_token,movement={'load':'load','collect':'pickup','deliver':'delivery'}[action],job=j['id'])

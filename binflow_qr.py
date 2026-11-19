@@ -198,7 +198,9 @@ def register_qr(app,db,access,require,allowed,render,success,failure,now,actor):
             FROM bf_job_bins i JOIN bf_jobs j ON j.id=i.job_id WHERE i.bin_id=? AND i.direction=?
             AND j.scan_mode=1 AND j.approval_status='approved' AND j.status!='cancelled' '''+(' AND j.id=?' if selected else '')+
             ' ORDER BY i.active DESC,j.id DESC LIMIT 1',(b['id'],direction,selected) if selected else (b['id'],direction)).fetchall()
-        item=rows[0] if rows else None
+        from binflow_rollout_stock import qr_step
+        from binflow_workday import driver_today
+        item=qr_step(db(),b,action,g.user,driver_today(db(),g.user,now()),selected) or (rows[0] if rows else None)
         if item and item['truck_id']: check_owner(db(),item['truck_id'],item['scheduled_date'],g.user)
         if request.method=='POST':
             if not selected or not item or not item['truck_id']:

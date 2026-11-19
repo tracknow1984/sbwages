@@ -108,7 +108,8 @@ def complete_scanned_client(conn, job, user, stamp):
         return
     rows = conn.execute('''SELECT i.*,b.truck_id,b.truck_load,b.location_id,b.status AS bin_status
         FROM bf_job_bins i JOIN bf_bins b ON b.id=i.bin_id WHERE i.job_id=?''', (job['id'],)).fetchall()
-    if not rows or any(not (r['delivered_at'] if r['direction'] == 'deliver' else r['picked_up_at']) for r in rows):
+    from binflow_rollout_stock import outstanding
+    if outstanding(conn,job['id']) or not rows or any(not (r['delivered_at'] if r['direction'] == 'deliver' else r['picked_up_at']) for r in rows):
         return
     for r in rows:
         if r['direction'] == 'deliver':

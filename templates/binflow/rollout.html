@@ -26,7 +26,7 @@
 <div class="bf-table-wrap"><table class="bf-collection-profiles"><thead><tr><th>Client site</th><th>Empty-bin rollout</th><th>Collection cycle</th><th>Work this week</th></tr></thead><tbody>
 {% for r in rows %}{% set p=r.profile %}
 <tr><td><strong><a href="{{ url_for('bf_client_profile',profile_id=p.id) }}">{{ p.customer_site }}</a></strong><small>{{ p.group_name }} · {{ p.state or 'State needed' }} · {{ p.suburb }}</small></td>
-<td><strong>{{ r.stage }}</strong>{% for s in r.sizes %}<small>{{ s.name }} · {{ s.at }} of {{ s.target }} on site{% if s.incoming %} · {{ s.incoming }} reserved for delivery{% endif %}</small>{% endfor %}
+<td><strong>{{ r.stage }}</strong>{% for s in r.sizes %}<small>{{ s.name }} · {{ s.at }} of {{ s.target }} on site{% if s.incoming %} · {{ s.incoming }} scheduled for delivery{% endif %}</small>{% endfor %}
 {% for job in r.deliveries %}<small><a href="{{ url_for('bf_job',job_id=job.id) }}">{{ job.code }}</a> · {{ job.label }}</small>{% endfor %}
 {% if p.location_id and not r.sizes %}<a href="{{ url_for('bf_requirements',location_id=p.location_id) }}">Set bin quantities</a>
 {% elif r.stage in ['Needs empty bins','More empties needed'] %}<a class="button secondary" href="{{ url_for('bf_new_job',purpose='empty_delivery',site=p.location_id,date=default_day) }}">Plan empty-bin delivery</a>{% endif %}

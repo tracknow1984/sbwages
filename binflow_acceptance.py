@@ -33,7 +33,11 @@ def manifest(conn,truck_id,run_date):
         WHERE truck_id=? AND scheduled_date=? AND schedule_live=1 AND approval_status='approved' AND status!='cancelled' ORDER BY run_order,id''',(truck_id,run_date))]
     for j in jobs:
         j['bins']=[dict(r) for r in conn.execute('''SELECT bin_id,bin_code,direction,size_name
-            FROM bf_job_bins WHERE job_id=? ORDER BY direction,bin_id''',(j['id'],))]
+            FROM bf_job_bins i WHERE job_id=? AND NOT EXISTS(SELECT 1 FROM bf_rollout_slots s WHERE s.item_id=i.id)
+            ORDER BY direction,bin_id''',(j['id'],))]
+        j['bins'].extend(dict(r) for r in conn.execute("""SELECT NULL AS bin_id,'Any matching empty' AS bin_code,
+            'deliver' AS direction,z.name AS size_name FROM bf_rollout_slots s JOIN bf_sizes z ON z.id=s.size_id
+            WHERE s.job_id=? ORDER BY s.size_id,s.id""", (j['id'],)))
     snapshot=json.dumps(jobs,sort_keys=True,separators=(',',':'))
     return jobs,snapshot,hashlib.sha256(snapshot.encode()).hexdigest()
 
@@ -46,7 +50,9 @@ def acceptance_ok(conn,run,truck_id,run_date):
 def ensure_run_unstarted(conn,truck_id,run_date):
     if not truck_id: return
     run=conn.execute('SELECT * FROM bf_runs WHERE truck_id=? AND run_date=?',(truck_id,run_date)).fetchone()
-    if (run and (run['departed_at'] or run['returned_at'])) or conn.execute('''SELECT 1 FROM bf_jobs j
+    loaded = conn.execute("""SELECT 1 FROM bf_rollout_loads WHERE truck_id=? AND run_date=?
+        AND delivered_at IS NULL AND returned_at IS NULL LIMIT 1""", (truck_id,run_date)).fetchone()
+    if loaded or (run and (run['departed_at'] or run['returned_at'])) or conn.execute('''SELECT 1 FROM bf_jobs j
         JOIN bf_job_bins i ON i.job_id=j.id WHERE j.truck_id=? AND j.scheduled_date=? AND j.status!='cancelled'
         AND (i.loaded_at IS NOT NULL OR i.delivered_at IS NOT NULL OR i.picked_up_at IS NOT NULL OR i.returned_at IS NOT NULL)''',
         (truck_id,run_date)).fetchone():

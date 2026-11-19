@@ -56,7 +56,7 @@ class StepTimingTests(unittest.TestCase):
                          [('load',600,2,True),('deliver',300,2,True),('collect',360,2,True),('return',240,2,True)])
         self.post('/logout');self.login()
         page=self.report();self.assertEqual(page.status_code,200)
-        self.assertIn(b'Driver step timings',page.data);self.assertIn(b'>Reports</a>',page.data)
+        self.assertIn(b'Driver step timings',page.data);self.assertIn(b'>Reporting</a>',page.data)
         self.assertIn(b'10m 00s',page.data);self.assertIn(b'5m 00s / bin',page.data)
         for filter in ('&state=NSW','&driver=99999','&truck=2'):
             self.assertIn(b'No timings recorded',self.report(filter).data)
@@ -104,7 +104,7 @@ class StepTimingTests(unittest.TestCase):
             if role=='manager':
                 page=self.client.get('/admin/bin-management')
                 self.assertEqual(page.status_code,200)
-                self.assertNotIn(b'>Reports</a>',page.data)
+                self.assertNotIn(b'>Reporting</a>',page.data)
         self.post('/logout')
         self.assertEqual(self.report().status_code,302)
 

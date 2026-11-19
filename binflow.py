@@ -710,7 +710,7 @@ def register_binflow(app, db, require):
                         if direction == 'deliver' and (b['location_id'] != warehouse['id'] or b['status'] != 'empty'):
                             raise ValueError(f'{b["code"]} is not an available empty bin at this warehouse.')
                         selected.append((direction,b))
-                if not selected or len({b['id'] for _,b in selected}) != len(selected):
+                if (not empty_delivery and not selected) or len({b['id'] for _,b in selected}) != len(selected):
                     raise ValueError('Choose at least one bin. A bin cannot be collected and delivered on the same job.')
                 jid = db().execute('SELECT COALESCE(MAX(id),0)+1 FROM bf_jobs').fetchone()[0]
                 db().execute('''INSERT INTO bf_jobs(id,code,request_key,site_id,warehouse_id,driver_id,scheduled_date,status,client_name,site_name,site_address,warehouse_name,state,vehicle,notes,created_at,created_by)
@@ -723,6 +723,22 @@ def register_binflow(app, db, require):
                 profile, loading = site_plan(db(),site['id'],warehouse['id'],selected_collections,scheduled.isoformat(),
                                             initial_delivery=empty_delivery)
                 if empty_delivery:
+                    # Old open forms may submit serials. Use them only to recover the requested size counts.
+                    if any(k.startswith('rollout_qty_') for k in request.form):
+                        if selected:
+                            raise ValueError('Choose rollout quantities by size once.')
+                        for k, values in request.form.lists():
+                            if not k.startswith('rollout_qty_'):
+                                continue
+                            sid = k.removeprefix('rollout_qty_')
+                            qty = values[0]
+                            if (not sid.isascii() or not sid.isdigit() or len(sid)>10 or len(values)!=1
+                                    or not qty.isascii() or not qty.isdigit() or len(qty)>3):
+                                raise ValueError('Enter a whole quantity for each rollout size.')
+                            if int(qty):
+                                selected_deliveries[int(sid)] = int(qty)
+                    if not 1 <= sum(selected_deliveries.values()) <= 200:
+                        raise ValueError('Schedule between 1 and 200 empty bins for this delivery.')
                     gaps = {r['size_id']: r['recommended'] for r in loading}
                     if any(count > gaps.get(sid,0) for sid,count in selected_deliveries.items()):
                         raise ValueError('The selected empties exceed the remaining site target. Review the bins already on site or reserved.')
@@ -732,6 +748,10 @@ def register_binflow(app, db, require):
                 stamp=now()
                 db().execute("UPDATE bf_jobs SET scan_mode=1,bin_plan=?,pod_client_id=?,approval_status='pending',submitted_at=? WHERE id=?", (json.dumps(loading),site['client_id'],stamp,jid))
                 allocation_history(db(),jid,'Allocation submitted',actor(),g.user['id'],stamp)
+                if empty_delivery:
+                    from binflow_rollout_stock import schedule_slots
+                    schedule_slots(db(),jid,selected_deliveries)
+                    return success('Empty-bin delivery scheduled, awaiting approval. The driver assigns the bins at the client site.', 'bf_job', job_id=jid)
                 for direction,b in selected:
                     db().execute('INSERT INTO bf_job_bins(job_id,bin_id,direction,bin_code,size_name,tare_g) VALUES(?,?,?,?,?,?)', (jid,b['id'],direction,b['code'],b['size_name'],b['tare_g']))
                     event(b['id'], 'Reserved for collection' if direction == 'collect' else 'Reserved for delivery', jid, b['location_id'], notes=f'Due {scheduled.isoformat()}')
@@ -763,7 +783,7 @@ def register_binflow(app, db, require):
         if site and not warehouse:
             warehouse = next((w for w in warehouses if w['state'] == site['state']), None)
         collect = bins("b.location_id=? AND b.status IN ('at_client','full') AND NOT EXISTS(SELECT 1 FROM bf_job_bins i WHERE i.bin_id=b.id AND i.active=1)", (site['id'],)) if site and not empty_delivery else []
-        deliver = bins("b.location_id=? AND b.status='empty' AND NOT EXISTS(SELECT 1 FROM bf_job_bins i WHERE i.bin_id=b.id AND i.active=1)", (warehouse['id'],)) if warehouse and site and warehouse['state'] == site['state'] else []
+        deliver = bins("b.location_id=? AND b.status='empty' AND NOT EXISTS(SELECT 1 FROM bf_job_bins i WHERE i.bin_id=b.id AND i.active=1)", (warehouse['id'],)) if not empty_delivery and warehouse and site and warehouse['state'] == site['state'] else []
         drivers = available_drivers(db(), site['state'] if site else '')
         profile, loading = site_plan(db(),site['id'],warehouse['id'],run_date=plan_date,initial_delivery=empty_delivery) if site and warehouse and site['state']==warehouse['state'] else (None,[])
         defaults = {'collect':set(), 'deliver':set()}
@@ -777,20 +797,51 @@ def register_binflow(app, db, require):
         return render('new_job', section='pickups',purpose=purpose,empty_delivery=empty_delivery,collection_request=collection_request, sites=sites, warehouses=warehouses, site=site, warehouse=warehouse, collect=collect, deliver=deliver, drivers=drivers, request_key=secrets.token_urlsafe(24), profile=profile, loading=loading, defaults=defaults, plan_date=plan_date,
                       source_profiles=source_profiles(db(), site['id']) if site else [])
 
+    @app.post('/binflow/pickups/<int:job_id>/rollout-by-size')
+    @require('admin')
+    def bf_rollout_by_size(job_id):
+        from binflow_rollout_stock import planned, convertible, schedule_slots
+        try:
+            db().execute('BEGIN IMMEDIATE')
+            j = job(job_id)
+            if planned(db(),job_id):
+                return success('This delivery is already scheduled by size.', 'bf_job',job_id=job_id)
+            if not convertible(db(),j):
+                raise ValueError('Only an unstarted, delivery-only allocation can switch to rollout by size.')
+            ensure_run_unstarted(db(),j['truck_id'],j['scheduled_date'])
+            rows = db().execute("""SELECT i.id,i.bin_id,b.size_id FROM bf_job_bins i
+                JOIN bf_bins b ON b.id=i.bin_id WHERE i.job_id=?""",(job_id,)).fetchall()
+            from collections import Counter
+            schedule_slots(db(),job_id,Counter(r['size_id'] for r in rows))
+            db().execute('DELETE FROM bf_job_bins WHERE job_id=?',(job_id,))
+            for r in rows:
+                event(r['bin_id'],'Preselected empty released for size-based rollout',job_id)
+            allocation_history(db(),job_id,'Delivery changed to rollout by size',actor(),g.user['id'],now())
+            schedule_changed(db(),j['truck_id'],j['scheduled_date'],g.user['id'],actor(),now(),'Empty delivery changed to sizes: '+j['code'])
+            return success('Rollout now uses the scheduled sizes. The driver assigns each bin at delivery.', 'bf_job',job_id=job_id)
+        except (ValueError,sqlite3.IntegrityError) as exc:
+            return failure(exc if isinstance(exc,ValueError) else ValueError('This docket already has linked stock records.'),
+                           'bf_job',job_id=job_id)
+
     @app.get('/binflow/pickups/<int:job_id>')
     @access
     def bf_job(job_id):
         j = job(job_id)
         rows = items(job_id)
+        from binflow_rollout_stock import outstanding, convertible
+        rollout_pending = bool(outstanding(db(),job_id))
+        rollout_sizes = db().execute("""SELECT z.name,COUNT(*) AS planned,COUNT(s.item_id) AS delivered
+            FROM bf_rollout_slots s JOIN bf_sizes z ON z.id=s.size_id WHERE s.job_id=?
+            GROUP BY z.id ORDER BY z.litres""",(job_id,)).fetchall()
         if is_warehouse(g.user) and not getattr(g,'bf_demo_token',None):
             return render('warehouse_docket', section='warehouse', job=j, items=rows)
         if not is_office(g.user) or getattr(g,'bf_demo_token',None):
             return render('driver_job', section='pods' if j['collected_at'] else 'calendar',
-                          job=j, items=rows, net=sum(i['net_g'] or 0 for i in rows))
-        return render('job', section='pickups', job=j, items=rows, net=sum(i['net_g'] or 0 for i in rows), remaining=sum(i['direction']=='collect' and i['weighed_at'] is None for i in rows),
+                          job=j, items=rows, rollout_pending=rollout_pending, rollout_sizes=rollout_sizes, net=sum(i['net_g'] or 0 for i in rows))
+        return render('job', section='pickups', can_switch_rollout=g.user['role']=='admin' and convertible(db(),j), job=j, items=rows, rollout_pending=rollout_pending, rollout_sizes=rollout_sizes, net=sum(i['net_g'] or 0 for i in rows), remaining=sum(i['direction']=='collect' and i['weighed_at'] is None for i in rows),
                       approval_history=db().execute('SELECT * FROM bf_allocation_history WHERE job_id=? ORDER BY id',(job_id,)).fetchall(),
                       trucks=db().execute('SELECT * FROM bf_trucks WHERE state=? OR id=? ORDER BY name', (j['state'],j['truck_id'])).fetchall(), loading=json.loads(j['bin_plan']),
-                      scan_ready=all(i['delivered_at'] if i['direction']=='deliver' else i['picked_up_at'] for i in rows),
+                      scan_ready=not rollout_pending and all(i['delivered_at'] if i['direction']=='deliver' else i['picked_up_at'] for i in rows),
                       scans_started=any(i['loaded_at'] or i['delivered_at'] or i['picked_up_at'] for i in rows))
 
     @app.post('/binflow/pickups/<int:job_id>/<action>')

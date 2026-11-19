@@ -10,6 +10,8 @@ from binflow_client_profiles import register_rows, site_bins
 
 
 def migrate(conn):
+    from binflow_rollout_stock import migrate as migrate_stock
+    migrate_stock(conn)
     conn.executescript('''
         CREATE TABLE IF NOT EXISTS bf_rollout_states (
             state TEXT PRIMARY KEY, first_week TEXT NOT NULL, changed_by INTEGER NOT NULL REFERENCES users(id));
@@ -45,10 +47,16 @@ def register_view(conn, first, state, starts):
     stock = defaultdict(Counter)
     for b in site_bins(conn):
         stock[b['profile_id'], b['relationship']][b['size_name']] += 1
+    for r in conn.execute("""SELECT p.id,z.name,COUNT(*) AS n FROM bf_rollout_slots s JOIN bf_jobs j ON j.id=s.job_id
+            JOIN bf_client_site_profiles p ON p.location_id=j.site_id JOIN bf_sizes z ON z.id=s.size_id
+            WHERE s.item_id IS NULL AND j.status='scheduled' AND j.approval_status!='rejected' GROUP BY p.id,z.id"""):
+        stock[r['id'], 'allocated'][r['name']] += r['n']
     deliveries = defaultdict(list)
     for j in conn.execute("""SELECT DISTINCT j.id,j.code,j.site_id,j.scheduled_date,j.schedule_live,j.approval_status,
-            j.schedule_week_id FROM bf_jobs j JOIN bf_job_bins i ON i.job_id=j.id
-            WHERE i.active=1 AND i.direction='deliver' AND j.status!='cancelled' AND j.approval_status!='rejected'
+            j.schedule_week_id FROM bf_jobs j
+            WHERE (EXISTS(SELECT 1 FROM bf_job_bins i WHERE i.job_id=j.id AND i.active=1 AND i.direction='deliver')
+                OR (j.status='scheduled' AND EXISTS(SELECT 1 FROM bf_rollout_slots s WHERE s.job_id=j.id AND s.item_id IS NULL)))
+                AND j.status!='cancelled' AND j.approval_status!='rejected'
             ORDER BY j.scheduled_date,j.id"""):
         label = ('In draft week' if j['schedule_week_id'] else 'Needs rescheduling') if not j['schedule_live'] else (
             'Awaiting approval' if j['approval_status']=='pending' else 'Approved')
