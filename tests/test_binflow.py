@@ -345,6 +345,60 @@ class BinFlowTests(unittest.TestCase):
         positions = [sheet.text.index(f'aria-label="QR label for BF{key:06d}"') for key in (4,2,1,3)]
         self.assertEqual(positions, sorted(positions))
 
+    def test_bulk_pdf_repeats_each_registered_bin_on_its_own_a4_sheet(self):
+        from pypdf import PdfReader
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.units import mm
+        self.post('/binflow/bins',dict(warehouse_id=2,size_id=3,quantity=1))
+        self.post('/binflow/bins/2/condition',dict(service_version=1,service_status='archived'))
+        picker = self.client.get('/binflow/labels?bin=1')
+        self.assertIn('BULK print',picker.text)
+        self.assertIn('7 sheets, including 1 archived',picker.text)
+        response = self.client.get('/binflow/labels/bulk.pdf?bin=1')
+        self.assertEqual(response.status_code,200)
+        self.assertEqual(response.mimetype,'application/pdf')
+        self.assertIn('attachment',response.headers['Content-Disposition'])
+        pdf = PdfReader(io.BytesIO(response.data))
+        self.assertEqual(pdf.viewer_preferences.print_scaling,'/None')
+        stock = self.rows('SELECT b.id,b.code,s.litres FROM bf_bins b JOIN bf_sizes s ON s.id=b.size_id ORDER BY b.id')
+        self.assertEqual(len(pdf.pages),len(stock))
+        for page, b in zip(pdf.pages,stock):
+            self.assertAlmostEqual(float(page.mediabox.width),A4[0],places=3)
+            self.assertAlmostEqual(float(page.mediabox.height),A4[1],places=3)
+            text = page.extract_text()
+            for line in (b['code'],f"SIZE - {b['litres']}L",'SCAN HERE','1800 672 274'):
+                self.assertEqual(text.count(line),4)
+            qr = next(image for image in page.images if image.image.width==image.image.height)
+            existing = self.client.get(f"/binflow/bins/{b['id']}/qr.png")
+            with Image.open(io.BytesIO(existing.data)) as source:
+                expected = source.resize(qr.image.size,Image.Resampling.NEAREST).convert('1')
+                self.assertEqual(expected.tobytes(),qr.image.convert('1').tobytes())
+            draws = page.get_contents().operations
+            qr_name = '/'+qr.name.rsplit('.',1)[0]
+            self.assertEqual(sum(op==b'Do' and args[0]==qr_name for args,op in draws),4)
+            origins = [(float(args[4])/mm,float(args[5])/mm) for args,op in draws
+                       if op==b'cm' and args[:4]==[1,0,0,1] and args[4]]
+            for actual,expected in zip(origins,[(4.63,148.5),(106.27,148.5),(4.63,9.5),(106.27,9.5)],strict=True):
+                self.assertAlmostEqual(actual[0],expected[0],places=3)
+                self.assertAlmostEqual(actual[1],expected[1],places=3)
+
+        current = PdfReader(io.BytesIO(self.client.get('/binflow/labels/bulk.pdf?scope=current').data))
+        self.assertEqual(len(current.pages),6)
+        self.assertFalse(any('BF000002' in p.extract_text() for p in current.pages))
+        self.assertEqual(self.client.get('/binflow/labels/bulk.pdf?scope=other').status_code,400)
+
+    def test_bulk_pdf_empty_single_bin_and_access(self):
+        with sqlite3.connect(self.path) as conn:
+            conn.execute('UPDATE bf_bins SET archived=1')
+        route = '/binflow/labels/bulk.pdf?scope=current'
+        self.assertIn('There are no bins to print',self.client.get(route,follow_redirects=True).text)
+        with sqlite3.connect(self.path) as conn:
+            conn.execute('UPDATE bf_bins SET archived=0 WHERE id=1')
+        from pypdf import PdfReader
+        self.assertEqual(len(PdfReader(io.BytesIO(self.client.get(route).data)).pages),1)
+        self.post('/logout')
+        self.assertEqual(self.client.get(route).status_code,302)
+
     def test_unique_qr_labels_and_no_public_customer_data(self):
         tokens=[r['token'] for r in self.rows('SELECT token FROM bf_bins ORDER BY id')]
         self.assertEqual(len(set(tokens)),6)

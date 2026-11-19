@@ -1,10 +1,24 @@
 {% extends 'binflow/layout.html' %}
-{% block title %}Select four bin labels{% endblock %}
+{% block title %}Bin QR Labels{% endblock %}
 {% block subtitle %}PPS78169 · A4 portrait · 99.1 × 139 mm per label{% endblock %}
 {% block body %}
 <link rel="stylesheet" href="{{ url_for('static',filename='binflow-bin-labels.css') }}">
 <script src="{{ url_for('static',filename='binflow-bin-labels.js') }}" defer></script>
+<section class="bf-panel bf-pad">
+  <h2>BULK print</h2>
+  <p>One A4 sheet per physical bin with four identical QR labels. Print at Actual size (100%) on PPS78169 stock.</p>
+  <form method="get" action="{{ url_for('bf_bulk_labels') }}" class="bf-filters">
+    {% if counts.total > counts.current %}
+    <label>Bins to print<select name="scope">
+      <option value="all">Entire physical bin register · {{ counts.total }} sheets, including {{ counts.total-counts.current }} archived</option>
+      <option value="current">Current bins only · {{ counts.current }} sheets</option>
+    </select></label>
+    {% else %}<span>{{ counts.total }} {{ 'bin' if counts.total==1 else 'bins' }} · {{ counts.total }} A4 {{ 'sheet' if counts.total==1 else 'sheets' }}</span>{% endif %}
+    <button class="primary" type="submit" {{ 'disabled' if not counts.total }}>Download bulk PDF</button>
+  </form>
+</section>
 <form class="label-picker bf-panel bf-pad" method="get" action="{{ url_for('bf_labels') }}" data-label-picker>
+  <h2>Select four bin labels</h2>
   <input type="hidden" name="output" value="sheet">
   {% if archived %}<input type="hidden" name="condition" value="archived">{% endif %}
   <div class="label-actions">
