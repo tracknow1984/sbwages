@@ -13,10 +13,10 @@ from uuid import uuid4
 from flask import abort, flash, redirect, request, send_file, url_for
 
 import binflow_xero as xero
+import binflow_invoice_profiles as profiles
 from binflow_pickup_pricing import rate_text
 from binflow_pods import send_smtp
 from binflow_rental import report
-from binflow_sizes import amount
 
 FORTNIGHT_ANCHOR = date(1970, 1, 5)
 # All invoice and calendar views use the last confirmed result from Xero.
@@ -52,6 +52,7 @@ def migrate(conn):
             source TEXT PRIMARY KEY, draft_id TEXT NOT NULL REFERENCES bf_auto_drafts(id));
         CREATE TABLE IF NOT EXISTS bf_auto_billing_clock (id INTEGER PRIMARY KEY CHECK(id=1), last_run TEXT NOT NULL);
     """)
+    profiles.migrate(conn)
     conn.execute("INSERT OR IGNORE INTO bf_invoice_categories(name) VALUES('POD Collections')")
 
 
@@ -65,7 +66,7 @@ def totals(lines):
 
 def reconcile(conn, stamp, *, pods_only=False, requested_transfer=None):
     """Refresh open drafts within the caller's write transaction. Issued lines are immutable."""
-    defaults = conn.execute('SELECT * FROM bf_billing_defaults WHERE id=1').fetchone()
+    defaults = profiles.defaults(conn, xero.config(conn)['tenant_id'])
     groups = {}
     def add(key,kind,first,last,aid,client,lines,issue=''):
         grp = groups.setdefault(key,dict(kind=kind,start=first,end=last,account_id=aid,client=client,lines=[],issues=set()))
@@ -141,12 +142,10 @@ def add_transport_and_rental(conn, stamp, add, defaults, requested_transfer):
     from binflow_invoices import transport_lines
     start,end = fortnight(date.fromisoformat(stamp[:10]))
     transfers = conn.execute("""SELECT b.*,a.name AS payer,p.number AS po,
-        f.account_id AS billing_account,f.rate_cents AS billing_rate,f.fuel_bps AS billing_fuel,
         COALESCE(b.bulk_delivered_at,t.signed_at,t.received_at,b.pickup_date) AS billing_date,
         (b.bulk_delivered_at IS NOT NULL OR t.id IS NOT NULL) AS delivered
         FROM bf_interstate_bookings b
-        LEFT JOIN bf_auto_transfer_terms f ON f.booking_id=b.id AND f.booking_version=b.version
-        LEFT JOIN bf_client_accounts a ON a.id=COALESCE(b.account_id,f.account_id)
+        LEFT JOIN bf_client_accounts a ON a.id=b.account_id
         LEFT JOIN bf_interstate_purchase_orders p ON p.booking_id=b.id
         LEFT JOIN bf_bale_transfers t ON t.id=(
             SELECT MAX(m.transfer_id) FROM bf_interstate_manifests m JOIN bf_bale_transfers mt ON mt.id=m.transfer_id
@@ -158,10 +157,11 @@ def add_transport_and_rental(conn, stamp, add, defaults, requested_transfer):
         AND NOT EXISTS(SELECT 1 FROM bf_auto_claims c WHERE c.source='transfer:'||b.id) ORDER BY b.id""", (requested_transfer,))
     for b in transfers:
         b = dict(b)
-        if b['billing_account']:
-            b['account_id'] = b['account_id'] or b['billing_account']
-            if b['rate_cents'] is None:
-                b.update(rate_cents=b['billing_rate'],fuel_bps=b['billing_fuel'])
+        aid, rate, fuel = profiles.billing_terms(conn, b)
+        if not b['account_id'] and aid:
+            payer = conn.execute('SELECT name FROM bf_client_accounts WHERE id=?', (aid,)).fetchone()
+            b['payer'] = payer['name'] if payer else None
+        b.update(account_id=aid, rate_cents=rate, fuel_bps=fuel)
         entries = transport_lines(b)
         source = f"transfer:{b['id']}"
         lines = [charge(source,desc,rate,delivered=bool(b['delivered'])) for desc,qty,rate in entries]
@@ -243,16 +243,14 @@ def register(app,db,require,render,now,actor):
         return r
 
     def approval_settings(conn,draft):
-        defaults=conn.execute('SELECT * FROM bf_billing_defaults WHERE id=1').fetchone()
         cfg=xero.config(conn)
+        defaults=profiles.defaults(conn,cfg['tenant_id'])
         if not defaults or not cfg['tenant_id'] or not cfg['token_cipher'] or defaults['tenant']!=cfg['tenant_id']:
             raise ValueError('Connect Xero and save the billing defaults in Billing setup.')
-        link=conn.execute("""SELECT l.* FROM bf_invoice_contacts l JOIN bf_client_accounts a ON a.id=l.account_id
-            WHERE l.tenant_id=? AND l.account_id=? AND a.active=1""",(cfg['tenant_id'],draft['account_id'])).fetchone()
+        link=profiles.linked_contact(conn,cfg['tenant_id'],draft['account_id'])
         if not link: raise ValueError('Link the billing client to its Xero contact in Billing setup.')
         opts=json.loads(cfg['choices_json'])
-        account=next((a for a in opts.get('accounts',[]) if a['code']==defaults['account_code']),None)
-        tax=next((t for t in opts.get('taxes',[]) if t['code']==defaults['tax_code'] and float(t['rate'])==10),None)
+        account,tax=profiles.ledger(opts,defaults)
         if not account or not tax: raise ValueError('Review the income account and 10% sales GST code in Billing setup.')
         return cfg,link,account,tax
 
@@ -270,26 +268,25 @@ def register(app,db,require,render,now,actor):
                     raise ValueError('The Xero organisation changed. Refresh Billing setup.')
                 action=request.form.get('action')
                 aid=request.form.get('account_id',type=int)
-                if not conn.execute('SELECT 1 FROM bf_client_accounts WHERE id=? AND active=1',(aid,)).fetchone():
+                if (action != 'defaults' or aid is not None) and not conn.execute(
+                        'SELECT 1 FROM bf_client_accounts WHERE id=? AND active=1',(aid,)).fetchone():
                     raise ValueError('Choose an active client billing account.')
                 if action=='defaults':
-                    ac=request.form.get('account_code');tx=request.form.get('tax_code')
-                    if not cfg['tenant_id'] or not any(a['code']==ac for a in opts.get('accounts',[])) or not any(
-                        t['code']==tx and float(t['rate'])==10 for t in opts.get('taxes',[])):
-                        raise ValueError('Choose an income account and 10% sales GST code from the connected organisation.')
-                    conn.execute('INSERT OR REPLACE INTO bf_billing_defaults VALUES(1,?,?,?,?)',(cfg['tenant_id'],ac,tx,aid))
+                    profiles.save_defaults(conn,cfg['tenant_id'],opts,request.form.get('account_code'),
+                                           request.form.get('tax_code'),aid)
                 elif action=='transfer_terms':
-                    transfer = conn.execute('SELECT * FROM bf_interstate_bookings WHERE id=?',(request.form.get('booking',type=int),)).fetchone()
-                    if (not transfer or transfer['cancelled_at'] or transfer['version']!=request.form.get('version',type=int)
-                            or transfer['account_id'] and transfer['account_id']!=aid
-                            or transfer['account_id'] and transfer['rate_cents'] is not None
-                            or conn.execute("SELECT 1 FROM bf_rental_invoices WHERE booking_id=? AND status!='cancelled'",(transfer['id'],)).fetchone()):
-                        raise ValueError('The transfer or its billing terms changed. Review the current record.')
-                    rate=transfer['rate_cents'] if transfer['rate_cents'] is not None else amount(request.form.get('base'),'Agreed freight price',1000000,100)
-                    fuel=transfer['fuel_bps'] if transfer['rate_cents'] is not None else amount(request.form.get('fuel'),'Agreed fuel percentage',100,100)
-                    if rate<=0: raise ValueError('Enter the agreed positive freight price.')
-                    conn.execute('INSERT OR REPLACE INTO bf_auto_transfer_terms VALUES(?,?,?,?,?,?,?)',
-                        (transfer['id'],aid,rate,fuel,transfer['version'],now(),actor()))
+                    transfer = conn.execute('SELECT * FROM bf_interstate_bookings WHERE id=?',
+                                            (request.form.get('booking',type=int),)).fetchone()
+                    if not transfer or transfer['version']!=request.form.get('version',type=int):
+                        raise ValueError('The transfer changed. Reopen its billing details.')
+                    profiles.save_terms(conn,transfer,aid,request.form,now(),actor(),edit=True)
+                elif action=='forget_rate':
+                    conn.execute('''DELETE FROM bf_recurring_freight_terms WHERE account_id=? AND portal=? AND origin=?
+                        AND destination=? AND vehicle=? AND job_type=? AND unit_cents=? AND fuel_bps=?''',
+                        (aid,*(request.form.get(k) for k in ('portal','origin','destination','vehicle','job_type','unit_cents','fuel_bps'))))
+                elif action=='forget_client':
+                    conn.execute('DELETE FROM bf_office_billing_clients WHERE portal=? AND booking_name=? AND account_id=?',
+                                 (request.form.get('portal'), request.form.get('booking_name'),aid))
                 elif action=='routing':
                     cid=request.form.get('client_id',type=int)
                     if not conn.execute('SELECT 1 FROM bf_clients WHERE id=?',(cid,)).fetchone(): raise ValueError('Choose a collection client.')
@@ -304,13 +301,24 @@ def register(app,db,require,render,now,actor):
                     draft = transfer_invoices(conn,[transfer['id']]).get(transfer['id'])
                     if draft:
                         return redirect(url_for('bf_auto_review',did=draft['id']))
+                if action=='email':
+                    return redirect(url_for('bf_auto_billing_setup',billing_client=aid,_anchor='billing-email'),code=303)
                 return redirect(url_for('bf_auto_billing_setup'))
             except ValueError as exc:
                 conn.rollback();flash(str(exc),'error')
         cfg=xero.config(conn)
-        return render('auto_billing_setup',section='setup',
-            transfer=conn.execute('SELECT * FROM bf_interstate_bookings WHERE id=?',(request.args.get('booking',type=int),)).fetchone(),defaults=conn.execute('SELECT * FROM bf_billing_defaults').fetchone(),
-            categories=categories(conn),accounts=contacts(conn,cfg['tenant_id']),options=opts,error=error,tenant=cfg['tenant_id'],
+        transfer=conn.execute('SELECT * FROM bf_interstate_bookings WHERE id=?',(request.args.get('booking',type=int),)).fetchone()
+        terms = profiles.billing_terms(conn,transfer) if transfer else None
+        client_accounts = contacts(conn,cfg['tenant_id'])
+        selected_id = request.args.get('billing_client',type=int)
+        selected = next((a for a in client_accounts if a['id']==selected_id),None)
+        selected_email = conn.execute('SELECT email FROM bf_billing_emails WHERE account_id=?',(selected_id,)).fetchone()
+        return render('auto_billing_setup',section='setup',transfer=transfer, terms=terms,
+            route=profiles.lane(transfer) if transfer else None, defaults=profiles.defaults(conn,cfg['tenant_id']),
+            saved_clients=conn.execute('SELECT m.*,a.name FROM bf_office_billing_clients m JOIN bf_client_accounts a ON a.id=m.account_id ORDER BY a.name,m.booking_name'),
+            saved_rates=conn.execute('SELECT f.*,a.name FROM bf_recurring_freight_terms f JOIN bf_client_accounts a ON a.id=f.account_id ORDER BY a.name,f.origin,f.destination'),
+
+            categories=categories(conn),accounts=client_accounts,selected=selected,selected_email=selected_email,options=opts,error=error,tenant=cfg['tenant_id'],
             connected=bool(cfg['tenant_id'] and cfg['token_cipher']),clients=conn.execute("""SELECT c.id,c.name,a.name AS payer
             FROM bf_clients c LEFT JOIN bf_pod_bill_to m ON m.client_id=c.id LEFT JOIN bf_client_accounts a ON a.id=m.account_id
             ORDER BY c.name""").fetchall(),emails=conn.execute('SELECT e.email,a.name FROM bf_billing_emails e JOIN bf_client_accounts a ON a.id=e.account_id').fetchall())
@@ -349,7 +357,85 @@ def register(app,db,require,render,now,actor):
         reconcile(conn, now(), requested_transfer=bid)
         draft = row(transfer_invoices(conn,[bid])[bid]['id'])
         conn.commit()
-        return submit_invoice(draft['id'],True,draft['version'],tenant,from_booking=True)
+        if not draft['issue']:
+            try:
+                approval_settings(conn,draft)
+            except ValueError:
+                return redirect(url_for('bf_auto_review',did=draft['id']),code=303)
+            return submit_invoice(draft['id'],True,draft['version'],tenant,from_booking=True)
+        return redirect(url_for('bf_auto_review',did=draft['id']),code=303)
+
+    def draft_profile(conn, d, selected, opts):
+        b = conn.execute('SELECT * FROM bf_interstate_bookings WHERE id=?', (d['group_key'].split(':')[1],)).fetchone()
+        tenant = xero.config(conn)['tenant_id']
+        aid, rate, fuel = profiles.billing_terms(conn,b,selected)
+        payer = conn.execute('SELECT id,name FROM bf_client_accounts WHERE id=? AND active=1',(aid,)).fetchone()
+        link = profiles.linked_contact(conn,tenant,aid)
+        saved = profiles.defaults(conn,tenant)
+        account,tax = profiles.ledger(opts,saved)
+        route = profiles.lane(b)
+        # A stale tab cannot overwrite another operator's saved profile or bill a different amount.
+        signature = (d['version'],b['version'],tenant,aid,rate,fuel,link['contact_id'] if link else None,
+                     account['code'] if account else None,tax['code'] if tax else None,xero.booking_po(conn,b['id']))
+        revision = hashlib.sha256(json.dumps(signature).encode()).hexdigest()
+        return dict(booking=b,payer=payer,aid=aid,rate=rate,fuel=fuel,route=route,link=link,
+                    account=account,tax=tax,saved=saved,revision=revision,tenant=tenant)
+
+    @app.post('/binflow/invoices/review/<did>/billing-profile')
+    @require('admin')
+    def bf_draft_billing_profile(did):
+        conn = db()
+        d = row(did)
+        if d['kind'] != 'Transport':
+            abort(404)
+        if d['state'] != 'open':
+            return redirect(url_for('bf_auto_review',did=did),code=303)
+        selected = request.form.get('billing_client',type=int)
+        try:
+            tenant = request.form.get('tenant','')
+            conn.execute('BEGIN IMMEDIATE')
+            reconcile(conn,now())
+            d = row(did)
+            if d['state'] != 'open':
+                conn.rollback()
+                return redirect(url_for('bf_auto_review',did=did),code=303)
+            cfg = xero.config(conn)
+            if not tenant or tenant != cfg['tenant_id'] or not cfg['token_cipher']:
+                raise ValueError('Reconnect the Xero organisation selected for this draft.')
+            opts = json.loads(cfg['choices_json'])
+            profile = draft_profile(conn,d,selected,opts)
+            if not profile['payer'] or profile['revision'] != request.form.get('profile_revision') or tenant != profile['tenant']:
+                raise ValueError('Billing details changed. Review this draft before continuing.')
+            b = profile['booking']
+            if not xero.booking_po(conn,b['id']):
+                raise ValueError('Add the booking’s PO number before creating a Xero draft.')
+            if not profile['account'] or not profile['tax']:
+                saved = profile['saved']
+                profiles.save_defaults(conn, tenant, opts,
+                    profile['account']['code'] if profile['account'] else request.form.get('account_code'),
+                    profile['tax']['code'] if profile['tax'] else request.form.get('tax_code'),
+                    saved['rental_account'] if saved else None)
+            aid = profile['aid']
+            if not profile['link']:
+                profiles.save_contact(conn,tenant,aid,opts,request.form.get('contact'))
+            profiles.save_terms(conn,b,aid,request.form,now(),actor())
+            reconcile(conn,now(),requested_transfer=b['id'])
+            updated = row(did)
+            if updated['issue'] or updated['account_id']!=aid:
+                raise ValueError(updated['issue'] or 'Review the billing account.')
+            _, contact, account, tax = approval_settings(conn,updated)
+            profile_settings = (contact['contact_id'],account['code'],tax['code'],xero.booking_po(conn,b['id']))
+            conn.commit()
+        except ValueError as exc:
+            conn.rollback()
+            flash(str(exc),'error')
+            return bf_auto_review(did),400
+        try:
+            xero.verify_draft_connection(app,conn,tenant)
+        except xero.XeroError as exc:
+            flash('Billing profile saved. The draft is ready to retry when Xero reconnects. ' + str(exc),'warning')
+            return redirect(url_for('bf_auto_review',did=did),code=303)
+        return submit_invoice(did,True,updated['version'],tenant,from_booking=True,expected_settings=profile_settings)
 
     @app.get('/binflow/invoices/review/<did>')
     @require('admin')
@@ -365,7 +451,19 @@ def register(app,db,require,render,now,actor):
         if not reason and d['state']=='open':
             try: cfg,link,_,_ = approval_settings(conn,d)
             except ValueError as exc: reason=str(exc)
-        return render('auto_invoice',section='invoices',d=d,lines=lines,net=net,tax=tax,reason=reason,link=link,cfg=cfg,
+        profile = None
+        options = {}
+        clients = []
+        if bid and reason and d['state']=='open':
+            config = xero.config(conn)
+            if config['tenant_id'] and config['token_cipher']:
+                options, directory_error = xero.directory_for_page(app,conn,config)
+                if directory_error:
+                    flash(directory_error,'warning')
+                profile = draft_profile(conn,d,request.values.get('billing_client',type=int),options)
+                if not d['account_id']:
+                    clients = conn.execute('SELECT id,name,username FROM bf_client_accounts WHERE active=1 ORDER BY name,id').fetchall()
+        return render('auto_invoice',profile=profile,options=options,billing_clients=clients,section='invoices',d=d,lines=lines,net=net,tax=tax,reason=reason,link=link,cfg=cfg,
             ready=d['kind']=='Transport' or d['end']<now()[:10],
             email=conn.execute('SELECT email FROM bf_billing_emails WHERE account_id=?',(d['account_id'],)).fetchone(),
             invoice=invoice,xero_reference=reference,po_number=po)
@@ -410,7 +508,7 @@ def register(app,db,require,render,now,actor):
                 return redirect(url_for('bf_auto_review',did=did))
         return submit_invoice(did,save_draft,request.form.get('version'),tenant)
 
-    def submit_invoice(did,save_draft,version,tenant,*,from_booking=False):
+    def submit_invoice(did,save_draft,version,tenant,*,from_booking=False,expected_settings=None):
         conn=db()
         try:
             conn.execute('BEGIN IMMEDIATE');reconcile(conn,now());d=row(did)
@@ -438,6 +536,8 @@ def register(app,db,require,render,now,actor):
                 LineItems=[dict(Description=i['description'],Quantity=1,UnitAmount=i['net']/100,
                     AccountCode=account['code'],TaxType=tax['code']) for i in lines])
             po = xero.booking_po(conn,bid) if bid else request.form.get('po_number')
+            if expected_settings and expected_settings!=(link['contact_id'],account['code'],tax['code'],po):
+                raise ValueError('Billing details changed. Review the draft again.')
             xero.set_invoice_po(app,invoice,po,did)
             snapshot=dict(category=d['kind'],contact=dict(id=link['contact_id'],name=link['contact_name']),account=account,tax=tax,
                 subtotal=net,gst=gst,lines=[dict(i,quantity=1,rate=i['net']) for i in lines])

@@ -1,0 +1,42 @@
+{% from 'binflow/freight_billing_fields.html' import price_fields %}
+<section class="bf-panel bf-pad" id="billing-profile">
+  <h2>Billing profile</h2>
+  {% if billing_clients %}
+  <form method="get" class="bf-form">
+    <label>Bill {{ profile.booking.client_name }} to
+      <select name="billing_client" required><option value="">Choose billing client</option>
+        {% for a in billing_clients %}<option value="{{ a.id }}" {{ 'selected' if a.id==profile.aid }}>{{ a.name }} ({{ a.username }})</option>{% endfor %}
+      </select>
+    </label><button class="secondary">Use billing client</button>
+  </form>
+  {% endif %}
+  {% if profile.payer %}
+  <p>Bill to <strong>{{ profile.payer.name }}</strong>{% if profile.link %} · {{ profile.link.contact_name }} in Xero{% endif %}</p>
+  <form method="post" action="{{ url_for('bf_draft_billing_profile',did=d.id) }}" class="bf-form">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+    <input type="hidden" name="tenant" value="{{ profile.tenant }}">
+    <input type="hidden" name="profile_revision" value="{{ profile.revision }}">
+    <input type="hidden" name="billing_client" value="{{ profile.aid }}">
+    {% if not d.account_id %}<label><input type="checkbox" name="remember_client" value="yes" {{ 'checked' if request.method=='GET' or request.form.get('remember_client')=='yes' }}> Use this billing client for future {{ profile.booking.portal|upper }} office bookings under “{{ profile.booking.client_name }}”.</label>{% endif %}
+    {% if not profile.link %}
+      <label>Find Xero contact<input type="search" data-xero-search aria-controls="draft-xero-contact"></label>
+      <small data-xero-count aria-live="polite">{{ options.get('contacts',[])|length }} Xero contacts</small>
+      <label>Xero billing contact<select id="draft-xero-contact" name="contact" data-xero-contacts required><option value="">Choose contact</option>
+        {% for c in options.get('contacts',[]) %}<option data-contact-search="{{ c.aliases }}" value="{{ c.id }}" {{ 'selected' if request.form.get('contact')==c.id }}>{{ c.name }}</option>{% endfor %}
+      </select></label>
+      <script defer src="{{ url_for('static',filename='binflow-xero-contacts.js') }}"></script>
+    {% endif %}
+    {% if not profile.account %}<label>Sales account<select name="account_code" required><option value="">Choose sales account</option>
+      {% for a in options.get('accounts',[]) %}<option value="{{ a.code }}" {{ 'selected' if request.form.get('account_code')==a.code }}>{{ a.code }} · {{ a.name }}</option>{% endfor %}
+    </select></label>{% endif %}
+    {% if not profile.tax %}<label>Sales GST<select name="tax_code" required><option value="">Choose sales GST</option>
+      {% for t in options.get('taxes',[]) if t.rate|float==10 %}<option value="{{ t.code }}" {{ 'selected' if request.form.get('tax_code')==t.code }}>{{ t.name }} · {{ t.rate }}%</option>{% endfor %}
+    </select></label>{% endif %}
+    {% if not profile.account or not profile.tax %}<small>The sales account and GST selections become defaults for this Xero organisation.</small>{% endif %}
+    {% if profile.rate is none %}{{ price_fields(profile.booking,profile.route) }}
+    {% else %}<p>Freight {{ profile.rate|money }} ex GST · Fuel {{ profile.fuel / 100 }}%</p>{% endif %}
+    {% if po_number %}<button class="primary">Save billing profile and create Xero draft</button>
+    {% else %}<p><a href="{{ office_transfer_link(profile.booking.id,_anchor='purchase-order') }}">Add a PO number to continue</a></p>{% endif %}
+  </form>
+  {% elif not billing_clients %}<p>This booking needs an active billing account before it can be invoiced.</p>{% endif %}
+</section>

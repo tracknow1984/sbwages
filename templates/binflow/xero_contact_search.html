@@ -1,5 +1,7 @@
 <form method="get" class="bf-form" action="{{ url_for(request.endpoint) }}#xero-contact-search">
   <input type="hidden" name="refresh" value="yes">
+  {% if selected %}<input type="hidden" name="billing_client" value="{{ selected.id }}">{% endif %}
+  {% if transfer %}<input type="hidden" name="booking" value="{{ transfer.id }}">{% endif %}
   <button class="secondary">Refresh contacts from Xero</button>
 </form>
 <div class="bf-form" id="xero-contact-search">
