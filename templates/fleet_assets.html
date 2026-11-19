@@ -1,5 +1,38 @@
-{% extends 'base.html' %}{% block content %}
+{% extends 'base.html' %}
+{% block content %}
 <div class="page-heading"><div><span class="eyebrow">Prestarts</span><h1>Assets</h1></div><a href="{{ url_for('admin_prestart') }}">Completed prestarts</a></div>
-<details class="panel"><summary>Add vehicle</summary><form method="post" action="{{ url_for('fleet_save') }}">{% include 'fleet_fields.html' %}</form></details>
-<section class="panel"><div class="panel-head"><h2>Vehicle register</h2></div><div class="table-wrap"><table><thead><tr><th>Vehicle</th><th>State</th><th>Make / model</th><th>Rego</th><th>Rego expiry</th><th>Next inspection</th><th>Last service</th></tr></thead><tbody>
-{% for a in assets %}<tr><td><a href="{{ url_for('fleet_asset',tid=a.id) }}">{{ a.name }}</a></td><td>{{ a.state }}</td><td>{{ [a.make,a.model]|select|join(' ') or '—' }}</td><td>{{ a.rego or '—' }}</td>{% for k in ('rego_expiry','next_inspection','last_service') %}<td>{{ a[k]|display_date if a[k] else '—' }}</td>{% endfor %}</tr>{% else %}<tr><td colspan="7">No vehicles recorded.</td></tr>{% endfor %}</tbody></table></div></section>{% endblock %}
+<details class="panel" {% if submitted %}open{% endif %}>
+  <summary>Add vehicle</summary>
+  <form method="post" enctype="multipart/form-data" action="{{ url_for('fleet_save') }}">
+    {% include 'fleet_fields.html' %}
+  </form>
+</details>
+<section class="panel" id="fleet-notices" aria-labelledby="fleet-notices-title">
+  <h2 id="fleet-notices-title">Service and COC notices</h2>
+  {% if notices %}<div class="table-wrap"><table><thead><tr>
+    <th>Vehicle</th><th>Registration</th><th>Due for</th><th>Due date</th><th>Notice</th>
+  </tr></thead><tbody>{% for n in notices %}<tr>
+    <td><a href="{{ url_for('fleet_asset',tid=n.id) }}">{{ n.name }}</a></td><td>{{ n.rego or '—' }}</td>
+    <td>{{ n.kind }}</td><td>{{ n.due|display_date }}</td>
+    <td><strong>{% if n.days_left < 0 %}{{ -n.days_left }} day{{ 's' if n.days_left != -1 }} overdue{% elif n.days_left == 0 %}Due today{% else %}Due in {{ n.days_left }} day{{ 's' if n.days_left != 1 }}{% endif %}</strong></td>
+  </tr>{% endfor %}</tbody></table></div>
+  {% else %}<p>No service or COC reminders are due.</p>{% endif %}
+</section>
+<section class="panel"><div class="panel-head"><h2>Vehicle register</h2></div>
+  <div class="table-wrap"><table><thead><tr>
+    <th>Vehicle</th><th>State</th><th>Registration</th><th>Registration expiry</th>
+    <th>Inspection certificate due</th><th>Next service</th><th>COC due</th><th>Next scheduled inspection</th><th>Last service</th>
+  </tr></thead><tbody>
+  {% for a in assets %}<tr>
+    <td><a href="{{ url_for('fleet_asset',tid=a.id) }}"><strong>{{ a.name }}</strong></a>
+      {% if a.make or a.model %}<div>{{ [a.make,a.model]|select|join(' ') }}</div>{% endif %}
+      <div><a href="{{ url_for('fleet_asset',tid=a.id,_anchor='service-history') }}">Service history</a></div>
+    </td>
+    <td>{{ a.state }}</td><td>{{ a.rego or '—' }}{% if a.rego_status %}<div>{{ a.rego_status }}</div>{% endif %}</td>
+    {% for k in ('rego_expiry','inspection_certificate_due','next_service_date','coc_due_date','next_inspection','last_service') %}
+      <td>{{ a[k]|display_date if a[k] else '—' }}</td>
+    {% endfor %}
+  </tr>{% else %}<tr><td colspan="9">No vehicles recorded.</td></tr>{% endfor %}
+  </tbody></table></div>
+</section>
+{% endblock %}
