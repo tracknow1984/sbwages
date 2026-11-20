@@ -49,6 +49,19 @@
 .fleet-table tbody tr:last-child > * { border-bottom: 0; }
 .fleet-table tbody tr:hover { background: #f9fbfd; }
 .fleet-vehicle-name { color: #153956; font-size: 1.01rem; font-weight: 700; }
+.fleet-vehicle-summary { display: flex; align-items: flex-start; gap: 10px; }
+.fleet-vehicle-summary > div { min-width: 0; }
+.fleet-thumb { display: grid; place-items: center; width: clamp(48px, 6vw, 76px); aspect-ratio: 4 / 3; flex: none; border-radius: 6px; overflow: hidden; background: #edf2f6; }
+.fleet-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.fleet-thumb-empty .bf-icon { width: 24px; height: 24px; color: #7b8da0; }
+.fleet-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 145px), 1fr)); gap: 16px; margin: 12px 0; padding: 0; list-style: none; }
+.fleet-gallery li { min-width: 0; max-width: 220px; overflow-wrap: anywhere; }
+.fleet-gallery img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: contain; background: #edf2f6; border-radius: 6px; margin-bottom: 5px; }
+.fleet-gallery small { display: block; color: #526579; }
+.fleet-photo-choices { min-width: 0; margin: 16px 0; padding: 0; border: 0; }
+.fleet-photo-choice, .fleet-photo-remove { cursor: pointer; }
+.fleet-photo-choice span, .fleet-photo-remove { display: flex; align-items: baseline; gap: 6px; }
+.fleet-gallery input { width: auto; min-height: 0; margin: 0; flex: none; }
 .fleet-model { display: block; color: #55677a; font-weight: 400; font-size: .83rem; }
 .fleet-identity { margin-top: 7px; color: #465f76; font-size: .77rem; }
 .fleet-plate { padding: 1px 6px; background: #f3f6f9; border: 1px solid #c9d4de; border-radius: 4px; font-family: ui-monospace, monospace; letter-spacing: .05em; }

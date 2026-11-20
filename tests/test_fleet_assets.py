@@ -13,6 +13,59 @@ class FleetAssetTests(unittest.TestCase):
     post=legacy.BinFlowTests.post
     login=legacy.BinFlowTests.login
 
+    def test_asset_gallery_overview_photo_and_access(self):
+        root = '/admin/prestart/assets'
+        values = dict(name='Photo test vehicle', state='QLD')
+
+        def picture(name, colour):
+            data = io.BytesIO()
+            Image.new('RGB', (900, 600), colour).save(data, 'PNG')
+            data.seek(0)
+            return data, name
+
+        self.assertIn('name="asset_photos"', self.client.get(root + '/new').text)
+        created = self.post(root, {**values, 'asset_photos': [picture('front.png', 'red'), picture('rear.png', 'blue')]})
+        self.assertEqual(created.status_code, 200)
+        path = created.request.path
+        tid = int(path.rsplit('/', 1)[-1])
+        gallery = self.rows('SELECT id FROM vehicle_photos WHERE truck_id=? ORDER BY id', (tid,))
+        first, second = [row['id'] for row in gallery]
+        front, rear = [f'{path}/photos/{pid}' for pid in (first, second)]
+        self.assertIn(front + '?thumbnail=1', self.client.get(root).text)
+        self.assertNotIn(rear + '?thumbnail=1', self.client.get(root).text)
+        self.assertIn('data-name="rear.png"', created.text)
+        self.assertIn('name="overview_photo"', self.client.get(path + '/edit').text)
+        photo = self.client.get(rear)
+        self.assertEqual(photo.mimetype, 'image/jpeg')
+        with Image.open(io.BytesIO(photo.data)) as image:
+            self.assertEqual(image.size, (900, 600))
+        thumb = self.client.get(rear + '?thumbnail=1')
+        self.assertIn('no-store', thumb.headers['Cache-Control'])
+        with Image.open(io.BytesIO(thumb.data)) as image:
+            self.assertLessEqual(image.width, 320)
+            self.assertLessEqual(image.height, 240)
+        other = self.post(root, dict(name='Another vehicle', state='VIC')).request.path
+        self.assertEqual(self.client.get(rear.replace(path, other)).status_code, 404)
+        self.assertNotEqual(self.app.test_client().get(rear + '?thumbnail=1').status_code, 200)
+        invalid = self.post(other + '/edit', dict(name='Another vehicle', state='VIC', version=1, remove_photo=second))
+        self.assertEqual(invalid.status_code, 422)
+        self.assertEqual(self.client.get(rear).status_code, 200)
+        failed = self.post(path + '/edit', {**values, 'version': 1, 'overview_photo': second,
+                           'asset_photos': [picture('side.png', 'yellow'), (io.BytesIO(b'broken'), 'bad.jpg')]})
+        self.assertEqual(failed.status_code, 422)
+        self.assertIn(front + '?thumbnail=1', self.client.get(root).text)
+        self.assertNotIn('side.png', self.client.get(path).text)
+        self.post(path + '/edit', {**values, 'version': 1, 'overview_photo': second,
+                                  'asset_photos': picture('side.png', 'yellow')})
+        self.assertIn(rear + '?thumbnail=1', self.client.get(root).text)
+        self.post(path + '/edit', {**values, 'version': 1, 'remove_photo': second})
+        self.assertEqual(self.client.get(rear).status_code, 200)
+        self.post(path + '/status', dict(action='archive', version=2))
+        self.assertIn(rear + '?thumbnail=1', self.client.get(root + '?view=archived').text)
+        self.post(path + '/edit', {**values, 'version': 3, 'remove_photo': second, 'overview_photo': second})
+        self.assertEqual(self.client.get(rear).status_code, 404)
+        self.assertIn(front + '?thumbnail=1', self.client.get(root + '?view=archived').text)
+
     def test_vehicle_record_service_documents_and_home_state(self):
         values=dict(name='NSW Rigid',state='NSW',make='Fuso',model='Fighter',rego='TEST123',
                     rego_expiry='2027-02-01',next_inspection='2027-01-05',last_service='2026-01-01')

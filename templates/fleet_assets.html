@@ -34,9 +34,17 @@
       <thead><tr><th scope="col">Vehicle</th><th scope="col">Registration &amp; certificates</th><th scope="col">Servicing</th><th scope="col">Actions</th></tr></thead>
       <tbody>{% for a in assets %}<tr>
         <th scope="row" class="fleet-vehicle">
-          <a class="fleet-vehicle-name" href="{{ url_for('fleet_asset',tid=a.id) }}">{{ a.name }}</a>
-          {% if a.make or a.model %}<span class="fleet-model">{{ [a.make,a.model]|select|join(' ') }}</span>{% endif %}
-          <div class="fleet-identity">{% if a.rego %}<span class="fleet-plate">{{ a.rego }}</span>{% endif %}<span>{{ a.state }}</span></div>
+          <div class="fleet-vehicle-summary">
+            {% if a.cover_photo_id %}
+              <a class="fleet-thumb" href="{{ url_for('fleet_asset',tid=a.id,_anchor='asset-photos') }}" aria-label="View photos of {{ a.name }}">
+                <img src="{{ url_for('fleet_photo',tid=a.id,pid=a.cover_photo_id,thumbnail=1) }}" width="76" height="57" loading="lazy" alt="">
+              </a>
+            {% else %}<span class="fleet-thumb fleet-thumb-empty" aria-hidden="true">{{ icon('truck') }}</span>{% endif %}
+            <div><a class="fleet-vehicle-name" href="{{ url_for('fleet_asset',tid=a.id) }}">{{ a.name }}</a>
+              {% if a.make or a.model %}<span class="fleet-model">{{ [a.make,a.model]|select|join(' ') }}</span>{% endif %}
+              <div class="fleet-identity">{% if a.rego %}<span class="fleet-plate">{{ a.rego }}</span>{% endif %}<span>{{ a.state }}</span></div>
+            </div>
+          </div>
         </th>
         <td><span class="fleet-mobile-label">Registration &amp; certificates</span>
           {% if a.rego_status %}<span class="fleet-rego-status">{{ a.rego_status }}</span>{% endif %}
