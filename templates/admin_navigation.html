@@ -23,6 +23,7 @@
 <nav class="empire-nav no-print" aria-label="Main navigation">
   <div class="empire-nav__workspaces">
     {% for item in workspaces %}{{ nav_link(*item) }}{% endfor %}
+    <a href="https://shellcardportal.shell.com.au/" target="_blank" rel="noopener noreferrer" title="Open Shell Fuel in a new tab">{{ icon('fuel') }}Shell Fuel</a>
   </div>
   <button type="button" class="empire-nav__more" aria-controls="empire-nav-tools" aria-expanded="false" hidden>
     <span>More</span><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>

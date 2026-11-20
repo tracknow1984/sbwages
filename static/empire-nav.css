@@ -13,6 +13,7 @@
 .empire-nav__workspaces,
 .empire-nav__tools {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 3px;
 }
