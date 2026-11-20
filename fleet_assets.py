@@ -5,8 +5,11 @@ import secrets
 import sqlite3
 from datetime import date
 from flask import abort, flash, g, redirect, render_template, request, send_file, url_for
+from PIL import Image
+from werkzeug.utils import secure_filename
 from binflow_schedule import STATES
 from document_uploads import MAX_STAFF_FILES, read_document
+from prestart_media import photo_jpeg
 
 
 # Additional profile columns are optional so trucks already used on prestarts remain editable.
@@ -105,6 +108,35 @@ def save_history(conn, tid, kind, day, summary, key, uploads, max_bytes):
                      (hid, *document))
 
 
+def prepare_photo(upload):
+    data = photo_jpeg(upload)
+    with Image.open(io.BytesIO(data)) as image:
+        image.thumbnail((320, 240), Image.Resampling.LANCZOS)
+        thumbnail = io.BytesIO()
+        image.save(thumbnail, format='JPEG', quality=82)
+    return secure_filename(upload.filename)[:180] or 'Asset photo', data, thumbnail.getvalue()
+
+
+def asset_photos(conn, tid):
+    return conn.execute('SELECT id, filename FROM vehicle_photos WHERE truck_id=? ORDER BY id', (tid,)).fetchall()
+
+
+def save_photos(conn, tid, asset, uploads, form):
+    cover = form.get('overview_photo')
+    remove = set(form.getlist('remove_photo'))
+    if cover or remove:
+        existing = {str(row['id']) for row in asset_photos(conn, tid)}
+        if (cover and cover not in existing) or not remove.issubset(existing):
+            raise ValueError('Choose a photo from this vehicle.')
+        conn.executemany('DELETE FROM vehicle_photos WHERE truck_id=? AND id=?',
+                         ((tid, photo_id) for photo_id in remove))
+        if cover and cover not in remove and str(asset['cover_photo_id']) != cover:
+            conn.execute('UPDATE vehicle_photos SET is_cover=(id=?) WHERE truck_id=? AND (is_cover=1 OR id=?)',
+                         (cover, tid, cover))
+    conn.executemany('INSERT INTO vehicle_photos(truck_id, filename, photo, thumbnail) VALUES(?,?,?,?)',
+                     ((tid, *photo) for photo in uploads))
+
+
 def migrate(conn):
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS vehicle_profiles (
@@ -118,6 +150,10 @@ def migrate(conn):
             id INTEGER PRIMARY KEY,history_id INTEGER NOT NULL REFERENCES vehicle_history(id),
             filename TEXT NOT NULL,mime TEXT NOT NULL,data BLOB NOT NULL);
         CREATE INDEX IF NOT EXISTS vehicle_history_by_asset ON vehicle_history(truck_id,event_date);
+        CREATE TABLE IF NOT EXISTS vehicle_photos (
+            id INTEGER PRIMARY KEY, truck_id INTEGER NOT NULL REFERENCES bf_trucks(id) ON DELETE CASCADE,
+            filename TEXT NOT NULL, photo BLOB NOT NULL, thumbnail BLOB NOT NULL, is_cover INTEGER NOT NULL DEFAULT 0);
+        CREATE INDEX IF NOT EXISTS vehicle_photos_by_asset ON vehicle_photos(truck_id, is_cover DESC, id);
     """)
     conn.execute('BEGIN IMMEDIATE')
     existing = {row[1] for row in conn.execute('PRAGMA table_info(vehicle_profiles)')}
@@ -135,6 +171,7 @@ VEHICLES="""SELECT t.id,t.name,t.state,t.archived_at,p.make,p.model,p.rego,p.reg
     p.vin,p.description,p.gvm_kg,p.tare_kg,p.nhv_charging_code,p.purpose_of_use,p.rego_status,
     p.inspection_certificate_number,p.inspection_certificate_due,p.next_service_date,p.coc_due_date,
     COALESCE(p.service_notice_days,30) AS service_notice_days,COALESCE(p.coc_notice_days,30) AS coc_notice_days,
+    (SELECT id FROM vehicle_photos WHERE truck_id=t.id ORDER BY is_cover DESC,id LIMIT 1) AS cover_photo_id,
     (SELECT MAX(d) FROM (SELECT p.last_service AS d UNION ALL SELECT MAX(h.event_date) FROM vehicle_history h
         WHERE h.truck_id=t.id AND h.kind='Service')) AS last_service,p.last_service AS baseline,
     COALESCE(p.version,0) AS version FROM bf_trucks t LEFT JOIN vehicle_profiles p ON p.truck_id=t.id"""
@@ -162,7 +199,11 @@ def register(app,db,require,now):
     @app.get('/admin/prestart/assets/<int:tid>/edit')
     @require('admin')
     def fleet_form(tid=None):
-        return render_template('fleet_form.html', tab='prestart', states=STATES, asset=fetch(tid) if tid else None)
+        return edit_page(tid)
+
+    def edit_page(tid, submitted=None):
+        return render_template('fleet_form.html', tab='prestart', states=STATES, submitted=submitted,
+                               asset=fetch(tid) if tid else None, photos=asset_photos(db(), tid) if tid else [])
 
     @app.post('/admin/prestart/assets/<int:tid>/status')
     @require('admin')
@@ -194,8 +235,10 @@ def register(app,db,require,now):
             registration_files = [f for f in request.files.getlist('registration_files') if f.filename]
             inspection_files = [f for f in request.files.getlist('inspection_files') if f.filename]
             coc_files = [f for f in request.files.getlist('coc_files') if f.filename]
-            if len(registration_files) + len(inspection_files) + len(coc_files) > MAX_STAFF_FILES:
-                raise ValueError(f'Choose up to {MAX_STAFF_FILES} documents per save.')
+            photo_files = [f for f in request.files.getlist('asset_photos') if f.filename]
+            if len(registration_files) + len(inspection_files) + len(coc_files) + len(photo_files) > MAX_STAFF_FILES:
+                raise ValueError(f'Choose up to {MAX_STAFF_FILES} photos and documents combined per save.')
+            uploads_to_save = [prepare_photo(upload) for upload in photo_files]
             conn=db()
             with conn:
                 conn.execute('BEGIN IMMEDIATE')
@@ -226,6 +269,7 @@ def register(app,db,require,now):
                 conn.execute(f"""INSERT INTO vehicle_profiles(truck_id, {columns}, version)
                     VALUES(?, {placeholders}, 1) ON CONFLICT(truck_id) DO UPDATE SET
                     {updates}, version=version+1""", (tid, *(values[field] for field in PROFILE_FIELDS)))
+                save_photos(conn, tid, asset, uploads_to_save, request.form)
                 for kind, label, number, uploads in (
                     ('Registration', 'Registration papers', rego, registration_files),
                     ('Inspection', 'Certificate of inspection', values['inspection_certificate_number'], inspection_files),
@@ -244,8 +288,7 @@ def register(app,db,require,now):
             # Reload a stale edit before permitting a retry. Other validation errors retain the form.
             if editing_tid and fetch(editing_tid)['version'] != request.form.get('version', type=int):
                 return redirect(url_for('fleet_asset', tid=editing_tid), 303)
-            return render_template('fleet_form.html', tab='prestart', states=STATES, submitted=request.form,
-                                   asset=fetch(editing_tid) if editing_tid else None), 422
+            return edit_page(editing_tid, request.form), 422
         return redirect(url_for('fleet_asset',tid=tid) if tid else url_for('fleet_assets'),303)
 
     @app.get('/admin/prestart/assets/<int:tid>')
@@ -264,6 +307,7 @@ def register(app,db,require,now):
         for file in files:
             attachments.setdefault(file['history_id'], []).append(file)
         return render_template('fleet_asset.html',asset=asset,states=STATES,entries=entries,attachments=attachments,
+            photos=asset_photos(db(), tid),
             inspections=inspections,submitted=submitted,history_form=history_form,tab='prestart',key=secrets.token_urlsafe(24),day=now()[:10])
 
     @app.post('/admin/prestart/assets/<int:tid>/history')
@@ -307,6 +351,17 @@ def register(app,db,require,now):
             flash(message,'error')
             return asset_page(tid, history_form=request.form), 422
         return redirect(url_for('fleet_asset', tid=tid, _anchor='service-history' if kind == 'Service' else 'asset-documents'),303)
+
+    @app.get('/admin/prestart/assets/<int:tid>/photos/<int:pid>')
+    @require('admin')
+    def fleet_photo(tid, pid):
+        column = 'thumbnail' if request.args.get('thumbnail') == '1' else 'photo'
+        row = db().execute(f'SELECT {column} FROM vehicle_photos WHERE truck_id=? AND id=?', (tid, pid)).fetchone()
+        if not row:
+            abort(404)
+        response = send_file(io.BytesIO(row[0]), mimetype='image/jpeg')
+        response.headers['Cache-Control'] = 'private, no-store'
+        return response
 
     @app.get('/admin/prestart/assets/<int:tid>/files/<int:fid>')
     @require('admin')

@@ -25,6 +25,24 @@
   {{ field('gvm_kg', 'Gross vehicle mass (GVM) in kg', 'number') }}
   {{ field('tare_kg', 'Tare in kg', 'number') }}
 </div>
+<h3 id="edit-photos">Asset photos</h3>
+<label>Add photos<input type="file" name="asset_photos" accept="image/jpeg,image/png,image/webp" multiple>
+  <small>JPG, PNG or WebP · Up to 5 MB and 20 megapixels per photo. The first photo is the default overview photo.</small>
+</label>
+{% if photos %}
+{% set selected_photo = submitted.get('overview_photo', asset.cover_photo_id) if submitted else asset.cover_photo_id %}
+<fieldset class="fleet-photo-choices"><legend>Choose the overview photo</legend>
+  <ul class="fleet-gallery">{% for photo in photos %}<li>
+    <label class="fleet-photo-choice">
+      <img src="{{ url_for('fleet_photo',tid=asset.id,pid=photo.id,thumbnail=1) }}" loading="lazy" alt="">
+      <span><input type="radio" name="overview_photo" value="{{ photo.id }}"
+        {% if selected_photo|string == photo.id|string %}checked{% endif %}>{{ photo.filename }}</span>
+    </label>
+    <label class="fleet-photo-remove"><input type="checkbox" name="remove_photo" value="{{ photo.id }}"
+      {% if submitted and photo.id|string in submitted.getlist('remove_photo') %}checked{% endif %} aria-label="Remove {{ photo.filename }}">Remove</label>
+  </li>{% endfor %}</ul>
+</fieldset>
+{% endif %}
 <h3>Registration details</h3>
 <div class="form-grid">
   {{ field('rego', 'Registration number', limit=20) }}
@@ -39,7 +57,7 @@
   {{ field('inspection_certificate_due', 'Certificate of inspection due date', 'date') }}
 </div>
 <h3>Supporting documents</h3>
-<p>Optional · PDF, JPG or PNG · Up to 10 files in total, {{ config.DOCUMENT_MAX_BYTES // 1048576 }} MB each.</p>
+<p>PDF, JPG or PNG · Up to {{ config.DOCUMENT_MAX_BYTES // 1048576 }} MB per document. You can save up to 10 photos and documents combined at a time.</p>
 <div class="form-grid">
   <label>Registration papers<input type="file" name="registration_files" accept=".pdf,.jpg,.jpeg,.png" multiple></label>
   <label>COC documents<input type="file" name="coc_files" accept=".pdf,.jpg,.jpeg,.png" multiple></label>
