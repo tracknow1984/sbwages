@@ -5,14 +5,13 @@ from datetime import date
 from xml.sax.saxutils import escape
 
 from flask import abort,request
-from pypdf import PdfReader,PdfWriter
-from pypdf.errors import PdfReadError
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph,SimpleDocTemplate,Spacer
 from werkzeug.utils import secure_filename
 
 import binflow_period_reports as reports
+import binflow_invoice_pods as invoice_pods
 import binflow_xero as xero
 
 # A prepared invoice has an issue date. An unissued operational draft belongs to its period end.
@@ -82,20 +81,15 @@ def combined_pdf(app,conn,invoice):
         raise ValueError('Resolve the invoice’s Xero status before downloading a PDF.')
     else:
         source=local_preview(invoice)
-    if not pods: return source
-    writer=PdfWriter()
-    try:
-        writer.append(PdfReader(io.BytesIO(source)))
-        for pid in pods:
-            content=reports.pdf_data(app.view_functions['bf_pod_pdf'](job_id=pid))
-            writer.append(PdfReader(io.BytesIO(content)))
-        output=io.BytesIO()
-        writer.write(output)
-        return output.getvalue()
-    except PdfReadError:
-        raise ValueError('A PDF could not be combined. Refresh the invoice and its supporting PODs.') from None
-    finally:
-        writer.close()
+    docs=invoice_pods.documents(conn,[invoice['id']]).get(invoice['id'],[]) if item else []
+    job_ids=dict.fromkeys([*pods,*(p['id'] for p in docs if p['kind']=='job')])
+    def attachments():
+        for pid in job_ids:
+            yield reports.pdf_data(app.view_functions['bf_pod_pdf'](job_id=pid))
+        for doc in docs:
+            if doc['kind']=='file':
+                yield invoice_pods.file_content(conn,invoice['id'],doc['id'])
+    return invoice_pods.bundle(source,attachments())
 
 
 def filename(invoice):

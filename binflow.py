@@ -1203,6 +1203,15 @@ def register_binflow(app, db, require):
     @app.get('/binflow/pickups/<int:job_id>/pod.pdf')
     @access
     def bf_pod_pdf(job_id):
+        j = job(job_id)
+        ensure_pod_available(j)
+        if j['status'] in ('scheduled','cancelled'):
+            abort(400, 'Confirm the physical handover before creating a POD.')
+        if not pod_weights_ready(db(), j):
+            abort(409, 'POD pending. Complete all warehouse weights for this run first.')
+        return render_pod_pdf(j, items(job_id))
+
+    def render_pod_pdf(j, rows, *, example=False):
         from pathlib import Path
         from binflow_pod_records import status as pod_status, qr_bytes, sign_location_label
         import reportlab
@@ -1212,13 +1221,8 @@ def register_binflow(app, db, require):
         from reportlab.pdfbase import pdfmetrics
         from reportlab.pdfbase.ttfonts import TTFont
         from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, KeepTogether
-        j = job(job_id)
-        ensure_pod_available(j)
-        if j['status'] in ('scheduled','cancelled'):
-            abort(400, 'Confirm the physical handover before creating a POD.')
-        if not pod_weights_ready(db(), j):
-            abort(409, 'POD pending. Complete all warehouse weights for this run first.')
-        rows = items(job_id); output = io.BytesIO(); styles = getSampleStyleSheet()
+        output = io.BytesIO(); styles = getSampleStyleSheet()
+        status_label = 'EXAMPLE · TRAINING ONLY' if example else pod_status(j)
         # Embed fonts so client PDFs render consistently on phones and printers.
         font_dir = Path(reportlab.__file__).parent / 'fonts'
         for name, filename in [('BinFlow-Regular', 'Vera.ttf'), ('BinFlow-Bold', 'VeraBd.ttf')]:
@@ -1237,8 +1241,8 @@ def register_binflow(app, db, require):
             return datetime.fromisoformat(value).astimezone(ZoneInfo('Australia/Brisbane')).strftime('%d/%m/%Y %H:%M')
         document = SimpleDocTemplate(output, pagesize=(210*mm,297*mm), rightMargin=16*mm, leftMargin=16*mm, topMargin=16*mm, bottomMargin=16*mm, title=j['code'] + ' Proof of collection / delivery')
         p = lambda text, style='BodyText': Paragraph(escape(str(text)), styles[style])
-        story = [p('SB EMPIRE | BINFLOW', 'Title'), p('PROOF OF COLLECTION / DELIVERY', 'Heading2'), p(j['code'] + (' · '+pod_status(j)), 'Heading2'), Spacer(1,4*mm)]
-        record_url=app.config['APP_URL'].rstrip('/')+url_for('bf_pod_record',token=j['pod_token'])
+        story = [p('SB EMPIRE | BINFLOW', 'Title'), p('PROOF OF COLLECTION / DELIVERY', 'Heading2'), p(j['code'] + ' · '+status_label, 'Heading2'), Spacer(1,4*mm)]
+        record_url=app.config['APP_URL'].rstrip('/')+(url_for('bf_client_example_pod') if example else url_for('bf_pod_record',token=j['pod_token']))
         details = [('Client',j['client_name']),('Site',j['site_name']),('Address',j['site_address']),('State',j['state']),('Warehouse',j['warehouse_name']),('Vehicle',j['vehicle'] or 'Not recorded'),('Collection / delivery',timestamp(j['collected_at'])),('Recorded by',j['collected_by']),('Warehouse arrival',timestamp(j['received_at']))]
         details_table=Table([[[p(f'{label}: {value}') for label,value in details[:5]],
                              [p(f'{label}: {value}') for label,value in details[5:]],
@@ -1250,12 +1254,17 @@ def register_binflow(app, db, require):
         story.append(Spacer(1,5*mm))
         table = [[p(v) for v in ('Bin / journey','Size','Movement','Material','Gross kg','Tare kg','Net kg')]]
         for item in rows:
-            journey_url=app.config['APP_URL'].rstrip('/')+url_for('bf_pod_journey',token=j['pod_token'],item_id=item['id'])
-            table.append([Paragraph('<link href="'+escape(journey_url, {'"':'&quot;'})+'">'+escape(item['bin_code'])+'</link>',styles['BodyText']),p(item['size_name']),p('Collected' if item['direction']=='collect' else 'Empty delivered'),p(item['material_name'] or ('Unclassified' if item['direction']=='collect' else 'Not applicable')),p(kg(item['gross_g'])),p(kg(item['tare_g']) if item['direction']=='collect' else '—'),p(kg(item['net_g']))])
+            bin_label = p(item['bin_code'])
+            if not example:
+                journey_url=app.config['APP_URL'].rstrip('/')+url_for('bf_pod_journey',token=j['pod_token'],item_id=item['id'])
+                bin_label=Paragraph('<link href="'+escape(journey_url, {'"':'&quot;'})+'">'+escape(item['bin_code'])+'</link>',styles['BodyText'])
+            table.append([bin_label,p(item['size_name']),p('Collected' if item['direction']=='collect' else 'Empty delivered'),p(item['material_name'] or ('Unclassified' if item['direction']=='collect' else 'Not applicable')),p(kg(item['gross_g'])),p(kg(item['tare_g']) if item['direction']=='collect' else '—'),p(kg(item['net_g']))])
         t = Table(table, colWidths=[24*mm,18*mm,25*mm,39*mm,24*mm,24*mm,24*mm], repeatRows=1, hAlign='LEFT')
         t.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),colors.HexColor('#eaf1fa')),('VALIGN',(0,0),(-1,-1),'TOP'),('BOTTOMPADDING',(0,0),(-1,-1),8),('TOPPADDING',(0,0),(-1,-1),8),('LINEBELOW',(0,0),(-1,-1),0.4,colors.HexColor('#d6deeb'))]))
         story += [t,Spacer(1,5*mm),p(f'Recorded net weight: {kg(sum(i["net_g"] or 0 for i in rows))} kg','Heading2')]
-        if not j['pod_signed_at']:
+        if example:
+            story += [p('Warehouse final sign-off','Heading2'),p('Illustration only. A completed POD records the approving staff member, date, time, location and signature here.')]
+        elif not j['pod_signed_at']:
             story.append(p('PROVISIONAL: warehouse weighing and a separate signed final approval are required. '+pod_status(j)))
         else:
             story += [KeepTogether([p('Warehouse final sign-off','Heading2'),p('Signed by: '+j['pod_signed_name']),
@@ -1277,11 +1286,11 @@ def register_binflow(app, db, require):
         def pod_page(canvas, doc):
             canvas.saveState();canvas.setFont('BinFlow-Regular',8)
             canvas.setFillColor(colors.HexColor('#526675'))
-            canvas.drawString(16*mm,9*mm,j['code']+' | '+pod_status(j))
+            canvas.drawString(16*mm,9*mm,j['code']+' | '+status_label)
             canvas.drawRightString(194*mm,9*mm,'Page '+str(doc.page))
             canvas.restoreState()
         document.build(story,onFirstPage=pod_page,onLaterPages=pod_page); output.seek(0)
-        return send_file(output,mimetype='application/pdf',as_attachment=True,download_name=j['code']+'-POD.pdf')
+        return send_file(output,mimetype='application/pdf',as_attachment=not example,download_name=j['code']+'-POD.pdf')
 
     @app.get('/binflow/export.csv')
     @access
@@ -1308,7 +1317,7 @@ def register_binflow(app, db, require):
     register_runs(app, db, access, require, render, success, failure, now, actor, event)
 
     register_gps(app, db, access, require, render, success, failure, now, actor)
-    register_portal(app, db, access, require, render, success, failure, now, actor, bf_pod_pdf.__wrapped__)
+    register_portal(app, db, access, require, render, success, failure, now, actor, bf_pod_pdf.__wrapped__,render_pod_pdf)
     from binflow_bales import register as register_bales
     register_bales(app,db,access,require,render,success,failure,now,actor)
 

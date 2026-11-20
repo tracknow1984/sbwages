@@ -14,6 +14,7 @@ from flask import abort, flash, g, redirect, render_template, request, send_file
 
 import binflow_auto_invoices as auto
 import binflow_invoice_reports as invoice_reports
+import binflow_invoice_pods as invoice_pods
 import binflow_period_reports as reports
 import binflow_xero as xero
 import binflow_invoice_profiles as profiles
@@ -44,6 +45,7 @@ def migrate(conn):
         WHERE booking_id IS NOT NULL AND status!='cancelled'""")
 
     auto.migrate(conn)
+    invoice_pods.migrate(conn)
 
 
 def categories(conn):
@@ -211,18 +213,25 @@ def client_invoice_rows(app,conn,link,period,sort,selected=None):
     return sorted(invoices.values(),key=lambda row:(row['date'],row['number'],row['key']),reverse=sort=='newest')
 
 
-def client_invoice_download(app,conn,link,rows,groups,period,file_format):
+def client_document(app,conn,link,row,pdf):
+    source=pdf_bytes(app,conn,link['tenant_id'],row['iid'])
+    return invoice_pods.bundle(source,(
+        invoice_pods.file_content(conn,row['key'],p['id']) if p['kind']=='file' else reports.pdf_data(pdf(p['id']))
+        for p in row['pods']))
+
+
+def client_invoice_download(app,conn,link,rows,groups,period,file_format,pdf):
     filename='BinFlow-client-invoices-'+(period['first'] or 'selected')
     if file_format=='xls':
-        return reports.xls('Invoices',['Invoice','Category','Issued','Due','Status','Currency','Total incl. GST','Balance owing'],
+        return reports.xls('Invoices',['Invoice','Category','Issued','Due','Status','Currency','Total incl. GST','Balance owing','Supporting PODs'],
             ((r['number'],groups[r['category']]['name'],date.fromisoformat(r['date']) if r['date'] else None,
-              date.fromisoformat(r['due']) if r['due'] else None,r['status'],r['currency'],r['total'],r['outstanding'])
+              date.fromisoformat(r['due']) if r['due'] else None,r['status'],r['currency'],r['total'],r['outstanding'],', '.join(p['label'] for p in r['pods']))
              for r in rows),filename)
     def entries():
         for index,r in enumerate(rows,1):
             # The selection number keeps duplicate or sanitised invoice numbers unique in the archive.
             name=secure_filename(r['number']) or 'Invoice'
-            yield f'{index:03d}-{name}.pdf',pdf_bytes(app,conn,link['tenant_id'],r['iid'])
+            yield f'{index:03d}-{name}.pdf',client_document(app,conn,link,r,pdf)
     return reports.zip_download(entries(),filename)
 
 
@@ -247,9 +256,10 @@ def pdf_bytes(app, conn, tenant, iid):
     return data
 
 
-def register(app, db, require, render, client_access, now, actor):
+def register(app, db, require, render, client_access, now, actor,pdf):
     auto.register(app,db,require,render,now,actor)
     invoice_reports.register(app,db,require)
+    invoice_pods.register(app,db,require,render,now,actor)
     @app.get('/binflow/invoices')
     @require('admin')
     def bf_invoices():
@@ -261,7 +271,7 @@ def register(app, db, require, render, client_access, now, actor):
         grouping=period['key']
         clause='' if grouping=='all' else ' WHERE '+invoice_reports.INVOICE_DATE+' BETWEEN ? AND ?'
         params=() if grouping=='all' else (period['first'],period['last'])
-        drafts = conn.execute(f"""SELECT d.*,i.invoice_number,({auto.INVOICED_SQL}) AS invoiced,
+        drafts = conn.execute(f"""SELECT d.*,i.id AS saved_id,i.invoice_number,({auto.INVOICED_SQL}) AS invoiced,
             COALESCE((SELECT SUM(json_extract(x.value,'$.net')+json_extract(x.value,'$.tax'))
               FROM json_each(d.lines) x),0) AS total FROM bf_auto_drafts d LEFT JOIN bf_rental_invoices i ON i.id=d.id {clause}
             ORDER BY CASE d.state WHEN 'sending' THEN 0 WHEN 'open' THEN 1 ELSE 2 END,d.end DESC,d.client""",params).fetchall()
@@ -270,7 +280,8 @@ def register(app, db, require, render, client_access, now, actor):
             json_extract(i.snapshot_json,'$.contact.name') AS contact,c.name AS category FROM bf_rental_invoices i
             JOIN bf_invoice_categories c ON c.id=i.category_id LEFT JOIN bf_auto_drafts d ON d.id=i.id {clause} ORDER BY i.created_at DESC,i.rowid DESC LIMIT 31 OFFSET ?""",
                                (*params,(page-1)*30,)).fetchall()
-        return render('invoices_admin',section='invoices',categories=categories(conn),accounts=contacts(conn,cfg['tenant_id']),
+        supporting=invoice_pods.documents(conn,{r['id'] for r in history[:30]}|{d['saved_id'] for d in drafts if d['saved_id']})
+        return render('invoices_admin',section='invoices',supporting=supporting,categories=categories(conn),accounts=contacts(conn,cfg['tenant_id']),
                       history=history[:30],has_next=len(history)>30,page=page,drafts=drafts,today=now()[:10],period=period,chosen=chosen)
 
     @app.post('/binflow/invoices/categories')
@@ -401,8 +412,11 @@ def register(app, db, require, render, client_access, now, actor):
         else:
             try:
                 rows=client_invoice_rows(app,conn,link,period,sort,selected)
+                supporting=invoice_pods.documents(conn,[r['key'] for r in rows],g.bf_client)
+                for row in rows:
+                    row['pods']=supporting.get(row['key'],[])
                 if selected is not None:
-                    return client_invoice_download(app,conn,link,rows,groups,period,file_format)
+                    return client_invoice_download(app,conn,link,rows,groups,period,file_format,pdf)
                 for row in rows:
                     groups[row['category']]['rows'].append(row)
             except (xero.XeroError,KeyError,TypeError,ValueError):
@@ -412,9 +426,7 @@ def register(app, db, require, render, client_access, now, actor):
         return render_template('binflow/client_invoices.html',account=g.bf_client,groups=groups.values(),
             error=error,period=period,chosen=chosen,sort=sort,count=sum(len(c['rows']) for c in groups.values()))
 
-    @app.get('/binflow/client/invoices/<identifier>/pdf')
-    @client_access
-    def bf_client_invoice_pdf(identifier):
+    def issued_invoice(identifier):
         conn = db()
         link = client_link(conn)
         if not link:
@@ -427,10 +439,30 @@ def register(app, db, require, render, client_access, now, actor):
             rows = xero.records(xero.api(app,conn,'Invoices/'+iid,tenant_id=link['tenant_id']),'Invoices')
             if len(rows)!=1 or rows[0].get('InvoiceID')!=iid or not issued(rows[0],link['contact_id']):
                 abort(404)
-            data = pdf_bytes(app,conn,link['tenant_id'],iid)
         except xero.XeroError:
             abort(503,'The invoice PDF is temporarily unavailable. Please try again.')
+        return link,dict(key=identifier,iid=iid,number=rows[0].get('InvoiceNumber') or 'Invoice',
+                         pods=invoice_pods.documents(conn,[identifier],g.bf_client).get(identifier,[]))
+
+    @app.get('/binflow/client/invoices/<identifier>/pods/<any(job,file):kind>/<int:doc_id>')
+    @client_access
+    def bf_client_invoice_pod(identifier,kind,doc_id):
+        _,row=issued_invoice(identifier)
+        doc=next((p for p in row['pods'] if p['id']==doc_id and p['kind']==kind),None)
+        if not doc: abort(404)
+        if kind=='file':
+            return invoice_pods.document_response(invoice_pods.file_content(db(),identifier,doc_id),doc['label'])
+        return invoice_pods.document_response(reports.pdf_data(pdf(doc_id)),doc['label']+'.pdf')
+
+    @app.get('/binflow/client/invoices/<identifier>/pdf')
+    @client_access
+    def bf_client_invoice_pdf(identifier):
+        link,row=issued_invoice(identifier)
+        try:
+            data=client_document(app,db(),link,row,pdf)
+        except (ValueError,xero.XeroError):
+            abort(503,'The invoice PDF is temporarily unavailable. Please try again.')
         response = send_file(io.BytesIO(data),mimetype='application/pdf',as_attachment=True,
-                             download_name=(secure_filename(str(rows[0].get('InvoiceNumber') or 'Invoice')) or 'Invoice')+'.pdf')
+                             download_name=(secure_filename(str(row['number'])) or 'Invoice')+'.pdf')
         response.cache_control.no_store=True
         return response
