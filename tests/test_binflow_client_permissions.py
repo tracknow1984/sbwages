@@ -144,6 +144,19 @@ class PortalPermissionTests(unittest.TestCase):
         self.account('another-client')
         main=self.visit('blocktexx1')
         other=self.visit('another-client')
+        from io import BytesIO
+        from pypdf import PdfReader
+        sample='/binflow/client/pods/example.pdf'
+        self.assertIn(sample,main.get('/binflow/client/pods').text)
+        example=main.get(sample)
+        self.assertEqual(example.mimetype,'application/pdf')
+        text=' '.join(' '.join(p.extract_text().split()) for p in PdfReader(BytesIO(example.data)).pages)
+        self.assertIn('TRAINING ONLY',text)
+        self.assertIn('Recorded net weight: 49 kg',text)
+        self.assertIn('Empty delivered',text)
+        self.assertNotIn(sample,other.get('/binflow/client/pods').text)
+        self.assertNotEqual(other.get(sample).status_code,200)
+        self.assertEqual(self.rows('SELECT COUNT(*) AS count FROM bf_jobs')[0]['count'],0)
         national='/binflow/client/local-pickups?week=2026-10-19'
         page=main.get(national).text
         self.assertIn('Alpha QLD',page)

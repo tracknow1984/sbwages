@@ -38,13 +38,15 @@ def migrate_portal(conn):
     migrate_pods(conn)
 
 
-def register_portal(app, db, access, require, render, success, failure, now, actor, pdf):
+def register_portal(app, db, access, require, render, success, failure, now, actor, pdf,render_pod_pdf):
     def client_access(fn):
         @wraps(fn)
         def wrapped(*args,**kwargs):
             account=db().execute('SELECT * FROM bf_client_accounts WHERE id=? AND active=1', (session.get('bf_client_uid'),)).fetchone()
             if not account or account['auth_version']!=session.get('bf_client_version'):
                 session.pop('bf_client_uid',None);session.pop('bf_client_version',None)
+                if request.endpoint=='bf_client_example_pod':
+                    session['binflow_next']=url_for('bf_client_example_pod')
                 if request.blueprint == 'sbtx_client':
                     return redirect(url_for('sbtx_client_login'))
                 if request.endpoint == 'bf_client_communications':
@@ -94,6 +96,8 @@ def register_portal(app, db, access, require, render, success, failure, now, act
                     session.clear()
                     return render_template(template, error='This login does not have SBTX access.'),403
                 if 'pods.view' in rights and pod_next.startswith('/binflow/pod/'):
+                    return redirect(pod_next)
+                if 'pods.view' in rights and g.client_site_approval and pod_next==url_for('bf_client_example_pod'):
                     return redirect(pod_next)
                 destination = request.args.get('warehouse')
                 if destination and 'warehouses.view' in rights:
@@ -160,6 +164,24 @@ def register_portal(app, db, access, require, render, success, failure, now, act
         return render_template('binflow/client_pods.html',account=g.bf_client,jobs=jobs,dates=dates,
             run_date=run_date,national=national,page=page,pages=pages,period=period,count=count)
 
+    @app.get('/binflow/client/pods/example.pdf')
+    @client_access
+    def bf_client_example_pod():
+        if not g.client_site_approval:
+            abort(404)
+        sample=dict(code='EXAMPLE-001',client_name='BlockTexx · Example collection',site_name='Example textile collection site',
+            site_address='Example site, South East Queensland',state='QLD',warehouse_name='North Maclean',
+            vehicle='Example rigid truck',collected_at='2026-11-20T09:00:00+10:00',collected_by='Example driver',
+            received_at='2026-11-20T10:30:00+10:00',receiver_name='Example site contact',confirmation='Example handover',
+            confirmation_note='',signature=None,photo=None,notes='Training example. All movements and weights are illustrative.')
+        bins=[dict(bin_code='DEMO-01',size_name='660 L',direction='collect',material_name='Cotton',
+                   gross_g=91000,tare_g=42000,net_g=49000),
+              dict(bin_code='DEMO-02',size_name='660 L',direction='deliver',material_name='',
+                   gross_g=None,tare_g=42000,net_g=None)]
+        response=render_pod_pdf(sample,bins,example=True)
+        response.cache_control.no_store=True
+        return response
+
     @app.get('/binflow/client/pods/<int:job_id>.pdf')
     @client_access
     def bf_client_pdf(job_id):
@@ -169,7 +191,7 @@ def register_portal(app, db, access, require, render, success, failure, now, act
     from binflow_interstate import register as register_interstate
     register_interstate(app,db,access,require,render,client_access,now,actor)
     from binflow_invoices import register as register_invoices
-    register_invoices(app,db,require,render,client_access,now,actor)
+    register_invoices(app,db,require,render,client_access,now,actor,pdf)
     register_management(app, db, client_access, now)
     warehouse_messages.register(app, db, client_access, access, render, now)
     from binflow_client_directory import register as register_directory

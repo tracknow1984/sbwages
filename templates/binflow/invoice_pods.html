@@ -1,0 +1,30 @@
+{% extends 'binflow/layout.html' %}
+{% block title %}Invoice PODs{% endblock %}
+{% block subtitle %}{{ invoice.invoice_number or invoice.reference }} · {{ invoice.client }}{% endblock %}
+{% block body %}
+<a href="{{ url_for('bf_invoices') }}">Back to invoices</a>
+<section class="bf-panel bf-pad">
+  <h2>Attached PODs</h2>
+  {% if documents %}<ul>{% for doc in documents %}
+    <li><a href="{{ url_for('bf_invoice_pod_file',identifier=invoice.id,doc_id=doc.id) if doc.kind=='file' else url_for('bf_pod',job_id=doc.id) }}">{{ doc.label }}</a>
+    {% if doc.kind=='job' and doc.id in automatic %}<small>From invoice line</small>
+    {% else %}<form method="post" class="bf-actions"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <input type="hidden" name="kind" value="{{ doc.kind }}"><input type="hidden" name="document_id" value="{{ doc.id }}">
+      <button class="secondary compact" name="action" value="remove" aria-label="Remove {{ doc.label }} from this invoice">Remove from invoice</button>
+    </form>{% endif %}</li>
+  {% endfor %}</ul>{% else %}<p>No POD attached.</p>{% endif %}
+</section>
+<section class="bf-panel bf-pad"><h2>Add a POD</h2>
+  <form method="post" enctype="multipart/form-data" class="bf-filters">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+    <label>Upload a POD (PDF, up to {{ config.DOCUMENT_MAX_BYTES // 1048576 }} MB)<input type="file" name="document" accept=".pdf,application/pdf" required></label>
+    <button class="primary" name="action" value="upload">Attach PDF</button>
+  </form>
+  {% if choices %}<form method="post" class="bf-filters">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+    <label>Existing signed BinFlow POD<input type="text" name="code" list="signed-pod-codes" placeholder="Choose or enter a POD number" required></label>
+    <datalist id="signed-pod-codes">{% for j in choices %}<option value="{{ j.code }}">{{ j.site_name }} · {{ j.scheduled_date|display_date }}</option>{% endfor %}</datalist>
+    <button class="secondary" name="action" value="link">Link signed POD</button>
+  </form>{% endif %}
+</section>
+{% endblock %}

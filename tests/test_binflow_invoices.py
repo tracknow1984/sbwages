@@ -22,13 +22,95 @@ class ClientInvoiceTests(TestCase):
     account = portal.PortalPermissionTests.account
     visit = portal.PortalPermissionTests.visit
     send = portal.PortalPermissionTests.send
+    job = portal.PortalPermissionTests.job
+    exchange = portal.PortalPermissionTests.exchange
+    initial_delivery = portal.PortalPermissionTests.initial_delivery
 
     def link(self, aid):
         self.assertEqual(self.post(BASE+'/contact',dict(client=aid,contact=billing.CONTACT,tenant=billing.TENANT)).status_code,200)
 
+    @billing.connected_organisation
+    def test_attached_pods_view_merge_and_account_isolation(self):
+        import io
+        import zipfile
+        from pypdf import PdfReader,PdfWriter
+        self.connect()
+        owner=self.account('blocktexx1')
+        self.link(owner)
+        self.link(self.account('other-invoice-client'))
+        client=self.visit('blocktexx1')
+        other=self.visit('other-invoice-client')
+        data=self.values(owner)
+        self.post(BASE+'/new',data)
+        key=data['draft_key']
+        manage=f'{BASE}/{key}/pods'
+        self.assertIn('Attach PDF',self.client.get(manage).text)
+        with self.connection() as conn:
+            conn.execute("UPDATE bf_rental_invoices SET status='created',invoice_id=? WHERE id=?",(billing.INVOICE,key))
+        pdf=io.BytesIO()
+        writer=PdfWriter()
+        writer.add_blank_page(width=300,height=200)
+        writer.write(pdf)
+        raw=pdf.getvalue()
+        for _ in range(2):
+            self.post(manage,dict(action='upload',document=(io.BytesIO(raw),'signed-delivery.pdf')))
+        invalid=self.post(manage,dict(action='upload',document=(io.BytesIO(b'%PDF-corrupt'),'bad.pdf')))
+        self.assertIn('This file could not be read',invalid.text)
+        files=self.rows('SELECT id FROM bf_invoice_pod_files')
+        self.assertEqual(len(files),1)
+        file_id=files[0]['id']
+        route=f'{PORTAL}/{key}/pods/file/{file_id}'
+        remote=dict(InvoiceID=billing.INVOICE,InvoiceNumber='INV-POD',Type='ACCREC',Status='AUTHORISED',
+            Contact={'ContactID':billing.CONTACT},DateString='2026-11-20',DueDateString='2026-12-04',Total=100,AmountDue=100)
+        with patch('binflow_xero.api',return_value={'Invoices':[remote]}),patch('binflow_invoices.pdf_bytes',return_value=raw):
+            self.assertIn(route,client.get(PORTAL).text)
+            self.assertEqual(client.get(route).data,raw)
+            self.assertIn('inline',client.get(route).headers['Content-Disposition'])
+            self.assertEqual(other.get(route).status_code,404)
+            self.assertEqual(len(PdfReader(io.BytesIO(client.get(f'{PORTAL}/{key}/pdf').data)).pages),2)
+            self.assertEqual(len(PdfReader(io.BytesIO(self.client.get(f'{BASE}/{key}/document.pdf').data)).pages),2)
+            response=self.send(client,PORTAL,dict(selected=key,format='zip'))
+            with zipfile.ZipFile(io.BytesIO(response.data)) as archive:
+                self.assertEqual(len(PdfReader(io.BytesIO(archive.read(archive.namelist()[0]))).pages),2)
+            remote['Status']='DRAFT'
+            self.assertEqual(client.get(route).status_code,404)
+            remote['Status']='PAID'
+            self.post(manage,dict(action='remove',kind='file',document_id=file_id))
+            self.assertEqual(client.get(route).status_code,404)
+            self.assertIn('No POD attached',client.get(PORTAL).text)
+
     def values(self, aid, **updates):
         return dict(dict(draft_key=str(uuid4()),client=aid,category=2,invoice_date='2026-11-11',due_date='2026-11-25',
                          po_number='PO-Manual',account_code='200',tax_type='OUTPUT',description='Local transport',quantity='2.5',unit_rate='125.30'),**updates)
+
+    @billing.connected_organisation
+    def test_link_signed_system_pod_and_withdrawal(self):
+        from pod_helpers import sign_pod
+        self.connect()
+        aid=self.account('blocktexx1')
+        self.link(aid)
+        client=self.visit('blocktexx1')
+        self.initial_delivery()
+        sign_pod(self,1)
+        values=self.values(aid)
+        self.post(BASE+'/new',values)
+        key=values['draft_key']
+        manage=f'{BASE}/{key}/pods'
+        self.assertIn('BF-000001',self.client.get(manage).text)
+        for _ in range(2):
+            self.post(manage,dict(action='link',code='BF-000001'))
+        self.assertEqual(len(self.rows('SELECT job_id FROM bf_invoice_pod_jobs')),1)
+        with self.connection() as conn:
+            conn.execute("UPDATE bf_rental_invoices SET status='created',invoice_id=? WHERE id=?",(billing.INVOICE,key))
+        remote=dict(InvoiceID=billing.INVOICE,Type='ACCREC',Status='PAID',Contact={'ContactID':billing.CONTACT},Total=3,AmountDue=0)
+        route=f'{PORTAL}/{key}/pods/job/1'
+        with patch('binflow_xero.api',return_value={'Invoices':[remote]}):
+            self.assertIn(route,client.get(PORTAL).text)
+            self.assertEqual(client.get(route).mimetype,'application/pdf')
+            with self.connection() as conn:
+                conn.execute("UPDATE bf_jobs SET pod_deleted_at='withdrawn' WHERE id=1")
+            self.assertNotIn(route,client.get(PORTAL).text)
+            self.assertEqual(client.get(route).status_code,404)
 
     @billing.connected_organisation
     def test_categories_billing_draft_and_isolated_issued_documents(self):
