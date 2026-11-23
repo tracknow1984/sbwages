@@ -21,6 +21,7 @@ from document_uploads import read_document
 import binflow_client_access as portal
 import binflow_freight_rates as freight
 import binflow_transfer_dispatch as dispatch
+import binflow_transfer_pods as transfer_pods
 import sbtx
 
 PLACES = {
@@ -116,6 +117,7 @@ def migrate(conn):
         before_json TEXT NOT NULL,after_json TEXT NOT NULL)""")
     freight.migrate(conn)
     dispatch.migrate(conn)
+    transfer_pods.migrate(conn)
 
 
 def booking_status(row, manifest_status=None, date_change=False):
@@ -670,7 +672,7 @@ def register(app, db, access, require, render, client_access, now, actor):
         route_options = dispatch.options(db(),row,PLACES[row['origin']][1],PLACES[row['destination']][1]) if office and row['origin'] and not row['cancelled_at'] and not has_delivered(row,manifest) else None
         if route_options and handoff and handoff['event']=='On hold' and handoff['target'] in route_options['choices']:
             route_options['preferred'] = handoff['target']
-        return page('interstate_detail',external,handoff=handoff,route_options=route_options,history=history,invoice=invoice,billed=billed,change_error=change_error,
+        return page('interstate_detail',external,transfer_pod=transfer_pods.record(db(),bid),handoff=handoff,route_options=route_options,history=history,invoice=invoice,billed=billed,change_error=change_error,
                     editable=not row['cancelled_at'] and not has_delivered(row,manifest),b=row,manifest=manifest,status=status,po=po_metadata(bid),
                     po_error=po_error,can_update_booking=can_update_booking(external), change=change,
                     movable=bool(row['delivery_date']) and can_move_dates(row, manifest_status), date_error=date_error,
@@ -1032,5 +1034,6 @@ def register(app, db, access, require, render, client_access, now, actor):
         flash('Portal permissions saved.','success')
         return redirect(url_for('sbtx_accounts' if request.args.get('area') == 'sbtx' else 'bf_interstate_accounts',_anchor=f'login-{aid}'),code=303)
 
+    transfer_pods.register(app,db,access,client_access,page,booking,sbtx_office,sbtx_client,now,actor)
     app.register_blueprint(sbtx_office)
     app.register_blueprint(sbtx_client)
