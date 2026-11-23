@@ -7,6 +7,7 @@
 {% macro vehicle(b) %}{{ 'B DOUBLE' if b.vehicle=='B-DOUBLE' else b.vehicle or 'Vehicle to confirm' }}{% endmacro %}
 {% macro vehicle_tag(code) %}<span class="it-vehicle-tag" data-truck="{{ code or 'unassigned' }}">{{ {'RIGID':'RIGID','SEMI TRAILER':'SEMI','B-DOUBLE':'B DOUBLE'}.get(code,'Vehicle to confirm') }}</span>{% endmacro %}
 {% macro invoice_badge() %}<span class="it-invoiced-badge">Invoiced</span>{% endmacro %}
+{% macro pod_badge(b) %}<span class="it-pod-badge" data-pod-status {% if not b.pod_signed_at %}hidden{% endif %} title="{{ 'Signed ' ~ (b.pod_signed_at|display_datetime) if b.pod_signed_at else '' }}">✓ POD signed</span>{% endmacro %}
 {% macro preview_link(b) %}href="{{ transfer_url('detail',external,bid=b.id) }}" data-record-text data-transfer-preview="{{ b.id }}" data-client-colour="{{ b.colour }}"{% if invoices.get(b.id) and invoices[b.id].invoiced %} data-invoiced{% endif %} aria-controls="it-transfer-preview" aria-expanded="false"{% endmacro %}
 {% block transfer_content %}
 {% set can_add=not external or right('add') in g.client_rights %}
@@ -15,6 +16,7 @@
 <a class="it-pending it-awaiting-transfer" {{ preview_link(info) }}>
   {{ vehicle_tag(b.vehicle) }}<strong>{{ info.billing_name }}</strong><span>{{ reference(b) }} · {{ route(b) }}</span>
   {% if not external %}{{ invoice_badge() }}{% endif %}
+  {{ pod_badge(b) }}
   {% if b.date_change_id %}<strong>Date change requested</strong>{% if b.po_received %}{{ po_badge(true) }}{% endif %}{% endif %}
   <span>Pickup {{ b.pickup_date|display_date }} · Delivery {{ b.delivery_date|display_date }}</span>
 </a>{% else %}<p>No pending requests.</p>{% endfor %}</section>
@@ -43,6 +45,7 @@
     <span>{{ po_badge(false) }} Add a number or file</span>
     <span>{{ po_badge(true) }} Number or file supplied</span>
     {% if not external %}<span>{{ invoice_badge() }} Confirmed in Xero</span>{% endif %}
+    <span><span class="it-pod-badge">✓ POD signed</span> Completed paperwork</span>
     <div class="it-vehicle-key" aria-label="Vehicle colours">{% for code in calendar_vehicles %}{{ vehicle_tag(code) }}{% endfor %}</div>
   </div>
   <div class="bf-calendar-grid-wrap"><table class="bf-date-grid {{ 'bf-date-grid-week' if view=='week' }}" aria-label="Transfer bookings by pickup date">
@@ -57,6 +60,7 @@
             {% if b.pickup_company and b.pickup_company!=b.billing_name %}<span>{{ b.pickup_company }}</span>{% endif %}
             <span class="it-card-meta">{{ route(b) }}</span>
             {{ po_badge(b.po_received) }}
+            {{ pod_badge(b) }}
             {% if not external %}
             {{ invoice_badge() }}
             {% set answer=dispatch_response_label(b.handoff_event,b.handoff_target,b.send_status,b.dispatch_decision) %}
@@ -75,7 +79,7 @@
 </aside>
 {% for id,b in previews.items() %}
 <template id="it-booking-{{ id }}">
-  <header><small>{{ reference(b) }} · {{ b.status }}</small><h3>{{ b.billing_name }}</h3><p>{{ route(b) }}{% if not b.rigid_hours_units %} · {{ vehicle(b) }}{% else %} · {{ b.rigid_hours_units|hours }} hours requested{% endif %}</p></header>
+  <header><small>{{ reference(b) }} · {{ b.status }}</small><h3>{{ b.billing_name }}</h3><p>{{ route(b) }}{% if not b.rigid_hours_units %} · {{ vehicle(b) }}{% else %} · {{ b.rigid_hours_units|hours }} hours requested{% endif %}</p>{{ pod_badge(b) }}</header>
   {% if not external %}
   {% set answer=dispatch_response_label(b.handoff_event,b.handoff_target,b.send_status,b.dispatch_decision) %}
   <section class="it-preview-goods" data-dispatch-preview="{{ id }}" {% if not answer %}hidden{% endif %}><h4 data-reply-field="label">{{ answer }}</h4>
@@ -107,6 +111,7 @@
   {% if not external and current_user.role=='admin' and not b.bulk_delivered_at and b.manifest_status not in ['received','handed_over'] %}<div class="it-tools"><a class="button secondary" href="{{ transfer_url('edit',false,bid=id) }}">Modify load</a><a href="{{ transfer_url('detail',false,bid=id,cancel=1,_anchor='cancel-load') }}">Cancel load</a></div>{% endif %}
   {% if not external and current_user.role=='admin' and (b.locked_at or invoices.get(id)) %}<div class="it-tools">{{ invoice_action(b,invoices.get(id),b.po_number) }}</div>{% endif %}
   {% if not external %}<div class="it-tools"><a class="button secondary" href="{{ transfer_url('pod',false,bid=id) }}">Raise / view POD</a></div>{% endif %}
+  {% if external and b.pod_signed_at %}<div class="it-tools"><a class="button secondary" href="{{ transfer_url('pod',true,bid=id) }}">View signed POD</a></div>{% endif %}
   <footer><span>{{ 'Subcontracted' if b.job_type=='external' else 'Internal job' }}</span><a href="{{ transfer_url('detail',external,bid=id) }}">Open booking</a></footer>
 </template>
 {% endfor %}

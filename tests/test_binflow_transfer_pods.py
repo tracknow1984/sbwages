@@ -144,3 +144,25 @@ class TransferPodTests(unittest.TestCase):
         self.assertEqual(response.status_code,200)
         self.assertIn('/sbtx/transfers/1/pod.pdf',response.text)
         self.assertIn('SIGNED',self.pod_text(self.client,'/sbtx/transfers/1/pod.pdf'))
+
+    def test_calendar_shows_completed_pod_only_after_signing(self):
+        import re
+        self.create()
+        def badge(page):
+            card=page.split('data-transfer-preview="1"',1)[1].split('</a>',1)[0]
+            return re.search(r'<span class="it-pod-badge"[^>]*>',card)[0]
+        self.post(CAL+'/1/pod',self.values())
+        self.assertIn('hidden',badge(self.client.get(CAL+'?date=2026-09-01').text))
+        self.post(CAL+'/1/lock',dict(version=1))
+        version=self.rows('SELECT version FROM bf_interstate_bookings')[0]['version']
+        updates=CAL+'?date=2026-09-01&responses=1'
+        self.assertFalse(self.client.get(updates).json['bookings']['1']['pod_signed'])
+        self.post(CAL+'/1/pod',self.values(action='sign',revision=1,booking_version=version))
+        for view in ('month','week'):
+            page=self.client.get(CAL+'?date=2026-09-01&view='+view).text
+            self.assertNotIn('hidden',badge(page))
+            self.assertIn('Signed ',badge(page))
+        reply=self.client.get(updates).json['bookings']['1']
+        self.assertTrue(reply['pod_signed'])
+        self.assertTrue(reply['pod_signed_at'])
+        self.assertFalse(reply['invoiced'])

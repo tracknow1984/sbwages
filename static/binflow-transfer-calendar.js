@@ -31,6 +31,14 @@
         label.textContent = reply?.label || '';
         label.className = 'it-reply ' + (reply?.decision || 'pending');
         const template = document.getElementById('it-booking-' + id);
+        if (typeof reply?.pod_signed === 'boolean') {
+          for (const badge of [card.querySelector('[data-pod-status]'), template?.content.querySelector('[data-pod-status]'),
+                               trigger === card ? body.querySelector('[data-pod-status]') : null]) {
+            if (!badge) continue;
+            badge.hidden = !reply.pod_signed;
+            badge.title = reply.pod_signed ? 'Signed ' + reply.pod_signed_at : '';
+          }
+        }
         const selector = '[data-dispatch-preview="' + id + '"]';
         for (const section of [template?.content.querySelector(selector), body.querySelector(selector)]) {
           if (!section) continue;
