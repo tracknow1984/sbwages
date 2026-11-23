@@ -128,3 +128,8 @@
 .it-event .it-reply.approved {color:#145334}.it-event .it-reply.denied {color:#8f1b2b}
 
 .it-event .it-reply[hidden],.it-preview-goods[hidden] {display:none}
+.it-pod-branding{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:20px;border-bottom:1px solid #d6deeb;padding-bottom:18px;margin-bottom:22px}
+.it-pod-empire-logo{display:block;width:160px;max-width:45%;height:auto;object-fit:contain}
+.it-pod-branding .bf-product-brand{display:inline-flex;align-items:center;gap:10px;white-space:nowrap}
+.it-pod-branding .bf-brand-wordmark{font:800 24px/1 Arial,sans-serif;letter-spacing:-1px;color:#102c4c}
+.it-pod-branding .bf-brand-icon{width:38px;height:38px}
