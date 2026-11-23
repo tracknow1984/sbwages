@@ -61,7 +61,7 @@ def pdf_bytes(pod, static_folder):
     from reportlab.lib.units import mm
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle
     data = json.loads(pod['snapshot'])
     fonts = Path(reportlab.__file__).parent / 'fonts'
     for name, filename in [('TransferPOD', 'Vera.ttf'), ('TransferPOD-Bold', 'VeraBd.ttf')]:
@@ -83,12 +83,22 @@ def pdf_bytes(pod, static_folder):
     output = io.BytesIO()
     document = SimpleDocTemplate(output, pagesize=(210*mm,297*mm), leftMargin=18*mm, rightMargin=18*mm,
                                  topMargin=15*mm, bottomMargin=18*mm, title=reference+' Proof of delivery / work')
-    story = []
-    logo = Path(static_folder) / 'sb-empire-logo.jpg'
-    if logo.exists():
-        image = Image(str(logo))
-        image._restrictSize(55*mm, 22*mm)
-        story += [image, Spacer(1, 4*mm)]
+    empire = Image(str(Path(static_folder) / 'sb-empire-black.webp'))
+    empire._restrictSize(48*mm, 28*mm)
+    empire.hAlign = 'LEFT'
+    partner = ''
+    if data['portal'] == 'binflow':
+        mark = Image(str(Path(static_folder) / 'binflow-touch.png'), width=14*mm, height=14*mm)
+        wordmark = Paragraph('<font name="TransferPOD-Bold" size="19" color="#102c4c">BINFLOW</font>', styles['BodyText'])
+        partner = Table([[mark, wordmark]], colWidths=[18*mm, 39*mm])
+        partner.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+                                    ('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0)]))
+    header = Table([[empire, partner]], colWidths=[117*mm, 57*mm])
+    header.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+                               ('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0),
+                               ('BOTTOMPADDING',(0,0),(-1,-1),10),
+                               ('LINEBELOW',(0,0),(-1,-1),0.6,colors.HexColor('#d6deeb'))]))
+    story = [header, Spacer(1, 4*mm)]
     story += [p('PROOF OF DELIVERY / WORK COMPLETED', 'Heading1'),
               p(reference+' · '+('SIGNED' if pod['signed_at'] else 'DRAFT — NOT SIGNED'), 'Heading2')]
     for label, value in [('Customer',data['client_name']), ('PO number',data['po_number'] or 'Not provided'),
