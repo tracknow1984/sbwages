@@ -3,7 +3,7 @@ import json
 from datetime import timedelta
 
 from binflow_collections import occurs, profile_rows
-from binflow_interstate import PLACES
+from binflow_interstate import PLACES, awaiting_confirmation
 from binflow_route_calendar import PRIMARY, START, clients, due, enabled
 from binflow_schedule import STATES
 
@@ -114,4 +114,5 @@ def owner_overview(conn, today, selected_date):
             FROM bf_job_bins WHERE direction='collect' AND net_g IS NOT NULL AND weighed_at>=?
             AND weighed_at<?""", (first, tomorrow)).fetchone()
     return dict(counts=counts, holds=holds, unpaid=unpaid, payroll=payroll, handling=handling, material=material,
+                pending_transfers=awaiting_confirmation(conn),
                 approvals=next_week_approvals(conn, today), dispatch=dispatch_outlook(conn, today, selected_date))

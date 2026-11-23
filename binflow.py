@@ -40,6 +40,7 @@ from binflow_schedule import migrate as migrate_schedule, register as register_s
 from binflow_client_profiles import (migrate as migrate_client_profiles, import_profiles, seed_locations, register_counts,
     register_profiles, for_location as client_profile_for_location, sync_location as sync_client_profile)
 from binflow_import import SCHEMA as IMPORT_SCHEMA, IMPORT_ID, import_blocktexx, profiles as source_profiles
+from binflow_interstate import awaiting_confirmation
 
 STATES = ('QLD', 'NSW', 'VIC', 'SA', 'WA', 'TAS', 'ACT', 'NT')
 STATUSES = {'empty': 'Empty at warehouse', 'at_client': 'At client', 'full': 'Full / pickup requested',
@@ -369,6 +370,7 @@ def register_binflow(app, db, require):
         by_size = [dict(name=s['name'], total=sum(b['size_id'] == s['id'] for b in stock), available=sum(b['size_id'] == s['id'] and b['status'] == 'empty' and not b['reserved_job'] for b in stock), at_client=sum(b['size_id'] == s['id'] and b['status'] in ('at_client','full') for b in stock)) for s in sizes]
         net = db().execute('SELECT COALESCE(SUM(i.net_g),0) FROM bf_job_bins i JOIN bf_jobs j ON j.id=i.job_id WHERE i.weighed_at IS NOT NULL' + (' AND j.state=?' if state else ''), args).fetchone()[0]
         return render('dashboard', section='overview', state=state, stock=stock, counts=counts, state_rows=state_rows, by_size=by_size, net=net,
+                      pending_transfers=awaiting_confirmation(db(), state),
                       request_dashboard=True,**request_queue(db(),state,request.args.get('requests','all'),limit=12),
                       client_count=db().execute('SELECT COUNT(*) FROM bf_clients').fetchone()[0], warehouse_count=db().execute("SELECT COUNT(*) FROM bf_locations WHERE kind='warehouse'").fetchone()[0])
 

@@ -1,0 +1,14 @@
+.transfer-confirmations { margin: 0 0 24px; background: #fff; border: 1px solid #ead4aa; border-top: 4px solid #d59a2c; border-radius: 14px; overflow: hidden; min-width: 0; }
+.transfer-confirmations-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; padding: 22px 24px; background: #fffaf0; }
+.transfer-confirmations-label { color: #775315; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.transfer-confirmations-head h2 { margin: 6px 0; font-size: 22px; }
+.transfer-confirmations-head h2 span { color: #775315; }
+.transfer-confirmations-head p { margin: 0; color: #596571; font-size: 13px; }
+.transfer-confirmations-scroll { overflow: auto; max-height: 520px; }
+.transfer-confirmations table { width: 100%; margin: 0; font-size: 13px; text-align: left; border-collapse: collapse; }
+.transfer-confirmations th { position: sticky; top: 0; background: #f5f6f7; z-index: 1; }
+.transfer-confirmations th, .transfer-confirmations td { padding: 14px 18px; border-bottom: 1px solid #e8ecef; white-space: nowrap; }
+.transfer-confirmations td:first-child { white-space: normal; min-width: 180px; }
+.transfer-confirmations td small { display: block; margin-top: 5px; color: #596571; }
+.transfer-confirmations-empty { padding: 18px 24px; margin: 0; color: #596571; }
+@media (max-width: 600px) { .transfer-confirmations-head { padding: 18px; } .transfer-confirmations-head h2 { font-size: 20px; } }

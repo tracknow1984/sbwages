@@ -17,6 +17,48 @@ class OwnerDashboardTests(unittest.TestCase):
     job = fixture.BinFlowTests.job
     rows = fixture.BinFlowTests.rows
 
+    def test_confirmation_panels_include_all_dates_and_remove_closed_bookings(self):
+        from test_binflow_interstate import CAL, data
+        for pickup, customer in [('2027-04-20', 'Future customer'), ('2026-01-02', '<Old customer>'),
+                                 ('2026-11-24', 'Confirmed'), ('2026-11-25', 'Cancelled'),
+                                 ('2026-11-26', 'SBTX customer')]:
+            self.assertEqual(self.post(CAL + '/new', data(pickup_date=pickup, client_name=customer)).status_code, 200)
+        self.assertEqual(self.post(CAL + '/2/lock', dict(version=1)).status_code, 200)
+        self.assertEqual(self.post(CAL + '/2/purchase-order', dict(po_number='PO-REVIEW', po_revision=0)).status_code, 200)
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("UPDATE bf_interstate_bookings SET locked_at=NULL WHERE id=2")
+            conn.execute("UPDATE bf_interstate_bookings SET locked_at='2026-11-24' WHERE id=3")
+            conn.execute("UPDATE bf_interstate_bookings SET cancelled_at='2026-11-24' WHERE id=4")
+            conn.execute("UPDATE bf_interstate_bookings SET portal='sbtx' WHERE id=5")
+            conn.execute("""INSERT INTO bf_interstate_date_changes(booking_id,original_pickup,original_delivery,
+                proposed_pickup,proposed_delivery,requested_at,requested_by)
+                VALUES(2,'2026-01-01','2026-01-04','2026-01-02','2026-01-05','2026-01-01','Customer')""")
+        for path in ('/admin/dashboard', '/admin/bin-management'):
+            with self.subTest(path=path):
+                response = self.client.get(path)
+                self.assertEqual(response.status_code, 200)
+                page = response.get_data(as_text=True)
+                panel = page.split('id="transfer-confirmations"', 1)[1].split('</section>', 1)[0]
+                self.assertIn('Awaiting confirmation <span>(2)</span>', panel)
+                self.assertLess(panel.index('data-pending-transfer="2"'), panel.index('data-pending-transfer="1"'))
+                self.assertIn('&lt;Old customer&gt;', panel)
+                self.assertIn('PO-REVIEW', panel)
+                self.assertIn('Date change requested', panel)
+                for bid in (1, 2):
+                    self.assertIn(f'href="{CAL}/{bid}"', panel)
+                    self.assertEqual(self.client.get(f'{CAL}/{bid}').status_code, 200)
+                for bid in (3, 4, 5):
+                    self.assertNotIn(f'data-pending-transfer="{bid}"', panel)
+        for state, expected in [('QLD', True), ('VIC', True), ('NSW', False)]:
+            page = self.client.get('/admin/bin-management?state=' + state).get_data(as_text=True)
+            self.assertEqual('data-pending-transfer="1"' in page, expected)
+            if not expected:
+                self.assertIn('No transfers awaiting confirmation in NSW.', page)
+        # Confirmation removes the booking on the next dashboard load.
+        self.post(CAL + '/1/lock', dict(version=1))
+        for path in ('/admin/dashboard', '/admin/bin-management'):
+            self.assertNotIn(b'data-pending-transfer="1"', self.client.get(path).data)
+
     def test_published_dispatch_confirmations_and_month_end(self):
         from test_binflow_interstate import CAL, data
         for i in range(1, 5):
