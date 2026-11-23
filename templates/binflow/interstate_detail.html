@@ -19,7 +19,7 @@
 {% if transfer_pod %}<p><strong>{{ 'Signed POD' if transfer_pod.signed_at else 'Draft POD · awaiting sign-off' }}</strong> · Work date {{ transfer_pod.service_date|display_date }}{% if transfer_pod.signed_at %} · Signed {{ transfer_pod.signed_at|display_datetime }}{% endif %}</p>
 {% else %}<p>Record the day’s work and sign-off. You can also raise a POD for a previous job using its actual service date.</p>{% endif %}
 <div class="it-tools">{% if transfer_pod or not b.cancelled_at %}<a class="button primary" href="{{ transfer_url('pod',external,bid=b.id) }}">{{ 'View POD' if transfer_pod and transfer_pod.signed_at else 'Continue POD' if transfer_pod else 'Raise POD' }}</a>{% endif %}
-{% if transfer_pod %}<a class="button secondary" href="{{ transfer_url('pod_pdf',external,bid=b.id) }}">{{ 'View signed PDF' if transfer_pod.signed_at else 'Preview draft PDF' }}</a>{% endif %}</div>
+{% if transfer_pod %}<a class="button secondary" data-preview="application/pdf" data-name="IT-{{ '%06d'|format(b.id) }} · {{ 'Signed POD' if transfer_pod.signed_at else 'Draft POD · not signed' }}" aria-haspopup="dialog" href="{{ transfer_url('pod_pdf',external,bid=b.id) }}" target="_blank" rel="noopener">Quick view POD</a><a href="{{ transfer_url('pod_pdf',external,bid=b.id,download=1) }}">Download POD</a>{% endif %}</div>
 </section>{% endif %}
 {% if not external and b.origin and b.locked_at and not b.cancelled_at and b.handling=='bulk' and not b.bulk_delivered_at %}
 <form method="post" class="it-tools" action="{{ transfer_url('bulk',false,bid=b.id) }}">
@@ -83,7 +83,7 @@
   {% if po and po.filename %}<div class="it-tools">
     {{ quick_view(b.id,po.filename,po.mime_type,external) }}
     <a href="{{ transfer_url('po_file',external,bid=b.id) }}" download>Download PO · {{ po.filename }}</a>
-  </div>{% include 'document_quick_view.html' %}{% endif %}
+  </div>{% endif %}
   {% if can_update_booking and b.locked_at %}
   <details {{ 'open' if not po or po_error }}>
     <summary>{{ 'Update purchase order' if po else 'Add purchase order' }}</summary>
@@ -125,4 +125,6 @@
   {% if manifest and manifest.status!='cancelled' %}<a class="button primary" href="{{ url_for('bf_bale_transfer',tid=manifest.id) }}">{{ 'Receive bales' if manifest.status=='transit' else 'Open manifest' }} · {{ manifest.code }} · {{ manifest.expected_bales }} bales{% if manifest.status=='handed_over' %} · Handed over{% endif %}</a>
   {% else %}<a class="button primary" href="{{ url_for('bf_bale_transfer_new',booking=b.id) }}">Start bale manifest</a>{% endif %}
 {% endif %}
-</section>{% endblock %}
+</section>
+{% if (po and po.filename) or (transfer_pod and (not external or transfer_pod.signed_at)) %}{% include 'document_quick_view.html' %}{% endif %}
+{% endblock %}
