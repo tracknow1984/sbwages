@@ -358,7 +358,8 @@ def register(app, db, access, require, render, client_access, now, actor):
                 SELECT MAX(k.id) FROM bf_load_dispatches k WHERE k.booking_id=b.id)"""
         select = f"""SELECT b.*, COALESCE(a.name,b.client_name) AS billing_name,
                        t.status AS manifest_status, t.code AS manifest_code, m.expected_bales, changes.id AS date_change_id,
-                       po.booking_id IS NOT NULL AS po_received, po.number AS po_number, po.filename AS po_filename, po.mime_type AS po_mime_type
+                       po.booking_id IS NOT NULL AS po_received, po.number AS po_number, po.filename AS po_filename, po.mime_type AS po_mime_type,
+                       pod.signed_at AS pod_signed_at
                        {dispatch_fields}
                 FROM bf_interstate_bookings b LEFT JOIN bf_client_accounts a ON a.id=b.account_id
                 {dispatch_join}
@@ -366,6 +367,7 @@ def register(app, db, access, require, render, client_access, now, actor):
                     SELECT MAX(x.transfer_id) FROM bf_interstate_manifests x WHERE x.booking_id=b.id)
                 LEFT JOIN bf_bale_transfers t ON t.id=m.transfer_id
                 LEFT JOIN bf_interstate_purchase_orders po ON po.booking_id=b.id
+                LEFT JOIN bf_transfer_pods pod ON pod.booking_id=b.id
                 LEFT JOIN bf_interstate_date_changes changes ON changes.booking_id=b.id AND changes.decision IS NULL AND changes.superseded_at IS NULL"""
         if request.args.get('export') == 'month':
             from binflow_transfer_export import monthly_workbook
@@ -401,6 +403,8 @@ def register(app, db, access, require, render, client_access, now, actor):
             invoices = transfer_invoices(db(),[b['id'] for b in rows])
             return {'bookings': {str(b['id']): dict(
                 invoiced=bool(b['id'] in invoices and invoices[b['id']]['invoiced']),
+                pod_signed=bool(b['pod_signed_at']),
+                pod_signed_at=display_datetime(b['pod_signed_at']) if b['pod_signed_at'] else '',
                 label=dispatch.response_label(b['handoff_event'],b['handoff_target'],b['send_status'],b['dispatch_decision']),
                 decision=b['dispatch_decision'] or 'pending',recipient=b['handoff_recipient'] or '',
                 sent=display_datetime(b['handed_at']) if b['handed_at'] else '',
