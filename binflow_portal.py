@@ -161,8 +161,10 @@ def register_portal(app, db, access, require, render, success, failure, now, act
             if request.form.get('selection')!='period' and len(jobs)!=len(ids): abort(404)
             return reports.pod_download(jobs,request.form.get('format','xls'),pdf,'Client-PODs-'+(period['first'] or 'all-dates'))
         jobs=db().execute(query+order+' LIMIT 50 OFFSET ?',(*params,(page-1)*50)).fetchall()
+        from binflow_transfer_pods import client_records
+        transfer_pods = client_records(db(),g.bf_client['id'],period['first'] if run_date else '',period['last'] if run_date else '') if 'bookings.view' in g.client_rights else []
         return render_template('binflow/client_pods.html',account=g.bf_client,jobs=jobs,dates=dates,
-            run_date=run_date,national=national,page=page,pages=pages,period=period,count=count)
+            run_date=run_date,national=national,page=page,pages=pages,period=period,count=count,transfer_pods=transfer_pods)
 
     @app.get('/binflow/client/pods/example.pdf')
     @client_access

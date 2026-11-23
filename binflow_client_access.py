@@ -19,6 +19,8 @@ MODULES = (
     ('requests','Approved-site collection requests',('view',)),
 )
 ENDPOINTS = {
+    'bf_client_interstate_pod':'bookings.view', 'bf_client_interstate_pod_pdf':'bookings.view',
+    'sbtx_client.pod':'sbtx.view', 'sbtx_client.pod_pdf':'sbtx.view',
     'sbtx_client.calendar':'sbtx.view', 'sbtx_client.new_job':'sbtx.add',
     'sbtx_client.detail':'sbtx.view', 'sbtx_client.edit':'sbtx.edit',
     'sbtx_client.legacy_po':'sbtx.view', 'sbtx_client.reschedule':'sbtx.view', 'sbtx_client.po':'sbtx.view',

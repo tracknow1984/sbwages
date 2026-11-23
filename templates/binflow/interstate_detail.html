@@ -14,6 +14,13 @@
 <a href="{{ transfer_url('calendar',external,date=b.pickup_date) }}">← Transfer calendar</a>
 <section class="bf-panel bf-pad"><div class="bf-toolbar"><div><small>IT-{{ '%06d'|format(b.id) }}</small>{% if b.account_id %}<small> · Billing client</small>{% endif %}<h2>{{ b.client_name }}</h2></div><span class="{{ 'it-delivered-badge' if status=='Delivered' else 'bf-badge' }}">{{ status }}</span></div>
 {% if not external and current_user.role=='admin' and (b.locked_at or invoice) %}<div class="it-tools">{{ invoice_action(b,invoice,po.number if po else '') }}</div>{% endif %}
+{% if not external or transfer_pod and transfer_pod.signed_at %}
+<section class="bf-note" id="transfer-pod"><h3>Proof of delivery / work completed</h3>
+{% if transfer_pod %}<p><strong>{{ 'Signed POD' if transfer_pod.signed_at else 'Draft POD · awaiting sign-off' }}</strong> · Work date {{ transfer_pod.service_date|display_date }}{% if transfer_pod.signed_at %} · Signed {{ transfer_pod.signed_at|display_datetime }}{% endif %}</p>
+{% else %}<p>Record the day’s work and sign-off. You can also raise a POD for a previous job using its actual service date.</p>{% endif %}
+<div class="it-tools">{% if transfer_pod or not b.cancelled_at %}<a class="button primary" href="{{ transfer_url('pod',external,bid=b.id) }}">{{ 'View POD' if transfer_pod and transfer_pod.signed_at else 'Continue POD' if transfer_pod else 'Raise POD' }}</a>{% endif %}
+{% if transfer_pod %}<a class="button secondary" href="{{ transfer_url('pod_pdf',external,bid=b.id) }}">{{ 'View signed PDF' if transfer_pod.signed_at else 'Preview draft PDF' }}</a>{% endif %}</div>
+</section>{% endif %}
 {% if not external and b.origin and b.locked_at and not b.cancelled_at and b.handling=='bulk' and not b.bulk_delivered_at %}
 <form method="post" class="it-tools" action="{{ transfer_url('bulk',false,bid=b.id) }}">
   <input type="hidden" name="csrf" value="{{ csrf_token() }}">

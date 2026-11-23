@@ -1,0 +1,40 @@
+{% extends 'binflow/interstate_base.html' %}
+{% block transfer_content %}
+{% if sbtx_portal and not external %}<script src="{{ url_for('static',filename='binflow.js') }}" defer></script>{% endif %}
+<a href="{{ transfer_url('detail',external,bid=b.id) }}">← Back to transfer IT-{{ '%06d'|format(b.id) }}</a>
+<section class="bf-panel bf-pad">
+  <div class="bf-toolbar"><div><h2>Proof of delivery / work completed</h2><p>IT-{{ '%06d'|format(b.id) }} · {{ values.client_name if pod and pod.signed_at else b.client_name }}</p></div>
+    <strong class="bf-badge">{{ 'SIGNED' if pod and pod.signed_at else 'DRAFT · NOT SIGNED' }}</strong></div>
+  {% if error %}<p class="notice error" role="alert">{{ error }}</p>{% endif %}
+  {% if pod %}<div class="it-tools"><a class="button secondary" href="{{ transfer_url('pod_pdf',external,bid=b.id) }}">{{ 'View signed PDF' if pod.signed_at else 'Preview draft PDF' }}</a><a class="button secondary" href="{{ transfer_url('pod_pdf',external,bid=b.id,download=1) }}">Download POD PDF</a></div>{% endif %}
+  {% if pod and pod.signed_at %}
+    <p><strong>Work / service date:</strong> {{ values.service_date|display_date }} · <strong>PO:</strong> {{ values.po_number or 'Not provided' }}</p>
+    <div class="bf-grid two"><p><strong>Pickup:</strong><br>{{ values.pickup_company }}<br>{{ values.pickup_address }}</p><p><strong>Delivery:</strong><br>{{ values.delivery_company }}<br>{{ values.delivery_address }}</p></div>
+    <p><strong>Driver / operator:</strong> {{ values.driver_name or 'Not recorded' }} · <strong>Registration:</strong> {{ values.registration or 'Not recorded' }}</p>
+    <h3>Work conducted and quantities</h3><p class="it-goods">{{ values.work_done }}</p>
+    <h3>Exceptions / supporting details</h3><p class="it-goods">{{ values.exceptions or 'None recorded' }}</p>
+    <h3>Sign-off</h3><p>{{ values.signed_name }} · {{ roles[values.signer_role] }}<br>Signed {{ pod.signed_at|display_datetime }}<br>{{ values.signed_place }} (entered by signer)</p>
+    {% if values.signer_role=='office' %}<p class="bf-note">Office retrospective record. This is an office attestation, not a customer receipt signature.</p>{% endif %}
+    <p class="bf-muted">Raised {{ pod.created_at|display_datetime }} · Recorded by {{ pod.updated_by }} · Revision {{ pod.revision }}. The signed POD is locked and keeps the details recorded at sign-off.</p>
+  {% elif b.cancelled_at %}<p>This transfer is cancelled. Its saved POD remains available to preview.</p>
+  {% else %}
+    <p>Enter the work actually completed. For a previous job, use its original service date. The date and time of signing are recorded separately.</p>
+    <form method="post" class="bf-form" action="{{ transfer_url('pod',false,bid=b.id) }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="revision" value="{{ pod.revision if pod else 0 }}"><input type="hidden" name="booking_version" value="{{ b.version }}">
+      <div class="bf-grid two"><label>Actual work / service date<input type="date" name="service_date" value="{{ values.service_date }}" required></label>
+        <label>Driver / operator (if known)<input name="driver_name" value="{{ values.driver_name }}" maxlength="150"></label>
+        <label>Truck / trailer registration (if known)<input name="registration" value="{{ values.registration }}" maxlength="100"></label></div>
+      <label>Work conducted and quantities<textarea name="work_done" rows="5" maxlength="6000" required>{{ values.work_done }}</textarea><small>Review the booking notes and describe what was actually picked up, transported, delivered or otherwise completed.</small></label>
+      <label>Exceptions / supporting details<textarea name="exceptions" rows="3" maxlength="3000">{{ values.exceptions }}</textarea><small>Record shortages, damage, incomplete work or, for an office retrospective record, the information used to confirm the job.</small></label>
+      <h3>Sign off the work</h3>
+      <div class="bf-grid two"><label>Who is signing?<select name="signer_role">{% for key,label in roles.items() %}<option value="{{ key }}" {{ 'selected' if values.signer_role==key }}>{{ label }}</option>{% endfor %}</select></label>
+        <label>Signer’s full name<input name="signed_name" value="{{ values.signed_name }}" maxlength="150"></label>
+        <label>Current signing place<input name="signed_place" value="{{ values.signed_place }}" maxlength="180" placeholder="Depot and suburb"></label></div>
+      <div class="bf-signature" data-signature><div class="bf-toolbar"><strong>Signer’s signature</strong><button type="button" class="secondary compact" data-clear-signature>Clear</button></div><canvas width="600" height="200" aria-label="Draw POD signature"></canvas><input type="hidden" name="signature" value="[]"><small>The named signer must draw their own signature. For past work without the customer present, choose Office retrospective record and use your own name and signature.</small></div>
+      <label class="bf-check"><input type="checkbox" name="confirm" value="yes"> I confirm the work recorded above was conducted on the stated service date, subject to the exceptions listed.</label>
+      <div class="it-tools"><button class="secondary" name="action" value="draft">Save draft</button><button class="primary" name="action" value="sign">Sign off POD</button></div>
+      <small>Signing locks this POD and makes it available to the booking customer. It does not change booking dates, send emails or create an invoice.</small>
+    </form>
+  {% endif %}
+</section>
+{% endblock %}
