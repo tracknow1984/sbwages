@@ -35,6 +35,27 @@ FIELDS = ('job_type','handling','origin','destination','pickup_date','delivery_d
 PROGRESS = {'loading':'Loading','transit':'In transit','received':'Delivered','handed_over':'Delivered'}
 
 
+def awaiting_confirmation(conn, state=''):
+    """All open BinFlow confirmations, including dates outside the calendar view."""
+    scope, args = '', []
+    if state:
+        points = [code for code, (_, area) in PLACES.items() if area == state]
+        marks = ','.join('?' for _ in points)
+        scope = f' AND (b.origin IN ({marks}) OR b.destination IN ({marks}))'
+        args = points + points
+    rows = conn.execute("""SELECT b.id, b.pickup_date, b.delivery_date, b.origin, b.destination,
+            b.vehicle, COALESCE(a.name, b.client_name) AS customer, po.number AS po_number,
+            EXISTS(SELECT 1 FROM bf_interstate_date_changes c WHERE c.booking_id=b.id
+                AND c.decision IS NULL AND c.superseded_at IS NULL) AS date_change
+        FROM bf_interstate_bookings b
+        LEFT JOIN bf_client_accounts a ON a.id=b.account_id
+        LEFT JOIN bf_interstate_purchase_orders po ON po.booking_id=b.id
+        WHERE b.portal='binflow' AND b.locked_at IS NULL AND b.cancelled_at IS NULL"""
+        + scope + ' ORDER BY b.pickup_date, b.id', args).fetchall()
+    return [dict(row, origin_name=PLACES[row['origin']][0],
+                 destination_name=PLACES[row['destination']][0]) for row in rows]
+
+
 def migrate(conn):
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS bf_interstate_accounts (

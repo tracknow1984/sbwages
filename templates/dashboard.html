@@ -35,6 +35,8 @@
     </div>
   </header>
 
+  {% include 'binflow/confirmation_panel.html' %}
+
   <section class="owner-card schedule-approvals" id="schedule-approvals" aria-labelledby="schedule-title">
     <div class="owner-card-head">
       <div><p class="owner-kicker">BinFlow · {{ approvals.start.strftime('%d %b %Y') }} – {{ approvals.end.strftime('%d %b %Y') }}</p>

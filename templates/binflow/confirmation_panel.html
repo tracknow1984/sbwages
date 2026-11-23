@@ -1,0 +1,25 @@
+<section class="transfer-confirmations" id="transfer-confirmations" aria-labelledby="transfer-confirmations-title">
+  <header class="transfer-confirmations-head">
+    <div><span class="transfer-confirmations-label">BinFlow · Action required</span>
+      <h2 id="transfer-confirmations-title">Awaiting confirmation <span>({{ pending_transfers|length }})</span></h2>
+      <p>All unconfirmed transfers{% if state %} involving {{ state }}{% endif %}, earliest pickup first.</p>
+    </div>
+    <a class="button secondary" href="{{ url_for('bf_interstate_calendar',state=state or '') }}">Open transfer calendar</a>
+  </header>
+  {% if pending_transfers %}
+  <div class="transfer-confirmations-scroll" role="region" aria-label="Transfers awaiting confirmation" tabindex="0">
+    <table>
+      <thead><tr><th>Booking / customer</th><th>Route</th><th>Pickup</th><th>Delivery</th><th>Vehicle</th><th>PO number</th><th>Action</th></tr></thead>
+      <tbody>{% for b in pending_transfers %}
+        <tr data-pending-transfer="{{ b.id }}">
+          <td><strong>{{ b.customer }}</strong><small>IT-{{ '%06d'|format(b.id) }}{% if b.date_change %} · Date change requested{% endif %}</small></td>
+          <td>{{ b.origin_name }} → {{ b.destination_name }}</td>
+          <td>{{ b.pickup_date|display_date }}</td><td>{{ b.delivery_date|display_date }}</td>
+          <td>{{ b.vehicle or 'To confirm' }}</td><td>{{ b.po_number or 'Not provided' }}</td>
+          <td><a class="button secondary" href="{{ url_for('bf_interstate_detail',bid=b.id) }}" aria-label="Review transfer IT-{{ '%06d'|format(b.id) }}">Review booking</a></td>
+        </tr>
+      {% endfor %}</tbody>
+    </table>
+  </div>
+  {% else %}<p class="transfer-confirmations-empty">No transfers awaiting confirmation{% if state %} in {{ state }}{% endif %}.</p>{% endif %}
+</section>

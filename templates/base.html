@@ -8,6 +8,7 @@
   <title>{% block browser_title %}{{ "BinFlow · SB Empire" if bf_surface else "SB EMPIRE · Staff, Timesheets & Operations" }}{% endblock %}</title>
   <meta name="description" content="{{ 'BinFlow bin management, collections, driver runs and warehouse operations.' if bf_surface else 'SB EMPIRE staff, timesheets and operations.' }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  {% if request.endpoint in ('admin_dashboard','bf_dashboard') %}<link rel="stylesheet" href="{{ url_for('static', filename='transfer-confirmations.css') }}">{% endif %}
   {% if current_user and current_user.role == 'admin' %}
     <link rel="stylesheet" href="{{ url_for('static', filename='empire-nav.css') }}">
     {% if tab in ('documents','rentals') %}<link rel="stylesheet" href="{{ url_for('static', filename='admin-register.css') }}">{% endif %}
