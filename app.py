@@ -340,7 +340,8 @@ def create_app(test_config=None):
         if request.endpoint in ('document_file', 'company_document_file'):
             response.headers['Content-Security-Policy'] = "sandbox; default-src 'none'; frame-ancestors 'self'"
             response.headers['X-Frame-Options'] = 'SAMEORIGIN'
-        elif (request.endpoint in ('bf_interstate_po_file','bf_client_interstate_po_file','sbtx.po_file','sbtx_client.po_file','fleet_file')
+        elif (request.endpoint in ('bf_interstate_po_file','bf_client_interstate_po_file','sbtx.po_file','sbtx_client.po_file','fleet_file',
+                                  'bf_interstate_pod_pdf','bf_client_interstate_pod_pdf','sbtx.pod_pdf','sbtx_client.pod_pdf')
               and response.headers.get('Content-Disposition','').startswith('inline;')):
             # Only the authenticated file response can be embedded by a same-origin booking page.
             response.headers['Content-Security-Policy'] = "default-src 'none'; object-src 'self'; img-src 'self'; frame-ancestors 'self'; base-uri 'none'; form-action 'none'"

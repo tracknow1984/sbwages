@@ -32,6 +32,8 @@ class TransferPodTests(unittest.TestCase):
         response=client.get(path)
         self.assertEqual(response.status_code,200)
         self.assertIn('no-store',response.headers['Cache-Control'])
+        self.assertEqual(response.headers['X-Frame-Options'],'SAMEORIGIN')
+        self.assertIn("frame-ancestors 'self'",response.headers['Content-Security-Policy'])
         return '\n'.join(page.extract_text() for page in PdfReader(io.BytesIO(response.data)).pages)
 
     def test_previous_delivered_job_can_raise_draft_then_sign_without_rebooking(self):
@@ -43,6 +45,13 @@ class TransferPodTests(unittest.TestCase):
         self.assertIn('Raise POD',self.client.get(CAL+'/1').text)
         with patch('binflow_interstate.send_smtp') as mail:
             self.assertEqual(self.post(CAL+'/1/pod',self.values(booking_version=before['version'])).status_code,200)
+            page=self.client.get(CAL+'/1').text
+            self.assertIn('Quick view POD',page)
+            self.assertIn('Draft POD · not signed',page)
+            self.assertEqual(page.count('<dialog class="register-preview"'),1)
+            download=self.client.get(CAL+'/1/pod.pdf?download=1')
+            self.assertTrue(download.headers['Content-Disposition'].startswith('attachment;'))
+            self.assertEqual(download.headers['X-Frame-Options'],'DENY')
             draft=self.pod_text(self.client,CAL+'/1/pod.pdf')
             self.assertIn('DRAFT',draft)
             self.assertIn('PO-HISTORY',draft)
@@ -113,6 +122,7 @@ class TransferPodTests(unittest.TestCase):
             self.assertEqual(client.get(CLIENT+'/1/pod.pdf').status_code,404)
         self.post(CAL+'/1/pod',self.values(action='sign',revision=1))
         self.assertEqual(clients[0].get(CLIENT+'/1/pod').status_code,200)
+        self.assertIn('Quick view POD',clients[0].get(CLIENT+'/1').text)
         self.assertIn('SIGNED',self.pod_text(clients[0],CLIENT+'/1/pod.pdf'))
         self.assertIn('Signed transfer PODs',clients[0].get('/binflow/client/pods').text)
         self.assertNotIn('Signed transfer PODs',clients[0].get('/binflow/client/pods?date=2026-08-01').text)
