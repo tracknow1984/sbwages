@@ -83,7 +83,6 @@ def retire(conn, stamp):
             take('bf_bale_transfers', 'origin_id=?', (run['origin_id'],))
             take('prestarts', 'user_id=?', (run['driver_id'],))
             take('bf_workdays', 'user_id=?', (run['driver_id'],))
-            take('staff_notices', 'user_id=?', (run['driver_id'],))
             take('bf_driver_resume', 'user_id=?', (run['driver_id'],))
             take('employee_badges', 'user_id=?', (run['driver_id'],))
             take('bf_auto_drafts', 'account_id=?', (run['payer_id'],))
@@ -101,6 +100,7 @@ def retire(conn, stamp):
             # Follow only reviewed child table types. Never silently cascade invoices,
             # bookings, real stock, shared schedules, payroll or an unfamiliar table.
             changed = True
+            blocked = {}
             while changed:
                 changed = False
                 for table, fk in fks:
@@ -113,9 +113,13 @@ def retire(conn, stamp):
                     if not new:
                         continue
                     if table not in CHILDREN:
-                        raise ValueError(f'Shared or unreviewed dependency: {table}/{fk["from"]}, {len(new)} records.')
+                        blocked[(table,fk['from'])]=len(new)
+                        continue
                     selected.setdefault(table, {}).update(rows)
                     changed = True
+            if blocked:
+                raise ValueError('Shared or unreviewed dependencies: '+', '.join(
+                    f'{table}/{column} ({count})' for (table,column),count in sorted(blocked.items())))
             # A bridge may not pull a real parent into the test scope indirectly.
             for table, columns in {
                 'bf_job_bins': {'bin_id':'bf_bins','job_id':'bf_jobs'},
@@ -142,6 +146,9 @@ def retire(conn, stamp):
         users = snapshot(conn, 'users', "(username='testdriver' AND first_name='Test' AND last_name='Driver' AND role='employee') OR (id=? AND first_name='Live Test' AND last_name='Driver' AND username LIKE 'bf-live-%')", (run['driver_id'] if run else -1,))
         if run and run['driver_id'] not in users:
             raise ValueError('Test driver identity changed.')
+        notices={}
+        for uid in users:
+            notices.update(snapshot(conn,'staff_notices','user_id=? AND archived_at IS NULL',(uid,)))
         before_fk = set(tuple(r) for r in conn.execute('PRAGMA foreign_key_check'))
         plans=[]
         for table in ('bf_schedule_weeks','bf_schedule_templates'):
@@ -155,13 +162,17 @@ def retire(conn, stamp):
                         or i.get('profile_id') in selected.get('bf_client_site_profiles',{}))]
                     changed=changed or len(old)!=len(day['items'])
                 if changed:plans.append((table,dict(row),json.dumps(plan)))
-        archive(conn, VERSION, stamp, {'removed':selected, 'archived_users':users,
+        archive(conn, VERSION, stamp, {'removed':selected, 'archived_users':users,'archived_notices':notices,
                                       'previous_plans':[(t,r) for t,r,_ in plans]})
         conn.execute('PRAGMA defer_foreign_keys=ON')
         for table, rows in selected.items():
             conn.executemany(f'DELETE FROM {quote(table)} WHERE rowid=?', [(rid,) for rid in rows])
         for uid in users:
             conn.execute("UPDATE users SET status='terminated',auth_version=auth_version+1 WHERE id=?", (uid,))
+        # A test recipient can have notifications for genuine bookings. Preserve
+        # those dispatch links and their delivery history; hide only the notices.
+        for nid in notices:
+            conn.execute('UPDATE staff_notices SET archived_at=? WHERE id=?',(stamp,nid))
         for table,row,plan in plans:
             if table=='bf_schedule_weeks':
                 conn.execute('UPDATE bf_schedule_weeks SET plan_json=?,revision=revision+1,updated_at=? WHERE id=?',(plan,stamp,row['id']))
@@ -171,7 +182,8 @@ def retire(conn, stamp):
                 conn.execute('UPDATE bf_schedule_templates SET plan_json=?,version=? WHERE id=?',(plan,version,row['id']))
         if set(tuple(r) for r in conn.execute('PRAGMA foreign_key_check')) - before_fk:
             raise ValueError('Cleanup would leave a broken record reference.')
-        return {'status':'retired', 'removed':{t:len(v) for t,v in selected.items() if v}, 'archived_test_staff':len(users)}
+        return {'status':'retired', 'removed':{t:len(v) for t,v in selected.items() if v},
+                'archived_test_staff':len(users),'archived_test_notices':len(notices)}
 
 
 def clear_unconfirmed_sa(conn, stamp):
