@@ -25,3 +25,11 @@
 .bf .pod-modal>header h2{margin:0;font-size:1.2rem}
 .pod-modal-content{overflow:auto;overscroll-behavior:contain;padding:14px;min-height:0}
 .pod-modal-content .bf-pod{margin:0;max-width:none}
+
+.wh-stock-card>div{min-width:0;flex:1}
+.wh-delete{margin-top:8px}
+.wh-delete summary{color:#9d2525;cursor:pointer;font-weight:600}
+.wh-delete form{margin-top:10px;min-width:0}
+.wh-delete textarea{width:100%;box-sizing:border-box;resize:vertical}
+.wh-delete .bf-muted{font-size:.8rem;line-height:1.4}
+.wh-delete button{color:#9d2525;white-space:normal}
