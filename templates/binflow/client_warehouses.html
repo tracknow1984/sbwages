@@ -6,6 +6,12 @@
   {% for state, depot in warehouses.items() %}
   <section class="bf-panel bf-pad">
     <h2>{{ state }} · {{ depot[0] }}</h2>
+    <figure class="bf-warehouse-map">
+      <iframe title="Google Maps satellite view of {{ state }} warehouse · {{ depot[0] }}"
+        src="https://maps.google.com/maps?ll={{ map_centres[state] }}&amp;t=k&amp;z=18&amp;output=embed"
+        loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+      <figcaption><a href="https://www.google.com/maps?q={{ (depot[1] ~ ', Australia')|urlencode }}&amp;t=k" target="_blank" rel="noopener">Open {{ state }} warehouse in Google Maps</a></figcaption>
+    </figure>
     <p>{{ depot[1] }}</p>
     <a class="button primary" href="{{ url_for('bf_client_warehouse_chat', state=state) }}">Message {{ state }} warehouse</a>
     {% if state in latest %}<p class="bf-muted">{{ 'Warehouse replied' if latest[state].staff_id else 'Message sent' }} · {{ latest[state].created_at|display_datetime }}</p>{% endif %}

@@ -47,7 +47,7 @@
       </nav>
     {% endif %}
 
-    <main class="bf-portal-content">
+    <main class="bf-portal-content{{ ' bf-client-directory-page' if request.endpoint in ('bf_client_profiles_portal','bf_client_decomm_partners') }}">
       {% block content %}{% endblock %}
       {% with bf_page_guide=bf_public_guide %}{% include 'binflow/page_guide.html' %}{% endwith %}
     </main>

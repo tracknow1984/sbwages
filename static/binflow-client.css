@@ -94,3 +94,38 @@
 .bf-client-count {padding:.1rem .35rem;border-radius:1rem;background:#e1eff4;color:#17495c;font-size:.75rem}
 .bf-client-month-stop {display:block;overflow-wrap:anywhere;line-height:1.25;margin:.25rem 0}
 @media(max-width:600px){.bf-client-month .bf-client-month-stop {display:none}}
+
+/* Shared type scale for both client directory registers. */
+.bf .bf-client-directory-page {font-family:inherit;font-size:14px;line-height:1.45}
+.bf .bf-client-directory-page h1 {font-size:28px;line-height:1.2;font-weight:700;letter-spacing:-.8px;margin:0 0 16px}
+.bf .bf-client-directory-page .bf-toolbar h1 {margin:0}
+.bf .bf-client-directory-page>.bf-toolbar {margin:0 0 16px}
+.bf .bf-client-directory-page h2 {font-size:17px;line-height:1.35}
+.bf .bf-client-directory-page label {font-size:12px;line-height:1.4;gap:6px}
+.bf .bf-client-directory-page input,.bf .bf-client-directory-page select {font-family:inherit;font-size:14px;min-height:42px;padding:9px 11px;line-height:1.4}
+.bf .bf-client-directory-page button,.bf .bf-client-directory-page .button {font-family:inherit;font-size:13px;min-height:42px;padding:9px 13px;line-height:1.4}
+.bf .bf-client-directory-page table {font-size:14px;line-height:1.45}
+.bf .bf-client-directory-page thead th {font-size:10px;font-weight:700;letter-spacing:.5px;line-height:1.4;padding:12px 10px}
+.bf .bf-client-directory-page tbody td,.bf .bf-client-directory-page tbody th {font-size:14px;font-weight:400;line-height:1.45;padding:12px 10px;letter-spacing:normal;text-transform:none;vertical-align:top}
+.bf .bf-client-directory-page tbody strong,.bf .bf-client-directory-page tbody th>a:first-child {font-size:14px;font-weight:700;line-height:1.45}
+.bf .bf-client-directory-page tbody small,.bf .bf-client-directory-page .bf-directory-edit {font-size:12px;line-height:1.4;margin-top:4px}
+.bf .bf-client-directory-page .bf-panel-head,.bf .bf-client-directory-page .bf-profile-pagination,.bf .bf-client-directory-page .bf-chips {font-size:13px;line-height:1.4}
+@media(max-width:800px) {
+ .bf .bf-client-directory-page input,.bf .bf-client-directory-page select {font-size:16px}
+ .bf .bf-client-directory-page tbody td,.bf .bf-client-directory-page tbody th {padding:6px 0}
+ .bf .bf-client-directory-page td[data-label]::before {font-size:12px;line-height:1.4}
+}
+
+/* Icon actions retain full labels for hover and assistive technology. */
+.bf-document-actions {display:flex;flex-wrap:wrap;gap:6px;max-width:200px}
+.bf .bf-document-icon {position:relative;display:inline-flex;align-items:center;justify-content:center;flex:none;width:44px;height:44px;min-height:44px;padding:10px;border:1px solid #cbd9e6;border-radius:8px;background:#f6f9fd;color:#245985;text-decoration:none;box-sizing:border-box}
+.bf-document-icon>.bf-icon {width:22px;height:22px;flex:none}
+.bf .bf-document-icon:hover {background:#e7f0fa;border-color:#83a8cc;text-decoration:none}
+.bf .bf-document-icon:focus-visible {outline:3px solid #317dc1;outline-offset:2px}
+.bf-document-download {position:absolute;right:2px;bottom:2px;display:flex;padding:1px;background:#f6f9fd;border-radius:3px}
+.bf-document-download .bf-icon {width:12px;height:12px}
+.bf .bf-document-icon:disabled {opacity:.45;cursor:not-allowed}
+
+.bf-warehouse-map {margin:12px 0;min-width:0}
+.bf-warehouse-map iframe {display:block;width:100%;height:220px;border:0;border-radius:8px;background:#eef3f7}
+.bf-warehouse-map figcaption {margin-top:6px;font-size:12px;line-height:1.4}
