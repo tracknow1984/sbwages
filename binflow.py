@@ -212,6 +212,8 @@ def register_binflow(app, db, require):
         db().commit()
         if not app.testing:
             bootstrap(db(), now())
+            from binflow_test_inventory import inventory
+            inventory(db(), app.logger)
             from binflow_client_access import rights_for
             account = db().execute("SELECT id,active FROM bf_client_accounts WHERE username='blocktexx1'").fetchone()
             report = profile_schedule.summary(register_rows(db()))
