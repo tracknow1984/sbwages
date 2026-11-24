@@ -265,25 +265,40 @@ def register(app, db, require, render, client_access, now, actor,pdf):
     @require('admin')
     def bf_invoices():
         conn = db()
-        cfg = xero.config(conn)
-        connected = bool(cfg['tenant_id'] and cfg['token_cipher'])
         auto.refresh(conn,now(),True)
         period,chosen=invoice_period(request.args,now()[:10])
-        grouping=period['key']
-        clause='' if grouping=='all' else ' WHERE '+invoice_reports.INVOICE_DATE+' BETWEEN ? AND ?'
-        params=() if grouping=='all' else (period['first'],period['last'])
-        drafts = conn.execute(f"""SELECT d.*,i.id AS saved_id,i.invoice_number,({auto.INVOICED_SQL}) AS invoiced,
-            COALESCE((SELECT SUM(json_extract(x.value,'$.net')+json_extract(x.value,'$.tax'))
-              FROM json_each(d.lines) x),0) AS total FROM bf_auto_drafts d LEFT JOIN bf_rental_invoices i ON i.id=d.id {clause}
-            ORDER BY CASE d.state WHEN 'sending' THEN 0 WHEN 'open' THEN 1 ELSE 2 END,d.end DESC,d.client""",params).fetchall()
-        page = max(1,request.args.get('page',1,type=int))
-        history = conn.execute(f"""SELECT i.id,i.invoice_number,i.mode,i.status,i.xero_status,i.created_at,({auto.INVOICED_SQL}) AS invoiced,
-            json_extract(i.snapshot_json,'$.contact.name') AS contact,c.name AS category FROM bf_rental_invoices i
-            JOIN bf_invoice_categories c ON c.id=i.category_id LEFT JOIN bf_auto_drafts d ON d.id=i.id {clause} ORDER BY i.created_at DESC,i.rowid DESC LIMIT 31 OFFSET ?""",
-                               (*params,(page-1)*30,)).fetchall()
-        supporting=invoice_pods.documents(conn,{r['id'] for r in history[:30]}|{d['saved_id'] for d in drafts if d['saved_id']})
-        return render('invoices_admin',section='invoices',supporting=supporting,categories=categories(conn),accounts=contacts(conn,cfg['tenant_id']),
-                      history=history[:30],has_next=len(history)>30,page=page,drafts=drafts,today=now()[:10],period=period,chosen=chosen)
+        category=request.args.get('category','')
+        per_page=request.args.get('per_page',6,type=int)
+        if per_page not in (6,12,24):
+            per_page=6
+        clauses,args=[],[]
+        if period['key']!='all':
+            clauses.append(invoice_reports.INVOICE_DATE+' BETWEEN ? AND ?')
+            args.extend((period['first'],period['last']))
+        if category:
+            clauses.append('COALESCE(c.name,d.kind)=?')
+            args.append(category)
+        source="""FROM (SELECT id FROM bf_rental_invoices UNION SELECT id FROM bf_auto_drafts) k
+            LEFT JOIN bf_rental_invoices i ON i.id=k.id LEFT JOIN bf_auto_drafts d ON d.id=k.id
+            LEFT JOIN bf_invoice_categories c ON c.id=i.category_id"""
+        where=(' WHERE '+' AND '.join(clauses)) if clauses else ''
+        count=conn.execute('SELECT COUNT(*) '+source+where,args).fetchone()[0]
+        pages=max(1,(count+per_page-1)//per_page)
+        page=min(pages,max(1,request.args.get('page',1,type=int)))
+        rows=conn.execute(f"""SELECT k.id,i.id AS saved_id,d.id AS auto_id,i.invoice_number,i.reference,
+            i.mode,i.status,i.xero_status,d.state,d.issue,({auto.INVOICED_SQL}) AS invoiced,
+            COALESCE(json_extract(i.snapshot_json,'$.contact.name'),d.client) AS client,
+            COALESCE(c.name,d.kind) AS kind,COALESCE(i.period_start,d.start) AS start,
+            COALESCE(i.period_end,d.end) AS end,{invoice_reports.INVOICE_DATE} AS date,
+            COALESCE(json_extract(i.snapshot_json,'$.subtotal')+json_extract(i.snapshot_json,'$.gst'),
+                (SELECT SUM(json_extract(x.value,'$.net')+json_extract(x.value,'$.tax'))
+                 FROM json_each(d.lines) x),0) AS total
+            {source}{where} ORDER BY {invoice_reports.INVOICE_DATE} DESC,COALESCE(i.created_at,d.end) DESC,k.id DESC LIMIT ? OFFSET ?""",
+            (*args,per_page,(page-1)*per_page)).fetchall()
+        supporting=invoice_pods.documents(conn,[r['id'] for r in rows if r['saved_id']])
+        return render('invoices_admin',section='invoices',supporting=supporting,categories=categories(conn),
+                      rows=rows,count=count,page=page,pages=pages,per_page=per_page,category=category,
+                      today=now()[:10],period=period,chosen=chosen)
 
     @app.post('/binflow/invoices/categories')
     @require('admin')
