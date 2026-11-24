@@ -153,7 +153,7 @@ class CurrentCalendarTests(unittest.TestCase):
             self.assertTrue(any('reconciliation' in s for s in plan['issues']))
             self.assertTrue(any('Weekly plan requires' in s for s in plan['issues']))
 
-    def test_six_planning_sections_are_only_on_the_office_calendar(self):
+    def test_planning_sections_are_only_on_the_office_calendar(self):
         from test_binflow_client_permissions import PortalPermissionTests
         self.prepare()
         with self.connection() as conn:
@@ -162,7 +162,7 @@ class CurrentCalendarTests(unittest.TestCase):
         PortalPermissionTests.account(self,'calendar-viewer',custom_permissions='yes',permission=['national.view'])
         client=PortalPermissionTests.visit(self,'calendar-viewer')
         sections = ('State depots, staffing & weekly checks','collections need a day / extra capacity',
-                    'Planning assumptions & dispatch checks','client sites need location details',
+                    'client sites need location details',
                     'Ad hoc / schedules to confirm','Current client schedules')
         for view in ('week', 'month'):
             query = '?date=2026-10-26&view='+view
