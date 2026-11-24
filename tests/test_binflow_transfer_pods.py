@@ -44,7 +44,9 @@ class TransferPodTests(unittest.TestCase):
         before=self.rows('SELECT * FROM bf_interstate_bookings')[0]
         self.assertIn('Raise POD',self.client.get(CAL+'/1').text)
         with patch('binflow_interstate.send_smtp') as mail:
-            self.assertEqual(self.post(CAL+'/1/pod',self.values(booking_version=before['version'])).status_code,200)
+            draft_response=self.post(CAL+'/1/pod',self.values(booking_version=before['version']),follow=False)
+            self.assertEqual(draft_response.status_code,303)
+            self.assertEqual(draft_response.location,CAL+'/1/pod')
             page=self.client.get(CAL+'/1').text
             self.assertIn('Quick view POD',page)
             self.assertIn('Draft POD · not signed',page)
@@ -55,7 +57,10 @@ class TransferPodTests(unittest.TestCase):
             draft=self.pod_text(self.client,CAL+'/1/pod.pdf')
             self.assertIn('DRAFT',draft)
             self.assertIn('PO-HISTORY',draft)
-            self.assertEqual(self.post(CAL+'/1/pod',self.values(action='sign',revision=1,booking_version=before['version'])).status_code,200)
+            submitted=self.post(CAL+'/1/pod',self.values(action='sign',revision=1,booking_version=before['version']),follow=False)
+            self.assertEqual(submitted.status_code,303)
+            self.assertEqual(submitted.location,CAL+'?date=2026-09-01')
+            self.assertIn('POD signed off and saved.',self.client.get(submitted.location).text)
             mail.assert_not_called()
         pod=self.rows('SELECT * FROM bf_transfer_pods')[0]
         self.assertEqual(pod['service_date'],'2026-09-04')
@@ -79,7 +84,8 @@ class TransferPodTests(unittest.TestCase):
         self.create(job_type='internal',handling='scanned')
         response=self.post(CAL+'/1/pod',self.values(action='sign',signer_role='office',exceptions='Reviewed original delivery docket and driver timesheet.'))
         self.assertEqual(response.status_code,200)
-        self.assertIn('Office retrospective record',response.text)
+        self.assertEqual(response.request.path,CAL)
+        self.assertIn('Office retrospective record',self.client.get(CAL+'/1/pod').text)
         text=self.pod_text(self.client,CAL+'/1/pod.pdf')
         self.assertIn('not a customer receipt signature',text)
         self.assertEqual(self.rows('SELECT * FROM bf_interstate_manifests'),[])
@@ -142,7 +148,9 @@ class TransferPodTests(unittest.TestCase):
         self.assertEqual(self.client.get(CAL+'/1/pod').status_code,404)
         response=self.post('/sbtx/transfers/1/pod',self.values(action='sign'))
         self.assertEqual(response.status_code,200)
-        self.assertIn('/sbtx/transfers/1/pod.pdf',response.text)
+        self.assertEqual(response.request.path,'/sbtx/')
+        self.assertEqual(response.request.args['date'],'2026-09-01')
+        self.assertIn('/sbtx/transfers/1/pod.pdf',self.client.get('/sbtx/transfers/1/pod').text)
         self.assertIn('SIGNED',self.pod_text(self.client,'/sbtx/transfers/1/pod.pdf'))
 
     def test_calendar_shows_completed_pod_only_after_signing(self):

@@ -203,6 +203,8 @@ def register(app, db, access, client_access, page, booking, office, client, now,
             conn.rollback()
             return show(bid, error=str(error), status=400)
         flash('POD signed off and saved.' if signed else 'POD draft saved. You can return to sign it off.', 'success')
+        if signed:
+            return redirect(sbtx.transfer_url('calendar', False, date=b['pickup_date']), code=303)
         return redirect(sbtx.transfer_url('pod', False, bid=bid), code=303)
 
     @client.get('/transfers/<int:bid>/pod', endpoint='pod')
