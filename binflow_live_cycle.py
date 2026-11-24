@@ -28,6 +28,8 @@ def client_job_filter():
 
 
 def authenticate(conn, app, username, password, stamp):
+    if not app.testing:
+        return None
     if username != 'testdriver' or not app.config['BINFLOW_TESTDRIVER_HASH']:
         return None
     if not check_password_hash(app.config['BINFLOW_TESTDRIVER_HASH'], password):

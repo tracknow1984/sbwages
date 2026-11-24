@@ -1,0 +1,8 @@
+{% extends 'binflow/layout.html' %}{% block title %}Road distances{% endblock %}{% block subtitle %}Use the warehouse addresses in Setup as your trucks’ starting points.{% endblock %}{% block body %}
+<section class="bf-panel bf-pad"><h2>Google Maps road distances</h2>
+<p>{{ 'Connected. Routes use the selected depot and current client street addresses.' if connected else 'Connection required to calculate road kilometres and driving times automatically.' }}</p>
+<p>Enable Routes API and billing in your Google Maps project, then enter its server API key here. Google may charge for route lookups. Addresses are sent to Google when you open an allocation; the key stays encrypted on this server.</p>
+{% if environment_key %}<p>The connection is configured on the server. Contact your system administrator to change it.</p>{% else %}
+<form method="post" class="bf-form"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><label>Google Routes API key<input name="api_key" type="password" autocomplete="new-password" minlength="25" maxlength="200" required></label><button class="primary">Check and save connection</button></form>{% endif %}
+<p>Road routes use standard driving directions and exclude live traffic. Vehicle height, weight and heavy-vehicle access still need dispatch checks. SA remains pending until its depot address is saved.</p>
+<a href="{{ url_for('bf_setup') }}">Back to Setup</a></section>{% endblock %}

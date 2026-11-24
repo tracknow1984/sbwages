@@ -285,6 +285,11 @@ def create_app(test_config=None):
                                       'sbtx.po','sbtx_client.po'):
             request.max_content_length = 128 * 1024
         g.user = None
+        if not app.testing and ((request.endpoint or '').startswith(('bf_demo_', 'bf_live_'))
+                or request.endpoint in ('bf_testdriver_entry','bf_testdriver_login','staff_binflow_retest')
+                or request.path.startswith('/training/')
+                or (request.path.startswith('/binflow/') and request.args.get('demo'))):
+            abort(410, 'Test runs have been retired. Use the live BinFlow workspace.')
         if session.get('uid'):
             user = db().execute('SELECT * FROM users WHERE id=?', (session['uid'],)).fetchone()
             if user and user['status'] == 'active' and user['auth_version'] == session.get('version'):

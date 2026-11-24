@@ -8,6 +8,8 @@ from binflow_demo import DEMO_ENDPOINTS, WAREHOUSE_ENDPOINTS
 
 
 def credential_version(app):
+    if not app.testing:
+        return None
     value = app.config.get('BINFLOW_TESTDRIVER_HASH')
     return hashlib.sha256(value.encode()).hexdigest() if value else None
 

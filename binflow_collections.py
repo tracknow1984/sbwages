@@ -20,11 +20,16 @@ def planning_resources(conn):
     saved = conn.execute('SELECT data FROM blocktexx_model WHERE id=1').fetchone()
     model = json.loads(saved['data']) if saved else {}
     result = {}
-    for state, values in model.get('states', {}).items():
+    for state in sorted(set(model.get('states', {})) | {r[0] for r in conn.execute("SELECT DISTINCT state FROM bf_locations WHERE kind='warehouse'")}):
+        values=model.get('states',{}).get(state,{})
         result[state] = {k: values.get(k) for k in
                          ('depot', 'depot_status', 'available_weekly_hours', 'truck')}
         result[state]['warehouses'] = [dict(r) for r in conn.execute(
-            "SELECT id,name,address FROM bf_locations WHERE kind='warehouse' AND state=?", (state,))]
+            """SELECT id,name,address FROM bf_locations l WHERE kind='warehouse' AND state=?
+                AND NOT EXISTS(SELECT 1 FROM bf_live_cycle x WHERE l.id IN (x.origin_id,x.destination_id))""", (state,))]
+        warehouses=result[state]['warehouses']
+        result[state]['depot']=warehouses[0]['address'] if len(warehouses)==1 else ''
+        result[state]['depot_status']='confirmed' if result[state]['depot'] else 'unconfirmed'
     return result
 
 

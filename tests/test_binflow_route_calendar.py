@@ -72,6 +72,7 @@ class CurrentCalendarTests(unittest.TestCase):
         for lid in (3,4,5):self.save_target(lid,0,1)
         self.replace()
         with self.connection() as conn:
+            conn.execute("UPDATE bf_locations SET address='North Maclean QLD' WHERE id=1")
             conn.execute("UPDATE bf_client_site_profiles SET schedule='Weekly',suburb='Eagle Farm' WHERE location_id=3")
             saved=conn.execute('SELECT data FROM blocktexx_model WHERE id=1').fetchone()
             model=json.loads(saved['data']) if saved else empty_model()

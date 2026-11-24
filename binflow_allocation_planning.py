@@ -3,6 +3,7 @@ import re
 
 from binflow_route_calendar import geography, leg, split_loads, trip_stats, clients, PREP, BREAK, WAIT, clock
 from binflow_collections import planning_resources
+import binflow_road_routes as roads
 
 
 def point(conn, location, geo, suburb=''):
@@ -23,13 +24,33 @@ def point(conn, location, geo, suburb=''):
 def ordered_sites(conn, sites, warehouse):
     geo=dict(points=dict(geography()['points']))
     people={p['id']:p for p in clients(conn) if p['id']}
+    sites=[dict(s) for s in sites]
+    for s in sites:
+        profile=people.get(s['id'])
+        if profile:
+            # Saved locations may contain only the street. Include the separately
+            # saved suburb/postcode without replacing that street with stale data.
+            parts=[s['address']]
+            for field in ('suburb','postcode'):
+                value=profile.get(field,'').strip()
+                if value and value.casefold() not in s['address'].casefold():parts.append(value)
+            s['address']=', '.join(p for p in parts if p)
+    road_values,geo['road_status'],geo['road_enabled']=roads.distances(conn,warehouse,sites)
     depot_key,_=point(conn,warehouse,geo) if warehouse else (None,'')
+    if geo['road_enabled'] and warehouse and roads.address(warehouse):
+        depot_key='location:'+str(warehouse['id'])
     result=[]
     for row in sites:
         item=dict(row);profile=people.get(row['id'])
         key,basis=point(conn,row,geo,profile['suburb'] if profile else '')
         distance=leg(geo,row['state'],depot_key,key) if depot_key and key else None
+        route=road_values.get(row['id'])
+        if geo['road_enabled']:
+            distance=(route['drive_minutes'],route['distance_km']) if route else None
+            key='location:'+str(row['id']) if route else None
         item.update(distance_km=distance[1] if distance else None,drive_minutes=distance[0] if distance else None,
+                    distance_basis='road' if route else 'estimate',
+                    directions_url=roads.maps_link(roads.address(warehouse) if warehouse else None,roads.address(row)),
                     geo_key=key,location_basis=basis,large=profile['large'] if profile else 0,small=profile['small'] if profile else 0,
                     other_sizes=[q['name'] for q in profile['quantities'] if q['litres'] not in (240,1100)] if profile else [])
         result.append(item)
@@ -60,12 +81,30 @@ def day_estimate(conn, state, day, sites, warehouse, selected_site, geo, depot_k
         for load in split_loads(s,resource):
             if not loads or sum(x['spaces'] for x in loads[-1])+load['spaces']>capacity:loads.append([])
             loads[-1].append(load)
-    trips=[trip_stats(load,state,resource,geo) for load in loads]
+    trips=[]
+    road_trips=[]
+    if geo.get('road_enabled'):
+        from concurrent.futures import ThreadPoolExecutor
+        route_key=roads.api_key(conn)
+        origin=roads.address(warehouse)
+        if len(loads)>8:unknown.append('More than eight depot loads; split this day before calculating road times')
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            road_trips=list(pool.map(lambda load: roads.round_trip(route_key,origin,[roads.address(s['profile']) for s in load]),loads[:8]))
+    for index,load in enumerate(loads):
+        if geo.get('road_enabled'):
+            route=road_trips[index] if index<len(road_trips) else None
+            if not route:
+                unknown.append('Road route for a depot round trip could not be calculated')
+                continue
+            bins=sum(s['large']+s['small'] for s in load)
+            trips.append(dict(drive=route['drive_minutes'],service=sum(10+3*(s['large']+s['small']) for s in load),handling=20+4*bins))
+        else:
+            trips.append(trip_stats(load,state,resource,geo))
     travel=sum(t['drive'] for t in trips);service=sum(t['service'] for t in trips);handling=sum(t['handling'] for t in trips)
     baling=480 if any(i['kind']=='baling' for i in planned['items']) else 0
     allowances=PREP+BREAK+WAIT if trips else 0
     total=travel+service+handling+allowances+baling
-    return dict(stops=stops,missing=unknown,loads=len(loads),capacity=capacity,
+    return dict(stops=stops,missing=unknown,loads=len(loads),capacity=capacity,road_enabled=geo.get('road_enabled',False),
                 small_space=small_space,assumed_capacity=not truck.get('pallet_positions'),travel=travel,service=service,handling=handling,
                 allowances=allowances,baling=baling,minutes=total,hours=round(total/60,1),
                 finish=clock(390+total) if total and not unknown else None,over_limit=total>540,
