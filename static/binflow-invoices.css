@@ -1,0 +1,44 @@
+/* Keep invoice information in one width-constrained register. */
+.bf-invoice-register {min-width:0; width:100%;}
+.bf-invoice-register .invoice-filters {display:flex; flex-wrap:wrap; align-items:end; gap:10px; margin-bottom:12px;}
+.bf-invoice-register .invoice-filters label {margin:0; flex:1 1 120px; min-width:0; gap:4px;}
+.bf-invoice-register .invoice-filters label:last-of-type {flex:0 1 72px;}
+.bf-invoice-register .invoice-filters input,.bf-invoice-register .invoice-filters select {min-height:36px; padding:6px 9px; font-size:13px;}
+.bf-invoice-register button,.bf-invoice-register .button {min-height:36px; padding:7px 10px; font-size:12px;}
+.invoice-toolbar,.invoice-pagination {display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin:10px 0; font-size:13px;}
+.invoice-toolbar small {display:block; color:var(--bf-muted); font-size:11px;}
+.invoice-toolbar form {margin:0;}
+.invoice-toolbar [data-selection-count] {font-size:11px; color:var(--bf-muted);}
+.bf-invoice-register .invoice-panel {margin-bottom:10px; overflow:visible;}
+.bf-invoice-register .invoice-table {width:100%; table-layout:fixed; white-space:normal;}
+.bf-invoice-register .invoice-table th,.bf-invoice-register .invoice-table td {padding:8px; overflow-wrap:anywhere; line-height:1.35;}
+.bf-invoice-register .invoice-table th {font-size:10px; padding-top:10px; padding-bottom:10px;}
+.bf-invoice-register .invoice-table td {font-size:12px;}
+.bf-invoice-register .invoice-table strong {font-size:12px;}
+.invoice-table .invoice-select {width:4%;}
+.invoice-table .invoice-client {width:26%;}
+.invoice-table .invoice-category {width:11%;}
+.invoice-table .invoice-period {width:13%;}
+.invoice-table .invoice-total {width:12%;}
+.invoice-table .invoice-stage {width:15%;}
+.invoice-table .invoice-pods {width:19%;}
+.bf-invoice-register input[type=checkbox] {width:16px; height:16px; min-height:0; margin:0; padding:0;}
+.invoice-links {display:flex; flex-wrap:wrap; gap:3px 10px; margin-top:4px; font-size:11px;}
+.invoice-more-pods {font-size:11px; margin-top:4px;}
+.invoice-more-pods summary {cursor:pointer; color:var(--bf-blue);}
+.invoice-more-pods div {margin-top:6px;}
+.invoice-pagination>div {display:flex; align-items:center; gap:12px;}
+.bf-office-content:has(.bf-invoice-register) .bf-heading {margin-bottom:12px;}
+.bf-office-content:has(.bf-invoice-register) .bf-heading h1 {margin:4px 0; font-size:28px;}
+.bf-office-content:has(.bf-invoice-register) .bf-page-guide {margin-bottom:12px;}
+@media(max-width:700px) {
+  .bf-invoice-register .invoice-table thead {display:none;}
+  .bf-invoice-register .invoice-table,.bf-invoice-register .invoice-table tbody,.bf-invoice-register .invoice-table tr,.bf-invoice-register .invoice-table td {display:block; width:100%;}
+  .bf-invoice-register .invoice-table tr {padding:10px; border-bottom:1px solid var(--bf-line);}
+  .bf-invoice-register .invoice-table td {display:grid; grid-template-columns:100px minmax(0,1fr); gap:8px; padding:5px; border:0;}
+  .bf-invoice-register .invoice-table td:before {content:attr(data-label); font-weight:600; color:var(--bf-muted);}
+  .bf-invoice-register .invoice-table td>small,.bf-invoice-register .invoice-table td>.invoice-links,.bf-invoice-register .invoice-table td>.invoice-more-pods {grid-column:2;}
+  .bf-invoice-register .invoice-table td[colspan] {display:block;}
+  .invoice-toolbar {align-items:start;}
+  .invoice-pagination>div {gap:8px;}
+}

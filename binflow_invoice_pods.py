@@ -8,6 +8,7 @@ from pypdf import PdfReader, PdfWriter
 from pypdf.errors import PyPdfError
 
 import binflow_client_access as access
+import binflow_period_reports as reports
 import binflow_transfer_pods as transfer_pods
 from binflow_management import pod_scope
 from document_uploads import read_document
@@ -209,4 +210,21 @@ def register(app,db,require,render,now,actor):
         row=db().execute('SELECT filename,document FROM bf_invoice_pod_files WHERE invoice_id=? AND id=?',(identifier,doc_id)).fetchone()
         if not row: abort(404)
         return document_response(row['document'],row['filename'])
+
+    @app.get('/binflow/invoices/<identifier>/pods/<any(job,file,transfer):kind>/<int:doc_id>/preview.pdf')
+    @require('admin')
+    def bf_invoice_pod_preview(identifier,kind,doc_id):
+        conn=db()
+        attached=documents(conn,[identifier]).get(identifier,[])
+        doc=next((p for p in attached if p['kind']==kind and p['id']==doc_id),None)
+        if not doc:
+            abort(404)
+        if kind=='file':
+            data=file_content(conn,identifier,doc_id)
+        elif kind=='transfer':
+            data=transfer_content(app,conn,doc_id)
+        else:
+            data=reports.pdf_data(app.view_functions['bf_pod_pdf'](job_id=doc_id))
+        name=doc['label'] if doc['label'].lower().endswith('.pdf') else doc['label']+'.pdf'
+        return document_response(data,name)
 

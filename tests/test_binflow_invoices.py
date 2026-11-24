@@ -59,6 +59,21 @@ class ClientInvoiceTests(TestCase):
         files=self.rows('SELECT id FROM bf_invoice_pod_files')
         self.assertEqual(len(files),1)
         file_id=files[0]['id']
+        preview=f'{BASE}/{key}/pods/file/{file_id}/preview.pdf'
+        listing=self.client.get(BASE)
+        self.assertEqual(listing.status_code,200)
+        self.assertIn(preview,listing.text)
+        self.assertEqual(listing.text.count('<dialog class="register-preview"'),1)
+        response=self.client.get(preview)
+        self.assertEqual(response.data,raw)
+        self.assertEqual(response.headers['X-Frame-Options'],'SAMEORIGIN')
+        self.assertIn("frame-ancestors 'self'",response.headers['Content-Security-Policy'])
+        self.assertIn('inline',response.headers['Content-Disposition'])
+        self.assertEqual(self.client.get(preview+'?download=1').headers['X-Frame-Options'],'DENY')
+        denied=client.get(preview)
+        self.assertEqual(denied.status_code,302)
+        self.assertIn('/admin/login',denied.location)
+        self.assertEqual(self.client.get(f'{BASE}/missing/pods/file/{file_id}/preview.pdf').status_code,404)
         route=f'{PORTAL}/{key}/pods/file/{file_id}'
         remote=dict(InvoiceID=billing.INVOICE,InvoiceNumber='INV-POD',Type='ACCREC',Status='AUTHORISED',
             Contact={'ContactID':billing.CONTACT},DateString='2026-11-20',DueDateString='2026-12-04',Total=100,AmountDue=100)
@@ -76,12 +91,37 @@ class ClientInvoiceTests(TestCase):
             self.assertEqual(client.get(route).status_code,404)
             remote['Status']='PAID'
             self.post(manage,dict(action='remove',kind='file',document_id=file_id))
+            self.assertEqual(self.client.get(preview).status_code,404)
             self.assertEqual(client.get(route).status_code,404)
             self.assertIn('No POD attached',client.get(PORTAL).text)
 
     def values(self, aid, **updates):
         return dict(dict(draft_key=str(uuid4()),client=aid,category=2,invoice_date='2026-11-11',due_date='2026-11-25',
                          po_number='PO-Manual',account_code='200',tax_type='OUTPUT',description='Local transport',quantity='2.5',unit_rate='125.30'),**updates)
+
+    @billing.connected_organisation
+    def test_compact_register_pagination_category_and_period_filters(self):
+        import re
+        self.connect()
+        aid=self.account('invoice-register-client')
+        self.link(aid)
+        keys=[]
+        for index in range(8):
+            form=self.values(aid,invoice_date=f'2026-11-{index+1:02d}',category=3 if index==7 else 2)
+            self.post(BASE+'/new',form)
+            keys.append(form['draft_key'])
+        self.assertEqual(len(self.rows('SELECT id FROM bf_rental_invoices')),8)
+        def ids(path):
+            response=self.client.get(path)
+            self.assertEqual(response.status_code,200)
+            return re.findall(r'data-invoice-id="([^"]+)"',response.text)
+        self.assertEqual(ids(BASE),list(reversed(keys[2:])))
+        self.assertEqual(ids(BASE+'?page=2'),list(reversed(keys[:2])))
+        self.assertEqual(ids(BASE+'?per_page=24'),list(reversed(keys)))
+        self.assertEqual(ids(BASE+'?category=Transport&per_page=12'),list(reversed(keys[:7])))
+        self.assertEqual(ids(BASE+'?category=Transport&period=week&date=2026-11-03&per_page=12'),list(reversed(keys[1:7])))
+        self.assertEqual(ids(BASE+'?page=999'),list(reversed(keys[:2])))
+        self.assertEqual(ids(BASE+'?per_page=999'),list(reversed(keys[2:])))
 
     @billing.connected_organisation
     def test_transfer_pod_signed_after_invoice_is_linked_and_downloadable(self):
@@ -120,6 +160,8 @@ class ClientInvoiceTests(TestCase):
         with patch('binflow_xero.api',return_value={'Invoices':[remote]}),patch('binflow_invoices.pdf_bytes',return_value=raw.getvalue()):
             self.assertNotIn(route,client.get(PORTAL).text)
             self.assertEqual(client.get(route).status_code,404)
+            preview=f'{BASE}/{key}/pods/transfer/{bid}/preview.pdf'
+            self.assertEqual(self.client.get(preview).status_code,404)
             self.assertEqual(self.post(f'{CAL}/{bid}/pod',dict(pod_values,action='sign',revision=1)).status_code,200)
             page=client.get(PORTAL)
             self.assertIn(route,page.text)
@@ -130,6 +172,8 @@ class ClientInvoiceTests(TestCase):
             self.assertEqual(manage.status_code,200)
             self.assertIn('Automatically linked to this transfer invoice',manage.text)
             self.assertIn(f'Transfer POD #{bid}',manage.text)
+            self.assertIn(preview,self.client.get(BASE).text)
+            self.assertEqual(self.client.get(preview).headers['X-Frame-Options'],'SAMEORIGIN')
             signed=client.get(route)
             self.assertEqual(signed.status_code,200)
             self.assertIn('inline',signed.headers['Content-Disposition'])
@@ -219,6 +263,9 @@ class ClientInvoiceTests(TestCase):
             conn.execute("UPDATE bf_rental_invoices SET status='created',invoice_id=? WHERE id=?",(billing.INVOICE,key))
         remote=dict(InvoiceID=billing.INVOICE,Type='ACCREC',Status='PAID',Contact={'ContactID':billing.CONTACT},Total=3,AmountDue=0)
         route=f'{PORTAL}/{key}/pods/job/1'
+        preview=f'{BASE}/{key}/pods/job/1/preview.pdf'
+        self.assertEqual(self.client.get(preview).mimetype,'application/pdf')
+        self.assertEqual(self.client.get(preview).headers['X-Frame-Options'],'SAMEORIGIN')
         with patch('binflow_xero.api',return_value={'Invoices':[remote]}):
             self.assertIn(route,client.get(PORTAL).text)
             self.assertEqual(client.get(route).mimetype,'application/pdf')
@@ -226,6 +273,7 @@ class ClientInvoiceTests(TestCase):
                 conn.execute("UPDATE bf_jobs SET pod_deleted_at='withdrawn' WHERE id=1")
             self.assertNotIn(route,client.get(PORTAL).text)
             self.assertEqual(client.get(route).status_code,404)
+            self.assertEqual(self.client.get(preview).status_code,404)
 
     @billing.connected_organisation
     def test_categories_billing_draft_and_isolated_issued_documents(self):

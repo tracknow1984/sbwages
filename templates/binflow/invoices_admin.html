@@ -1,24 +1,54 @@
 {% extends 'binflow/layout.html' %}
 {% block title %}Invoices{% endblock %}
 {% block subtitle %}{% endblock %}
+{% macro pod_link(identifier,pod,label) %}
+<a href="{{ url_for('bf_invoice_pod_preview',identifier=identifier,kind=pod.kind,doc_id=pod.id) }}" data-preview="application/pdf" data-name="{{ pod.label }}" aria-label="Quick view {{ pod.label }}">{{ label }}</a>
+{% endmacro %}
 {% block body %}
-<form method="get" class="bf-filters">
-{% set period_options=[('all','All dates'),('week','Weekly'),('fortnight','Fortnightly'),('month','Monthly')] %}{% include 'binflow/report_period.html' %}
-<label>Period containing<input type="date" name="date" value="{{ chosen }}"></label><button class="primary">Show invoices</button>
-</form><p><strong>{{ period.label }}</strong>{% if period.key!='all' %} · Invoice date, or period end for an unissued draft{% endif %}</p>
-{% set period_filters=dict(period=period.key) %}{% include 'binflow/report_period_nav.html' %}
-<form id="report-downloads" action="{{ url_for('bf_invoice_batch') }}" method="post" class="bf-actions"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="date" value="{{ period.first }}"><input type="hidden" name="period" value="{{ 'day' if period.key=='all' else period.key }}"><button class="secondary" name="format" value="xls">Download selected XLS</button><button class="secondary" name="format" value="zip">Download selected ZIP</button></form>
+<link rel="stylesheet" href="{{ url_for('static',filename='binflow-invoices.css') }}">
+<div class="bf-invoice-register">
+<form method="get" class="invoice-filters">
+  {% set period_options=[('all','All dates'),('week','Weekly'),('fortnight','Fortnightly'),('month','Monthly')] %}{% include 'binflow/report_period.html' %}
+  <label>Period containing<input type="date" name="date" value="{{ chosen }}"></label>
+  <label>Category<select name="category"><option value="">All categories</option>{% for c in categories %}<option value="{{ c.name }}" {{ 'selected' if category==c.name }}>{{ 'POD Invoices' if c.name=='POD Collections' else c.name }}</option>{% endfor %}</select></label>
+  <label>Rows<select name="per_page">{% for size in (6,12,24) %}<option value="{{ size }}" {{ 'selected' if size==per_page }}>{{ size }}</option>{% endfor %}</select></label>
+  <button class="primary">Apply</button>
+</form>
+<div class="invoice-toolbar">
+  <div><strong>{{ count }} {{ 'invoice' if count==1 else 'invoices' }} &amp; drafts</strong><small>{{ period.label }} · Yellow = confirmed in Xero</small></div>
+  <form id="report-downloads" action="{{ url_for('bf_invoice_batch') }}" method="post" class="bf-actions">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="date" value="{{ period.first }}"><input type="hidden" name="period" value="{{ 'day' if period.key=='all' else period.key }}">
+    <span data-selection-count role="status" aria-live="polite"></span>
+    <button class="secondary" name="format" value="xls">Export XLS</button><button class="secondary" name="format" value="zip">Download ZIP</button>
+  </form>
+</div>
+{% set period_filters=dict(period=period.key,category=category,per_page=per_page) %}{% include 'binflow/report_period_nav.html' %}
+<section class="bf-panel invoice-panel" aria-label="Invoices and drafts">
+<table class="invoice-table"><thead><tr>
+  <th class="invoice-select"><input type="checkbox" data-check-table aria-label="Select all invoices on this page"></th>
+  <th class="invoice-client">Invoice / client</th><th class="invoice-category">Category</th><th class="invoice-period">Period</th><th class="invoice-total">Incl. GST</th><th class="invoice-stage">Status</th><th class="invoice-pods">POD</th>
+</tr></thead><tbody>
+{% for r in rows %}
+<tr{% if r.invoiced %} class="bf-invoiced-row"{% endif %} data-invoice-id="{{ r.id }}">
+  <td data-label="Select"><input type="checkbox" form="report-downloads" name="selected" value="{{ r.id }}" aria-label="Select {{ r.invoice_number or r.client }}"></td>
+  <td data-label="Invoice / client"><strong>{{ r.client }}</strong><div class="invoice-links"><a href="{{ url_for('bf_auto_review',did=r.id) if r.auto_id else url_for('bf_rental_invoice',identifier=r.id) }}">{{ 'Test · ' if r.mode=='test' }}{{ r.invoice_number or ('Open invoice' if r.saved_id else 'Review draft') }}</a><a href="{{ url_for('bf_invoice_document',identifier=r.id) }}" aria-label="Download invoice {{ r.invoice_number or r.client }}{{ ' and PODs' if supporting.get(r.id) }}">{{ 'Invoice + PODs PDF' if supporting.get(r.id) else 'Invoice PDF' }}</a></div></td>
+  <td data-label="Category">{{ r.kind }}</td>
+  <td data-label="Period">{{ r.start|display_date }}{% if r.start!=r.end %}<small>to {{ r.end|display_date }}</small>{% endif %}</td>
+  <td data-label="Incl. GST">{{ 'Pricing incomplete' if r.issue and not r.saved_id else r.total|money }}</td>
+  <td data-label="Status">{% if r.saved_id %}{{ 'Unsent · BinFlow only' if r.status=='preview' else 'Check Xero result' if r.status in ('sending','uncertain') else (r.xero_status or r.status)|capitalize }}{% else %}{{ 'Needs setup · Unsent' if r.issue else 'Unsent · BinFlow only' if r.kind=='Transport' else 'Fortnight open' if r.end>=today else 'Ready for review' }}{% endif %}</td>
+  <td data-label="POD">{% set pods=supporting.get(r.id,[]) %}{% if pods %}
+    {{ pod_link(r.id,pods[0],'Quick view POD') }}
+    {% if pods|length>1 %}<details class="invoice-more-pods"><summary>{{ pods|length-1 }} more POD{{ 's' if pods|length>2 }}</summary>{% for pod in pods[1:] %}<div>{{ pod_link(r.id,pod,pod.label) }}</div>{% endfor %}</details>{% endif %}
+    {% endif %}{% if r.saved_id %}<small><a href="{{ url_for('bf_invoice_pods',identifier=r.id) }}">{{ 'Manage PODs' if pods else 'Add POD' }}</a></small>{% else %}<small>Available once prepared</small>{% endif %}
+  </td>
+</tr>{% else %}<tr><td colspan="7">No invoices or drafts match these filters.</td></tr>{% endfor %}
+</tbody></table>
+</section>
+<nav class="invoice-pagination" aria-label="Invoice pages">
+  <span>{{ (page-1)*per_page+1 if count else 0 }}–{{ [(page-1)*per_page+rows|length,count]|min }} of {{ count }}</span>
+  <div>{% if page>1 %}<a class="button secondary" href="{{ url_for('bf_invoices',page=page-1,period=period.key,date=chosen,category=category,per_page=per_page) }}">Previous</a>{% endif %}<span>Page {{ page }} of {{ pages }}</span>{% if page<pages %}<a class="button secondary" href="{{ url_for('bf_invoices',page=page+1,period=period.key,date=chosen,category=category,per_page=per_page) }}">Next</a>{% endif %}</div>
+</nav>
+</div>
 <script defer src="{{ url_for('static',filename='binflow-report-select.js') }}"></script>
-<p class="bf-muted">Yellow rows have a confirmed invoice in Xero.</p>
-{% for kind,title in [('Bin Rental','Bin Rentals'),('Transport','Interstate Transfers'),('POD Collections','POD Invoices')] %}
-<section class="bf-panel bf-pad"{% if kind=='Transport' %} id="transport-drafts"{% endif %}><h2>{{ title }}</h2>
-{% if kind=='POD Collections' %}<p>Each signed collection adds its net kilograms to the billing client’s fortnight. Download one PDF with the invoice first and its signed PODs behind it.</p>{% endif %}
-<div class="bf-table-wrap"><table class="bf-plan-table"><thead><tr><th><input type="checkbox" data-check-table aria-label="Select all rows in this table"></th><th>Billing client</th><th>Period</th><th>Total incl GST</th><th>Stage</th><th>POD</th><th>Action</th></tr></thead><tbody>
-{% for d in drafts if d.kind==kind %}<tr{% if d.invoiced %} class="bf-invoiced-row"{% endif %}><td><input type="checkbox" form="report-downloads" name="selected" value="{{ d.id }}" aria-label="Select invoice for {{ d.client }}"></td><td data-label="Billing client">{{ d.client }}</td><td data-label="Period">{{ d.start|display_date }}{% if d.start!=d.end %} – {{ d.end|display_date }}{% endif %}</td><td data-label="Total incl GST">{{ 'Pricing incomplete' if d.issue else d.total|money }}</td><td data-label="Stage">{{ 'Approved' if d.state=='approved' else 'Xero draft' if d.state=='drafted' else 'Check Xero' if d.state=='sending' else 'Needs setup · Unsent' if d.issue else 'Unsent · BinFlow only' if d.kind=='Transport' else 'Fortnight open' if d.end>=today else 'Ready for review' }}</td>
-<td data-label="POD">{% if d.saved_id %}<a href="{{ url_for('bf_invoice_pods',identifier=d.id) }}">{{ 'Manage PODs (' ~ (supporting[d.id]|length) ~ ')' if supporting.get(d.id) else 'Add POD' }}</a>{% else %}<small>Available once invoice is prepared</small>{% endif %}</td><td data-label="Action"><a class="button secondary" href="{{ url_for('bf_auto_review',did=d.id) }}">{{ d.invoice_number or 'Review draft' }}</a> <a href="{{ url_for('bf_invoice_document',identifier=d.id) }}">{{ 'Invoice + PODs PDF' if d.kind=='POD Collections' or supporting.get(d.id) else 'Invoice PDF' }}</a></td></tr>{% else %}<tr><td colspan="7">No {{ title|lower }} to review.</td></tr>{% endfor %}</tbody></table></div></section>{% endfor %}
-<section class="bf-panel bf-pad"><h2>Invoice history</h2>
-{% if history %}<div class="bf-table-wrap"><table><thead><tr><th><input type="checkbox" data-check-table aria-label="Select all rows in this table"></th><th>Invoice</th><th>POD</th><th>Client</th><th>Category</th><th>Prepared</th><th>Last known status</th></tr></thead><tbody>
-{% for r in history %}<tr{% if r.invoiced %} class="bf-invoiced-row"{% endif %}><td><input type="checkbox" form="report-downloads" name="selected" value="{{ r.id }}" aria-label="Select {{ r.invoice_number or r.contact }}"></td><td><a href="{{ url_for('bf_rental_invoice',identifier=r.id) }}">{{ 'Test · ' if r.mode=='test' }}{{ r.invoice_number or 'Open invoice' }}</a> · <a href="{{ url_for('bf_invoice_document',identifier=r.id) }}">{{ 'Invoice + PODs PDF' if r.category=='POD Collections' or supporting.get(r.id) else 'Invoice PDF' }}</a></td><td data-label="POD"><a class="button secondary compact" href="{{ url_for('bf_invoice_pods',identifier=r.id) }}">{{ 'Manage PODs (' ~ (supporting[r.id]|length) ~ ')' if supporting.get(r.id) else 'Add POD' }}</a></td><td>{{ r.contact }}</td><td>{{ r.category }}</td><td>{{ r.created_at[:10]|display_date }}</td><td>{{ 'Unsent · BinFlow only' if r.status=='preview' else 'Check Xero result' if r.status in ('sending','uncertain') else (r.xero_status or r.status)|capitalize }}</td></tr>{% endfor %}
-</tbody></table></div>{% else %}<p>No invoices prepared yet.</p>{% endif %}
-{% if page>1 %}<a href="{{ url_for('bf_invoices',page=page-1,period=period.key,date=chosen) }}">Previous</a>{% endif %} {% if has_next %}<a href="{{ url_for('bf_invoices',page=page+1,period=period.key,date=chosen) }}">Next</a>{% endif %}</section>
+{% include 'document_quick_view.html' %}
 {% endblock %}

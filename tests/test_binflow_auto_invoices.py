@@ -209,7 +209,8 @@ class AutoInvoiceTests(unittest.TestCase):
             page = self.client.get(calendar+'&view='+view).text
             self.assertRegex(page,r'<a class="it-event pickup"[^>]*data-delivered="true"[^>]* data-invoiced')
         self.assertTrue(self.client.get(calendar+'&responses=1').json['bookings']['1']['invoiced'])
-        self.assertEqual(self.client.get(BASE).text.count('class="bf-invoiced-row"'),2)
+        # The saved invoice and its automatic draft share one row in the register.
+        self.assertEqual(self.client.get(BASE).text.count('class="bf-invoiced-row"'),1)
         self.assertNotIn(' data-invoiced', client.get(CLIENT+'?date=2026-11-13').text)
         self.assertEqual(len(self.rows("SELECT id FROM bf_auto_drafts WHERE kind='Transport'")),1)
         self.assertEqual(len(self.rows("SELECT id FROM bf_rental_invoices WHERE booking_id=1")),1)
