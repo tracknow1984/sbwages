@@ -341,3 +341,6 @@ summary.bf-condition-label {cursor:pointer;min-height:36px}
 .bf .bf-menu-search input {min-height:40px;padding:8px;font-size:12px;min-width:0;width:100%}
 .bf-menu-search small {display:block;font-size:11px;line-height:1.4;color:#526b87;margin-top:5px}
 .bf-menu-search small:empty {display:none}
+
+.bf .bf-calendar-add-allocation{display:flex;align-items:center;justify-content:center;width:100%;box-sizing:border-box;min-height:36px;margin:4px 0 8px;padding:7px 4px;font-size:12px;line-height:1.25;white-space:normal;text-align:center}
+@media(max-width:600px){.bf .bf-calendar-add-allocation{min-height:44px;font-size:10px;padding:6px 2px}}
