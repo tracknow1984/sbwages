@@ -2,6 +2,6 @@
 {% if selected and closed_days is defined and selected in closed_days.get(key,{}) %}
 <button type="button" class="button secondary bf-calendar-add-allocation" disabled title="This state-day is completed and locked">Day locked</button>
 {% else %}
-<a class="button secondary bf-calendar-add-allocation" href="{{ url_for('bf_new_job',date=key) }}" aria-label="Add allocation for {{ key }}">+ Add allocation</a>
+<a class="button secondary bf-calendar-add-allocation" href="{{ url_for('bf_new_job',date=key,state=selected,calendar='1') }}" data-allocation-popup aria-label="Add allocation for {{ key }}">+ Add allocation</a>
 {% endif %}
 {% endif %}

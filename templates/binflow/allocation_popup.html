@@ -1,0 +1,8 @@
+{% if not portal_calendar and current_user and (current_user.role=='admin' or binflow_manager) %}
+<script src="{{ url_for('static',filename='binflow-allocation-popup.js') }}" defer></script>
+<dialog class="bf-allocation-dialog" data-allocation-dialog aria-labelledby="allocation-popup-title">
+<header><h2 id="allocation-popup-title">Add allocation</h2><button type="button" class="secondary" data-allocation-close aria-label="Close allocation">✕</button></header>
+<p class="notice error" data-allocation-error role="alert" hidden></p>
+<div data-allocation-body></div>
+</dialog>
+{% endif %}
