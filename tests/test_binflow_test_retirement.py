@@ -67,6 +67,23 @@ class RetirementTests(unittest.TestCase):
             self.assertFalse(c.execute('PRAGMA foreign_key_check').fetchall())
             self.assertEqual(c.execute('SELECT COUNT(*) FROM bf_live_cycle').fetchone()[0],1)
 
+    def test_booking_dispatch_link_survives_archiving_test_recipient(self):
+        from test_binflow_interstate import data
+        self.post('/binflow/interstate-transfers/new',data(client_name='Real customer'))
+        with self.connection() as c:
+            uid=provision(c,'2026-11-24')
+            booking=dict(c.execute('SELECT * FROM bf_interstate_bookings').fetchone())
+            nid=c.execute("INSERT INTO staff_notices(user_id,admin_id,title,body,sent_at) VALUES(?,1,'Assignment','Real booking','now')",(uid,)).lastrowid
+            c.execute("""INSERT INTO bf_load_dispatches(booking_id,version,event,target,recipient,address,title,body,actor_id,status,notice_id)
+                VALUES(?,1,'Assigned',?,'Test Driver','','Assignment','Real booking',1,'sent',?)""",(booking['id'],'driver:'+str(uid),nid))
+            dispatch=dict(c.execute('SELECT * FROM bf_load_dispatches').fetchone());c.commit()
+            result=retire(c,'2026-11-24')
+            self.assertEqual(result['status'],'retired');self.assertEqual(result['archived_test_notices'],1)
+            self.assertEqual(dict(c.execute('SELECT * FROM bf_interstate_bookings').fetchone()),booking)
+            self.assertEqual(dict(c.execute('SELECT * FROM bf_load_dispatches').fetchone()),dispatch)
+            self.assertEqual(c.execute('SELECT archived_at FROM staff_notices WHERE id=?',(nid,)).fetchone()[0],'2026-11-24')
+            self.assertFalse(c.execute('PRAGMA foreign_key_check').fetchall())
+
     def test_completed_cycle_and_pods_can_be_removed(self):
         from test_binflow_live_cycle import LiveCycleTests
         case=LiveCycleTests('test_employee_actions_reach_the_normal_office_registers')

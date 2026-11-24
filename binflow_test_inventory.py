@@ -33,6 +33,13 @@ def inventory(conn, logger):
     configured=bool(api_key(conn))
     logger.warning('BinFlow test inventory: %s', json.dumps(dict(run=dict(run) if run else None,
                    candidates=candidates, references=links,road_routing_configured=configured)))
+    preserved=[dict(r) for r in conn.execute("""SELECT d.id,d.booking_id,b.pickup_date,d.event,d.status,d.decision,
+        (d.id=(SELECT MAX(x.id) FROM bf_load_dispatches x WHERE x.booking_id=d.booking_id)) AS latest,
+        (b.cancelled_at IS NOT NULL) AS cancelled FROM bf_load_dispatches d JOIN staff_notices n ON n.id=d.notice_id
+        JOIN users u ON u.id=n.user_id JOIN bf_interstate_bookings b ON b.id=d.booking_id
+        WHERE u.status='terminated' AND u.first_name IN ('Test','Live Test') AND u.last_name='Driver'
+        ORDER BY d.booking_id,d.id""")]
+    logger.warning('BinFlow preserved booking dispatch history: %s',json.dumps(preserved))
     if not configured:
         from binflow_allocation_planning import ordered_sites
         coverage=[]
