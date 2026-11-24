@@ -148,6 +148,8 @@ def register_binflow(app, db, require):
         migrate_allocation_import(db())
         migrate_route_calendar(db())
         migrate_schedule(db())
+        from binflow_calendar_cycles import migrate as migrate_calendar_cycles
+        migrate_calendar_cycles(db())
         binflow_rollout.migrate(db())
         from binflow_journey import migrate_journey
         migrate_journey(db())
@@ -1334,6 +1336,8 @@ def register_binflow(app, db, require):
     register_collections(app,db,access,require,render,success,now,actor)
     from binflow_calendar_reset import register as register_calendar_reset
     register_calendar_reset(app,db,require,render,success,now,actor)
+    from binflow_calendar_cycles import register as register_calendar_cycles
+    register_calendar_cycles(app,db,require,render,success,now)
     register_acceptance(app,db,access,success,failure,now,actor)
     register_workdays(app,db,access,require,render,success,failure,now)
     from binflow_journey import register_journey

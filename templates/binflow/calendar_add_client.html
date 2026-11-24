@@ -1,0 +1,21 @@
+{% extends 'binflow/layout.html' %}
+{% block title %}Add client to calendar{% endblock %}
+{% block subtitle %}Choose the first visit; repeat dates follow the requested schedule.{% endblock %}
+{% block body %}
+<section class="bf-panel bf-pad"><h2>{{ client.name }} · {{ client.state }}</h2>
+<p><strong>Requested schedule:</strong> {{ client.schedule or 'To confirm' }}</p>
+<div class="bf-chips"><span><strong>{{ client.small }}</strong> × 240L bins</span><span><strong>{{ client.large }}</strong> × 1100L bins</span></div>
+{% if scheduled %}<p>This client is on the calendar from <strong>{{ scheduled.first_date|display_date }}</strong>, repeating {{ scheduled.requested_schedule }}. Open the calendar to move individual visits.</p>
+<a class="button primary" href="{{ url_for('bf_collection_calendar',state=client.state,date=scheduled.first_date,view='week') }}">Open calendar</a>
+{% else %}
+<form method="get" class="bf-form"><label>First collection date<input type="date" name="date" value="{{ first }}" min="2026-10-26" max="2100-12-31" required></label>
+{% if needs_days %}<fieldset><legend>Select {{ needs_days }} collection weekdays</legend>{% for day in weekdays %}<label class="bf-check"><input type="checkbox" name="days" value="{{ loop.index0 }}" {{ 'checked' if loop.index0|string in selected_days }}>{{ day }}</label>{% endfor %}</fieldset>{% endif %}
+<div><button type="submit" class="secondary">Preview dates</button></div></form>
+{% if error %}<p class="bf-note" role="alert">{{ error }}</p>{% endif %}
+{% if dates and can_save %}<h3>{{ 'Collection date' if dates|length==1 else 'Next collection dates' }}</h3><p>{% for day in dates %}{{ day|display_date }}{{ ' · ' if not loop.last }}{% endfor %}</p>
+<p>{{ 'Recurring visits continue automatically in future weeks.' if dates|length>1 else 'This ad hoc visit is added for the selected date only.' }} These are planning visits; allocate bins and approve schedules before dispatch. Client details and bin quantities stay in the client profile.</p>
+<form method="post"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="token" value="{{ token }}"><input type="hidden" name="date" value="{{ first }}">{% for day in selected_days %}<input type="hidden" name="days" value="{{ day }}">{% endfor %}<button class="primary">Add to calendar</button></form>{% endif %}
+{% endif %}
+<p><a href="{{ url_for('bf_client_profile',profile_id=client.profile_id) }}">Edit client schedule</a> · <a href="{{ url_for('bf_collection_calendar',state=client.state,view='week') }}">Back to calendar</a></p>
+</section>
+{% endblock %}

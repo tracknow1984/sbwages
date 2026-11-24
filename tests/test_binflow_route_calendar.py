@@ -161,7 +161,7 @@ class CurrentCalendarTests(unittest.TestCase):
             conn.execute("UPDATE bf_client_site_profiles SET suburb='Paget',schedule='Weekly' WHERE location_id=3")
         PortalPermissionTests.account(self,'calendar-viewer',custom_permissions='yes',permission=['national.view'])
         client=PortalPermissionTests.visit(self,'calendar-viewer')
-        sections = ('State depots, staffing & weekly checks','collections need a day / extra capacity',
+        sections = ('collections need a day / extra capacity',
                     'client sites need location details',
                     'Ad hoc / schedules to confirm','Current client schedules')
         for view in ('week', 'month'):

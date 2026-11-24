@@ -245,6 +245,8 @@ def week_plan(conn, monday, state='', geo=None, people=None):
     from binflow_rollout import state_starts
     starts = state_starts(conn)
     settings = resources(conn, geo)
+    from binflow_calendar_cycles import active
+    cycle_ids=set(active(conn))
     selected = [state] if state else list(PRIMARY)+['WA', 'ACT', 'TAS', 'NT']
     output = []
     for code in selected:
@@ -259,7 +261,7 @@ def week_plan(conn, monday, state='', geo=None, people=None):
                      exceptions=[], baling=False, minutes=0, jobs=[]) for i in range(7)]
         flexible, issues = [], list(r['issues'])
         fixed_demand = Counter()
-        proposed_clients = [] if manual else ps
+        proposed_clients = [] if manual else [p for p in ps if p['profile_id'] not in cycle_ids]
         for p in proposed_clients:
             for d in due(p, monday):
                 if d is not None:
@@ -440,19 +442,22 @@ def view_data(conn, start, end, state):
     from binflow_schedule import saved_week, get_plan
     from binflow_rollout import state_starts
     manual_starts = state_starts(conn)
+    from binflow_calendar_cycles import active
+    cycles=active(conn)
+    cycle_states={p['state'] for p in people if p['profile_id'] in cycles}
     for week in weeks:
         for region in ((state,) if state else ('QLD','NSW','VIC','SA','WA','TAS','ACT','NT')):
             saved = saved_week(conn, region, week['start'].isoformat())
-            if not saved:
+            if not saved and region not in cycle_states:
                 continue
-            if region in manual_starts and week['start'].isoformat() >= manual_starts[region]:
+            if region in cycle_states or region in manual_starts and week['start'].isoformat() >= manual_starts[region]:
                 _, plan = get_plan(conn, region, week['start'].isoformat())
             else:
                 plan = json.loads(saved['plan_json'])
             days = [dict(date=d['date'], name=date.fromisoformat(d['date']).strftime('%A'),
                 profiles=[], trips=[], jobs=[], exceptions=[], baling=any(i['kind']=='baling' for i in d['items']),
                 minutes=d['estimate_minutes'] if d['estimate_valid'] else 0, over_limit=False,
-                saved_items=d['items'], saved_notes=d['notes'], saved_status=saved['status']) for d in plan['days']]
+                saved_items=d['items'], saved_notes=d['notes'], saved_status=saved['status'] if saved else 'draft') for d in plan['days']]
             from binflow_live_cycle import client_calendar
             if not client_calendar():
                 scheduled={item['job_id'] for d in plan['days'] for item in d['items'] if item['kind']=='job'}
@@ -465,7 +470,7 @@ def view_data(conn, start, end, state):
             group = dict(state=region, resource=plan['resource'], days=days,
                 minutes=sum(d['minutes'] for d in days), staff_shortfall=False, baling_day='',
                 issues=['Saved calendar plan. Expand each day to check edited routes and working hours.'],
-                saved_status=saved['status'], driver_name=saved['driver_name'], saved_start=week['start'].isoformat())
+                saved_status=saved['status'] if saved else 'draft', driver_name=saved['driver_name'] if saved else None, saved_start=week['start'].isoformat())
             week['states'] = [g for g in week['states'] if g['state']!=region] + [group]
     filtered = [p for p in people if not state or p['state']==state]
     events = defaultdict(list)
@@ -483,7 +488,7 @@ def view_data(conn, start, end, state):
             backlog.append(dict(start=week['start'], items=awaiting))
     grid = [[start+timedelta(days=n+d) for d in range(7)] for n in range(0,(end-start).days+1,7)]
     return dict(route_weeks=weeks, route_clients=filtered, route_start=START,
-                calendar_weeks=grid, calendar_events=events, calendar_backlog=backlog,
+                calendar_weeks=grid, calendar_events=events, calendar_backlog=backlog, client_cycles=cycles,
                 calendar_unassigned=sum(len(w['items']) for w in backlog),
                 route_pending=[p for p in people if not p['id'] or not p['state']],
                 route_undated=[p for p in filtered if p['cadence'] in ('adhoc','unconfirmed','paused')],
