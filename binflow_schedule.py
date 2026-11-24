@@ -136,8 +136,9 @@ def initial_plan(conn, state, start):
 
 def get_plan(conn, state, start):
     row = saved_week(conn,state,start)
+    from binflow_calendar_cycles import add_visits
     if not row:
-        return None, initial_plan(conn,state,start)
+        return None, add_visits(conn,initial_plan(conn,state,start),state)
     plan = json.loads(row['plan_json'])
     from binflow_rollout import state_starts
     starts = state_starts(conn)
@@ -148,7 +149,7 @@ def get_plan(conn, state, start):
         for job in unassigned_jobs(conn, state, start, plan['days'][-1]['date'], True):
             if job['id'] not in placed:
                 by_date[job['scheduled_date']]['items'].append(job_item(job))
-    return row, plan
+    return row, add_visits(conn,plan,state)
 
 
 def job_positions(plan):

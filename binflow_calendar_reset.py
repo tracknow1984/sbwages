@@ -43,14 +43,15 @@ def preview(conn):
         if changed:
             changes.append((row,plan))
             counts[row['state']]['weeks']+=1
-    signature=dict(weeks=weeks,starts=starts,jobs=jobs,locked=sorted(locked))
+    cycles=[dict(r) for r in conn.execute('SELECT * FROM bf_calendar_cycles ORDER BY profile_id')]
+    signature=dict(weeks=weeks,starts=starts,jobs=jobs,locked=sorted(locked),cycles=cycles)
     token=hashlib.sha256(json.dumps(signature,sort_keys=True).encode()).hexdigest()
     return dict(token=token, states=list(counts.values()), items=sum(c['items'] for c in counts.values()),
-                weeks=len(changes), jobs=len(jobs), protected=len(locked), changes=changes, previous_starts=starts)
+                weeks=len(changes), jobs=len(jobs), protected=len(locked), changes=changes, previous_starts=starts, cycles=cycles)
 
 
 def apply_reset(conn, summary, stamp, uid, actor):
-    archive=dict(manual_states=summary['previous_starts'], weeks=[r for r,_ in summary['changes']])
+    archive=dict(cycles=summary['cycles'],manual_states=summary['previous_starts'], weeks=[r for r,_ in summary['changes']])
     for row,plan in summary['changes']:
         before=dict(plan=json.loads(row['plan_json']),state=row['state'],week=row['week_start'],
                     driver_id=row['driver_id'],status=row['status'])
@@ -64,6 +65,7 @@ def apply_reset(conn, summary, stamp, uid, actor):
         conn.execute('''INSERT INTO bf_schedule_history
             (week_id,revision,action,actor_id,created_at,snapshot) VALUES(?,?,?,?,?,?)''',
             (row['id'],revision,'Cleared planning calendar · all states',uid,stamp,json.dumps(after)))
+    conn.execute('UPDATE bf_calendar_cycles SET active=0 WHERE active=1')
     for state in STATES:
         conn.execute('''INSERT INTO bf_rollout_states(state,first_week,changed_by) VALUES(?,?,?)
             ON CONFLICT(state) DO UPDATE SET first_week=MIN(first_week,excluded.first_week),changed_by=excluded.changed_by''',
