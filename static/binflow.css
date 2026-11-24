@@ -335,3 +335,9 @@ summary.bf-condition-label {cursor:pointer;min-height:36px}
 
 .bf {--bf-invoiced-yellow:#fff0a3}
 .bf .bf-table-wrap tr.bf-invoiced-row,.bf .bf-table-wrap tr.bf-invoiced-row>td {background-color:var(--bf-invoiced-yellow)}
+
+.bf-menu-search {padding:.65rem;margin-bottom:.5rem;border:1px solid #dce4ee;border-radius:10px;background:white}
+.bf .bf-menu-search label {font-size:12px;margin:0 0 6px}
+.bf .bf-menu-search input {min-height:40px;padding:8px;font-size:12px;min-width:0;width:100%}
+.bf-menu-search small {display:block;font-size:11px;line-height:1.4;color:#526b87;margin-top:5px}
+.bf-menu-search small:empty {display:none}

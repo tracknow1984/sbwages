@@ -1,9 +1,31 @@
 {% set active_key = category if section == 'suppliers' else section %}
+{% set search_words = {
+  'overview':'dashboard national home overview', 'requests':'bin pickup collection requests awaiting confirmation',
+  'collection_calendar':'jobs pickups schedule dates calendar', 'interstate':'interstate transport freight bookings calendar loads',
+  'warehouse':'depot storage stock weigh weigh-in', 'warehouse_messages':'messages communications chat depot',
+  'bales':'bales stock textiles', 'pods':'proof of delivery signed docket documents pod pods',
+  'profiles':'customer client profiles contacts sites address', 'site_approvals':'client site approvals confirmation',
+  'allocations':'state bin allocation planning', 'decommission-partners':'decomm decommission partner suppliers',
+  'industry-suppliers':'carriers supplier transport rate cards costs', 'rental':'bin rental rent income charges',
+  'invoices':'invoice invoices billing xero draft payments pod',
+  'freight_pricing':'freight pricing charges prices rates rate card matrix local rigid semi b double transport blocktexx block texx',
+  'blocktexx_freight':'blocktexx block texx freight charges pricing prices rates transport matrix',
+  'billing_setup':'invoice billing setup recurring freight charges xero contacts accounting',
+  'weekly_fuel':'weekly fuel surcharge levy diesel percentage', 'logins':'client customer logins permissions accounts access blocktexx',
+  'reports':'reporting reports export', 'setup':'setup settings configuration',
+  'pickup_pricing':'per kg kilogram pickup collection pricing charges weight blocktexx',
+  'driver_test':'live driver test run', 'bins':'bin qr labels print register'
+} %}
 {% macro menu_link(key, label, endpoint, icon) -%}
-  <a href="{{ url_for(endpoint, **kwargs) }}" data-bf-icon="{{ icon }}"{% if active_key == key %} class="active" aria-current="page"{% endif %}>{{ label }}{% if key == 'warehouse_messages' and warehouse_queue() %} <strong class="bf-request-badge">{{ warehouse_queue() }}</strong>{% endif %}{% if key == 'site_approvals' and site_approval_count %} <strong class="bf-request-badge">{{ site_approval_count }}</strong>{% endif %}{% if key == 'requests' and bf_request_count %} <strong class="bf-request-badge">{{ bf_request_count }}</strong>{% endif %}</a>
+  <a href="{{ url_for(endpoint, **kwargs) }}" data-bf-search="{{ label }} {{ search_words.get(key,'') }}" data-bf-icon="{{ icon }}"{% if active_key == key %} class="active" aria-current="page"{% endif %}>{{ label }}{% if key == 'warehouse_messages' and warehouse_queue() %} <strong class="bf-request-badge">{{ warehouse_queue() }}</strong>{% endif %}{% if key == 'site_approvals' and site_approval_count %} <strong class="bf-request-badge">{{ site_approval_count }}</strong>{% endif %}{% if key == 'requests' and bf_request_count %} <strong class="bf-request-badge">{{ bf_request_count }}</strong>{% endif %}</a>
 {%- endmacro %}
 {% set is_admin = current_user.role == 'admin' %}
 <aside class="bf-office-sidebar no-print">
+  <div class="bf-menu-search" hidden>
+    <label for="bf-menu-search">Quick search</label>
+    <input id="bf-menu-search" type="search" placeholder="Find a page or pricing…" autocomplete="off" maxlength="100" aria-controls="bf-office-nav" aria-describedby="bf-menu-search-status">
+    <small id="bf-menu-search-status" role="status" aria-live="polite"></small>
+  </div>
   <button class="bf-office-toggle secondary" type="button" aria-controls="bf-office-nav" aria-expanded="true" hidden>BinFlow menu</button>
   <nav id="bf-office-nav" class="bf-nav" aria-label="BINFLOW navigation">
     {{ menu_link('overview', 'National Overview', 'bf_dashboard', 'overview') }}
@@ -39,6 +61,8 @@
         <h2 id="bf-menu-accounting">Accounting</h2>
         {{ menu_link('rental', 'Bin Rental Income', 'bf_rental_income', 'reports') }}
         {{ menu_link('invoices', 'All Invoices', 'bf_invoices', 'reports') }}
+        {{ menu_link('freight_pricing', 'Freight pricing', 'bf_freight_pricing', 'reports') }}
+        {{ menu_link('blocktexx_freight', 'BlockTexx freight charges', 'bf_freight_pricing', 'truck', q='blocktexx') }}
       </div>
 
       <div class="bf-menu-group">
@@ -49,6 +73,11 @@
     <div class="bf-menu-group" role="group" aria-labelledby="bf-menu-setup">
       <h2 id="bf-menu-setup">{% if is_admin %}{{ menu_link('setup', 'Setup', 'bf_setup', 'settings') }}{% else %}Setup{% endif %}</h2>
       {% if is_admin %}{{ menu_link('pickup_pricing', 'Per Kg Pricing Pick Up', 'bf_pickup_pricing', 'reports') }}{% endif %}
+      {% if is_admin %}
+        {{ menu_link('billing_setup', 'Invoice billing setup', 'bf_auto_billing_setup', 'settings') }}
+        {{ menu_link('weekly_fuel', 'Weekly fuel surcharge', 'bf_weekly_fuel', 'reports') }}
+        {{ menu_link('logins', 'Client logins & permissions', 'bf_interstate_accounts', 'clients') }}
+      {% endif %}
       {% if is_admin %}{{ menu_link('driver_test','Live test run','bf_live_watch','truck') }}{% endif %}
       {{ menu_link('bins', 'Bin QR Labels', 'bf_inventory', 'bin') }}
     </div>
