@@ -88,6 +88,18 @@ def rates_for(conn, account_id):
 
 
 def register(app, db, require, render, client_access, now, actor):
+    @app.get('/binflow/freight-pricing')
+    @require('admin')
+    def bf_freight_pricing():
+        query=request.args.get('q','').strip()[:100]
+        rows=db().execute("""SELECT a.id,a.name,a.username,a.active,h.cents AS hourly,
+            (SELECT COUNT(*) FROM bf_interstate_rates r WHERE r.account_id=a.id) AS route_count
+            FROM bf_client_accounts a LEFT JOIN bf_rigid_hourly_rates h ON h.account_id=a.id
+            WHERE ?='' OR instr(lower(a.name||' '||a.username),?)>0
+            ORDER BY a.active DESC,a.name COLLATE NOCASE,a.id LIMIT 101""",(query,query.lower())).fetchall()
+        return render('freight_pricing',section='freight_pricing',query=query,accounts=rows[:100],
+                      has_more=len(rows)>100,fuel=current_fuel(db()))
+
     @app.route('/binflow/interstate-transfers/access/fuel', methods=['GET','POST'])
     @require('admin')
     def bf_weekly_fuel():

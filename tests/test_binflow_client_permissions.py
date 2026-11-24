@@ -489,6 +489,30 @@ class PortalPermissionTests(unittest.TestCase):
         self.assertEqual(self.rows('SELECT client_name,job_type,pickup_company,delivery_company FROM bf_interstate_bookings'),
                          [dict(client_name='Billing Pty Ltd',job_type='external',pickup_company='New sender',delivery_company='Receiving Co')])
 
+    def test_freight_directory_finds_login_rates_without_changing_prices(self):
+        aid=self.account('blocktexx1')
+        other=self.account('other-freight-client')
+        matrix=f'{CAL}/access/{aid}/rates'
+        values=matrix_fields(self.client.get(matrix).text)
+        values['VIC:QLD:SEMI TRAILER']='123.45'
+        self.post(matrix,values)
+        before=self.rows('SELECT * FROM bf_interstate_rates ORDER BY account_id,origin,destination,vehicle')
+        route='/binflow/freight-pricing'
+        page=self.client.get(route+'?q=BlockTexx')
+        self.assertEqual(page.status_code,200)
+        self.assertIn(matrix,page.text)
+        self.assertNotIn(f'{CAL}/access/{other}/rates',page.text)
+        self.assertIn('Per-kg pickup charges',page.text)
+        self.assertIn('Weekly fuel surcharge',page.text)
+        self.assertIn('id="bf-menu-search"',page.text)
+        self.assertIn('BlockTexx freight charges',page.text)
+        self.assertIn('No customer or login matches',self.client.get(route+'?q=%25').text)
+        self.assertIn(f'{CAL}/access/{other}/rates',self.client.get(route).text)
+        self.assertEqual(self.rows('SELECT * FROM bf_interstate_rates ORDER BY account_id,origin,destination,vehicle'),before)
+        denied=self.visit('blocktexx1').get(route)
+        self.assertEqual(denied.status_code,302)
+        self.assertIn('/admin/login',denied.location)
+
     def test_rate_card_snapshot_client_isolation_and_bulk_vehicle_rules(self):
         aid=self.account('freight-client',custom_permissions='yes',permission=['bookings.add','bookings.edit'])
         self.account('second-client')
