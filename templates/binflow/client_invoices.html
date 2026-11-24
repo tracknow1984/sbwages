@@ -34,9 +34,9 @@
 <tr>
   <td><input type="checkbox" form="report-downloads" name="selected" value="{{ r.key }}" aria-label="Select {{ r.number }}"></td>
   <td><strong>{{ r.number }}</strong></td>
-  <td data-label="POD">{% for pod in r.pods %}<div><a href="{{ url_for('bf_client_invoice_pod',identifier=r.key,kind=pod.kind,doc_id=pod.id) }}" aria-label="View POD {{ pod.label }} for invoice {{ r.number }}">View POD{% if r.pods|length>1 %} · {{ pod.label }}{% endif %}</a></div>{% else %}<span class="bf-muted">No POD attached</span>{% endfor %}</td><td>{{ r.date|display_date }}</td><td>{{ r.due|display_date }}</td><td>{{ r.status }}</td>
+  <td data-label="POD">{% for pod in r.pods %}<div><a href="{{ url_for('bf_client_invoice_pod',identifier=r.key,kind=pod.kind,doc_id=pod.id) }}" aria-label="View POD {{ pod.label }} for invoice {{ r.number }}">View POD{% if r.pods|length>1 %} · {{ pod.label }}{% endif %}</a> · <a href="{{ url_for('bf_client_invoice_pod',identifier=r.key,kind=pod.kind,doc_id=pod.id,download=1) }}" aria-label="Download POD {{ pod.label }} for invoice {{ r.number }}">Download POD</a></div>{% else %}<span class="bf-muted">No POD attached</span>{% endfor %}</td><td>{{ r.date|display_date }}</td><td>{{ r.due|display_date }}</td><td>{{ r.status }}</td>
   <td>{{ r.currency }} {{ '{:,.2f}'.format(r.total) }}</td><td>{{ r.currency }} {{ '{:,.2f}'.format(r.outstanding) }}</td>
-  <td><a href="{{ url_for('bf_client_invoice_pdf',identifier=r.key) }}" aria-label="Download {{ r.number }} PDF">{{ 'Invoice + PODs PDF' if r.pods else 'Download PDF' }}</a></td>
+  <td><a href="{{ url_for('bf_client_invoice_pdf',identifier=r.key,invoice_only=1,view=1) }}" aria-label="View invoice {{ r.number }}">View invoice</a> · <a href="{{ url_for('bf_client_invoice_pdf',identifier=r.key,invoice_only=1) }}" aria-label="Download invoice {{ r.number }} only">Download invoice</a>{% if r.pods %}<br><a href="{{ url_for('bf_client_invoice_pdf',identifier=r.key) }}" aria-label="Download {{ r.number }} and its PODs">Invoice + PODs PDF</a>{% endif %}</td>
 </tr>
 {% endfor %}
 </tbody></table></div>

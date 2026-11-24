@@ -89,6 +89,8 @@ def combined_pdf(app,conn,invoice):
         for doc in docs:
             if doc['kind']=='file':
                 yield invoice_pods.file_content(conn,invoice['id'],doc['id'])
+            elif doc['kind']=='transfer':
+                yield invoice_pods.transfer_content(app,conn,doc['id'])
     return invoice_pods.bundle(source,attachments())
 
 
