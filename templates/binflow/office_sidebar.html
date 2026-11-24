@@ -33,7 +33,7 @@
     <div class="bf-menu-group" role="group" aria-labelledby="bf-menu-operations">
       <h2 id="bf-menu-operations">Operations</h2>
       {{ menu_link('requests', 'Bin Collection Requests', 'bf_collection_requests', 'requests') }}
-      {{ menu_link('collection_calendar', 'Collection Calendar', 'bf_collection_calendar', 'calendar') }}
+      {{ menu_link('collection_calendar', 'Collection Calendar', 'bf_collection_calendar', 'calendar', view='week') }}
       {{ menu_link('interstate', 'All Transfers', 'bf_interstate_calendar', 'truck') }}
       {{ menu_link('warehouse', 'Warehouse', 'bf_warehouse', 'warehouse') }}
       {% if warehouse_queue() is not none %}{{ menu_link('warehouse_messages', 'Warehouse messages', 'bf_warehouse_messages', 'requests') }}{% endif %}

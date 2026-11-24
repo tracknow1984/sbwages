@@ -92,7 +92,7 @@ def register(app,db,require,render,success,now,actor):
                 try:
                     apply_reset(conn,summary,now(),g.user['id'],actor())
                     return success('Planning cleared across all states. Automatic suggestions are off; add work manually. Existing jobs and completed history were retained.',
-                                   'bf_collection_calendar',view='month')
+                                   'bf_collection_calendar',view='week')
                 except Exception:
                     conn.rollback()
                     raise
