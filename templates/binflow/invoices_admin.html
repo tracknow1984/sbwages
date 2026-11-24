@@ -39,7 +39,7 @@
   <td data-label="POD">{% set pods=supporting.get(r.id,[]) %}{% if pods %}
     {{ pod_link(r.id,pods[0],'Quick view POD') }}
     {% if pods|length>1 %}<details class="invoice-more-pods"><summary>{{ pods|length-1 }} more POD{{ 's' if pods|length>2 }}</summary>{% for pod in pods[1:] %}<div>{{ pod_link(r.id,pod,pod.label) }}</div>{% endfor %}</details>{% endif %}
-    {% endif %}{% if r.saved_id %}<small><a href="{{ url_for('bf_invoice_pods',identifier=r.id) }}">{{ 'Manage PODs' if pods else 'Add POD' }}</a></small>{% else %}<small>Available once prepared</small>{% endif %}
+    {% endif %}{% if r.saved_id and not pods %}<small><a href="{{ url_for('bf_invoice_pods',identifier=r.id) }}">Add POD</a></small>{% elif not r.saved_id %}<small>Available once prepared</small>{% endif %}
   </td>
 </tr>{% else %}<tr><td colspan="7">No invoices or drafts match these filters.</td></tr>{% endfor %}
 </tbody></table>
