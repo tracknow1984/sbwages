@@ -1,4 +1,6 @@
 import re
+import html
+from urllib.parse import urlparse,parse_qs
 import unittest
 from datetime import date, timedelta
 from unittest.mock import patch
@@ -19,13 +21,15 @@ class CalendarDailyActionsTests(unittest.TestCase):
         for modern in (False,True):
             if modern:self.modern()
             page=self.client.get('/binflow/collection-calendar?date=2026-11-30').text
-            links=re.findall(r'href="([^"]+)" aria-label="Add allocation for ([^"]+)"',page)
+            links=re.findall(r'href="([^"]+)" data-allocation-popup aria-label="Add allocation for ([^"]+)"',page)
             self.assertEqual(len(links),7)
             self.assertIn('/binflow/collection-calendar?view=week',page)
             for offset,(href,day) in enumerate(links):
                 expected=(date(2026,11,30)+timedelta(days=offset)).isoformat()
                 self.assertEqual(day,expected)
-                self.assertEqual(href,'/binflow/pickups/new?date='+expected)
+                href=html.unescape(href)
+                self.assertEqual(parse_qs(urlparse(href).query)['date'],[expected])
+                self.assertEqual(parse_qs(urlparse(href).query)['calendar'],['1'])
                 form=self.client.get(href)
                 self.assertEqual(form.status_code,200)
                 self.assertIn('name="date" value="'+expected+'"',form.text)

@@ -686,6 +686,9 @@ def register_binflow(app, db, require):
     @app.route('/binflow/pickups/new', methods=['GET','POST'])
     @access
     def bf_new_job():
+        calendar_allocation = request.values.get('calendar') == '1'
+        allocation_state = request.values.get('state','')
+        if allocation_state not in ('',*STATES):abort(400,'Choose a valid state.')
         purpose = request.values.get('purpose','')
         empty_delivery = purpose == 'empty_delivery'
         if empty_delivery and request.values.get('collection_request'):
@@ -706,6 +709,8 @@ def register_binflow(app, db, require):
                     return redirect(url_for('bf_job', job_id=previous['id']))
                 site = location(integer('site_id'), 'client')
                 warehouse = location(integer('warehouse_id'), 'warehouse')
+                if calendar_allocation and (not allocation_state or site['state']!=allocation_state or warehouse['state']!=allocation_state):
+                    raise ValueError('Choose a client and depot in the selected calendar state.')
                 if site['state'] != warehouse['state']:
                     raise ValueError('Choose a warehouse in the same state as the client site. Bin pools stay within their state.')
                 scheduled = date.fromisoformat(text_field('scheduled_date'))
@@ -790,13 +795,18 @@ def register_binflow(app, db, require):
                     return success('Collection schedule approved. Choose a truck to add it to a driver run.','bf_job',job_id=jid)
                 return success('Job saved as an allocation awaiting approval. Bins are reserved until an administrator approves or rejects it.', 'bf_job', job_id=jid)
             except (ValueError, sqlite3.IntegrityError) as error:
-                return failure(error if isinstance(error,ValueError) else ValueError('One of these bins was just reserved by another user. Please refresh and select available bins.'), 'bf_new_job', site=request.form.get('site_id',''), warehouse=request.form.get('warehouse_id',''),purpose=purpose,date=request.form.get('scheduled_date',''),collection_request=request.form.get('collection_request',''))
+                return failure(error if isinstance(error,ValueError) else ValueError('One of these bins was just reserved by another user. Please refresh and select available bins.'), 'bf_new_job', calendar='1' if calendar_allocation else None,state=allocation_state, site=request.form.get('site_id',''), warehouse=request.form.get('warehouse_id',''),purpose=purpose,date=request.form.get('scheduled_date',''),collection_request=request.form.get('collection_request',''))
         try:
             plan_date = date.fromisoformat(request.args.get('date') or now()[:10]).isoformat()
         except ValueError:
             abort(400,'Choose a valid run date.')
         sites = db().execute("SELECT l.*,c.name AS client_name FROM bf_locations l JOIN bf_clients c ON c.id=l.client_id WHERE l.kind='client' ORDER BY c.name,l.name").fetchall()
         warehouses = db().execute("SELECT * FROM bf_locations WHERE kind='warehouse' ORDER BY state,name").fetchall()
+        if calendar_allocation:
+            from binflow_client_profiles import register_rows
+            retired={p['location_id'] for p in register_rows(db()) if p['archived']}
+            sites=[s for s in sites if allocation_state and s['state']==allocation_state and s['id'] not in retired]
+            warehouses=[w for w in warehouses if allocation_state and w['state']==allocation_state]
         requested_id=request.args.get('collection_request',type=int)
         collection_request=db().execute("SELECT * FROM bf_collection_requests WHERE id=? AND status='new'",(requested_id,)).fetchone() if requested_id else None
         if requested_id and not collection_request:
@@ -807,8 +817,18 @@ def register_binflow(app, db, require):
             site_id=collection_request['site_id']
         site = next((s for s in sites if s['id'] == site_id), None)
         warehouse = next((w for w in warehouses if w['id'] == warehouse_id), None)
-        if site and not warehouse:
+        if calendar_allocation:
+            if (site_id and not site) or (warehouse_id and not warehouse):abort(400,'Client or depot is outside the selected state.')
+            if not warehouse and len(warehouses)==1:warehouse=warehouses[0]
+        if site and not warehouse and not calendar_allocation:
             warehouse = next((w for w in warehouses if w['state'] == site['state']), None)
+        allocation_estimate=None
+        if calendar_allocation:
+            from binflow_allocation_planning import ordered_sites, day_estimate
+            sites,allocation_geo,depot_key=ordered_sites(db(),sites,warehouse)
+            site=next((s for s in sites if s['id']==site_id),None)
+            allocation_estimate=day_estimate(db(),allocation_state,plan_date,sites,warehouse,site,allocation_geo,depot_key)
+
         collect = bins("b.location_id=? AND b.status IN ('at_client','full') AND NOT EXISTS(SELECT 1 FROM bf_job_bins i WHERE i.bin_id=b.id AND i.active=1)", (site['id'],)) if site and not empty_delivery else []
         deliver = bins("b.location_id=? AND b.status='empty' AND NOT EXISTS(SELECT 1 FROM bf_job_bins i WHERE i.bin_id=b.id AND i.active=1)", (warehouse['id'],)) if not empty_delivery and warehouse and site and warehouse['state'] == site['state'] else []
         drivers = available_drivers(db(), site['state'] if site else '')
@@ -821,7 +841,7 @@ def register_binflow(app, db, require):
                 defaults[direction].update(b['id'] for b in matching[:quantity])
         if collection_request and any(b['id']==collection_request['bin_id'] for b in collect):
             defaults['collect'].add(collection_request['bin_id'])
-        return render('new_job', section='pickups',purpose=purpose,empty_delivery=empty_delivery,collection_request=collection_request, sites=sites, warehouses=warehouses, site=site, warehouse=warehouse, collect=collect, deliver=deliver, drivers=drivers, request_key=secrets.token_urlsafe(24), profile=profile, loading=loading, defaults=defaults, plan_date=plan_date,
+        return render('new_job', section='pickups',calendar_allocation=calendar_allocation,allocation_state=allocation_state,allocation_estimate=allocation_estimate,purpose=purpose,empty_delivery=empty_delivery,collection_request=collection_request, sites=sites, warehouses=warehouses, site=site, warehouse=warehouse, collect=collect, deliver=deliver, drivers=drivers, request_key=secrets.token_urlsafe(24), profile=profile, loading=loading, defaults=defaults, plan_date=plan_date,
                       source_profiles=source_profiles(db(), site['id']) if site else [])
 
     @app.post('/binflow/pickups/<int:job_id>/rollout-by-size')

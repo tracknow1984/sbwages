@@ -349,3 +349,11 @@ summary.bf-condition-label {cursor:pointer;min-height:36px}
 .bf .bf-add-client-icon svg{width:18px;height:18px}
 .bf .bf-client-calendar-list .bf-bin-quantity{text-align:center;font-weight:700;font-variant-numeric:tabular-nums}
 @media(pointer:coarse){.bf .bf-add-client-icon{width:44px;min-width:44px;height:44px}}
+.bf-allocation-dialog{width:min(1150px,96vw);max-width:96vw;max-height:92dvh;padding:0;border:1px solid #cbd7e4;border-radius:12px;color:#12253c}
+.bf-allocation-dialog::backdrop{background:#10263d99}
+.bf-allocation-dialog[open]{display:flex;flex-direction:column}
+.bf-allocation-dialog>header{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid #dbe3ee}
+.bf-allocation-dialog>header h2{margin:0;font-size:18px}
+.bf-allocation-dialog [data-allocation-body]{overflow:auto;padding:16px;min-height:0}
+.bf-allocation-dialog [data-allocation-error]{margin:10px 16px}
+.bf-allocation-dialog .bf-filters select{max-width:100%}

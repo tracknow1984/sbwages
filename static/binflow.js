@@ -35,6 +35,7 @@
   }
   const size = root.querySelector('[data-size-select]');
   if (size) size.addEventListener('change', () => { root.querySelector('[data-default-tare]').value = size.selectedOptions[0].dataset.tare; });
+  function initAllocation(root) {
   function updateCounts() {
     ['collect', 'deliver'].forEach(name => {
       const count = root.querySelectorAll('input[name="' + name + '"]:checked').length;
@@ -87,6 +88,9 @@
     updateCounts();
   });
   updateCounts();
+  }
+  initAllocation(root);
+  document.addEventListener('bf-allocation-loaded', event => initAllocation(event.detail));
   root.querySelectorAll('[data-confirm-scan]').forEach(button => {
     const form = button.form;
     const input = form.querySelector('[data-manifest-scan]');
