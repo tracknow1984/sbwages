@@ -1,4 +1,6 @@
 {% extends 'binflow/client_layout.html' %}
+{% from 'binflow/icons.html' import icon %}
+{% macro document_action(href,symbol,label,download=false) %}<a class="bf-document-icon" href="{{ href }}" title="{{ label }}" aria-label="{{ label }}">{{ icon(symbol) }}{% if download %}<span class="bf-document-download" aria-hidden="true">{{ icon('download') }}</span>{% endif %}</a>{% endmacro %}
 {% block content %}
 <h1>Invoices</h1>
 <form method="get" class="bf-filters">
@@ -17,8 +19,8 @@
 {% if count %}
 <form id="report-downloads" class="bf-actions" method="post" action="{{ url_for('bf_client_invoices',period=period.key,date=chosen,sort=sort) }}">
   <input type="hidden" name="csrf" value="{{ csrf_token() }}">
-  <button class="secondary" name="format" value="zip">Download selected ZIP</button>
-  <button class="secondary" name="format" value="xls">Download selected Excel (.xls)</button>
+  <button class="bf-document-icon" name="format" value="zip" title="Download selected ZIP" aria-label="Download selected ZIP">{{ icon('documents') }}<span class="bf-document-download" aria-hidden="true">{{ icon('download') }}</span></button>
+  <button class="bf-document-icon" name="format" value="xls" title="Download selected Excel (.xls)" aria-label="Download selected Excel (.xls)">{{ icon('spreadsheet') }}<span class="bf-document-download" aria-hidden="true">{{ icon('download') }}</span></button>
   <span data-selection-count role="status" aria-live="polite"></span>
 </form>
 <script defer src="{{ url_for('static',filename='binflow-report-select.js') }}"></script>
@@ -34,9 +36,14 @@
 <tr>
   <td><input type="checkbox" form="report-downloads" name="selected" value="{{ r.key }}" aria-label="Select {{ r.number }}"></td>
   <td><strong>{{ r.number }}</strong></td>
-  <td data-label="POD">{% for pod in r.pods %}<div><a href="{{ url_for('bf_client_invoice_pod',identifier=r.key,kind=pod.kind,doc_id=pod.id) }}" aria-label="View POD {{ pod.label }} for invoice {{ r.number }}">View POD{% if r.pods|length>1 %} · {{ pod.label }}{% endif %}</a></div>{% else %}<span class="bf-muted">No POD attached</span>{% endfor %}</td><td>{{ r.date|display_date }}</td><td>{{ r.due|display_date }}</td><td>{{ r.status }}</td>
+  <td data-label="POD"><div class="bf-document-actions">{% for pod in r.pods %}{{ document_action(url_for('bf_client_invoice_pod',identifier=r.key,kind=pod.kind,doc_id=pod.id),'pod','View POD ' ~ pod.label ~ ' for invoice ' ~ r.number) }}{% else %}<span class="bf-muted">No POD attached</span>{% endfor %}</div></td><td>{{ r.date|display_date }}</td><td>{{ r.due|display_date }}</td><td>{{ r.status }}</td>
   <td>{{ r.currency }} {{ '{:,.2f}'.format(r.total) }}</td><td>{{ r.currency }} {{ '{:,.2f}'.format(r.outstanding) }}</td>
-  <td data-label="Document"><a href="{{ url_for('bf_client_invoice_pdf',identifier=r.key,invoice_only=1,view=1) }}" aria-label="View invoice {{ r.number }}">View invoice</a> · <a href="{{ url_for('bf_client_invoice_pdf',identifier=r.key,invoice_only=1) }}" aria-label="Download invoice {{ r.number }} only">Download invoice</a>{% for pod in r.pods %}<div><a href="{{ url_for('bf_client_invoice_pod',identifier=r.key,kind=pod.kind,doc_id=pod.id,download=1) }}" aria-label="Download POD {{ pod.label }} for invoice {{ r.number }}">Download POD{% if r.pods|length>1 %} · {{ pod.label }}{% endif %}</a></div>{% endfor %}{% if r.pods %}<br><a href="{{ url_for('bf_client_invoice_pdf',identifier=r.key) }}" aria-label="Download {{ r.number }} and its PODs">Invoice + PODs PDF</a>{% endif %}</td>
+  <td data-label="Document"><div class="bf-document-actions">
+    {{ document_action(url_for('bf_client_invoice_pdf',identifier=r.key,invoice_only=1,view=1),'view','View invoice ' ~ r.number) }}
+    {{ document_action(url_for('bf_client_invoice_pdf',identifier=r.key,invoice_only=1),'invoice','Download invoice ' ~ r.number,true) }}
+    {% for pod in r.pods %}{{ document_action(url_for('bf_client_invoice_pod',identifier=r.key,kind=pod.kind,doc_id=pod.id,download=1),'pod','Download POD ' ~ pod.label ~ ' for invoice ' ~ r.number,true) }}{% endfor %}
+    {% if r.pods %}{{ document_action(url_for('bf_client_invoice_pdf',identifier=r.key),'documents','Download Invoice + PODs PDF · ' ~ r.number,true) }}{% endif %}
+  </div></td>
 </tr>
 {% endfor %}
 </tbody></table></div>

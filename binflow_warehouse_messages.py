@@ -15,6 +15,12 @@ WAREHOUSES = {
     'QLD': ('North Maclean', 'Lot 5, 4705-4715 Mt Lindsey Highway, North Maclean QLD 4280'),
     'VIC': ('Truganina', 'Unit 3, 3-5 Leader St, Truganina VIC 3029'),
 }
+# Google Maps address matches; centre aerial views without a business listing overlay.
+WAREHOUSE_MAP_CENTRES = {
+    'NSW': '-33.8452058,150.8863243',
+    'QLD': '-27.7708361,153.0130435',
+    'VIC': '-37.82668,144.7480477',
+}
 PAGE_SIZE = 40
 ACTIONS = ('ACTIONED', 'REFERRED', 'CLOSED')
 STATUSES = ('SENT', 'OPENED', *ACTIONS)
@@ -146,7 +152,8 @@ def register(app, db, client_access, access, render, now):
             (SELECT MAX(id) FROM bf_warehouse_messages WHERE account_id=? GROUP BY state)""",
             (g.bf_client['id'],)).fetchall()
         return render_template('binflow/client_warehouses.html', account=g.bf_client,
-                               warehouses=WAREHOUSES, latest={row['state']: row for row in rows})
+                               warehouses=WAREHOUSES, map_centres=WAREHOUSE_MAP_CENTRES,
+                               latest={row['state']: row for row in rows})
 
     def save_message(state, aid, *, staff=False, parent=None):
         conn=db()
