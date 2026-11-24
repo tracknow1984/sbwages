@@ -1,22 +1,23 @@
 {% extends 'binflow/layout.html' %}
 {% block title %}Freight pricing{% endblock %}
-{% block subtitle %}Customer transport charges · AUD ex GST{% endblock %}
+{% block subtitle %}Select a client to open their pricing matrix.{% endblock %}
 {% block body %}
-<p>Open the customer's pricing matrix for interstate route charges and local RIGID hourly rates.</p>
-<form method="get" class="bf-filters">
-  <label>Find customer or login<input type="search" name="q" value="{{ query }}" placeholder="e.g. BlockTexx" maxlength="100"></label>
-  <button class="primary">Search</button><a class="button secondary" href="{{ url_for('bf_freight_pricing') }}">All customers</a>
-</form>
-<div class="bf-actions">
-  <a class="button secondary" href="{{ url_for('bf_weekly_fuel') }}">Weekly fuel surcharge · {{ '%.2f'|format(fuel.bps/100) }}%</a>
-  <a class="button secondary" href="{{ url_for('bf_pickup_pricing') }}">Per-kg pickup charges</a>
-  <a class="button secondary" href="{{ url_for('bf_auto_billing_setup') }}">Agreed freight &amp; invoice billing setup</a>
-</div>
 <section class="bf-panel bf-pad">
-<div class="bf-table-wrap"><table><thead><tr><th>Customer / login</th><th>Saved route prices</th><th>Local RIGID per hour</th><th>Pricing</th></tr></thead><tbody>
-{% for a in accounts %}<tr><td><strong>{{ a.name }}</strong><small>{{ a.username }}{{ ' · Inactive login' if not a.active }}</small></td><td>{{ a.route_count }}</td><td>{{ a.hourly|money if a.hourly is not none else 'Not set' }}</td><td><a class="button primary" href="{{ url_for('bf_interstate_rates',aid=a.id) }}" aria-label="Open pricing matrix for {{ a.name }}">Open pricing matrix</a></td></tr>
-{% else %}<tr><td colspan="4">No customer or login matches “{{ query }}”. <a href="{{ url_for('bf_freight_pricing') }}">Show all customers</a>.</td></tr>{% endfor %}
-</tbody></table></div>
-{% if has_more %}<p>Showing the first 100 accounts. Refine your search to find a customer.</p>{% endif %}
+{% if accounts %}
+<form method="get" action="{{ url_for('bf_freight_pricing') }}" class="bf-filters">
+  <label>Client<select name="client" required>
+    <option value="">Select client</option>
+    {% for a in accounts %}<option value="{{ a.id }}" {{ 'selected' if selected==a.id }}>{{ a.name }} · {{ a.username }}{{ ' · Inactive' if not a.active }}</option>{% endfor %}
+  </select></label>
+  <button class="primary">Go to pricing matrix</button>
+</form>
+{% else %}<p>No client accounts are available yet. <a href="{{ url_for('bf_interstate_accounts') }}">Add a client login</a>.</p>{% endif %}
 </section>
+<details><summary>Other pricing settings</summary>
+  <div class="bf-actions">
+    <a href="{{ url_for('bf_weekly_fuel') }}">Weekly fuel surcharge</a>
+    <a href="{{ url_for('bf_pickup_pricing') }}">Per-kg pickup charges</a>
+    <a href="{{ url_for('bf_auto_billing_setup') }}">Agreed freight &amp; invoice billing setup</a>
+  </div>
+</details>
 {% endblock %}
