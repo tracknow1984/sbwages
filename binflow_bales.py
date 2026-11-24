@@ -462,6 +462,35 @@ def register(app,db,access,require,render,success,failure,now,actor):
           history=db().execute('SELECT * FROM bf_bale_events WHERE bale_id=? ORDER BY id',(bid,)).fetchall(),
           materials=db().execute('SELECT * FROM bf_material_classes WHERE active=1 ORDER BY name').fetchall())
 
+    def void_bale(b, reason, action='Bale voided'):
+        if b['status'] != 'stored':
+            raise ValueError('Only unallocated stored bales can be deleted. Remove the bale from its loading manifest first; dispatched or signed-off bales cannot be deleted.')
+        if not reason or len(reason) > 500:
+            raise ValueError('Enter a deletion reason (up to 500 characters).')
+        db().execute("UPDATE bf_bales SET status='void',warehouse_id=NULL,version=version+1 WHERE id=?",(b['id'],))
+        event(action,b['id'],wid=b['warehouse_id'],details=reason)
+        readiness(db(),b['warehouse_id'],now())
+
+    @app.post('/binflow/bales/<int:bid>/delete')
+    @warehouse_staff
+    def bf_bale_delete(bid):
+        state = None
+        try:
+            db().execute('BEGIN IMMEDIATE')
+            b = bale(bid)
+            # Check the current depot, not just permission to view the origin history.
+            if b['status'] == 'void':
+                raise ValueError('This bale has already been deleted.')
+            if b['warehouse_id'] is None:
+                raise ValueError('Dispatched or signed-off bales cannot be deleted.')
+            depot = allowed(b['warehouse_id'])
+            state = depot['state']
+            check_version(b)
+            void_bale(b, request.form.get('reason','').strip(), 'Bale deleted')
+            return success(f"{b['code']} deleted from warehouse stock. Reason saved in bale history.", 'bf_warehouse', state=state)
+        except ValueError as error:
+            return failure(error, 'bf_warehouse', **({'state':state} if state else {}))
+
     @app.post('/binflow/bales/<int:bid>/correct')
     @warehouse_staff
     def bf_bale_correct(bid):
@@ -471,8 +500,7 @@ def register(app,db,access,require,render,success,failure,now,actor):
             reason=request.form.get('reason','').strip()
             if not reason or len(reason)>500:raise ValueError('Enter a correction reason (up to 500 characters).')
             if request.form.get('action')=='void':
-                db().execute("UPDATE bf_bales SET status='void',warehouse_id=NULL,version=version+1 WHERE id=?",(bid,))
-                event('Bale voided',bid,wid=b['warehouse_id'],details=reason)
+                void_bale(b, reason)
             else:
                 m=material();grams=weight(request.form.get('weight',''))
                 if grams != b['net_g']:

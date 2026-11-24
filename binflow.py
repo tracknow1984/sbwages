@@ -1151,7 +1151,7 @@ def register_binflow(app, db, require):
             regions = [g.user['working_state']]
         depot_ids = tuple(w['id'] for w in depots)
         marks = ','.join('?' for _ in depot_ids)
-        available = db().execute(f"""SELECT b.id,b.code,b.material_name,b.net_g,l.name AS warehouse,l.state
+        available = db().execute(f"""SELECT b.id,b.code,b.version,b.material_name,b.net_g,l.name AS warehouse,l.state
             FROM bf_bales b JOIN bf_locations l ON l.id=b.warehouse_id
             WHERE b.status='stored' AND l.id IN ({marks})
             ORDER BY l.state,b.material_name COLLATE NOCASE,l.name,b.code""",depot_ids).fetchall() if depot_ids else []
@@ -1162,6 +1162,12 @@ def register_binflow(app, db, require):
         selected = request.args.get('state',g.user['working_state'] if g.get('live_cycle') else default)
         if selected and selected not in regions:
             abort(403 if selected in STATES else 400)
+        deleted = db().execute(f"""SELECT b.id,b.code,e.details AS reason,e.created_at,e.actor
+            FROM bf_bale_events e JOIN bf_bales b ON b.id=e.bale_id
+            JOIN bf_locations l ON l.id=e.warehouse_id
+            WHERE b.status='void' AND e.action IN ('Bale deleted','Bale voided')
+              AND l.id IN ({marks}) AND l.state=?
+            ORDER BY e.id DESC LIMIT 50""",(*depot_ids,selected)).fetchall() if depot_ids else []
         scope,scope_args=warehouse_scope(g.user)
         unused=db().execute(f"""SELECT i.bin_code,t.name AS truck,w.name AS depot,u.returned_at
             FROM bf_unused_returns u JOIN bf_job_bins i ON i.id=u.item_id JOIN bf_jobs j ON j.id=i.job_id
@@ -1169,7 +1175,7 @@ def register_binflow(app, db, require):
             WHERE {scope} AND w.state=? AND (u.returned_at IS NULL OR substr(u.returned_at,1,10)=?)
             ORDER BY u.returned_at IS NOT NULL,t.name,i.bin_code""",(*scope_args,selected,now()[:10])).fetchall()
         return render('warehouse', section='warehouse',unused=unused, stock=[b for b in stock if b['state']==selected],
-                      warehouse_states=regions,selected_state=selected,counts=counts,
+                      warehouse_states=regions,selected_state=selected,counts=counts,deleted=deleted,
                       available=[b for b in available if b['state']==selected])
 
     @app.get('/binflow/pickups/<int:job_id>/pod')

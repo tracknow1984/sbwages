@@ -51,6 +51,57 @@ class BaleTests(unittest.TestCase):
             item=c.execute("INSERT INTO bf_job_bins(job_id,bin_id,direction,bin_code,size_name,tare_g,gross_g,net_g,weighed_at,active,material_id,material_name) VALUES(?,?,'collect',?,'1100 L',5000,?,?,'now',0,?,?)",(jid,bid,code,5000+net_g,net_g,mid,name)).lastrowid
         return code,item
 
+    def test_delete_from_warehouse_requires_reason_and_preserves_audit(self):
+        self.prepare();self.create();self.settings(2,target_kg='200')
+        path='/binflow/bales/1/delete'
+        page=self.client.get('/binflow/warehouse?state=NSW').text
+        self.assertIn('action="'+path+'"',page)
+        self.assertIn('Confirm delete bale',page)
+        self.assertEqual(self.client.post(path,data=dict(version=1,reason='Duplicate')).status_code,400)
+        for data in (dict(version=1,reason='  '),dict(version=1,reason='x'*501),dict(version=0,reason='Duplicate')):
+            self.post(path,data)
+            self.assertEqual(self.rows('SELECT status FROM bf_bales')[0]['status'],'stored')
+        response=self.post(path,dict(version=1,reason=' Duplicate <entry> '),follow=False)
+        self.assertTrue(response.headers['Location'].endswith('/binflow/warehouse?state=NSW'))
+        b=self.rows('SELECT * FROM bf_bales')[0]
+        self.assertEqual((b['status'],b['warehouse_id'],b['version']),('void',None,2))
+        self.assertEqual(len(self.rows('SELECT * FROM bf_bale_sources')),1)
+        self.assertEqual(self.rows("SELECT status FROM bf_bale_pickups ORDER BY id DESC")[0]['status'],'cleared')
+        event=self.rows("SELECT * FROM bf_bale_events WHERE action='Bale deleted'")[0]
+        self.assertEqual(event['details'],'Duplicate <entry>')
+        self.assertEqual(event['warehouse_id'],2)
+        self.assertTrue(event['actor']);self.assertTrue(event['created_at'])
+        page=self.client.get('/binflow/warehouse?state=NSW').text
+        self.assertIn('No bales available for transit in NSW',page)
+        self.assertIn('Deleted bales',page)
+        self.assertIn('Duplicate &lt;entry&gt;',page)
+        self.assertNotIn('action="'+path+'"',page)
+        self.assertNotIn('Duplicate &lt;entry&gt;',self.client.get('/binflow/warehouse?state=QLD').text)
+        self.assertIn('Duplicate &lt;entry&gt;',self.client.get('/binflow/bales/1').text)
+        self.assertEqual(self.client.get('/binflow/bales/1/label').status_code,410)
+        self.post(path,dict(version=1,reason='Repeated click'))
+        self.assertEqual(len(self.rows("SELECT * FROM bf_bale_events WHERE action='Bale deleted'")),1)
+
+    def test_delete_protects_allocated_bales_and_other_warehouses(self):
+        self.prepare();self.create();self.transfer();self.scan('BA0000001')
+        path='/binflow/bales/1/delete'
+        version=self.rows('SELECT version FROM bf_bales')[0]['version']
+        result=self.post(path,dict(version=version,reason='Allocated'))
+        self.assertIn('Only unallocated stored bales',result.text)
+        self.assertEqual(self.rows('SELECT status FROM bf_bales')[0]['status'],'loading')
+        self.assertEqual(len(self.rows('SELECT * FROM bf_bale_transfer_items')),1)
+        self.action('depart',confirm='yes')
+        self.post(path,dict(version=version,reason='In transit'))
+        self.assertEqual(self.rows('SELECT status FROM bf_bales')[0]['status'],'transit')
+        self.create()
+        qld=self.manager_user('QLD','delete-qld');nsw=self.manager_user('NSW','delete-nsw')
+        self.post('/logout');self.login('employee','delete-qld')
+        self.assertEqual(self.post('/binflow/bales/2/delete',dict(version=1,reason='Wrong depot'),follow=False).status_code,403)
+        self.post('/logout');self.login('employee','delete-nsw')
+        self.post('/binflow/bales/2/delete',dict(version=1,reason='Duplicate at own depot'))
+        self.assertEqual(self.rows('SELECT status FROM bf_bales WHERE id=2')[0]['status'],'void')
+        self.assertEqual(len(self.rows("SELECT * FROM bf_bale_events WHERE action='Bale deleted'")),1)
+
     def test_source_scan_matching_mixed_unweighed_wrong_depot_and_reuse(self):
         self.prepare();self.post('/binflow/setup/materials',dict(name='PEF',active='yes'))
         code,item=self.source();other,other_item=self.source(mid=2)
