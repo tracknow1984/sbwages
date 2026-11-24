@@ -91,14 +91,18 @@ def register(app, db, require, render, client_access, now, actor):
     @app.get('/binflow/freight-pricing')
     @require('admin')
     def bf_freight_pricing():
-        query=request.args.get('q','').strip()[:100]
-        rows=db().execute("""SELECT a.id,a.name,a.username,a.active,h.cents AS hourly,
-            (SELECT COUNT(*) FROM bf_interstate_rates r WHERE r.account_id=a.id) AS route_count
-            FROM bf_client_accounts a LEFT JOIN bf_rigid_hourly_rates h ON h.account_id=a.id
-            WHERE ?='' OR instr(lower(a.name||' '||a.username),?)>0
-            ORDER BY a.active DESC,a.name COLLATE NOCASE,a.id LIMIT 101""",(query,query.lower())).fetchall()
-        return render('freight_pricing',section='freight_pricing',query=query,accounts=rows[:100],
-                      has_more=len(rows)>100,fuel=current_fuel(db()))
+        if request.args.get('client'):
+            aid=request.args.get('client',type=int)
+            if aid is None:
+                abort(400)
+            if not db().execute('SELECT 1 FROM bf_client_accounts WHERE id=?',(aid,)).fetchone():
+                abort(404)
+            return redirect(url_for('bf_interstate_rates',aid=aid),code=303)
+        accounts=db().execute('SELECT id,name,username,active FROM bf_client_accounts ORDER BY active DESC,name COLLATE NOCASE,id').fetchall()
+        query=request.args.get('q','').strip().casefold()[:100]
+        matches=[a for a in accounts if query and query in (a['name']+' '+a['username']).casefold()]
+        selected=matches[0]['id'] if len(matches)==1 else None
+        return render('freight_pricing',section='freight_pricing',accounts=accounts,selected=selected)
 
     @app.route('/binflow/interstate-transfers/access/fuel', methods=['GET','POST'])
     @require('admin')

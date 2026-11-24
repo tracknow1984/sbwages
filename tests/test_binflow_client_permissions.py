@@ -489,7 +489,7 @@ class PortalPermissionTests(unittest.TestCase):
         self.assertEqual(self.rows('SELECT client_name,job_type,pickup_company,delivery_company FROM bf_interstate_bookings'),
                          [dict(client_name='Billing Pty Ltd',job_type='external',pickup_company='New sender',delivery_company='Receiving Co')])
 
-    def test_freight_directory_finds_login_rates_without_changing_prices(self):
+    def test_freight_client_selector_opens_matrix_without_changing_prices(self):
         aid=self.account('blocktexx1')
         other=self.account('other-freight-client')
         matrix=f'{CAL}/access/{aid}/rates'
@@ -500,14 +500,20 @@ class PortalPermissionTests(unittest.TestCase):
         route='/binflow/freight-pricing'
         page=self.client.get(route+'?q=BlockTexx')
         self.assertEqual(page.status_code,200)
-        self.assertIn(matrix,page.text)
-        self.assertNotIn(f'{CAL}/access/{other}/rates',page.text)
+        self.assertIn(f'<option value="{aid}" selected>',page.text)
+        self.assertIn(f'<option value="{other}"',page.text)
+        self.assertIn('Go to pricing matrix',page.text)
         self.assertIn('Per-kg pickup charges',page.text)
         self.assertIn('Weekly fuel surcharge',page.text)
         self.assertIn('id="bf-menu-search"',page.text)
         self.assertIn('BlockTexx freight charges',page.text)
-        self.assertIn('No customer or login matches',self.client.get(route+'?q=%25').text)
-        self.assertIn(f'{CAL}/access/{other}/rates',self.client.get(route).text)
+        for account in (aid,other):
+            chosen=self.client.get(route+f'?client={account}')
+            self.assertEqual(chosen.status_code,303)
+            self.assertEqual(chosen.location,f'{CAL}/access/{account}/rates')
+        self.assertEqual(self.client.get(route+'?client=bad').status_code,400)
+        self.assertEqual(self.client.get(route+'?client=999999').status_code,404)
+        self.assertIn('Select client',self.client.get(matrix).text)
         self.assertEqual(self.rows('SELECT * FROM bf_interstate_rates ORDER BY account_id,origin,destination,vehicle'),before)
         denied=self.visit('blocktexx1').get(route)
         self.assertEqual(denied.status_code,302)
