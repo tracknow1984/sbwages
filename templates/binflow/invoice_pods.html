@@ -6,8 +6,10 @@
 <section class="bf-panel bf-pad">
   <h2>Attached PODs</h2>
   {% if documents %}<ul>{% for doc in documents %}
-    <li><a href="{{ url_for('bf_invoice_pod_file',identifier=invoice.id,doc_id=doc.id) if doc.kind=='file' else url_for('bf_pod',job_id=doc.id) }}">{{ doc.label }}</a>
-    {% if doc.kind=='job' and doc.id in automatic %}<small>From invoice line</small>
+    <li><a href="{{ url_for('bf_interstate_pod',bid=doc.id) if doc.kind=='transfer' else url_for('bf_invoice_pod_file',identifier=invoice.id,doc_id=doc.id) if doc.kind=='file' else url_for('bf_pod',job_id=doc.id) }}">{{ doc.label }}</a>
+    {% if doc.kind=='transfer' %} · <a href="{{ url_for('bf_interstate_pod_pdf',bid=doc.id,download=1) }}">Download POD</a>{% endif %}
+    {% if doc.kind=='transfer' and doc.id in transfer_automatic %}<small>Automatically linked to this transfer invoice</small>
+    {% elif doc.kind=='job' and doc.id in automatic %}<small>From invoice line</small>
     {% else %}<form method="post" class="bf-actions"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
       <input type="hidden" name="kind" value="{{ doc.kind }}"><input type="hidden" name="document_id" value="{{ doc.id }}">
       <button class="secondary compact" name="action" value="remove" aria-label="Remove {{ doc.label }} from this invoice">Remove from invoice</button>
@@ -15,6 +17,15 @@
   {% endfor %}</ul>{% else %}<p>No POD attached.</p>{% endif %}
 </section>
 <section class="bf-panel bf-pad"><h2>Add a POD</h2>
+  <p>Signed transfer PODs appear automatically on their matching transfer invoices, including invoices prepared before sign-off. For an older invoice entered separately, select its completed transfer below.</p>
+  {% if transfer_choices %}<form method="post" class="bf-filters">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+    <label>Signed transfer POD for this client<select name="booking_id" required>
+      <option value="">Choose the matching transfer</option>
+      {% for pod in transfer_choices %}<option value="{{ pod.booking_id }}">#{{ pod.booking_id }} · {{ pod.service_date|display_date }} · {{ pod.pickup_company }} → {{ pod.delivery_company }}</option>{% endfor %}
+    </select></label>
+    <button class="secondary" name="action" value="link_transfer">Link transfer POD</button>
+  </form>{% endif %}
   <form method="post" enctype="multipart/form-data" class="bf-filters">
     <input type="hidden" name="csrf" value="{{ csrf_token() }}">
     <label>Upload a POD (PDF, up to {{ config.DOCUMENT_MAX_BYTES // 1048576 }} MB)<input type="file" name="document" accept=".pdf,application/pdf" required></label>

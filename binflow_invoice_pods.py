@@ -1,4 +1,4 @@
-"""Supporting documents explicitly attached to saved BinFlow invoices."""
+"""Signed PODs linked by invoice source or explicitly attached by the office."""
 import hashlib
 import io
 import json
@@ -8,6 +8,7 @@ from pypdf import PdfReader, PdfWriter
 from pypdf.errors import PyPdfError
 
 import binflow_client_access as access
+import binflow_transfer_pods as transfer_pods
 from binflow_management import pod_scope
 from document_uploads import read_document
 
@@ -21,6 +22,9 @@ def migrate(conn):
         CREATE TABLE IF NOT EXISTS bf_invoice_pod_jobs (
             invoice_id TEXT NOT NULL REFERENCES bf_rental_invoices(id) ON DELETE CASCADE,
             job_id INTEGER NOT NULL REFERENCES bf_jobs(id), PRIMARY KEY(invoice_id,job_id));
+        CREATE TABLE IF NOT EXISTS bf_invoice_pod_transfers (
+            invoice_id TEXT NOT NULL REFERENCES bf_rental_invoices(id) ON DELETE CASCADE,
+            booking_id INTEGER NOT NULL REFERENCES bf_interstate_bookings(id), PRIMARY KEY(invoice_id,booking_id));
     """)
 
 
@@ -41,7 +45,33 @@ def documents(conn, keys, client=None):
     result={}
     for row in rows:
         result.setdefault(row['invoice_id'],[]).append(dict(row))
+    # Exact booking/source IDs also cover invoices prepared before their POD was signed.
+    transfer_scope = ' AND COALESCE(b.account_id,i.portal_account_id)=?' if client is not None else ''
+    transfers=conn.execute("""
+        WITH invoices AS (SELECT id,booking_id,portal_account_id,snapshot_json FROM bf_rental_invoices
+            WHERE id IN (SELECT value FROM json_each(?))),
+        links AS (
+            SELECT id AS invoice_id,booking_id FROM invoices
+            UNION SELECT i.id,b.id FROM invoices i,json_each(i.snapshot_json,'$.lines') l
+                JOIN bf_interstate_bookings b ON json_extract(l.value,'$.source')='transfer:'||b.id
+            UNION SELECT m.invoice_id,m.booking_id FROM bf_invoice_pod_transfers m JOIN invoices i ON i.id=m.invoice_id)
+        SELECT links.invoice_id,'transfer' AS kind,p.booking_id AS id,
+            'Transfer POD #'||p.booking_id AS label
+        FROM links JOIN bf_transfer_pods p ON p.booking_id=links.booking_id
+        JOIN bf_interstate_bookings b ON b.id=p.booking_id
+        JOIN invoices i ON i.id=links.invoice_id
+        WHERE p.signed_at IS NOT NULL AND b.portal='binflow'"""+transfer_scope+
+        ' ORDER BY links.invoice_id,p.booking_id',(wanted,client['id']) if client is not None else (wanted,))
+    for row in transfers:
+        result.setdefault(row['invoice_id'],[]).append(dict(row))
     return result
+
+
+def transfer_content(app,conn,booking_id):
+    pod=transfer_pods.record(conn,booking_id)
+    if not pod or not pod['signed_at']:
+        abort(404)
+    return transfer_pods.pdf_bytes(pod,app.static_folder)
 
 
 def file_content(conn,key,document_id):
@@ -52,7 +82,8 @@ def file_content(conn,key,document_id):
 
 
 def document_response(data,name):
-    response=send_file(io.BytesIO(data),mimetype='application/pdf',download_name=name)
+    response=send_file(io.BytesIO(data),mimetype='application/pdf',download_name=name,
+                       as_attachment=request.args.get('download')=='1')
     response.cache_control.no_store=True
     return response
 
@@ -85,12 +116,16 @@ def register(app,db,require,render,now,actor):
             abort(404)
         return row
 
-    def eligible_scope(item):
+    def billing_account(item):
         aid=item['portal_account_id']
         if aid is None:
             matches=db().execute('SELECT account_id FROM bf_invoice_contacts WHERE tenant_id=? AND contact_id=?',
                                  (item['tenant_id'],item['contact'])).fetchall()
             aid=matches[0][0] if len(matches)==1 else None
+        return aid
+
+    def eligible_scope(item):
+        aid=billing_account(item)
         return pod_scope({'id':aid},access.rights_for(db(),aid)) if aid else ('0',())
 
     @app.route('/binflow/invoices/<identifier>/pods',methods=['GET','POST'])
@@ -117,6 +152,15 @@ def register(app,db,require,render,now,actor):
                     cursor=conn.execute("""INSERT INTO bf_invoice_pod_files(invoice_id,filename,digest,document,added_by,added_at)
                         VALUES(?,?,?,?,?,?) ON CONFLICT(invoice_id,digest) DO NOTHING""",
                         (identifier,name,hashlib.sha256(data).hexdigest(),data,actor(),now()))
+                elif request.form.get('action')=='link_transfer':
+                    bid=request.form.get('booking_id',type=int)
+                    pod=conn.execute("""SELECT p.booking_id FROM bf_transfer_pods p
+                        JOIN bf_interstate_bookings b ON b.id=p.booking_id
+                        WHERE p.booking_id=? AND p.signed_at IS NOT NULL AND b.portal='binflow' AND b.account_id=?""",
+                        (bid,billing_account(item))).fetchone()
+                    if not pod:
+                        raise ValueError('Choose a signed transfer POD belonging to this billing client.')
+                    cursor=conn.execute('INSERT OR IGNORE INTO bf_invoice_pod_transfers VALUES(?,?)',(identifier,bid))
                 elif request.form.get('action')=='link':
                     code=request.form.get('code','').strip().upper()
                     pod=conn.execute('SELECT j.id FROM bf_jobs j WHERE j.code=? AND '+scope,(code,*params)).fetchone()
@@ -129,6 +173,8 @@ def register(app,db,require,render,now,actor):
                         conn.execute('DELETE FROM bf_invoice_pod_files WHERE invoice_id=? AND id=?',(identifier,doc))
                     elif request.form.get('kind')=='job':
                         conn.execute('DELETE FROM bf_invoice_pod_jobs WHERE invoice_id=? AND job_id=?',(identifier,doc))
+                    elif request.form.get('kind')=='transfer':
+                        conn.execute('DELETE FROM bf_invoice_pod_transfers WHERE invoice_id=? AND booking_id=?',(identifier,doc))
                     else:
                         abort(400)
                     conn.commit()
@@ -145,8 +191,17 @@ def register(app,db,require,render,now,actor):
         choices=conn.execute('SELECT j.code,j.site_name,j.scheduled_date FROM bf_jobs j WHERE '+scope+
             ' ORDER BY j.scheduled_date DESC,j.id DESC LIMIT 100',params).fetchall()
         automatic={line['job_id'] for line in json.loads(item['snapshot_json']).get('lines',[]) if line.get('job_id')}
+        transfer_choices=conn.execute("""SELECT p.booking_id,p.service_date,b.pickup_company,b.delivery_company
+            FROM bf_transfer_pods p JOIN bf_interstate_bookings b ON b.id=p.booking_id
+            WHERE p.signed_at IS NOT NULL AND b.portal='binflow' AND b.account_id=?
+            ORDER BY p.service_date DESC,p.booking_id DESC""",(billing_account(item),)).fetchall()
+        sources={line.get('source') for line in json.loads(item['snapshot_json']).get('lines',[])}
+        attached=documents(conn,[identifier]).get(identifier,[])
+        transfer_automatic={doc['id'] for doc in attached if doc['kind']=='transfer'
+                            and (doc['id']==item['booking_id'] or f"transfer:{doc['id']}" in sources)}
         return render('invoice_pods',section='invoices',invoice=item,choices=choices,automatic=automatic,
-            documents=documents(conn,[identifier]).get(identifier,[]))
+            transfer_choices=transfer_choices,transfer_automatic=transfer_automatic,
+            documents=attached)
 
     @app.get('/binflow/invoices/<identifier>/pods/files/<int:doc_id>')
     @require('admin')

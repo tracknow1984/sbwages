@@ -84,6 +84,121 @@ class ClientInvoiceTests(TestCase):
                          po_number='PO-Manual',account_code='200',tax_type='OUTPUT',description='Local transport',quantity='2.5',unit_rate='125.30'),**updates)
 
     @billing.connected_organisation
+    def test_transfer_pod_signed_after_invoice_is_linked_and_downloadable(self):
+        import io
+        import zipfile
+        from pypdf import PdfReader,PdfWriter
+        from test_binflow_interstate import CAL
+        from test_binflow_transfer_pods import TransferPodTests
+        self.connect()
+        aid=self.account('booker')
+        self.link(aid)
+        client=self.visit('booker')
+        other_id=self.account('other-transfer-client')
+        self.link(other_id)
+        other=self.visit('other-transfer-client')
+        self.send(client,CLIENT+'/new',data())
+        bid=self.rows('SELECT id FROM bf_interstate_bookings')[0]['id']
+        with self.connection() as conn:
+            conn.execute("UPDATE bf_interstate_bookings SET locked_at='2026-11-07',rate_cents=10000 WHERE id=?",(bid,))
+            conn.execute("INSERT INTO bf_interstate_purchase_orders(booking_id,number,revision,updated_at,updated_by) VALUES(?,'PO-TRANSFER',1,'now','Admin')",(bid,))
+        form=self.values(aid,booking=str(bid))
+        self.post(BASE+'/new',form)
+        key=form['draft_key']
+        with self.connection() as conn:
+            self.assertIsNotNone(conn.execute('SELECT id FROM bf_rental_invoices WHERE id=?',(key,)).fetchone())
+            conn.execute("UPDATE bf_rental_invoices SET status='created',invoice_id=? WHERE id=?",(billing.INVOICE,key))
+        pod_values=TransferPodTests.values(self,service_date='2026-10-01')
+        self.assertEqual(self.post(f'{CAL}/{bid}/pod',pod_values).status_code,200)
+        remote=dict(InvoiceID=billing.INVOICE,InvoiceNumber='INV-TRANSFER',Type='ACCREC',Status='AUTHORISED',
+            Contact={'ContactID':billing.CONTACT},DateString='2026-11-20',DueDateString='2026-12-04',Total=110,AmountDue=110)
+        raw=io.BytesIO()
+        writer=PdfWriter()
+        writer.add_blank_page(width=300,height=200)
+        writer.write(raw)
+        route=f'{PORTAL}/{key}/pods/transfer/{bid}'
+        with patch('binflow_xero.api',return_value={'Invoices':[remote]}),patch('binflow_invoices.pdf_bytes',return_value=raw.getvalue()):
+            self.assertNotIn(route,client.get(PORTAL).text)
+            self.assertEqual(client.get(route).status_code,404)
+            self.assertEqual(self.post(f'{CAL}/{bid}/pod',dict(pod_values,action='sign',revision=1)).status_code,200)
+            page=client.get(PORTAL)
+            self.assertIn(route,page.text)
+            self.assertIn('Download POD',page.text)
+            self.assertIn('Download invoice',page.text)
+            self.assertIn('Invoice + PODs PDF',page.text)
+            manage=self.client.get(f'{BASE}/{key}/pods')
+            self.assertEqual(manage.status_code,200)
+            self.assertIn('Automatically linked to this transfer invoice',manage.text)
+            self.assertIn(f'Transfer POD #{bid}',manage.text)
+            signed=client.get(route)
+            self.assertEqual(signed.status_code,200)
+            self.assertIn('inline',signed.headers['Content-Disposition'])
+            self.assertIn('SIGNED',PdfReader(io.BytesIO(signed.data)).pages[0].extract_text())
+            self.assertIn('attachment',client.get(route+'?download=1').headers['Content-Disposition'])
+            self.assertEqual(other.get(route).status_code,404)
+            self.assertEqual(client.get(route[:-1]+'99999').status_code,404)
+            # Invoice permission is enough; office bookings may have a pinned invoice payer only.
+            with self.connection() as conn:
+                conn.execute('INSERT OR REPLACE INTO bf_client_permissions VALUES(?,?)',(aid,json.dumps(['invoices.view'])))
+                conn.execute('UPDATE bf_interstate_bookings SET account_id=NULL WHERE id=?',(bid,))
+            self.assertEqual(client.get(route).status_code,200)
+            self.assertEqual(other.get(route).status_code,404)
+            self.assertEqual(client.get(f'{PORTAL}/{key}/pdf?invoice_only=1').data,raw.getvalue())
+            self.assertIn('inline',client.get(f'{PORTAL}/{key}/pdf?invoice_only=1&view=1').headers['Content-Disposition'])
+            for response in (client.get(f'{PORTAL}/{key}/pdf'),self.client.get(f'{BASE}/{key}/document.pdf')):
+                self.assertEqual(response.status_code,200)
+                self.assertEqual(len(PdfReader(io.BytesIO(response.data)).pages),2)
+            response=self.send(client,PORTAL,dict(selected=key,format='zip'))
+            with zipfile.ZipFile(io.BytesIO(response.data)) as archive:
+                self.assertEqual(len(PdfReader(io.BytesIO(archive.read(archive.namelist()[0]))).pages),2)
+            with self.connection() as conn:
+                conn.execute('UPDATE bf_interstate_bookings SET account_id=? WHERE id=?',(other_id,bid))
+            self.assertEqual(client.get(route).status_code,404)
+            with self.connection() as conn:
+                conn.execute('UPDATE bf_interstate_bookings SET account_id=? WHERE id=?',(aid,bid))
+            remote['Status']='DRAFT'
+            self.assertEqual(client.get(route).status_code,404)
+
+    @billing.connected_organisation
+    def test_older_invoice_transfer_link_checks_client_and_deduplicates_sources(self):
+        import binflow_invoice_pods as pods
+        from test_binflow_interstate import CAL
+        from test_binflow_transfer_pods import TransferPodTests
+        self.connect()
+        aid=self.account('booker')
+        self.link(aid)
+        client=self.visit('booker')
+        other=self.account('other-booker')
+        self.link(other)
+        self.send(client,CLIENT+'/new',data())
+        self.send(self.visit('other-booker'),CLIENT+'/new',data())
+        for bid in (1,2):
+            self.assertEqual(self.post(f'{CAL}/{bid}/pod',TransferPodTests.values(self,action='sign')).status_code,200)
+        form=self.values(aid)
+        self.post(BASE+'/new',form)
+        key=form['draft_key']
+        manage=f'{BASE}/{key}/pods'
+        self.assertIn('Choose the matching transfer',self.client.get(manage).text)
+        rejected=self.post(manage,dict(action='link_transfer',booking_id=2))
+        self.assertIn('belonging to this billing client',rejected.text)
+        self.assertEqual(self.rows('SELECT * FROM bf_invoice_pod_transfers'),[])
+        for _ in range(2):
+            self.post(manage,dict(action='link_transfer',booking_id=1))
+        self.assertEqual(len(self.rows('SELECT * FROM bf_invoice_pod_transfers')),1)
+        with self.connection() as conn:
+            self.assertEqual([p['id'] for p in pods.documents(conn,[key])[key]],[1])
+            snap=json.loads(conn.execute('SELECT snapshot_json FROM bf_rental_invoices WHERE id=?',(key,)).fetchone()[0])
+            snap['lines'][0]['source']='transfer:1'
+            conn.execute('UPDATE bf_rental_invoices SET snapshot_json=?,booking_id=1 WHERE id=?',(json.dumps(snap),key))
+            self.assertEqual(len(pods.documents(conn,[key])[key]),1)
+        self.post(manage,dict(action='remove',kind='transfer',document_id=1))
+        # Removing a manual attachment cannot sever an invoice's own source booking.
+        self.assertIn('Automatically linked',self.client.get(manage).text)
+        with self.connection() as conn:
+            conn.execute('UPDATE bf_rental_invoices SET booking_id=NULL WHERE id=?',(key,))
+            self.assertEqual(len(pods.documents(conn,[key])[key]),1)
+
+    @billing.connected_organisation
     def test_link_signed_system_pod_and_withdrawal(self):
         from pod_helpers import sign_pod
         self.connect()

@@ -216,7 +216,8 @@ def client_invoice_rows(app,conn,link,period,sort,selected=None):
 def client_document(app,conn,link,row,pdf):
     source=pdf_bytes(app,conn,link['tenant_id'],row['iid'])
     return invoice_pods.bundle(source,(
-        invoice_pods.file_content(conn,row['key'],p['id']) if p['kind']=='file' else reports.pdf_data(pdf(p['id']))
+        invoice_pods.file_content(conn,row['key'],p['id']) if p['kind']=='file'
+        else invoice_pods.transfer_content(app,conn,p['id']) if p['kind']=='transfer' else reports.pdf_data(pdf(p['id']))
         for p in row['pods']))
 
 
@@ -444,7 +445,7 @@ def register(app, db, require, render, client_access, now, actor,pdf):
         return link,dict(key=identifier,iid=iid,number=rows[0].get('InvoiceNumber') or 'Invoice',
                          pods=invoice_pods.documents(conn,[identifier],g.bf_client).get(identifier,[]))
 
-    @app.get('/binflow/client/invoices/<identifier>/pods/<any(job,file):kind>/<int:doc_id>')
+    @app.get('/binflow/client/invoices/<identifier>/pods/<any(job,file,transfer):kind>/<int:doc_id>')
     @client_access
     def bf_client_invoice_pod(identifier,kind,doc_id):
         _,row=issued_invoice(identifier)
@@ -452,6 +453,8 @@ def register(app, db, require, render, client_access, now, actor,pdf):
         if not doc: abort(404)
         if kind=='file':
             return invoice_pods.document_response(invoice_pods.file_content(db(),identifier,doc_id),doc['label'])
+        if kind=='transfer':
+            return invoice_pods.document_response(invoice_pods.transfer_content(app,db(),doc_id),doc['label']+'.pdf')
         return invoice_pods.document_response(reports.pdf_data(pdf(doc_id)),doc['label']+'.pdf')
 
     @app.get('/binflow/client/invoices/<identifier>/pdf')
@@ -459,10 +462,11 @@ def register(app, db, require, render, client_access, now, actor,pdf):
     def bf_client_invoice_pdf(identifier):
         link,row=issued_invoice(identifier)
         try:
-            data=client_document(app,db(),link,row,pdf)
+            data=(pdf_bytes(app,db(),link['tenant_id'],row['iid']) if request.args.get('invoice_only')=='1'
+                  else client_document(app,db(),link,row,pdf))
         except (ValueError,xero.XeroError):
             abort(503,'The invoice PDF is temporarily unavailable. Please try again.')
-        response = send_file(io.BytesIO(data),mimetype='application/pdf',as_attachment=True,
+        response = send_file(io.BytesIO(data),mimetype='application/pdf',as_attachment=request.args.get('view')!='1',
                              download_name=(secure_filename(str(row['number'])) or 'Invoice')+'.pdf')
         response.cache_control.no_store=True
         return response
