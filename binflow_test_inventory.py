@@ -1,6 +1,5 @@
 """Read-only inventory for the retirement of the explicitly provisioned test run."""
 import json
-import os
 import re
 
 
@@ -30,7 +29,17 @@ def inventory(conn, logger):
                           ('users', 'id,first_name,last_name,username,status')):
         candidates[table] = [dict(r) for r in conn.execute(f'SELECT {fields} FROM {table}')
                              if any(re.search(r'\b(test|sample|demo)\b', str(v), re.I) for v in tuple(r)[1:])]
+    from binflow_road_routes import api_key
+    configured=bool(api_key(conn))
     logger.warning('BinFlow test inventory: %s', json.dumps(dict(run=dict(run) if run else None,
-                   candidates=candidates, references=links,
-                   road_routing_configured=any(bool(os.environ.get(k)) for k in
-                       ('GOOGLE_MAPS_API_KEY','GOOGLE_ROUTES_API_KEY','BINFLOW_GOOGLE_ROUTES_API_KEY')))))
+                   candidates=candidates, references=links,road_routing_configured=configured)))
+    if not configured:
+        from binflow_allocation_planning import ordered_sites
+        coverage=[]
+        for depot in conn.execute("SELECT * FROM bf_locations WHERE kind='warehouse' AND name LIKE 'SB EMPIRE%' ORDER BY state"):
+            sites=conn.execute("SELECT l.*,c.name client_name FROM bf_locations l JOIN bf_clients c ON c.id=l.client_id WHERE l.state=?",(depot['state'],)).fetchall()
+            ordered,_,_=ordered_sites(conn,sites,depot)
+            coverage.append(dict(state=depot['state'],depot=depot['name'],address=depot['address'],
+                                 approximate_distances=sum(s['distance_km'] is not None for s in ordered),
+                                 total=len(ordered)))
+        logger.warning('BinFlow depot distance coverage: %s',json.dumps(coverage))

@@ -167,6 +167,8 @@ def register_binflow(app, db, require):
         migrate_invoices(db())
         from binflow_live_cycle import migrate as migrate_live_cycle
         migrate_live_cycle(db())
+        from binflow_road_routes import migrate as migrate_road_routes
+        migrate_road_routes(db())
         from binflow_stop_exceptions import migrate as migrate_stop_exceptions
         migrate_stop_exceptions(db())
         db().commit()
@@ -212,6 +214,12 @@ def register_binflow(app, db, require):
         db().commit()
         if not app.testing:
             bootstrap(db(), now())
+            from binflow_test_retirement import retire, clear_unconfirmed_sa
+            try:
+                app.logger.warning('BinFlow test retirement: %s',json.dumps(retire(db(),now())))
+            except (ValueError, sqlite3.IntegrityError) as error:
+                app.logger.warning('BinFlow test retirement blocked: %s',error)
+            clear_unconfirmed_sa(db(),now())
             from binflow_test_inventory import inventory
             inventory(db(), app.logger)
             from binflow_client_access import rights_for
@@ -380,6 +388,8 @@ def register_binflow(app, db, require):
 
     binflow_site_requests.register(app, db, access, render, now, actor)
     binflow_pickup_pricing.register(app, db, require, render, success, failure, now, actor)
+    from binflow_road_routes import register as register_road_routes
+    register_road_routes(app, db, require, render, success, failure, now, actor)
 
     @app.route('/binflow/setup', methods=['GET', 'POST'])
     @require('admin')
@@ -807,8 +817,11 @@ def register_binflow(app, db, require):
         if calendar_allocation:
             from binflow_client_profiles import register_rows
             retired={p['location_id'] for p in register_rows(db()) if p['archived']}
+            for test in db().execute('SELECT origin_id,destination_id,client_id FROM bf_live_cycle'):
+                retired.update(r['id'] for r in db().execute('SELECT id FROM bf_locations WHERE client_id=? OR id IN (?,?)',
+                    (test['client_id'],test['origin_id'],test['destination_id'])))
             sites=[s for s in sites if allocation_state and s['state']==allocation_state and s['id'] not in retired]
-            warehouses=[w for w in warehouses if allocation_state and w['state']==allocation_state]
+            warehouses=[w for w in warehouses if allocation_state and w['state']==allocation_state and w['id'] not in retired]
         requested_id=request.args.get('collection_request',type=int)
         collection_request=db().execute("SELECT * FROM bf_collection_requests WHERE id=? AND status='new'",(requested_id,)).fetchone() if requested_id else None
         if requested_id and not collection_request:
@@ -825,6 +838,7 @@ def register_binflow(app, db, require):
         if site and not warehouse and not calendar_allocation:
             warehouse = next((w for w in warehouses if w['state'] == site['state']), None)
         allocation_estimate=None
+        allocation_geo={}
         if calendar_allocation:
             from binflow_allocation_planning import ordered_sites, day_estimate
             sites,allocation_geo,depot_key=ordered_sites(db(),sites,warehouse)
@@ -843,7 +857,7 @@ def register_binflow(app, db, require):
                 defaults[direction].update(b['id'] for b in matching[:quantity])
         if collection_request and any(b['id']==collection_request['bin_id'] for b in collect):
             defaults['collect'].add(collection_request['bin_id'])
-        return render('new_job', section='pickups',calendar_allocation=calendar_allocation,allocation_state=allocation_state,allocation_estimate=allocation_estimate,purpose=purpose,empty_delivery=empty_delivery,collection_request=collection_request, sites=sites, warehouses=warehouses, site=site, warehouse=warehouse, collect=collect, deliver=deliver, drivers=drivers, request_key=secrets.token_urlsafe(24), profile=profile, loading=loading, defaults=defaults, plan_date=plan_date,
+        return render('new_job', section='pickups',calendar_allocation=calendar_allocation,allocation_state=allocation_state,allocation_estimate=allocation_estimate,road_status=allocation_geo.get('road_status',''),road_enabled=allocation_geo.get('road_enabled',False),purpose=purpose,empty_delivery=empty_delivery,collection_request=collection_request, sites=sites, warehouses=warehouses, site=site, warehouse=warehouse, collect=collect, deliver=deliver, drivers=drivers, request_key=secrets.token_urlsafe(24), profile=profile, loading=loading, defaults=defaults, plan_date=plan_date,
                       source_profiles=source_profiles(db(), site['id']) if site else [])
 
     @app.post('/binflow/pickups/<int:job_id>/rollout-by-size')
