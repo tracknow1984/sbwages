@@ -1332,6 +1332,8 @@ def register_binflow(app, db, require):
     register_qr(app, db, access, require, allowed, render, success, failure, now, actor)
     register_approvals(app,db,access,require,allowed,render,job,items,bins,event,success,failure,now,actor,reopen_requests,approve_requests)
     register_collections(app,db,access,require,render,success,now,actor)
+    from binflow_calendar_reset import register as register_calendar_reset
+    register_calendar_reset(app,db,require,render,success,now,actor)
     register_acceptance(app,db,access,success,failure,now,actor)
     register_workdays(app,db,access,require,render,success,failure,now)
     from binflow_journey import register_journey

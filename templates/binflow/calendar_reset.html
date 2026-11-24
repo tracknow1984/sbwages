@@ -1,0 +1,19 @@
+{% extends 'binflow/layout.html' %}
+{% block title %}Clear planning calendar — all states{% endblock %}
+{% block subtitle %}Start manual scheduling across Australia.{% endblock %}
+{% block body %}
+<section class="bf-panel bf-pad">
+<h2>Clear planned work and turn off automatic suggestions</h2>
+<p>This applies to <strong>all states and all planning weeks</strong>, regardless of the state or month currently displayed. Planned client visits, baling entries and planning notes on unlocked days will be cleared. Automatic route and baling suggestions will stop, including in future months.</p>
+<p>Existing job allocations, bin reservations, PODs, invoices and completed-day history are retained. Actual booked jobs will still appear. Client profiles and agreed collection frequencies remain available for manual scheduling.</p>
+{% if error %}<p role="alert" class="bf-note">{{ error }}</p>{% endif %}
+<div class="bf-table-wrap"><table><thead><tr><th>State</th><th>Saved planning items to clear</th><th>Saved weeks to update</th><th>Actual jobs retained</th></tr></thead><tbody>
+{% for row in summary.states %}<tr><td>{{ row.state }}</td><td>{{ row['items'] }}</td><td>{{ row.weeks }}</td><td>{{ row.jobs }}</td></tr>{% endfor %}
+</tbody></table></div>
+<p>{{ summary['items'] }} saved planning items will be cleared. Automatic suggestions are generated as needed and are not included in this count. {{ summary.protected }} started or completed state-days are protected.</p>
+<form method="post" class="bf-form">
+<input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="token" value="{{ summary.token }}">
+<label class="bf-check"><input type="checkbox" name="confirm" value="clear-planning" required>Clear planning across all states and switch to manual scheduling.</label>
+<div class="bf-actions"><button type="submit" class="primary">Confirm clear planning — all states</button><a class="button secondary" href="{{ url_for('bf_collection_calendar') }}">Cancel</a></div>
+</form></section>
+{% endblock %}
