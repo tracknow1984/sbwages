@@ -1,0 +1,14 @@
+{% macro site_option(s) -%}
+<option value="{{ s.id }}" {{ 'selected' if site and site.id==s.id }}>{{ s.client_name }} · {{ s.name }}{% if calendar_allocation %} · {% if s.distance_km is not none %}{{ '~' if s.distance_basis=='estimate' else '' }}{{ s.distance_km }} km {{ s.distance_basis }} · {{ s.drive_minutes }} min{% else %}{{ 'Check street address / route' if warehouse else 'Choose starting depot' }}{% endif %}{% else %} ({{ s.state }}){% endif %}</option>
+{%- endmacro %}
+<option value="">Choose client site</option>
+{% if calendar_allocation and warehouse %}
+  {% for direction in ('NORTH','EAST','SOUTH','WEST','Depot area','Location to confirm') %}
+    {% set members=sites|selectattr('direction','equalto',direction)|list %}
+    {% if members %}<optgroup label="{{ direction }} ({{ members|length }})">
+      {% for s in members %}{{ site_option(s) }}{% endfor %}
+    </optgroup>{% endif %}
+  {% endfor %}
+{% else %}
+  {% for s in sites %}{{ site_option(s) }}{% endfor %}
+{% endif %}

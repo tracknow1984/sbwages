@@ -5,7 +5,7 @@ from unittest.mock import patch
 from datetime import date
 
 import test_binflow_schedule as schedule
-from binflow_allocation_planning import ordered_sites, day_estimate
+from binflow_allocation_planning import ordered_sites, day_estimate, compass_direction
 from binflow_route_calendar import RESET_ID
 
 
@@ -31,7 +31,9 @@ class AllocationPlanningTests(unittest.TestCase):
         qld=self.client.get(self.route+'?calendar=1&state=QLD&date=2026-11-30').text
         selector=re.search(r'<select name="site".*?</select>',qld,re.S)[0]
         self.assertIn('Alpha QLD',selector);self.assertIn('Beta QLD',selector);self.assertNotIn('Alpha NSW',selector)
-        self.assertLess(selector.index('Beta QLD'),selector.index('Alpha QLD'))
+        self.assertIn('<optgroup label="SOUTH (1)">',selector)
+        self.assertIn('<optgroup label="WEST (1)">',selector)
+        self.assertLess(selector.index('Alpha QLD'),selector.index('Beta QLD'))
         self.assertNotIn('NSW warehouse',qld)
         self.assertIn('name="date" value="2026-11-30"',qld)
         empty=self.client.get(self.route+'?calendar=1&date=2026-11-30').text
@@ -83,6 +85,35 @@ class AllocationPlanningTests(unittest.TestCase):
         self.assertEqual(self.client.post(self.route,data=data).status_code,400)
         self.as_user(self.user('Driver',role='driver'))
         self.assertEqual(self.client.get(self.route+'?calendar=1&state=QLD').status_code,403)
+
+    def test_cardinal_bearings_and_missing_or_same_location(self):
+        geo={'points':{'depot':dict(lat=-27,lon=153)}}
+        for label,lat,lon in [('NORTH',-26,153),('EAST',-27,154),('SOUTH',-28,153),('WEST',-27,152)]:
+            geo['points']['site']=dict(lat=lat,lon=lon)
+            self.assertEqual(compass_direction(geo,'depot','site'),label)
+        self.assertEqual(compass_direction(geo,None,'site'),'Location to confirm')
+        self.assertEqual(compass_direction(geo,'depot','missing'),'Location to confirm')
+        self.assertEqual(compass_direction(geo,'depot','depot'),'Depot area')
+
+    def test_groups_keep_farthest_first_and_change_with_depot_even_with_road_keys(self):
+        self.prepare()
+        with self.connection() as conn:
+            conn.execute('UPDATE bf_geofences SET latitude=-26,longitude=153.02 WHERE location_id=3')
+            conn.execute('UPDATE bf_geofences SET latitude=-25,longitude=153.02 WHERE location_id=4')
+        with patch('binflow_road_routes.distances',return_value=({3:dict(distance_km=100,drive_minutes=70),4:dict(distance_km=200,drive_minutes=150)},'',True)):
+            html=self.client.get(self.route+'?calendar=1&state=QLD&date=2026-11-30').text
+            group=re.search(r'<optgroup label="NORTH \(2\)">(.*?)</optgroup>',html,re.S)[1]
+            self.assertLess(group.index('Beta QLD'),group.index('Alpha QLD'))
+            self.assertIn('200 km road',group)
+            with self.connection() as conn:
+                conn.execute('UPDATE bf_geofences SET latitude=-24 WHERE location_id=1')
+            html=self.client.get(self.route+'?calendar=1&state=QLD&date=2026-11-30').text
+            self.assertIn('<optgroup label="SOUTH (2)">',html)
+        with self.connection() as conn:
+            conn.execute('DELETE FROM bf_geofences WHERE location_id=1')
+        html=self.client.get(self.route+'?calendar=1&state=QLD&date=2026-11-30&site=3').text
+        group=re.search(r'<optgroup label="Location to confirm \(2\)">(.*?)</optgroup>',html,re.S)[1]
+        self.assertIn('<option value="3" selected>',group)
 
 
 if __name__=='__main__':unittest.main()
