@@ -1,9 +1,25 @@
 """State-scoped distance ordering and transparent, provisional day estimates."""
 import re
+import math
 
 from binflow_route_calendar import geography, leg, split_loads, trip_stats, clients, PREP, BREAK, WAIT, clock
 from binflow_collections import planning_resources
 import binflow_road_routes as roads
+
+
+def compass_direction(geo, origin, destination):
+    """Nearest cardinal sector from the selected depot, using saved geography."""
+    p,q=(geo['points'].get(key) for key in (origin,destination))
+    if not p or not q:
+        return 'Location to confirm'
+    if p==q:
+        return 'Depot area'
+    lat1,lat2=math.radians(p['lat']),math.radians(q['lat'])
+    delta=math.radians(q['lon']-p['lon'])
+    east=math.sin(delta)*math.cos(lat2)
+    north=math.cos(lat1)*math.sin(lat2)-math.sin(lat1)*math.cos(lat2)*math.cos(delta)
+    bearing=(math.degrees(math.atan2(east,north))+360)%360
+    return ('NORTH','EAST','SOUTH','WEST')[int((bearing+45)%360//90)]
 
 
 def point(conn, location, geo, suburb=''):
@@ -37,12 +53,14 @@ def ordered_sites(conn, sites, warehouse):
             s['address']=', '.join(p for p in parts if p)
     road_values,geo['road_status'],geo['road_enabled']=roads.distances(conn,warehouse,sites)
     depot_key,_=point(conn,warehouse,geo) if warehouse else (None,'')
+    compass_origin=depot_key
     if geo['road_enabled'] and warehouse and roads.address(warehouse):
         depot_key='location:'+str(warehouse['id'])
     result=[]
     for row in sites:
         item=dict(row);profile=people.get(row['id'])
         key,basis=point(conn,row,geo,profile['suburb'] if profile else '')
+        direction=compass_direction(geo,compass_origin,key)
         distance=leg(geo,row['state'],depot_key,key) if depot_key and key else None
         route=road_values.get(row['id'])
         if geo['road_enabled']:
@@ -50,6 +68,7 @@ def ordered_sites(conn, sites, warehouse):
             key='location:'+str(row['id']) if route else None
         item.update(distance_km=distance[1] if distance else None,drive_minutes=distance[0] if distance else None,
                     distance_basis='road' if route else 'estimate',
+                    direction=direction,
                     directions_url=roads.maps_link(roads.address(warehouse) if warehouse else None,roads.address(row)),
                     geo_key=key,location_basis=basis,large=profile['large'] if profile else 0,small=profile['small'] if profile else 0,
                     other_sizes=[q['name'] for q in profile['quantities'] if q['litres'] not in (240,1100)] if profile else [])
