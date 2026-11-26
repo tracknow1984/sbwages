@@ -195,6 +195,29 @@ class BookingTests(unittest.TestCase):
         self.post('/binflow/client/logout')
         self.assertIn('login',self.client.get(CLIENT).location)
 
+    def test_client_notice_edit_and_late_cancellation(self):
+        self.post(CAL+'/access',dict(name='Client',username='blocktexx1',password='example-password',active='yes'))
+        self.post('/binflow/client/login?transfers=1',dict(username='blocktexx1',password='example-password'))
+        self.post(CLIENT+'/new',data(pickup_time='09:00'))
+        path=CLIENT+'/1'
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("UPDATE bf_interstate_bookings SET locked_at='confirmed' WHERE id=1")
+        # Melbourne 09:00 AEDT is Brisbane 08:00. Exactly 24 hours is allowed.
+        import datetime
+        with patch('binflow.datetime') as clock:
+            clock.now.return_value=datetime.datetime.fromisoformat('2026-11-12T08:00:00+10:00')
+            result=self.post(path+'/details',dict(version=1,pickup_address='New depot',delivery_phone='0412345678',client_notes='Gate 2'))
+            self.assertEqual(result.status_code,200,result.text[:300])
+            row=self.rows('SELECT * FROM bf_interstate_bookings')[0]
+            self.assertEqual((row['pickup_address'],row['delivery_phone'],row['client_notes']),('New depot','0412345678','Gate 2'))
+            clock.now.return_value=datetime.datetime.fromisoformat('2026-11-12T08:00:01+10:00')
+            self.assertEqual(self.post(path+'/details',dict(version=2,client_notes='Late edit')).status_code,400)
+            self.assertIn('may incur charges',self.client.get(path).text)
+            self.assertEqual(self.post(path+'/cancel',dict(version=2,reason='Client request')).status_code,400)
+            self.assertIsNone(self.rows('SELECT cancelled_at FROM bf_interstate_bookings')[0]['cancelled_at'])
+            self.assertEqual(self.post(path+'/cancel',dict(version=2,reason='Client request',ack_charge='yes')).status_code,200)
+            self.assertTrue(self.rows('SELECT cancelled_at FROM bf_interstate_bookings')[0]['cancelled_at'])
+
     def test_admin_sees_new_and_existing_portal_logins(self):
         access = CAL + '/access'
         with sqlite3.connect(self.path) as conn:

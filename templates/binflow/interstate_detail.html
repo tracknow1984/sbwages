@@ -73,7 +73,23 @@
 </form>
 {% endif %}
 {% endif %}
-{% if external and not b.cancelled_at and (not b.locked_at or not b.origin) and not change and right('edit') in g.client_rights %}<a class="button secondary" href="{{ transfer_url('edit',true,bid=b.id) }}">{{ 'Complete transfer details' if not b.origin else 'Edit request' }}</a>{% endif %}
+{% if external and (not notice or not notice.late) and not b.cancelled_at and (not b.locked_at or not b.origin) and not change and right('edit') in g.client_rights %}<a class="button secondary" href="{{ transfer_url('edit',true,bid=b.id) }}">{{ 'Complete transfer details' if not b.origin else 'Edit request' }}</a>{% endif %}
+{% if not sbtx_portal and b.client_notes %}<p><strong>Booking comments and instructions</strong><br>{{ b.client_notes }}</p>{% endif %}
+{% if b.pickup_time %}<p>Local pickup time: {{ b.pickup_time }}</p>{% endif %}
+{% if client_actions %}
+<p>Addresses, contacts and instructions can be edited up to 24 hours before pickup. {% if notice.estimated %}No pickup time is recorded, so the cutoff uses midnight at the start of the pickup date.{% endif %} Pickup used for notice: {{ notice.pickup }}.</p>
+{% if change_error %}<p class="notice error" role="alert">{{ change_error }}</p>{% endif %}
+{% if not notice.late %}<details><summary>Edit addresses, contacts and instructions</summary>
+<form class="bf-form" method="post" action="{{ url_for('bf_client_booking_details',bid=b.id) }}">
+<input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ b.version }}">
+{% for side in ['pickup','delivery'] %}{% for field,label,maxlen in [('address','address',500),('contact','contact name',200),('phone','contact number',50)] %}
+<label>{{ side|capitalize }} {{ label }}<input name="{{ side }}_{{ field }}" value="{{ b[side~'_'~field] }}" maxlength="{{ maxlen }}" {{ 'required' if field!='phone' }}></label>{% endfor %}{% endfor %}
+<label>Comments or instructions<textarea name="client_notes" maxlength="2000">{{ b.client_notes }}</textarea></label><button class="primary">Save booking details</button></form></details>{% endif %}
+<details><summary>Cancel booking</summary><form method="post" class="bf-form" action="{{ url_for('bf_client_interstate_cancel',bid=b.id) }}">
+<input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ b.version }}">
+<label>Reason for cancellation<textarea name="reason" maxlength="1000" required></textarea></label>
+{% if notice.late %}<p class="notice error">Cancellation within 24 hours of pickup may incur charges.</p><label><input type="checkbox" name="ack_charge" value="yes" required> I understand that cancellation charges may apply.</label>{% endif %}
+<button class="secondary">Confirm cancellation</button></form></details>{% endif %}
 <div class="bf-grid two"><div><h3>Pickup · {{ b.pickup_date|display_date }}</h3><p>{% if b.pickup_company %}<strong>{{ b.pickup_company }}</strong><br>{% endif %}{{ b.pickup_address }}<br>{{ b.pickup_contact }} {{ b.pickup_phone }}</p></div>
 <div><h3>Delivery · {{ b.delivery_date|display_date }}</h3><p>{% if b.delivery_company %}<strong>{{ b.delivery_company }}</strong><br>{% endif %}{{ b.delivery_address }}<br>{{ b.delivery_contact }} {{ b.delivery_phone }}</p></div></div>
 {% if b.locked_at or po %}

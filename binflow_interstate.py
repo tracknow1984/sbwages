@@ -9,6 +9,7 @@ from calendar import monthrange
 from collections import defaultdict
 from datetime import datetime, timedelta
 from email.message import EmailMessage
+from zoneinfo import ZoneInfo
 from urllib.parse import quote, urlencode
 
 from flask import abort, flash, g, redirect, render_template, request, send_file, url_for
@@ -34,6 +35,21 @@ FIELDS = ('job_type','handling','origin','destination','pickup_date','delivery_d
           'pickup_address','pickup_contact','pickup_phone','delivery_address','delivery_contact',
           'delivery_phone','email','goods','vehicle','pickup_company','delivery_company')
 PROGRESS = {'loading':'Loading','transit':'In transit','received':'Delivered','handed_over':'Delivered'}
+
+
+PICKUP_ZONES = dict(QLD='Brisbane', NSW='Sydney', ACT='Sydney', VIC='Melbourne',
+                    SA='Adelaide', WA='Perth', TAS='Hobart', NT='Darwin')
+CLIENT_FIELDS = {'pickup_address':500, 'delivery_address':500, 'pickup_contact':200,
+                 'delivery_contact':200, 'pickup_phone':50, 'delivery_phone':50, 'client_notes':2000}
+
+
+def booking_notice(row, stamp, change=None):
+    zone = ZoneInfo('Australia/'+PICKUP_ZONES[PLACES[row['origin']][1]])
+    day = min(row['pickup_date'],change['original_pickup']) if change else row['pickup_date']
+    clock = row['pickup_time'] or '00:00'
+    pickup = datetime.fromisoformat(day+'T'+clock).replace(tzinfo=zone)
+    seconds = pickup.timestamp() - datetime.fromisoformat(stamp).timestamp()
+    return dict(late=seconds<86400, pickup=pickup.strftime('%d %b %Y %H:%M %Z'), estimated=not row['pickup_time'])
 
 
 def awaiting_confirmation(conn, state=''):
@@ -100,7 +116,7 @@ def migrate(conn):
     if 'portal' not in columns:
         conn.execute("ALTER TABLE bf_interstate_bookings ADD COLUMN portal TEXT NOT NULL DEFAULT 'binflow' CHECK(portal IN ('binflow','sbtx'))")
     conn.execute('CREATE INDEX IF NOT EXISTS bf_transfers_by_portal ON bf_interstate_bookings(portal,account_id,pickup_date)')
-    for field in ('pickup_company', 'delivery_company'):
+    for field in ('pickup_company', 'delivery_company','pickup_time','client_notes'):
         if field not in columns:
             conn.execute(f"ALTER TABLE bf_interstate_bookings ADD COLUMN {field} TEXT NOT NULL DEFAULT ''")
     if 'cancelled_at' not in columns:
@@ -455,12 +471,14 @@ def register(app, db, access, require, render, client_access, now, actor):
     def has_delivered(row, manifest):
         return bool(row['bulk_delivered_at'] or (manifest and manifest['status'] in ('received','handed_over')))
 
-    def record_change(before, action, reason):
+    def record_change(before, action, reason, who=None, supersede=True):
+        who = who or actor()
         after = booking(before['id'])
         db().execute("""INSERT INTO bf_load_changes(booking_id,action,reason,changed_at,changed_by,before_json,after_json)
-            VALUES(?,?,?,?,?,?,?)""",(before['id'],action,reason,now(),actor(),json.dumps(dict(before)),json.dumps(dict(after))))
-        db().execute("""UPDATE bf_interstate_date_changes SET superseded_at=?,reviewed_by=?
-            WHERE booking_id=? AND decision IS NULL AND superseded_at IS NULL""",(now(),actor(),before['id']))
+            VALUES(?,?,?,?,?,?,?)""",(before['id'],action,reason,now(),who,json.dumps(dict(before)),json.dumps(dict(after))))
+        if supersede:
+            db().execute("""UPDATE bf_interstate_date_changes SET superseded_at=?,reviewed_by=?
+                WHERE booking_id=? AND decision IS NULL AND superseded_at IS NULL""",(now(),who,before['id']))
         db().execute("""UPDATE bf_rental_invoices SET status='cancelled',error='Booking changed before issue'
             WHERE booking_id=? AND status='preview'""",(before['id'],))
 
@@ -521,6 +539,16 @@ def register(app, db, access, require, render, client_access, now, actor):
             key = values.get('request_key','')
             try:
                 data = parse_booking(values,client=external,previous=row,billing_name=billing_name)
+                if not sbtx.is_sbtx():
+                    if not external or row is None:
+                        clock = values.get('pickup_time',row['pickup_time'] if row else '').strip()
+                        if clock and not re.fullmatch(r'(?:[01][0-9]|2[0-3]):[0-5][0-9]',clock):
+                            raise ValueError('Enter a valid local pickup time.')
+                        data['pickup_time']=clock
+                    if 'client_notes' in values:
+                        notes=values['client_notes'].strip()
+                        if len(notes)>2000:raise ValueError('Keep booking instructions within 2,000 characters.')
+                        data['client_notes']=notes
                 conn = db()
                 conn.execute('BEGIN IMMEDIATE')
                 route = ':'.join((PLACES[data['origin']][1], PLACES[data['destination']][1], data['vehicle']))
@@ -545,6 +573,8 @@ def register(app, db, access, require, render, client_access, now, actor):
                     manifest = current_manifest(row['id'])
                     if current['cancelled_at'] or has_delivered(current,manifest) or values.get('version',type=int)!=current['version']:
                         raise ValueError('The load changed or is closed. Reopen it before editing.')
+                    if external and not sbtx.is_sbtx() and booking_notice(current,now(),pending_change(row['id']))['late']:
+                        abort(409,'Booking details require at least 24 hours before pickup.')
                     if external and (current['locked_at'] and current['origin'] or pending_change(row['id'])):
                         abort(409)
                     if sbtx.is_sbtx() and not current['origin']:
@@ -613,9 +643,59 @@ def register(app, db, access, require, render, client_access, now, actor):
     @client_access
     def bf_client_interstate_edit(bid):
         row=booking(bid,True)
+        if not sbtx.is_sbtx() and booking_notice(row,now(),pending_change(bid))['late']:
+            abort(409,'Booking details require at least 24 hours before pickup.')
         if row['cancelled_at'] or (row['locked_at'] and row['origin']) or pending_change(bid):
             abort(409)
         return form_page(True,row)
+
+    @app.post('/binflow/client/interstate-transfers/<int:bid>/details')
+    @app.post('/binflow/client/interstate-transfers/<int:bid>/cancel',endpoint='bf_client_interstate_cancel')
+    @client_access
+    def bf_client_booking_details(bid):
+        conn=db()
+        conn.execute('BEGIN IMMEDIATE')
+        row=booking(bid,True)
+        manifest=current_manifest(bid)
+        if not can_move_dates(row,manifest['status'] if manifest else None) or (manifest and manifest['status']=='loading'):
+            abort(409,'This booking is closed or work has started.')
+        if request.form.get('version',type=int)!=row['version']:
+            abort(409,'The booking has changed. Reopen it and try again.')
+        notice=booking_notice(row,now(),pending_change(bid))
+        cancel=request.endpoint=='bf_client_interstate_cancel'
+        try:
+            if cancel:
+                reason=office_change_reason()
+                if notice['late'] and request.form.get('ack_charge')!='yes':
+                    raise ValueError('Cancellation within 24 hours of pickup may incur charges. Please acknowledge this to cancel.')
+                if notice['late']:
+                    reason += ' (Client acknowledged possible short-notice cancellation charges.)'
+                conn.execute('UPDATE bf_interstate_bookings SET cancelled_at=?,locked_at=NULL,locked_by=NULL,version=version+1 WHERE id=?',(now(),bid))
+            else:
+                if notice['late']:
+                    raise ValueError('Addresses, contacts and booking instructions require at least 24 hours before pickup.')
+                changes={}
+                for field,limit in CLIENT_FIELDS.items():
+                    value=request.form.get(field,row[field]).strip()
+                    if len(value)>limit or (field!='client_notes' and any(c in value for c in chr(10)+chr(13))):
+                        raise ValueError('Check the length and format of '+field.replace('_',' ')+'.')
+                    if not value and field.endswith(('address','contact')):
+                        raise ValueError('Enter both addresses and contact names.')
+                    if value!=row[field]:changes[field]=value
+                if not changes:raise ValueError('Change at least one booking detail before saving.')
+                reason='Client updated '+', '.join(k.replace('_',' ') for k in changes)+'.'
+                columns=','.join(k+'=?' for k in changes)
+                conn.execute('UPDATE bf_interstate_bookings SET '+columns+',version=version+1 WHERE id=?',(*changes.values(),bid))
+            action='Cancelled' if cancel else 'Modified'
+            record_change(row,action,reason,g.bf_client['username'],supersede=cancel)
+            dispatch.update_previous(conn,booking(bid), 'Cancelled' if cancel else 'Updated',now())
+            conn.commit()
+        except ValueError as error:
+            conn.rollback()
+            return detail(bid,True,change_error=str(error)),400
+        dispatch.deliver_mail(conn,bid,app.config,now())
+        flash('Booking cancelled.' if cancel else 'Booking details saved.','success')
+        return redirect(details_url(bid,True))
 
     @sbtx_office.route('/transfers/<int:bid>/edit', endpoint='edit', methods=['GET','POST'])
     @app.route('/binflow/interstate-transfers/<int:bid>/edit',methods=['GET','POST'])
@@ -676,7 +756,9 @@ def register(app, db, access, require, render, client_access, now, actor):
         route_options = dispatch.options(db(),row,PLACES[row['origin']][1],PLACES[row['destination']][1]) if office and row['origin'] and not row['cancelled_at'] and not has_delivered(row,manifest) else None
         if route_options and handoff and handoff['event']=='On hold' and handoff['target'] in route_options['choices']:
             route_options['preferred'] = handoff['target']
-        return page('interstate_detail',external,transfer_pod=transfer_pods.record(db(),bid),handoff=handoff,route_options=route_options,history=history,invoice=invoice,billed=billed,change_error=change_error,
+        notice = booking_notice(row,now(),change) if not sbtx.is_sbtx() and row['origin'] else None
+        client_actions = external and notice and booking_right('edit') in g.client_rights and can_move_dates(row,manifest_status) and manifest_status!='loading'
+        return page('interstate_detail',external,notice=notice,client_actions=client_actions,transfer_pod=transfer_pods.record(db(),bid),handoff=handoff,route_options=route_options,history=history,invoice=invoice,billed=billed,change_error=change_error,
                     editable=not row['cancelled_at'] and not has_delivered(row,manifest),b=row,manifest=manifest,status=status,po=po_metadata(bid),
                     po_error=po_error,can_update_booking=can_update_booking(external), change=change,
                     movable=bool(row['delivery_date']) and can_move_dates(row, manifest_status), date_error=date_error,

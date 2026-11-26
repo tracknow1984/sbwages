@@ -29,6 +29,7 @@ ENDPOINTS = {
     'bf_client_decomm_edit':'decomm.edit',
     'bf_client_communications':'communications.view', 'bf_client_message_attachment':'warehouses.view',
     'bf_client_warehouses':'warehouses.view', 'bf_client_warehouse_chat':'warehouses.view',
+    'bf_client_booking_details':'bookings.edit','bf_client_interstate_cancel':'bookings.edit',
     'bf_client_interstate_reschedule':'bookings.view',
     'bf_client_rigid_quote':'bookings.view', 'bf_client_interstate':'bookings.view', 'bf_client_interstate_detail':'bookings.view',
     'bf_client_interstate_po':'bookings.view','bf_client_interstate_po_file':'bookings.view',
@@ -92,6 +93,7 @@ def defaults(booking_login, national_reader=False):
     if not booking_login:
         rights.update(('calendar.view','requests.view','pods.view'))
     if national_reader:
+        rights.add('bookings.edit')
         rights.update(DECOMM_RIGHTS)
         rights.update(('pods.view','pods.all','profiles.view','profiles.add','profiles.edit','profiles.schedule','national.view'))
     return rights
