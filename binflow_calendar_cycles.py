@@ -66,6 +66,7 @@ def add_visits(conn, plan, state):
     if not cycles:return plan
     people={p['profile_id']:p for p in clients(conn) if p['state']==state and p['id'] and p['profile_id'] in cycles}
     seen=set(plan.get('cycle_seen',[]))
+    plan['backlog']=[b for b in plan.get('backlog',[]) if not b.get('capacity_blocked')]
     locked=closeouts(conn,plan['days'][0]['date'],plan['days'][-1]['date'],state)
     # Saved plans can contain actual jobs added independently of these planning visits.
     booked={(r['site_id'],r['scheduled_date']) for r in conn.execute("""SELECT site_id,scheduled_date FROM bf_jobs
@@ -83,7 +84,16 @@ def add_visits(conn, plan, state):
             seen.add(key)
             if (state,day['date']) in locked or (p['id'],day['date']) in booked:continue
             if any(i.get('profile_id')==pid or i.get('site_id')==p['id'] for i in day['items']):continue
-            day['items'].append(visit_item(p,key))
+            candidate=visit_item(p,key)
+            from binflow_calendar_limits import check
+            try:
+                check(conn,state,day['date'],day['items']+[candidate])
+            except ValueError as exc:
+                plan.setdefault('backlog',[]).append(dict(title=p['name'],profile_id=pid,date=day['date'],reason=str(exc),capacity_blocked=True))
+                # Do not mark a blocked occurrence seen: it must be reconsidered when space is freed.
+                seen.discard(key)
+                continue
+            day['items'].append(candidate)
             day.update(estimate_minutes=0,estimate_valid=False,loads=[])
     if seen or 'cycle_seen' in plan:
         plan['cycle_seen']=sorted(seen)
@@ -113,6 +123,8 @@ def register(app,db,require,render,success,now):
             selected=[int(d) for d in request.values.getlist('days')]
             rule=pattern(raw,day,selected)
             ensure_day_open(conn,p['state'],first)
+            from binflow_calendar_limits import ensure_collection_day
+            ensure_collection_day(first)
             if request.method=='POST':
                 if request.form.get('token')!=token:
                     status=409;raise ValueError('The client schedule changed. Review it again before adding.')
@@ -120,6 +132,19 @@ def register(app,db,require,render,success,now):
                     if saved['first_date']!=first or saved['pattern_json']!=json.dumps(rule):
                         raise ValueError('This client already has an active calendar cycle. Its current start date is '+saved['first_date']+'.')
                     return success('This client is already on the calendar. No duplicate visits were added.','bf_collection_calendar',state=p['state'],date=first,view='week')
+                from binflow_calendar_limits import check
+                from binflow_schedule import get_plan, monday, visit_item
+                # Check the coming year and every already-saved future week. Later generated
+                # occurrences use the same guard and appear in Needs arrangement if blocked.
+                starts={monday((day+timedelta(days=n)).isoformat()) for n in range(367)}
+                starts.update(w['week_start'] for w in conn.execute('SELECT week_start FROM bf_schedule_weeks WHERE state=? AND week_start>=?',(p['state'],monday(first))))
+                for start in sorted(starts):
+                    _,proposal=get_plan(conn,p['state'],start)
+                    for target in proposal['days']:
+                        if due(rule,date.fromisoformat(target['date'])):
+                            ensure_collection_day(target['date'])
+                            if not any(i.get('profile_id')==pid or i.get('site_id')==p['id'] for i in target['items']):
+                                check(conn,p['state'],target['date'],target['items']+[visit_item(p,'proposed-cycle')])
                 version=saved['version']+1 if saved else 1
                 conn.execute('''INSERT INTO bf_calendar_cycles VALUES(?,?,?,?,?,1,?,?) ON CONFLICT(profile_id)
                     DO UPDATE SET first_date=excluded.first_date,requested_schedule=excluded.requested_schedule,

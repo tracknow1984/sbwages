@@ -1,0 +1,9 @@
+{% if capacity_preview %}
+<section class="bf-panel bf-pad" aria-label="Truck booking capacity"><h2>Truck booking capacity</h2>
+{% if capacity_preview.baling %}<p class="notice error" role="alert">Wednesday is reserved for mandatory Warehouse baling day. Choose another date for collections.</p>
+{% elif capacity_preview.error %}<p class="notice error" role="alert">{{ capacity_preview.error }}</p>
+{% else %}<p><strong>{{ '%g'|format(capacity_preview.used) }} / {{ '%g'|format(capacity_preview.capacity) }} positions booked</strong> · {{ '%g'|format(capacity_preview.remaining) }} positions remaining.</p>
+{% if capacity_preview.over %}<p class="notice error" role="alert">Truck overload — reduce or move existing bookings before adding more.</p>{% elif not capacity_preview.remaining %}<p class="notice error" role="alert">Truck full — additional bin space cannot be booked on this day.</p>{% endif %}
+<p class="bf-muted">One load per state-day, using {{ 'the default 14-position limit' if capacity_preview.assumed else 'saved state truck settings' }}. New bookings are checked again when saved. No extra trips are assumed. This checks bin space, not loaded weight.</p>
+{% endif %}</section>
+{% endif %}

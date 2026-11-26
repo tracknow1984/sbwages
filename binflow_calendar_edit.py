@@ -48,6 +48,9 @@ def apply_move(plans, operation):
     source = next(d for d in plans[source_key]['days'] if d['date'] == source_date)
     target = next(d for d in plans[target_key]['days'] if d['date'] == target_date)
     cross_week = source_key != target_key
+    from binflow_calendar_limits import baling_day
+    if operation['kind']=='day' and source_date!=target_date and (baling_day(source_date) or baling_day(target_date)):
+        raise ValueError('Wednesday Warehouse baling day cannot be moved or replaced. Move individual existing bookings to another day.')
     if operation['kind'] == 'day':
         if source_date == target_date:
             return
@@ -60,6 +63,8 @@ def apply_move(plans, operation):
     else:
         item_id = operation.get('item_id')
         item = next((i for i in source['items'] if i['id'] == item_id), None)
+        if item and item['kind']=='baling' and baling_day(source_date):
+            raise ValueError('Mandatory Wednesday Warehouse baling day cannot be moved.')
         if item is None:
             raise ValueError('That stop has changed. Reload the calendar before moving it.')
         before = operation.get('before')

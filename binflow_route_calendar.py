@@ -252,7 +252,7 @@ def week_plan(conn, monday, state='', geo=None, people=None):
     for code in selected:
         ps = [p for p in people if p['state'] == code]
         manual = code in starts and monday.isoformat() >= starts[code]
-        if not ps and code not in PRIMARY and not manual:
+        if not ps and code not in PRIMARY and not manual and monday.isoformat() < '2026-11-23':
             continue
         r = settings.get(code, dict(depot='Local partner depot to confirm', depot_key=None,
                                    capacity=14, small_space=.5, weekly_hours=0,
@@ -268,6 +268,8 @@ def week_plan(conn, monday, state='', geo=None, people=None):
                     fixed_demand[d] += p['large']+p['small']*.5
         # Protect a whole weekday; prefer a midweek baling day when fixed visits permit it.
         baling = min((2, 3, 1, 4, 0), key=lambda d: fixed_demand[d]) if code in PRIMARY and not manual else None
+        from binflow_calendar_limits import baling_day
+        if baling_day(days[2]['date']):baling=2
         if baling is not None:
             days[baling]['baling'] = True
             days[baling]['minutes'] = 480
@@ -276,7 +278,9 @@ def week_plan(conn, monday, state='', geo=None, people=None):
         for p in proposed_clients:
             for d in due(p, monday):
                 reason = ''
-                if not p['id'] or not p['address']:
+                if d is not None and baling_day(days[d]['date']):
+                    reason = 'Mandatory Wednesday Warehouse baling day; choose another collection date.'
+                elif not p['id'] or not p['address']:
                     reason = 'Site address or operational location is missing.'
                 elif not p['large'] and not p['small']:
                     reason = 'Collection quantity / container type needs confirmation.'
@@ -347,6 +351,7 @@ def week_plan(conn, monday, state='', geo=None, people=None):
             if group['state'] == row['state']:
                 day = next(d for d in group['days'] if d['date']==row['scheduled_date'])
                 day['jobs'].append(dict(row))
+                if baling_day(day['date']):day['booking_conflict']=True
                 if 'Existing jobs need reconciliation with this proposal before dispatch.' not in group['issues']:
                     group['issues'].append('Existing jobs need reconciliation with this proposal before dispatch.')
     return output
@@ -453,11 +458,18 @@ def view_data(conn, start, end, state):
             if region in cycle_states or region in manual_starts and week['start'].isoformat() >= manual_starts[region]:
                 _, plan = get_plan(conn, region, week['start'].isoformat())
             else:
-                plan = json.loads(saved['plan_json'])
+                from binflow_calendar_limits import protect_baling
+                plan = protect_baling(json.loads(saved['plan_json']))
             days = [dict(date=d['date'], name=date.fromisoformat(d['date']).strftime('%A'),
                 profiles=[], trips=[], jobs=[], exceptions=[], baling=any(i['kind']=='baling' for i in d['items']),
                 minutes=d['estimate_minutes'] if d['estimate_valid'] else 0, over_limit=False,
+                booking_conflict=d.get('booking_conflict',False),
                 saved_items=d['items'], saved_notes=d['notes'], saved_status=saved['status'] if saved else 'draft') for d in plan['days']]
+            for blocked in plan.get('backlog',[]):
+                if not blocked.get('capacity_blocked'):continue
+                profile=next((p for p in people if p['profile_id']==blocked['profile_id']),None)
+                target=next((d for d in days if d['date']==blocked.get('date')),None)
+                if profile and target:target['exceptions'].append(dict(profile=profile,reason=blocked['reason'],fixed=True))
             from binflow_live_cycle import client_calendar
             if not client_calendar():
                 scheduled={item['job_id'] for d in plan['days'] for item in d['items'] if item['kind']=='job'}

@@ -108,6 +108,9 @@
     try {
       await ensure(op.state, op.source); await ensure(op.state, op.target);
       op.uid=crypto.randomUUID().replaceAll('-','');
+      const wed=d=>d>='2026-11-26' && new Date(d+'T12:00:00Z').getUTCDay()===3;
+      const sourceItem=dayAt(op.state,op.source).items.find(i=>i.id===op.item_id);
+      if(op.source!==op.target && ((op.kind==='day' && (wed(op.source)||wed(op.target))) || (sourceItem?.kind==='baling' && wed(op.source)) || wed(op.target))) throw Error('Wednesday is reserved for mandatory Warehouse baling day. Choose another date.');
       apply(op); validateDay(dayAt(op.state,op.source)); validateDay(dayAt(op.state,op.target));
       moves.push(op);draw();
       say(moves.length+' unsaved '+(moves.length===1?'move':'moves')+'. Review the dates, then Save changes.');
@@ -139,7 +142,7 @@
       card.append(top,el('span',day.items.length+' scheduled '+(day.items.length===1?'item':'items'),'bf-cal-event-title'));
       card.append(el('span',day.items.slice(0,3).map(i=>i.title).join(' · ')+(day.items.length>3?' +'+(day.items.length-3)+' more':''),'bf-calendar-items-preview'));
       if(pending.length){card.classList.add('needs-attention');card.append(el('span',pending.length+' fixed visits need arrangement','bf-cal-event-warning'));}
-      if(editable && day.items.length && !week.closed?.[day.date])list.append(grip(week.state,day.date));list.append(card);
+      if(editable && day.items.length && !day.baling_reserved && !week.closed?.[day.date])list.append(grip(week.state,day.date));list.append(card);
     }
     if(expanded)drawPanel();changed();
     root.dispatchEvent(new Event('calendar-progress-redraw'));
@@ -173,11 +176,11 @@
     const list=panel.querySelector('[data-expanded-stops]');list.replaceChildren();
     day.items.forEach((item,n)=>{
       const card=el('article',undefined,'bf-expanded-stop');card.dataset.stopId=item.id;
-      if (editable && !locked) card.append(grip(state,date,item));
+      if (editable && !locked && !(day.baling_reserved && item.kind==='baling')) card.append(grip(state,date,item));
       card.append(el('small','Stop '+(n+1)+(item.time?' · '+item.time:'')),el('strong',item.title),el('p',item.address),el('p',item.detail));
       if(item.notes)card.append(el('p',item.notes));
       list.append(card);
-      if (!editable || locked) return;
+      if (!editable || locked || (day.baling_reserved && item.kind==='baling')) return;
       const actions=el('div',undefined,'bf-expanded-stop-actions');
       const up=button('↑',()=>stage({kind:'item',state,source:date,target:date,item_id:item.id,before:day.items[n-1]?.id}));
       up.disabled=n===0;up.setAttribute('aria-label','Move '+item.title+' earlier');
