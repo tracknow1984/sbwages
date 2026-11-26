@@ -32,6 +32,8 @@
   <h3>Pickup location</h3>{{ entry('pickup_company','Pick Up Company Name',external) }}<div class="bf-grid two">{{ address_input('pickup_address','Pickup address','origin') }}{{ state_select('origin','Pickup state') }}
   {{ entry('pickup_contact','Primary contact name') }}{{ entry('pickup_phone','Pickup contact number',false,'tel',50) }}
   <label>Pickup date<input type="date" name="pickup_date" min="2000-01-01" max="2100-12-31" value="{{ values.get('pickup_date','') }}"></label></div>
+  {% if not sbtx_portal and (not row or not external) %}<label>Pickup time (local, if known)<input type="time" name="pickup_time" value="{{ values.get('pickup_time','') }}"></label>{% endif %}
+  {% if not sbtx_portal %}<label>Booking comments or instructions<textarea name="client_notes" maxlength="2000" rows="2">{{ values.get('client_notes','') }}</textarea></label>{% endif %}
   <h3>Delivery location</h3>{{ entry('delivery_company','Delivery Company Name',external) }}<div class="bf-grid two">{{ address_input('delivery_address','Delivery address','destination') }}{{ state_select('destination','Delivery state') }}
   {{ entry('delivery_contact','Delivery contact name') }}{{ entry('delivery_phone','Delivery contact number',false,'tel',50) }}
   <label>Delivery date (ETA)<input type="date" name="delivery_date" min="2000-01-01" max="2100-12-31" value="{{ values.get('delivery_date','') }}"></label></div>

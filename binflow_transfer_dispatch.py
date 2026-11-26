@@ -107,9 +107,14 @@ def load_details(row):
     def stop(label, prefix):
         day = date.fromisoformat(row[prefix+'_date']).strftime('%a %d %b %Y')
         location = ', '.join(filter(None,(row[prefix+'_company'], row[prefix+'_address'])))
-        return f'{label} · {day}\n{location}'
-    return '\n\n'.join((stop('Pickup','pickup'),stop('Drop-off','delivery'),
-                          'Load\n'+(row['goods'] or 'Scanned bales')))
+        contact=' · '.join(filter(None,(row[prefix+'_contact'],row[prefix+'_phone'])))
+        if prefix=='pickup' and 'pickup_time' in row.keys() and row['pickup_time']:
+            day+=' '+row['pickup_time']+' local'
+        return '\n'.join(filter(None,(f'{label} · {day}',location,contact)))
+    parts=[stop('Pickup','pickup'),stop('Drop-off','delivery'),'Load\n'+(row['goods'] or 'Scanned bales')]
+    if 'client_notes' in row.keys() and row['client_notes']:
+        parts.append('Booking instructions\n'+row['client_notes'])
+    return '\n\n'.join(parts)
 
 
 def queue(conn, row, event, dest, actor_id, stamp, attempt=1):

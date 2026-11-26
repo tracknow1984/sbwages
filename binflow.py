@@ -143,6 +143,8 @@ def register_binflow(app, db, require):
         binflow_site_requests.migrate(db(), now())
         upgrade_schedule_access(db(), now())
         upgrade_profile_edit_access(db(), now())
+        from binflow_client_access import upgrade_named_profile_rights
+        upgrade_named_profile_rights(db(),now(),'blocktexx1-booking-edit-v1',{'bookings.view','bookings.edit'})
         from binflow_supplier_profiles import migrate as migrate_supplier_profiles
         migrate_supplier_profiles(db())
         migrate_allocation_import(db())
