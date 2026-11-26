@@ -276,7 +276,8 @@ def driver_plan_data(conn,user,run_date,state=''):
     plans=[]
     for row in conn.execute("""SELECT w.*,u.first_name||' '||u.last_name AS driver_name
             FROM bf_schedule_weeks w JOIN users u ON u.id=w.driver_id WHERE """+' AND '.join(clauses),params):
-        plan=json.loads(row['plan_json'])
+        from binflow_calendar_limits import protect_baling
+        plan=protect_baling(json.loads(row['plan_json']))
         day=next((d for d in plan['days'] if d['date']==run_date),None)
         if day and (day['items'] or day.get('notes')):
             plans.append(dict(day=day,state=row['state'],driver=row['driver_name'],resource=plan['resource']))

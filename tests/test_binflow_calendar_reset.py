@@ -37,7 +37,9 @@ class CalendarResetTests(unittest.TestCase):
             self.assertEqual(row['revision'],2)
         with self.connection() as conn:
             data=view_data(conn,date(2027,2,1),date(2027,2,7),'')
-            self.assertFalse(any(data['calendar_events'].values()))
+            self.assertEqual(set(data['calendar_events']),{'2027-02-03'})
+            self.assertEqual(len(data['calendar_events']['2027-02-03']),8)
+            self.assertTrue(all(e['day']['baling'] for e in data['calendar_events']['2027-02-03']))
         manual=self.visit_plan()
         self.assertEqual(self.save(manual,revision=2,plan_token=self.plan()['plan_token']).status_code,200)
         self.assertTrue(self.plan()['plan']['days'][0]['items'])

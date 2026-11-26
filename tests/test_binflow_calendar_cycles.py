@@ -37,6 +37,7 @@ class CalendarCycleTests(unittest.TestCase):
         with self.connection() as conn:
             conn.execute("INSERT INTO bf_calendar_rebuilds VALUES(?,?,'[]','{}','now')",(RESET_ID,'2026-10-26'))
             conn.execute("UPDATE bf_client_site_profiles SET schedule='Fortnightly' WHERE id=1")
+            conn.execute('INSERT INTO bf_site_requirements VALUES(3,1,2)')
             for state in ('QLD','NSW','VIC','SA','WA','TAS','ACT','NT'):
                 conn.execute("INSERT INTO bf_rollout_states VALUES(?,'2026-10-26',1)",(state,))
 

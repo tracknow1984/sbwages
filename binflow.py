@@ -726,6 +726,8 @@ def register_binflow(app, db, require):
                 if site['state'] != warehouse['state']:
                     raise ValueError('Choose a warehouse in the same state as the client site. Bin pools stay within their state.')
                 scheduled = date.fromisoformat(text_field('scheduled_date'))
+                from binflow_calendar_limits import ensure_collection_day
+                ensure_collection_day(scheduled.isoformat())
                 from binflow_stop_exceptions import ensure_day_open
                 ensure_day_open(db(),site['state'],scheduled.isoformat())
                 driver = request.form.get('driver_id', '')
@@ -756,6 +758,8 @@ def register_binflow(app, db, require):
                         selected.append((direction,b))
                 if (not empty_delivery and not selected) or len({b['id'] for _,b in selected}) != len(selected):
                     raise ValueError('Choose at least one bin. A bin cannot be collected and delivered on the same job.')
+                from binflow_calendar_limits import booking_items, START as capacity_start
+                capacity_baseline=booking_items(db(),site['state'],scheduled.isoformat()) if scheduled.isoformat()>=capacity_start else []
                 jid = db().execute('SELECT COALESCE(MAX(id),0)+1 FROM bf_jobs').fetchone()[0]
                 db().execute('''INSERT INTO bf_jobs(id,code,request_key,site_id,warehouse_id,driver_id,scheduled_date,status,client_name,site_name,site_address,warehouse_name,state,vehicle,notes,created_at,created_by)
                     VALUES(?,?,?,?,?,?,?,'scheduled',?,?,?,?,?,?,?,?,?)''', (jid,f'BF-{jid:06d}',key,site['id'],warehouse['id'],driver or None,scheduled.isoformat(),site['client_name'],site['name'],site['address'],warehouse['name'],site['state'],text_field('vehicle',80,False),text_field('notes',1000,False),now(),g.user['id']))
@@ -795,10 +799,14 @@ def register_binflow(app, db, require):
                 if empty_delivery:
                     from binflow_rollout_stock import schedule_slots
                     schedule_slots(db(),jid,selected_deliveries)
+                    from binflow_calendar_limits import check_booking
+                    check_booking(db(),site['state'],scheduled.isoformat(),jid,capacity_baseline)
                     return success('Empty-bin delivery scheduled, awaiting approval. The driver assigns the bins at the client site.', 'bf_job', job_id=jid)
                 for direction,b in selected:
                     db().execute('INSERT INTO bf_job_bins(job_id,bin_id,direction,bin_code,size_name,tare_g) VALUES(?,?,?,?,?,?)', (jid,b['id'],direction,b['code'],b['size_name'],b['tare_g']))
                     event(b['id'], 'Reserved for collection' if direction == 'collect' else 'Reserved for delivery', jid, b['location_id'], notes=f'Due {scheduled.isoformat()}')
+                from binflow_calendar_limits import check_booking
+                check_booking(db(),site['state'],scheduled.isoformat(),jid,capacity_baseline)
                 rid=request.form.get('collection_request',type=int)
                 if rid:
                     link_request(db(),rid,jid,site['id'],{b['id'] for d,b in selected if d=='collect'},actor(),now())
@@ -857,7 +865,9 @@ def register_binflow(app, db, require):
                 defaults[direction].update(b['id'] for b in matching[:quantity])
         if collection_request and any(b['id']==collection_request['bin_id'] for b in collect):
             defaults['collect'].add(collection_request['bin_id'])
-        return render('new_job', section='pickups',calendar_allocation=calendar_allocation,allocation_state=allocation_state,allocation_estimate=allocation_estimate,road_status=allocation_geo.get('road_status',''),road_enabled=allocation_geo.get('road_enabled',False),purpose=purpose,empty_delivery=empty_delivery,collection_request=collection_request, sites=sites, warehouses=warehouses, site=site, warehouse=warehouse, collect=collect, deliver=deliver, drivers=drivers, request_key=secrets.token_urlsafe(24), profile=profile, loading=loading, defaults=defaults, plan_date=plan_date,
+        from binflow_calendar_limits import preview
+        capacity_preview=preview(db(),allocation_state or (site['state'] if site else ''),plan_date)
+        return render('new_job', section='pickups',capacity_preview=capacity_preview,calendar_allocation=calendar_allocation,allocation_state=allocation_state,allocation_estimate=allocation_estimate,road_status=allocation_geo.get('road_status',''),road_enabled=allocation_geo.get('road_enabled',False),purpose=purpose,empty_delivery=empty_delivery,collection_request=collection_request, sites=sites, warehouses=warehouses, site=site, warehouse=warehouse, collect=collect, deliver=deliver, drivers=drivers, request_key=secrets.token_urlsafe(24), profile=profile, loading=loading, defaults=defaults, plan_date=plan_date,
                       source_profiles=source_profiles(db(), site['id']) if site else [])
 
     @app.post('/binflow/pickups/<int:job_id>/rollout-by-size')

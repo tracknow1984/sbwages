@@ -224,12 +224,16 @@ def rebook(conn, source, new_date, uid, who, stamp):
     from binflow_requirements import site_plan
     from binflow_schedule import saved_week,monday,job_item
     new_date=valid_date(new_date)
+    from binflow_calendar_limits import ensure_collection_day, check_booking
+    ensure_collection_day(new_date)
     if new_date<=source['scheduled_date'] or new_date<stamp[:10]:
         raise ValueError('Choose a later service date, today or in the future.')
     test=bool(conn.execute('SELECT 1 FROM bf_live_cycle WHERE client_id=?',(source['pod_client_id'],)).fetchone())
     ensure_day_open(conn,source['state'],new_date,test)
     planned=conn.execute("""SELECT i.*,b.size_id FROM bf_job_bins i JOIN bf_bins b ON b.id=i.bin_id
         WHERE i.job_id=? ORDER BY i.id""",(source['id'],)).fetchall()
+    from binflow_calendar_limits import booking_items, START as capacity_start
+    capacity_baseline=booking_items(conn,source['state'],new_date) if new_date>=capacity_start else []
     jid=copy_stop(conn,source,new_date,uid,stamp)
     quantity={'collect':{},'deliver':{}}
     from binflow_rollout_stock import schedule_slots
@@ -274,6 +278,7 @@ def rebook(conn, source, new_date, uid, who, stamp):
         row['selected']=quantity['deliver'].get(row['size_id'],0)
         row['shortfall']=max(0,row['recommended']-row['selected'])
     conn.execute('UPDATE bf_jobs SET bin_plan=? WHERE id=?',(json.dumps(loading),jid))
+    check_booking(conn,source['state'],new_date,jid,capacity_baseline)
     # The replacement is a draft allocation. Existing published stops retain their own approvals.
     for req in conn.execute("SELECT id FROM bf_collection_requests WHERE job_id=? AND status='scheduled'",(source['id'],)).fetchall():
         conn.execute("UPDATE bf_collection_requests SET job_id=?,review_state='pending',updated_at=? WHERE id=?",(jid,stamp,req['id']))

@@ -22,9 +22,9 @@ class CalendarDailyActionsTests(unittest.TestCase):
             if modern:self.modern()
             page=self.client.get('/binflow/collection-calendar?date=2026-11-30').text
             links=re.findall(r'href="([^"]+)" data-allocation-popup aria-label="Add allocation for ([^"]+)"',page)
-            self.assertEqual(len(links),7)
+            self.assertEqual(len(links),6)
             self.assertIn('/binflow/collection-calendar?view=week',page)
-            for offset,(href,day) in enumerate(links):
+            for offset,(href,day) in zip((0,1,3,4,5,6),links):
                 expected=(date(2026,11,30)+timedelta(days=offset)).isoformat()
                 self.assertEqual(day,expected)
                 href=html.unescape(href)
@@ -44,10 +44,10 @@ class CalendarDailyActionsTests(unittest.TestCase):
             page=self.client.get('/binflow/collection-calendar?date=2026-11-30&state=QLD').text
             self.assertNotIn('aria-label="Add allocation for 2026-11-30"',page)
             self.assertIn('Day locked</button>',page)
-            self.assertEqual(page.count('aria-label="Add allocation for'),6)
+            self.assertEqual(page.count('aria-label="Add allocation for'),5)
         self.as_user(self.user('Manager',role='manager'))
         page=self.client.get('/binflow/collection-calendar?date=2026-11-30').text
-        self.assertEqual(page.count('aria-label="Add allocation for'),7)
+        self.assertEqual(page.count('aria-label="Add allocation for'),6)
 
 
 if __name__=='__main__':unittest.main()

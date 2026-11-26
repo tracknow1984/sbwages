@@ -138,7 +138,8 @@ def get_plan(conn, state, start):
     row = saved_week(conn,state,start)
     from binflow_calendar_cycles import add_visits
     if not row:
-        return None, add_visits(conn,initial_plan(conn,state,start),state)
+        from binflow_calendar_limits import protect_baling
+        return None, protect_baling(add_visits(conn,initial_plan(conn,state,start),state))
     plan = json.loads(row['plan_json'])
     from binflow_rollout import state_starts
     starts = state_starts(conn)
@@ -149,7 +150,8 @@ def get_plan(conn, state, start):
         for job in unassigned_jobs(conn, state, start, plan['days'][-1]['date'], True):
             if job['id'] not in placed:
                 by_date[job['scheduled_date']]['items'].append(job_item(job))
-    return row, add_visits(conn,plan,state)
+    from binflow_calendar_limits import protect_baling
+    return row, protect_baling(add_visits(conn,plan,state))
 
 
 def job_positions(plan):
@@ -227,7 +229,8 @@ def clean_plan(conn, raw, original, state, start, week_id):
         output['estimate_valid']=bool(old_days[expected].get('estimate_valid') and fields(output)==fields(old_days[expected]))
         cleaned['days'].append(output)
     if count>400: raise ValueError('A week can contain at most 400 stops.')
-    return cleaned
+    from binflow_calendar_limits import check_changes
+    return check_changes(conn,state,original,cleaned)
 
 
 def ensure_job_editable(conn, job):
